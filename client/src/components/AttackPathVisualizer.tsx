@@ -1,4 +1,5 @@
-import { Shield, AlertTriangle, ChevronRight, Lock, Database, Server, Globe, Key } from "lucide-react";
+import { Shield, AlertTriangle, ChevronRight, Lock, Database, Server, Globe, Key, Radar, Bug, Move, Workflow, TrendingUp } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 interface AttackStep {
   id: number;
@@ -6,6 +7,7 @@ interface AttackStep {
   description: string;
   technique?: string;
   severity: "critical" | "high" | "medium" | "low";
+  discoveredBy?: "recon" | "exploit" | "lateral" | "business-logic" | "impact";
 }
 
 interface AttackPathVisualizerProps {
@@ -28,6 +30,17 @@ export function AttackPathVisualizer({ steps, isExploitable }: AttackPathVisuali
       case "low": return "border-emerald-500/50 bg-emerald-500/10 text-emerald-400";
       default: return "border-border bg-muted/30 text-muted-foreground";
     }
+  };
+
+  const getAgentInfo = (agent?: string) => {
+    const agentMap: Record<string, { label: string; icon: typeof Radar; color: string }> = {
+      "recon": { label: "Recon", icon: Radar, color: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30" },
+      "exploit": { label: "Exploit", icon: Bug, color: "bg-red-500/10 text-red-400 border-red-500/30" },
+      "lateral": { label: "Lateral", icon: Move, color: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
+      "business-logic": { label: "Logic", icon: Workflow, color: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
+      "impact": { label: "Impact", icon: TrendingUp, color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
+    };
+    return agent ? agentMap[agent] : undefined;
   };
 
   if (steps.length === 0) {
@@ -84,6 +97,20 @@ export function AttackPathVisualizer({ steps, isExploitable }: AttackPathVisuali
                             {step.technique}
                           </code>
                         )}
+                        {step.discoveredBy && (() => {
+                          const agentInfo = getAgentInfo(step.discoveredBy);
+                          if (!agentInfo) return null;
+                          const AgentIcon = agentInfo.icon;
+                          return (
+                            <Badge 
+                              className={`${agentInfo.color} text-[10px] gap-1`}
+                              data-testid={`agent-badge-${step.id}`}
+                            >
+                              <AgentIcon className="h-3 w-3" />
+                              {agentInfo.label}
+                            </Badge>
+                          );
+                        })()}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">{step.description}</p>
                     </div>

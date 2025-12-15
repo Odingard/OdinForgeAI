@@ -24,6 +24,7 @@ interface EvaluationDetailProps {
       description: string;
       technique?: string;
       severity: "critical" | "high" | "medium" | "low";
+      discoveredBy?: "recon" | "exploit" | "lateral" | "business-logic" | "impact";
     }>;
     recommendations?: Array<{
       id: string;
@@ -72,10 +73,12 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
             <Clock className="h-4 w-4" />
             <span>{new Date(evaluation.createdAt).toLocaleString()}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4" />
-            <span>{(evaluation.duration / 1000).toFixed(1)}s</span>
-          </div>
+          {evaluation.duration && (
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              <span>{(evaluation.duration / 1000).toFixed(1)}s</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -143,8 +146,8 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
             </div>
             <div className="p-6">
               <AttackPathVisualizer 
-                steps={evaluation.attackPath} 
-                isExploitable={evaluation.exploitable} 
+                steps={evaluation.attackPath || []} 
+                isExploitable={evaluation.exploitable ?? false} 
               />
             </div>
           </div>
@@ -162,8 +165,8 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
             </div>
             <div className="p-6">
               <ExploitabilityGauge 
-                score={evaluation.score} 
-                confidence={evaluation.confidence}
+                score={evaluation.score ?? 0} 
+                confidence={evaluation.confidence ?? 0}
                 size="md"
               />
             </div>
@@ -179,7 +182,7 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </div>
             </div>
             <div className="p-6">
-              <RecommendationsPanel recommendations={evaluation.recommendations} />
+              <RecommendationsPanel recommendations={evaluation.recommendations || []} />
             </div>
           </div>
         </div>

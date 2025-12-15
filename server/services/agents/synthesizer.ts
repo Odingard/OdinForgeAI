@@ -79,9 +79,10 @@ Provide your synthesis as a JSON object with this structure:
     {
       "id": number (sequential step number),
       "title": string (brief title for this attack step),
-      "description": string (detailed description including which agent discovered this),
+      "description": string (detailed description of this attack step),
       "technique": string (MITRE ATT&CK technique ID, e.g., "T1190"),
-      "severity": "critical" | "high" | "medium" | "low"
+      "severity": "critical" | "high" | "medium" | "low",
+      "discoveredBy": "recon" | "exploit" | "lateral" | "business-logic" | "impact" (which agent discovered this step)
     }
   ],
   "impact": string (comprehensive impact summary based on Impact Agent findings),
@@ -125,6 +126,7 @@ Provide your synthesis as a JSON object with this structure:
             description: String(step.description || ""),
             technique: step.technique ? String(step.technique) : undefined,
             severity: validateSeverity(step.severity),
+            discoveredBy: validateAgentName(step.discoveredBy),
           }))
         : [],
       impact: String(result.impact || "Impact assessment pending"),
@@ -152,4 +154,9 @@ function validateSeverity(severity: unknown): "critical" | "high" | "medium" | "
 function validateRecType(type: unknown): "remediation" | "compensating" | "preventive" {
   const valid = ["remediation", "compensating", "preventive"];
   return valid.includes(String(type)) ? (type as "remediation" | "compensating" | "preventive") : "remediation";
+}
+
+function validateAgentName(name: unknown): "recon" | "exploit" | "lateral" | "business-logic" | "impact" | undefined {
+  const valid = ["recon", "exploit", "lateral", "business-logic", "impact"];
+  return valid.includes(String(name)) ? (name as "recon" | "exploit" | "lateral" | "business-logic" | "impact") : undefined;
 }

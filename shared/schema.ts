@@ -37,6 +37,7 @@ export const attackPathStepSchema = z.object({
   description: z.string(),
   technique: z.string().optional(),
   severity: z.enum(["critical", "high", "medium", "low"]),
+  discoveredBy: z.enum(["recon", "exploit", "lateral", "business-logic", "impact"]).optional(),
 });
 
 // Recommendation type

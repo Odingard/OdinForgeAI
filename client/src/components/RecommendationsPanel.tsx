@@ -1,4 +1,4 @@
-import { Lightbulb, Shield, AlertCircle, CheckCircle, ArrowRight } from "lucide-react";
+import { Lightbulb, Shield, AlertCircle, CheckCircle, ArrowRight, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface Recommendation {
@@ -6,7 +6,7 @@ interface Recommendation {
   title: string;
   description: string;
   priority: "critical" | "high" | "medium" | "low";
-  type: "remediation" | "compensating";
+  type: "remediation" | "compensating" | "preventive";
 }
 
 interface RecommendationsPanelProps {
@@ -16,6 +16,7 @@ interface RecommendationsPanelProps {
 export function RecommendationsPanel({ recommendations }: RecommendationsPanelProps) {
   const remediations = recommendations.filter(r => r.type === "remediation");
   const compensating = recommendations.filter(r => r.type === "compensating");
+  const preventive = recommendations.filter(r => r.type === "preventive");
 
   const getPriorityIcon = (priority: string) => {
     switch (priority) {
@@ -87,6 +88,32 @@ export function RecommendationsPanel({ recommendations }: RecommendationsPanelPr
                 data-testid={`compensating-${rec.id}`}
               >
                 <ArrowRight className="h-4 w-4 text-purple-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <span className="text-sm text-foreground">{rec.title}</span>
+                  <p className="text-xs text-muted-foreground mt-0.5">{rec.description}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {preventive.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <h4 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+              Preventive Measures
+            </h4>
+          </div>
+          <div className="space-y-2">
+            {preventive.map((rec) => (
+              <div 
+                key={rec.id}
+                className="flex items-start gap-2 p-3 rounded-lg border border-border bg-muted/10"
+                data-testid={`preventive-${rec.id}`}
+              >
+                <ShieldCheck className="h-4 w-4 text-emerald-400 mt-0.5 flex-shrink-0" />
                 <div>
                   <span className="text-sm text-foreground">{rec.title}</span>
                   <p className="text-xs text-muted-foreground mt-0.5">{rec.description}</p>
