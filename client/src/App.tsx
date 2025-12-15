@@ -7,6 +7,7 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import { Header } from "./components/Header";
 import { Dashboard } from "./components/Dashboard";
 import RiskDashboard from "@/pages/RiskDashboard";
+import Assets from "@/pages/Assets";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -14,6 +15,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/risk" component={RiskDashboard} />
+      <Route path="/assets" component={Assets} />
       <Route component={NotFound} />
     </Switch>
   );

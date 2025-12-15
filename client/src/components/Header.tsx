@@ -46,14 +46,14 @@ export function Header() {
               Dashboard
             </Button>
           </Link>
-          <Link href="/">
+          <Link href="/assets">
             <Button 
               variant="ghost" 
               size="sm" 
-              className={isActive("/evaluations") ? "text-foreground" : "text-muted-foreground"} 
-              data-testid="nav-evaluations"
+              className={isActive("/assets") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-assets"
             >
-              Evaluations
+              Assets
             </Button>
           </Link>
           <Link href="/risk">
