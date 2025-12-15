@@ -53,68 +53,43 @@ interface ProgressModalProps {
   onClose: () => void;
   assetId: string;
   evaluationId: string;
+  progressData?: { stage: string; progress: number; message: string } | null;
 }
 
-export function ProgressModal({ isOpen, onClose, assetId, evaluationId }: ProgressModalProps) {
+export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progressData }: ProgressModalProps) {
   const [progress, setProgress] = useState(0);
   const [currentStage, setCurrentStage] = useState(1);
   const [stageMessage, setStageMessage] = useState("Initializing AI agents...");
   const [isComplete, setIsComplete] = useState(false);
-  const [result, setResult] = useState<{
-    exploitable: boolean;
-    confidence: number;
-    score: number;
-  } | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       setProgress(0);
       setCurrentStage(1);
       setIsComplete(false);
-      setResult(null);
+      setStageMessage("Initializing AI agents...");
       return;
     }
-
-    const messages = [
-      "Initializing reconnaissance agent...",
-      "Scanning attack surface...",
-      "Enumerating potential vulnerabilities...",
-      "Launching exploitation agent swarm...",
-      "Testing privilege escalation paths...",
-      "Simulating lateral movement...",
-      "Evaluating data exposure risk...",
-      "Calculating business impact...",
-      "Generating remediation strategies...",
-      "Compiling evidence and recommendations...",
-    ];
-
-    let progressValue = 0;
-    const interval = setInterval(() => {
-      progressValue += Math.random() * 8 + 2;
-      if (progressValue >= 100) {
-        progressValue = 100;
-        setProgress(100);
-        setCurrentStage(4);
-        clearInterval(interval);
-        
-        setTimeout(() => {
-          setIsComplete(true);
-          setResult({
-            exploitable: Math.random() > 0.4,
-            confidence: 0.75 + Math.random() * 0.2,
-            score: 40 + Math.random() * 50,
-          });
-        }, 500);
-        return;
-      }
-      
-      setProgress(progressValue);
-      setCurrentStage(Math.min(4, Math.floor(progressValue / 25) + 1));
-      setStageMessage(messages[Math.floor(progressValue / 10)] || messages[messages.length - 1]);
-    }, 400);
-
-    return () => clearInterval(interval);
   }, [isOpen]);
+
+  useEffect(() => {
+    if (progressData) {
+      setProgress(progressData.progress);
+      setStageMessage(progressData.message);
+      
+      const stageMap: Record<string, number> = {
+        attack_surface: 1,
+        exploit_chain: 2,
+        impact: 3,
+        remediation: 4,
+      };
+      setCurrentStage(stageMap[progressData.stage] || 1);
+      
+      if (progressData.progress >= 100) {
+        setIsComplete(true);
+      }
+    }
+  }, [progressData]);
 
   if (!isOpen) return null;
 
@@ -231,49 +206,14 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId }: Progre
             </>
           ) : (
             <div className="space-y-4">
-              <div className={`p-4 rounded-lg border ${
-                result?.exploitable
-                  ? "bg-red-500/10 border-red-500/30"
-                  : "bg-emerald-500/10 border-emerald-500/30"
-              }`}>
+              <div className="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/30">
                 <div className="flex items-center gap-3">
-                  {result?.exploitable ? (
-                    <AlertTriangle className="h-8 w-8 text-red-400" />
-                  ) : (
-                    <CheckCircle className="h-8 w-8 text-emerald-400" />
-                  )}
+                  <CheckCircle className="h-8 w-8 text-emerald-400" />
                   <div>
-                    <h4 className="font-semibold text-lg">
-                      {result?.exploitable ? "Exploitable" : "Not Exploitable"}
-                    </h4>
+                    <h4 className="font-semibold text-lg">Analysis Complete</h4>
                     <p className="text-sm text-muted-foreground">
-                      {result?.exploitable
-                        ? "AI agents discovered viable attack paths"
-                        : "No successful exploit chains found"}
+                      AI validation finished successfully
                     </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 bg-muted/30 rounded-lg border border-border">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
-                    AI Confidence
-                  </div>
-                  <div className="text-xl font-bold text-foreground">
-                    {Math.round((result?.confidence || 0) * 100)}%
-                  </div>
-                </div>
-                <div className="p-3 bg-muted/30 rounded-lg border border-border">
-                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
-                    Risk Score
-                  </div>
-                  <div className={`text-xl font-bold ${
-                    (result?.score || 0) >= 70 ? "text-red-400" :
-                    (result?.score || 0) >= 40 ? "text-amber-400" :
-                    "text-emerald-400"
-                  }`}>
-                    {result?.score?.toFixed(1) || "0"}
                   </div>
                 </div>
               </div>

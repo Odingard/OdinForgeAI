@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   Zap, 
   Target, 
   ShieldCheck, 
   AlertTriangle, 
   Activity, 
-  Play, 
   RefreshCw,
-  Plus
+  Plus,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "./StatCard";
@@ -16,154 +17,113 @@ import { EvaluationTable, Evaluation } from "./EvaluationTable";
 import { NewEvaluationModal, EvaluationFormData } from "./NewEvaluationModal";
 import { ProgressModal } from "./ProgressModal";
 import { EvaluationDetail } from "./EvaluationDetail";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
-// todo: remove mock functionality
-const mockEvaluations: Evaluation[] = [
-  {
-    id: "aev-001",
-    assetId: "web-api-gateway",
-    exposureType: "cve",
-    priority: "critical",
-    status: "completed",
-    exploitable: true,
-    score: 87,
-    confidence: 0.92,
-    createdAt: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: "aev-002",
-    assetId: "auth-service",
-    exposureType: "business_logic",
-    priority: "high",
-    status: "completed",
-    exploitable: true,
-    score: 72,
-    confidence: 0.85,
-    createdAt: new Date(Date.now() - 7200000).toISOString(),
-  },
-  {
-    id: "aev-003",
-    assetId: "payment-processor",
-    exposureType: "api_abuse",
-    priority: "critical",
-    status: "in_progress",
-    createdAt: new Date(Date.now() - 1800000).toISOString(),
-  },
-  {
-    id: "aev-004",
-    assetId: "db-cluster-01",
-    exposureType: "misconfiguration",
-    priority: "medium",
-    status: "completed",
-    exploitable: false,
-    score: 28,
-    confidence: 0.78,
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: "aev-005",
-    assetId: "cdn-edge-node",
-    exposureType: "network",
-    priority: "low",
-    status: "completed",
-    exploitable: false,
-    score: 15,
-    confidence: 0.95,
-    createdAt: new Date(Date.now() - 172800000).toISOString(),
-  },
-  {
-    id: "aev-006",
-    assetId: "user-session-mgr",
-    exposureType: "behavior",
-    priority: "high",
-    status: "pending",
-    createdAt: new Date(Date.now() - 600000).toISOString(),
-  },
-];
+interface EvaluationDetailData {
+  id: string;
+  assetId: string;
+  exposureType: string;
+  priority: string;
+  description: string;
+  status: string;
+  exploitable?: boolean;
+  score?: number;
+  confidence?: number;
+  createdAt: string;
+  duration?: number;
+  attackPath?: Array<{
+    id: number;
+    title: string;
+    description: string;
+    technique?: string;
+    severity: "critical" | "high" | "medium" | "low";
+  }>;
+  recommendations?: Array<{
+    id: string;
+    title: string;
+    description: string;
+    priority: "critical" | "high" | "medium" | "low";
+    type: "remediation" | "compensating" | "preventive";
+  }>;
+}
 
-// todo: remove mock functionality
-const mockDetailEvaluation = {
-  id: "aev-001",
-  assetId: "web-api-gateway",
-  exposureType: "cve",
-  priority: "critical",
-  description: "CVE-2024-1234 - Critical remote code execution vulnerability in API gateway authentication module. The vulnerability allows unauthenticated attackers to execute arbitrary code via specially crafted HTTP headers.",
-  status: "completed",
-  exploitable: true,
-  score: 87,
-  confidence: 0.92,
-  createdAt: new Date(Date.now() - 3600000).toISOString(),
-  duration: 45000,
-  attackPath: [
-    {
-      id: 1,
-      title: "Initial Access via Malformed Header",
-      description: "Exploit CVE-2024-1234 by sending crafted X-Forwarded-For header to bypass authentication",
-      technique: "T1190",
-      severity: "critical" as const,
-    },
-    {
-      id: 2,
-      title: "Privilege Escalation",
-      description: "Leverage misconfigured IAM role to gain elevated permissions in the container runtime",
-      technique: "T1068",
-      severity: "high" as const,
-    },
-    {
-      id: 3,
-      title: "Lateral Movement to Database",
-      description: "Use compromised service account credentials to access internal database cluster",
-      technique: "T1021",
-      severity: "high" as const,
-    },
-    {
-      id: 4,
-      title: "Data Exfiltration",
-      description: "Extract sensitive customer PII and payment information via DNS tunneling",
-      technique: "T1048",
-      severity: "critical" as const,
-    },
-  ],
-  recommendations: [
-    {
-      id: "rec-1",
-      title: "Apply Security Patch",
-      description: "Update API gateway to version 3.2.1 which includes the fix for CVE-2024-1234",
-      priority: "critical" as const,
-      type: "remediation" as const,
-    },
-    {
-      id: "rec-2",
-      title: "Restrict IAM Permissions",
-      description: "Implement least-privilege access for container runtime service accounts",
-      priority: "high" as const,
-      type: "remediation" as const,
-    },
-    {
-      id: "rec-3",
-      title: "Enable WAF Rules",
-      description: "Deploy web application firewall rules to block malformed header attacks",
-      priority: "high" as const,
-      type: "compensating" as const,
-    },
-    {
-      id: "rec-4",
-      title: "Network Segmentation",
-      description: "Isolate API gateway from direct database access using network policies",
-      priority: "medium" as const,
-      type: "compensating" as const,
-    },
-  ],
-};
+interface ProgressEvent {
+  type: "aev_progress" | "aev_complete";
+  evaluationId: string;
+  stage?: string;
+  progress?: number;
+  message?: string;
+  success?: boolean;
+  error?: string;
+}
 
 export function Dashboard() {
   const [filter, setFilter] = useState("all");
   const [showNewModal, setShowNewModal] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [activeEvaluation, setActiveEvaluation] = useState<{ assetId: string; id: string } | null>(null);
-  const [selectedEvaluation, setSelectedEvaluation] = useState<typeof mockDetailEvaluation | null>(null);
+  const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null);
+  const [progressData, setProgressData] = useState<{ stage: string; progress: number; message: string } | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  const evaluations = mockEvaluations;
+  const { data: evaluations = [], isLoading, refetch } = useQuery<Evaluation[]>({
+    queryKey: ["/api/aev/evaluations"],
+  });
+
+  const { data: selectedEvaluation, isLoading: isLoadingDetail } = useQuery<EvaluationDetailData>({
+    queryKey: ["/api/aev/evaluations", selectedEvaluationId],
+    enabled: !!selectedEvaluationId,
+  });
+
+  const createEvaluationMutation = useMutation({
+    mutationFn: async (data: EvaluationFormData) => {
+      const response = await apiRequest("POST", "/api/aev/evaluate", data);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setActiveEvaluation({ assetId: data.assetId || "asset", id: data.evaluationId });
+      setShowProgressModal(true);
+    },
+  });
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      const data: ProgressEvent = JSON.parse(event.data);
+      
+      if (data.type === "aev_progress" && data.evaluationId === activeEvaluation?.id) {
+        setProgressData({
+          stage: data.stage || "",
+          progress: data.progress || 0,
+          message: data.message || "",
+        });
+      }
+      
+      if (data.type === "aev_complete") {
+        if (data.evaluationId === activeEvaluation?.id) {
+          setTimeout(() => {
+            setShowProgressModal(false);
+            setActiveEvaluation(null);
+            setProgressData(null);
+            queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+          }, 1000);
+        } else {
+          queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+        }
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [activeEvaluation?.id]);
 
   const filteredEvaluations = evaluations.filter((e) => {
     if (filter === "all") return true;
@@ -179,10 +139,12 @@ export function Dashboard() {
     active: evaluations.filter((e) => e.status === "pending" || e.status === "in_progress").length,
     exploitable: evaluations.filter((e) => e.exploitable).length,
     safe: evaluations.filter((e) => e.exploitable === false).length,
-    avgConfidence: Math.round(
-      evaluations.filter(e => e.confidence).reduce((sum, e) => sum + (e.confidence || 0), 0) / 
-      evaluations.filter(e => e.confidence).length * 100
-    ) || 0,
+    avgConfidence: evaluations.filter(e => e.confidence).length > 0
+      ? Math.round(
+          evaluations.filter(e => e.confidence).reduce((sum, e) => sum + (e.confidence || 0), 0) / 
+          evaluations.filter(e => e.confidence).length * 100
+        )
+      : 0,
   };
 
   const filterOptions = [
@@ -194,29 +156,33 @@ export function Dashboard() {
   ];
 
   const handleNewEvaluation = (data: EvaluationFormData) => {
-    console.log("Starting evaluation:", data);
     setShowNewModal(false);
-    setActiveEvaluation({ assetId: data.assetId, id: `aev-${Date.now()}` });
-    setShowProgressModal(true);
+    createEvaluationMutation.mutate(data);
   };
 
   const handleViewDetails = (evaluation: Evaluation) => {
-    console.log("Viewing details:", evaluation.id);
-    setSelectedEvaluation(mockDetailEvaluation);
+    setSelectedEvaluationId(evaluation.id);
   };
 
   const handleRunEvaluation = (evaluation: Evaluation) => {
-    console.log("Re-running evaluation:", evaluation.id);
     setActiveEvaluation({ assetId: evaluation.assetId, id: evaluation.id });
     setShowProgressModal(true);
   };
 
-  if (selectedEvaluation) {
+  if (selectedEvaluationId && selectedEvaluation) {
     return (
       <EvaluationDetail 
         evaluation={selectedEvaluation} 
-        onBack={() => setSelectedEvaluation(null)} 
+        onBack={() => setSelectedEvaluationId(null)} 
       />
+    );
+  }
+
+  if (selectedEvaluationId && isLoadingDetail) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
     );
   }
 
@@ -235,8 +201,14 @@ export function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" data-testid="button-refresh">
-            <RefreshCw className="h-3.5 w-3.5 mr-2" />
+          <Button 
+            variant="outline" 
+            size="sm" 
+            data-testid="button-refresh"
+            onClick={() => refetch()}
+            disabled={isLoading}
+          >
+            <RefreshCw className={`h-3.5 w-3.5 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
           <Button 
@@ -256,7 +228,6 @@ export function Dashboard() {
           label="Total Evaluations" 
           value={stats.total} 
           icon={Target}
-          trend={{ value: 12, isPositive: true }}
         />
         <StatCard 
           label="Active" 
@@ -269,7 +240,6 @@ export function Dashboard() {
           value={stats.exploitable} 
           icon={AlertTriangle}
           colorClass="text-red-400"
-          trend={{ value: 5, isPositive: false }}
         />
         <StatCard 
           label="Safe" 
@@ -291,11 +261,17 @@ export function Dashboard() {
         onFilterChange={setFilter} 
       />
 
-      <EvaluationTable 
-        evaluations={filteredEvaluations}
-        onViewDetails={handleViewDetails}
-        onRunEvaluation={handleRunEvaluation}
-      />
+      {isLoading ? (
+        <div className="flex items-center justify-center h-32">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <EvaluationTable 
+          evaluations={filteredEvaluations}
+          onViewDetails={handleViewDetails}
+          onRunEvaluation={handleRunEvaluation}
+        />
+      )}
 
       <NewEvaluationModal 
         isOpen={showNewModal}
@@ -305,9 +281,13 @@ export function Dashboard() {
 
       <ProgressModal 
         isOpen={showProgressModal}
-        onClose={() => setShowProgressModal(false)}
+        onClose={() => {
+          setShowProgressModal(false);
+          setProgressData(null);
+        }}
         assetId={activeEvaluation?.assetId || ""}
         evaluationId={activeEvaluation?.id || ""}
+        progressData={progressData}
       />
     </div>
   );
