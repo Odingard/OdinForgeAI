@@ -1,4 +1,4 @@
-import { Shield, Moon, Sun, Bell, User, ChevronDown } from "lucide-react";
+import { Shield, Moon, Sun, Bell, User, ChevronDown, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "./ThemeProvider";
 import { Link, useLocation } from "wouter";
@@ -84,6 +84,27 @@ export function Header() {
               data-testid="nav-batch"
             >
               Batch Jobs
+            </Button>
+          </Link>
+          <Link href="/governance">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/governance") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-governance"
+            >
+              Governance
+            </Button>
+          </Link>
+          <Link href="/advanced">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={`${isActive("/advanced") ? "text-foreground" : "text-muted-foreground"} gap-1`} 
+              data-testid="nav-advanced"
+            >
+              <Brain className="h-3.5 w-3.5" />
+              Advanced
             </Button>
           </Link>
         </nav>

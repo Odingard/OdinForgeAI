@@ -997,3 +997,306 @@ export const insertEvaluationHistorySchema = createInsertSchema(evaluationHistor
 
 export type InsertEvaluationHistory = z.infer<typeof insertEvaluationHistorySchema>;
 export type EvaluationHistory = typeof evaluationHistory.$inferSelect;
+
+// ========== GOVERNANCE, SAFETY & TRUST CONTROLS ==========
+
+// Execution Modes
+export const executionModes = ["safe", "live", "simulation"] as const;
+export type ExecutionMode = typeof executionModes[number];
+
+// Organization Governance Settings
+export const organizationGovernance = pgTable("organization_governance", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().unique(),
+  executionMode: varchar("execution_mode").notNull().default("safe"), // safe, live, simulation
+  killSwitchActive: boolean("kill_switch_active").default(false),
+  killSwitchActivatedAt: timestamp("kill_switch_activated_at"),
+  killSwitchActivatedBy: varchar("kill_switch_activated_by"),
+  rateLimitPerHour: integer("rate_limit_per_hour").default(100),
+  rateLimitPerDay: integer("rate_limit_per_day").default(1000),
+  concurrentEvaluationsLimit: integer("concurrent_evaluations_limit").default(5),
+  currentConcurrentEvaluations: integer("current_concurrent_evaluations").default(0),
+  allowedTargetPatterns: jsonb("allowed_target_patterns").$type<string[]>().default([]),
+  blockedTargetPatterns: jsonb("blocked_target_patterns").$type<string[]>().default([]),
+  allowedNetworkRanges: jsonb("allowed_network_ranges").$type<string[]>().default([]),
+  requireAuthorizationForLive: boolean("require_authorization_for_live").default(true),
+  autoKillOnCritical: boolean("auto_kill_on_critical").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertOrganizationGovernanceSchema = createInsertSchema(organizationGovernance).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertOrganizationGovernance = z.infer<typeof insertOrganizationGovernanceSchema>;
+export type OrganizationGovernance = typeof organizationGovernance.$inferSelect;
+
+// Authorization Log (Red-Team Activity Audit Trail)
+export const authorizationLogActions = [
+  "evaluation_started",
+  "evaluation_completed",
+  "kill_switch_activated",
+  "kill_switch_deactivated",
+  "execution_mode_changed",
+  "scope_rule_modified",
+  "rate_limit_exceeded",
+  "unauthorized_target_blocked",
+  "live_execution_authorized",
+  "batch_job_started",
+  "simulation_run",
+] as const;
+
+export type AuthorizationLogAction = typeof authorizationLogActions[number];
+
+export const authorizationLogs = pgTable("authorization_logs", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  userId: varchar("user_id"),
+  userName: varchar("user_name"),
+  action: varchar("action").notNull(),
+  targetAsset: varchar("target_asset"),
+  evaluationId: varchar("evaluation_id"),
+  executionMode: varchar("execution_mode"),
+  details: jsonb("details").$type<Record<string, any>>(),
+  ipAddress: varchar("ip_address"),
+  userAgent: varchar("user_agent"),
+  authorized: boolean("authorized").default(true),
+  authorizationReason: text("authorization_reason"),
+  riskLevel: varchar("risk_level"), // low, medium, high, critical
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAuthorizationLogSchema = createInsertSchema(authorizationLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAuthorizationLog = z.infer<typeof insertAuthorizationLogSchema>;
+export type AuthorizationLog = typeof authorizationLogs.$inferSelect;
+
+// Scope Rules (Target Whitelist/Blacklist)
+export const scopeRules = pgTable("scope_rules", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  ruleType: varchar("rule_type").notNull(), // allow, block
+  targetType: varchar("target_type").notNull(), // ip, cidr, hostname, pattern
+  targetValue: text("target_value").notNull(),
+  priority: integer("priority").default(0), // Higher priority rules evaluated first
+  enabled: boolean("enabled").default(true),
+  expiresAt: timestamp("expires_at"),
+  createdBy: varchar("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertScopeRuleSchema = createInsertSchema(scopeRules).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertScopeRule = z.infer<typeof insertScopeRuleSchema>;
+export type ScopeRule = typeof scopeRules.$inferSelect;
+
+// Rate Limit Tracking
+export const rateLimitTracking = pgTable("rate_limit_tracking", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  windowStart: timestamp("window_start").notNull(),
+  windowType: varchar("window_type").notNull(), // hour, day
+  requestCount: integer("request_count").default(0),
+  evaluationCount: integer("evaluation_count").default(0),
+  blockedCount: integer("blocked_count").default(0),
+});
+
+// ========== ADVANCED / FUTURE DIFFERENTIATORS ==========
+
+// AI Adversary Profiles
+export const adversaryProfiles = [
+  "script_kiddie",
+  "opportunistic_criminal", 
+  "organized_crime",
+  "insider_threat",
+  "nation_state",
+  "apt_group",
+  "hacktivist",
+  "competitor",
+] as const;
+
+export type AdversaryProfile = typeof adversaryProfiles[number];
+
+export const aiAdversaryProfiles = pgTable("ai_adversary_profiles", {
+  id: varchar("id").primaryKey(),
+  name: varchar("name").notNull(),
+  profileType: varchar("profile_type").notNull(), // script_kiddie, nation_state, etc.
+  description: text("description"),
+  capabilities: jsonb("capabilities").$type<{
+    technicalSophistication: number; // 1-10
+    resources: number; // 1-10
+    persistence: number; // 1-10
+    stealth: number; // 1-10
+    targetedAttacks: boolean;
+    zerodays: boolean;
+    socialEngineering: boolean;
+    physicalAccess: boolean;
+  }>(),
+  typicalTTPs: jsonb("typical_ttps").$type<string[]>(), // MITRE ATT&CK technique IDs
+  motivations: jsonb("motivations").$type<string[]>(), // financial, espionage, disruption, etc.
+  targetPreferences: jsonb("target_preferences").$type<string[]>(), // industries, asset types
+  avgDwellTime: integer("avg_dwell_time"), // Days
+  detectionDifficulty: varchar("detection_difficulty"), // low, medium, high, very_high
+  isBuiltIn: boolean("is_built_in").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAiAdversaryProfileSchema = createInsertSchema(aiAdversaryProfiles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAiAdversaryProfile = z.infer<typeof insertAiAdversaryProfileSchema>;
+export type AiAdversaryProfile = typeof aiAdversaryProfiles.$inferSelect;
+
+// Attack Predictions
+export const attackPredictions = pgTable("attack_predictions", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  assetId: varchar("asset_id"),
+  predictionDate: timestamp("prediction_date").defaultNow(),
+  timeHorizon: varchar("time_horizon").notNull(), // 7d, 30d, 90d
+  predictedAttackVectors: jsonb("predicted_attack_vectors").$type<Array<{
+    vector: string;
+    likelihood: number; // 0-100
+    confidence: number; // 0-100
+    adversaryProfile: string;
+    estimatedImpact: string;
+    mitreAttackId: string;
+  }>>(),
+  overallBreachLikelihood: integer("overall_breach_likelihood"), // 0-100
+  riskFactors: jsonb("risk_factors").$type<Array<{
+    factor: string;
+    contribution: number; // percentage
+    trend: string; // increasing, stable, decreasing
+  }>>(),
+  recommendedActions: jsonb("recommended_actions").$type<string[]>(),
+  modelVersion: varchar("model_version"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAttackPredictionSchema = createInsertSchema(attackPredictions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAttackPrediction = z.infer<typeof insertAttackPredictionSchema>;
+export type AttackPrediction = typeof attackPredictions.$inferSelect;
+
+// Defensive Posture Score
+export const defensivePostureScores = pgTable("defensive_posture_scores", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  calculatedAt: timestamp("calculated_at").defaultNow(),
+  overallScore: integer("overall_score").notNull(), // 0-100
+  categoryScores: jsonb("category_scores").$type<{
+    networkSecurity: number;
+    applicationSecurity: number;
+    identityManagement: number;
+    dataProtection: number;
+    incidentResponse: number;
+    securityAwareness: number;
+    compliancePosture: number;
+  }>(),
+  breachLikelihood: integer("breach_likelihood"), // 0-100
+  meanTimeToDetect: integer("mean_time_to_detect"), // Hours
+  meanTimeToRespond: integer("mean_time_to_respond"), // Hours
+  vulnerabilityExposure: jsonb("vulnerability_exposure").$type<{
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  }>(),
+  trendDirection: varchar("trend_direction"), // improving, stable, degrading
+  benchmarkPercentile: integer("benchmark_percentile"), // vs industry
+  recommendations: jsonb("recommendations").$type<string[]>(),
+});
+
+export const insertDefensivePostureScoreSchema = createInsertSchema(defensivePostureScores).omit({
+  id: true,
+  calculatedAt: true,
+});
+
+export type InsertDefensivePostureScore = z.infer<typeof insertDefensivePostureScoreSchema>;
+export type DefensivePostureScore = typeof defensivePostureScores.$inferSelect;
+
+// Purple Team Feedback Loop
+export const purpleTeamFindings = pgTable("purple_team_findings", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  findingType: varchar("finding_type").notNull(), // offensive_success, detection_gap, control_bypass
+  offensiveTechnique: varchar("offensive_technique"), // MITRE ATT&CK ID
+  offensiveDescription: text("offensive_description"),
+  detectionStatus: varchar("detection_status"), // detected, partially_detected, missed
+  existingControl: text("existing_control"),
+  controlEffectiveness: integer("control_effectiveness"), // 0-100
+  defensiveRecommendation: text("defensive_recommendation"),
+  implementationPriority: varchar("implementation_priority"), // critical, high, medium, low
+  estimatedEffort: varchar("estimated_effort"), // hours, days, weeks
+  feedbackStatus: varchar("feedback_status").default("pending"), // pending, in_progress, implemented, wont_fix
+  assignedTo: varchar("assigned_to"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPurpleTeamFindingSchema = createInsertSchema(purpleTeamFindings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertPurpleTeamFinding = z.infer<typeof insertPurpleTeamFindingSchema>;
+export type PurpleTeamFinding = typeof purpleTeamFindings.$inferSelect;
+
+// AI vs AI Simulation
+export const aiSimulations = pgTable("ai_simulations", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  attackerProfileId: varchar("attacker_profile_id"),
+  defenderConfig: jsonb("defender_config").$type<{
+    detectionCapabilities: string[];
+    responseAutomation: boolean;
+    honeypots: boolean;
+    deception: boolean;
+  }>(),
+  targetEnvironment: jsonb("target_environment").$type<{
+    assets: string[];
+    networkTopology: string;
+    securityControls: string[];
+  }>(),
+  simulationStatus: varchar("simulation_status").default("pending"), // pending, running, completed, failed
+  simulationResults: jsonb("simulation_results").$type<{
+    attackerSuccesses: number;
+    defenderBlocks: number;
+    timeToDetection: number; // minutes
+    timeToContainment: number; // minutes
+    attackPath: string[];
+    detectionPoints: string[];
+    missedAttacks: string[];
+    recommendations: string[];
+  }>(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAiSimulationSchema = createInsertSchema(aiSimulations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAiSimulation = z.infer<typeof insertAiSimulationSchema>;
+export type AiSimulation = typeof aiSimulations.$inferSelect;

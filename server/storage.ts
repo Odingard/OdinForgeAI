@@ -11,6 +11,22 @@ import {
   type InsertBatchJob,
   type ScheduledScan,
   type InsertScheduledScan,
+  type OrganizationGovernance,
+  type InsertOrganizationGovernance,
+  type AuthorizationLog,
+  type InsertAuthorizationLog,
+  type ScopeRule,
+  type InsertScopeRule,
+  type AiAdversaryProfile,
+  type InsertAiAdversaryProfile,
+  type AttackPrediction,
+  type InsertAttackPrediction,
+  type DefensivePostureScore,
+  type InsertDefensivePostureScore,
+  type PurpleTeamFinding,
+  type InsertPurpleTeamFinding,
+  type AiSimulation,
+  type InsertAiSimulation,
   users,
   aevEvaluations,
   aevResults,
@@ -18,6 +34,14 @@ import {
   batchJobs,
   scheduledScans,
   evaluationHistory,
+  organizationGovernance,
+  authorizationLogs,
+  scopeRules,
+  aiAdversaryProfiles,
+  attackPredictions,
+  defensivePostureScores,
+  purpleTeamFindings,
+  aiSimulations,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -295,6 +319,224 @@ export class DatabaseStorage implements IStorage {
 
   async deleteScheduledScan(id: string): Promise<void> {
     await db.delete(scheduledScans).where(eq(scheduledScans.id, id));
+  }
+
+  // ========== GOVERNANCE OPERATIONS ==========
+  
+  async getOrganizationGovernance(organizationId: string): Promise<OrganizationGovernance | undefined> {
+    const [governance] = await db
+      .select()
+      .from(organizationGovernance)
+      .where(eq(organizationGovernance.organizationId, organizationId));
+    return governance;
+  }
+
+  async createOrganizationGovernance(data: InsertOrganizationGovernance): Promise<OrganizationGovernance> {
+    const id = `gov-${randomUUID().slice(0, 8)}`;
+    const [governance] = await db
+      .insert(organizationGovernance)
+      .values({ ...data, id } as typeof organizationGovernance.$inferInsert)
+      .returning();
+    return governance;
+  }
+
+  async updateOrganizationGovernance(organizationId: string, updates: Partial<OrganizationGovernance>): Promise<void> {
+    await db
+      .update(organizationGovernance)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(organizationGovernance.organizationId, organizationId));
+  }
+
+  async activateKillSwitch(organizationId: string, activatedBy: string): Promise<void> {
+    await db
+      .update(organizationGovernance)
+      .set({ 
+        killSwitchActive: true, 
+        killSwitchActivatedAt: new Date(),
+        killSwitchActivatedBy: activatedBy,
+        updatedAt: new Date()
+      })
+      .where(eq(organizationGovernance.organizationId, organizationId));
+  }
+
+  async deactivateKillSwitch(organizationId: string): Promise<void> {
+    await db
+      .update(organizationGovernance)
+      .set({ 
+        killSwitchActive: false,
+        killSwitchActivatedAt: null,
+        killSwitchActivatedBy: null,
+        updatedAt: new Date()
+      })
+      .where(eq(organizationGovernance.organizationId, organizationId));
+  }
+
+  // Authorization Log operations
+  async createAuthorizationLog(data: InsertAuthorizationLog): Promise<AuthorizationLog> {
+    const id = `log-${randomUUID().slice(0, 8)}`;
+    const [log] = await db
+      .insert(authorizationLogs)
+      .values({ ...data, id } as typeof authorizationLogs.$inferInsert)
+      .returning();
+    return log;
+  }
+
+  async getAuthorizationLogs(organizationId: string, limit = 100): Promise<AuthorizationLog[]> {
+    return db
+      .select()
+      .from(authorizationLogs)
+      .where(eq(authorizationLogs.organizationId, organizationId))
+      .orderBy(desc(authorizationLogs.createdAt))
+      .limit(limit);
+  }
+
+  // Scope Rule operations
+  async createScopeRule(data: InsertScopeRule): Promise<ScopeRule> {
+    const id = `rule-${randomUUID().slice(0, 8)}`;
+    const [rule] = await db
+      .insert(scopeRules)
+      .values({ ...data, id } as typeof scopeRules.$inferInsert)
+      .returning();
+    return rule;
+  }
+
+  async getScopeRules(organizationId: string): Promise<ScopeRule[]> {
+    return db
+      .select()
+      .from(scopeRules)
+      .where(eq(scopeRules.organizationId, organizationId))
+      .orderBy(desc(scopeRules.priority));
+  }
+
+  async updateScopeRule(id: string, updates: Partial<ScopeRule>): Promise<void> {
+    await db.update(scopeRules).set(updates).where(eq(scopeRules.id, id));
+  }
+
+  async deleteScopeRule(id: string): Promise<void> {
+    await db.delete(scopeRules).where(eq(scopeRules.id, id));
+  }
+
+  // ========== ADVANCED AI OPERATIONS ==========
+
+  // Adversary Profile operations
+  async getAdversaryProfiles(): Promise<AiAdversaryProfile[]> {
+    return db.select().from(aiAdversaryProfiles).orderBy(aiAdversaryProfiles.name);
+  }
+
+  async getAdversaryProfile(id: string): Promise<AiAdversaryProfile | undefined> {
+    const [profile] = await db
+      .select()
+      .from(aiAdversaryProfiles)
+      .where(eq(aiAdversaryProfiles.id, id));
+    return profile;
+  }
+
+  async createAdversaryProfile(data: InsertAiAdversaryProfile): Promise<AiAdversaryProfile> {
+    const id = `adv-${randomUUID().slice(0, 8)}`;
+    const [profile] = await db
+      .insert(aiAdversaryProfiles)
+      .values({ ...data, id } as typeof aiAdversaryProfiles.$inferInsert)
+      .returning();
+    return profile;
+  }
+
+  // Attack Prediction operations
+  async createAttackPrediction(data: InsertAttackPrediction): Promise<AttackPrediction> {
+    const id = `pred-${randomUUID().slice(0, 8)}`;
+    const [prediction] = await db
+      .insert(attackPredictions)
+      .values({ ...data, id } as typeof attackPredictions.$inferInsert)
+      .returning();
+    return prediction;
+  }
+
+  async getAttackPredictions(organizationId: string): Promise<AttackPrediction[]> {
+    return db
+      .select()
+      .from(attackPredictions)
+      .where(eq(attackPredictions.organizationId, organizationId))
+      .orderBy(desc(attackPredictions.createdAt));
+  }
+
+  // Defensive Posture operations
+  async createDefensivePostureScore(data: InsertDefensivePostureScore): Promise<DefensivePostureScore> {
+    const id = `posture-${randomUUID().slice(0, 8)}`;
+    const [score] = await db
+      .insert(defensivePostureScores)
+      .values({ ...data, id } as typeof defensivePostureScores.$inferInsert)
+      .returning();
+    return score;
+  }
+
+  async getLatestDefensivePosture(organizationId: string): Promise<DefensivePostureScore | undefined> {
+    const [score] = await db
+      .select()
+      .from(defensivePostureScores)
+      .where(eq(defensivePostureScores.organizationId, organizationId))
+      .orderBy(desc(defensivePostureScores.calculatedAt))
+      .limit(1);
+    return score;
+  }
+
+  async getDefensivePostureHistory(organizationId: string, limit = 30): Promise<DefensivePostureScore[]> {
+    return db
+      .select()
+      .from(defensivePostureScores)
+      .where(eq(defensivePostureScores.organizationId, organizationId))
+      .orderBy(desc(defensivePostureScores.calculatedAt))
+      .limit(limit);
+  }
+
+  // Purple Team Finding operations
+  async createPurpleTeamFinding(data: InsertPurpleTeamFinding): Promise<PurpleTeamFinding> {
+    const id = `purple-${randomUUID().slice(0, 8)}`;
+    const [finding] = await db
+      .insert(purpleTeamFindings)
+      .values({ ...data, id } as typeof purpleTeamFindings.$inferInsert)
+      .returning();
+    return finding;
+  }
+
+  async getPurpleTeamFindings(organizationId: string): Promise<PurpleTeamFinding[]> {
+    return db
+      .select()
+      .from(purpleTeamFindings)
+      .where(eq(purpleTeamFindings.organizationId, organizationId))
+      .orderBy(desc(purpleTeamFindings.createdAt));
+  }
+
+  async updatePurpleTeamFinding(id: string, updates: Partial<PurpleTeamFinding>): Promise<void> {
+    await db.update(purpleTeamFindings).set(updates).where(eq(purpleTeamFindings.id, id));
+  }
+
+  // AI Simulation operations
+  async createAiSimulation(data: InsertAiSimulation): Promise<AiSimulation> {
+    const id = `sim-${randomUUID().slice(0, 8)}`;
+    const [simulation] = await db
+      .insert(aiSimulations)
+      .values({ ...data, id } as typeof aiSimulations.$inferInsert)
+      .returning();
+    return simulation;
+  }
+
+  async getAiSimulation(id: string): Promise<AiSimulation | undefined> {
+    const [simulation] = await db
+      .select()
+      .from(aiSimulations)
+      .where(eq(aiSimulations.id, id));
+    return simulation;
+  }
+
+  async getAiSimulations(organizationId: string): Promise<AiSimulation[]> {
+    return db
+      .select()
+      .from(aiSimulations)
+      .where(eq(aiSimulations.organizationId, organizationId))
+      .orderBy(desc(aiSimulations.createdAt));
+  }
+
+  async updateAiSimulation(id: string, updates: Partial<AiSimulation>): Promise<void> {
+    await db.update(aiSimulations).set(updates).where(eq(aiSimulations.id, id));
   }
 }
 
