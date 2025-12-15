@@ -1,6 +1,7 @@
 import { Shield, Moon, Sun, Bell, User, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "./ThemeProvider";
+import { Link, useLocation } from "wouter";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +11,9 @@ import {
 
 export function Header() {
   const { theme, toggleTheme } = useTheme();
+  const [location] = useLocation();
+
+  const isActive = (path: string) => location === path;
 
   return (
     <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
@@ -32,18 +36,36 @@ export function Header() {
         </div>
 
         <nav className="hidden md:flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="text-foreground" data-testid="nav-dashboard">
-            Dashboard
-          </Button>
-          <Button variant="ghost" size="sm" className="text-muted-foreground" data-testid="nav-evaluations">
-            Evaluations
-          </Button>
-          <Button variant="ghost" size="sm" className="text-muted-foreground" data-testid="nav-assets">
-            Assets
-          </Button>
-          <Button variant="ghost" size="sm" className="text-muted-foreground" data-testid="nav-reports">
-            Reports
-          </Button>
+          <Link href="/">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-dashboard"
+            >
+              Dashboard
+            </Button>
+          </Link>
+          <Link href="/">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/evaluations") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-evaluations"
+            >
+              Evaluations
+            </Button>
+          </Link>
+          <Link href="/risk">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/risk") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-risk"
+            >
+              Risk Dashboard
+            </Button>
+          </Link>
         </nav>
 
         <div className="flex items-center gap-2">
