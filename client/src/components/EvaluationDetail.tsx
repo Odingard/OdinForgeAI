@@ -13,24 +13,24 @@ interface EvaluationDetailProps {
     priority: string;
     description: string;
     status: string;
-    exploitable: boolean;
-    score: number;
-    confidence: number;
+    exploitable?: boolean;
+    score?: number;
+    confidence?: number;
     createdAt: string;
-    duration: number;
-    attackPath: Array<{
+    duration?: number;
+    attackPath?: Array<{
       id: number;
       title: string;
       description: string;
       technique?: string;
       severity: "critical" | "high" | "medium" | "low";
     }>;
-    recommendations: Array<{
+    recommendations?: Array<{
       id: string;
       title: string;
       description: string;
       priority: "critical" | "high" | "medium" | "low";
-      type: "remediation" | "compensating";
+      type: "remediation" | "compensating" | "preventive";
     }>;
   };
   onBack: () => void;

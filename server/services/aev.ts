@@ -33,7 +33,7 @@ export async function analyzeExposure(
 
   onProgress?.(stages[0].name, stages[0].progress, stages[0].message);
 
-  const systemPrompt = `You are NEXUS AEV (Autonomous Exploit Validation), an advanced AI security analyst specializing in adversarial exposure validation. Your task is to analyze security exposures and determine their exploitability through autonomous reasoning.
+  const systemPrompt = `You are OdinForge AI (Autonomous Exploit Validation), an advanced AI security analyst specializing in adversarial exposure validation. Your task is to analyze security exposures and determine their exploitability through autonomous reasoning.
 
 For each exposure, you must:
 1. Analyze the attack surface and potential entry points

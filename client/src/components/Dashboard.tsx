@@ -191,7 +191,7 @@ export function Dashboard() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2 flex-wrap">
-            AEV Dashboard
+            OdinForge AI
             <span className="text-xs font-medium px-2 py-0.5 rounded bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30">
               AUTONOMOUS VALIDATION
             </span>

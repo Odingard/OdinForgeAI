@@ -23,7 +23,7 @@ export function Header() {
           </div>
           <div className="flex flex-col">
             <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              NEXUS
+              OdinForge
             </span>
             <span className="text-[10px] uppercase tracking-widest text-muted-foreground -mt-1">
               AEV Platform

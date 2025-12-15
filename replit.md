@@ -1,8 +1,8 @@
-# NEXUS AEV Platform
+# OdinForge AI Platform
 
 ## Overview
 
-NEXUS AEV (Adversarial Exposure Validation) is a next-generation AI-powered security platform that performs autonomous exploit validation and attack simulation. The platform analyzes security exposures (CVEs, misconfigurations, behavioral anomalies, network vulnerabilities) and uses AI to determine exploitability, construct attack paths using MITRE ATT&CK techniques, assess business impact, and generate remediation recommendations.
+OdinForge AI (Adversarial Exposure Validation) is a next-generation AI-powered security platform that performs autonomous exploit validation and attack simulation. The platform analyzes security exposures (CVEs, misconfigurations, behavioral anomalies, network vulnerabilities) and uses AI to determine exploitability, construct attack paths using MITRE ATT&CK techniques, assess business impact, and generate remediation recommendations.
 
 The application follows a full-stack TypeScript architecture with a React frontend, Express backend, PostgreSQL database, and real-time WebSocket communication for live evaluation progress updates.
 
