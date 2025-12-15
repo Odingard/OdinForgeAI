@@ -1,7 +1,9 @@
-import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb } from "lucide-react";
+import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttackPathVisualizer } from "./AttackPathVisualizer";
+import { AttackGraphVisualizer } from "./AttackGraphVisualizer";
 import { ExploitabilityGauge } from "./ExploitabilityGauge";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 
@@ -26,6 +28,50 @@ interface EvaluationDetailProps {
       severity: "critical" | "high" | "medium" | "low";
       discoveredBy?: "recon" | "exploit" | "lateral" | "business-logic" | "impact";
     }>;
+    attackGraph?: {
+      nodes: Array<{
+        id: string;
+        label: string;
+        description: string;
+        nodeType: "entry" | "pivot" | "objective" | "dead-end";
+        tactic: string;
+        compromiseLevel: "none" | "limited" | "user" | "admin" | "system";
+        assets?: string[];
+        discoveredBy?: "recon" | "exploit" | "lateral" | "business-logic" | "impact";
+      }>;
+      edges: Array<{
+        id: string;
+        source: string;
+        target: string;
+        technique: string;
+        techniqueId?: string;
+        description: string;
+        successProbability: number;
+        complexity: "trivial" | "low" | "medium" | "high" | "expert";
+        timeEstimate: number;
+        prerequisites?: string[];
+        alternatives?: string[];
+        edgeType: "primary" | "alternative" | "fallback";
+        discoveredBy?: "recon" | "exploit" | "lateral" | "business-logic" | "impact";
+      }>;
+      entryNodeId: string;
+      objectiveNodeIds: string[];
+      criticalPath: string[];
+      alternativePaths?: string[][];
+      killChainCoverage: string[];
+      complexityScore: number;
+      timeToCompromise: {
+        minimum: number;
+        expected: number;
+        maximum: number;
+        unit: "minutes" | "hours" | "days";
+      };
+      chainedExploits?: Array<{
+        name: string;
+        techniques: string[];
+        combinedImpact: string;
+      }>;
+    };
     recommendations?: Array<{
       id: string;
       title: string;
@@ -145,10 +191,34 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </div>
             </div>
             <div className="p-6">
-              <AttackPathVisualizer 
-                steps={evaluation.attackPath || []} 
-                isExploitable={evaluation.exploitable ?? false} 
-              />
+              <Tabs defaultValue={evaluation.attackGraph ? "graph" : "linear"} className="w-full">
+                <TabsList className="mb-4">
+                  {evaluation.attackGraph && (
+                    <TabsTrigger value="graph" className="gap-2" data-testid="tab-graph-view">
+                      <Network className="h-4 w-4" />
+                      Graph View
+                    </TabsTrigger>
+                  )}
+                  <TabsTrigger value="linear" className="gap-2" data-testid="tab-linear-view">
+                    <Target className="h-4 w-4" />
+                    Linear View
+                  </TabsTrigger>
+                </TabsList>
+                {evaluation.attackGraph && (
+                  <TabsContent value="graph">
+                    <AttackGraphVisualizer 
+                      attackGraph={evaluation.attackGraph} 
+                      isExploitable={evaluation.exploitable ?? false} 
+                    />
+                  </TabsContent>
+                )}
+                <TabsContent value="linear">
+                  <AttackPathVisualizer 
+                    steps={evaluation.attackPath || []} 
+                    isExploitable={evaluation.exploitable ?? false} 
+                  />
+                </TabsContent>
+              </Tabs>
             </div>
           </div>
         </div>
