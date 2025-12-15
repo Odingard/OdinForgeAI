@@ -17,12 +17,65 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+// Exposure Types - Multi-Vector Coverage
+export const exposureTypes = [
+  "cve",                    // CVE exploitation (safe mode)
+  "misconfiguration",       // General misconfigurations
+  "behavioral_anomaly",     // Behavioral anomalies
+  "network_vulnerability",  // Network pivoting
+  "cloud_misconfiguration", // Cloud misconfiguration chaining (AWS/GCP/Azure)
+  "iam_abuse",              // IAM abuse paths
+  "saas_permission",        // SaaS permission abuse
+  "shadow_admin",           // Shadow admin discovery
+  "api_sequence_abuse",     // API sequence/workflow abuse
+  "payment_flow",           // Payment flow vulnerabilities
+  "subscription_bypass",    // Subscription & billing bypass
+  "state_machine",          // State machine violations
+  "privilege_boundary",     // Privilege boundary violations
+  "workflow_desync",        // Workflow desynchronization
+  "order_lifecycle",        // Order lifecycle abuse
+] as const;
+
+export type ExposureType = typeof exposureTypes[number];
+
+// Business Logic Vulnerability Categories
+export const businessLogicCategories = [
+  "payment_bypass",         // Skipping payment steps
+  "subscription_abuse",     // Free tier abuse, trial extension
+  "order_manipulation",     // Price manipulation, quantity abuse
+  "state_transition",       // Invalid state jumps
+  "privilege_escalation",   // Horizontal/vertical escalation
+  "workflow_bypass",        // Skipping required steps
+  "race_condition",         // TOCTOU, double-spend
+  "parameter_tampering",    // Hidden field manipulation
+  "session_abuse",          // Session fixation, replay
+  "logic_flaw",             // General logic flaws
+] as const;
+
+export type BusinessLogicCategory = typeof businessLogicCategories[number];
+
+// Cloud/IAM Vector Types
+export const cloudVectorTypes = [
+  "s3_public_bucket",
+  "iam_role_chaining",
+  "cross_account_access",
+  "metadata_service_abuse",
+  "lambda_privilege_escalation",
+  "storage_account_exposure",
+  "service_account_abuse",
+  "federation_bypass",
+  "permission_boundary_bypass",
+  "resource_policy_abuse",
+] as const;
+
+export type CloudVectorType = typeof cloudVectorTypes[number];
+
 // AEV Evaluations table
 export const aevEvaluations = pgTable("aev_evaluations", {
   id: varchar("id").primaryKey(),
   organizationId: varchar("organization_id").notNull().default("default"),
   assetId: varchar("asset_id").notNull(),
-  exposureType: varchar("exposure_type").notNull(), // cve, misconfiguration, behavior, network, business_logic, api_abuse
+  exposureType: varchar("exposure_type").notNull(), // One of exposureTypes
   priority: varchar("priority").notNull().default("medium"), // critical, high, medium, low
   description: text("description").notNull(),
   status: varchar("status").notNull().default("pending"), // pending, in_progress, completed, failed
@@ -128,6 +181,99 @@ export type AttackNode = z.infer<typeof attackNodeSchema>;
 export type AttackEdge = z.infer<typeof attackEdgeSchema>;
 export type AttackGraph = z.infer<typeof attackGraphSchema>;
 
+// Business Logic Vulnerability Finding
+export const businessLogicFindingSchema = z.object({
+  id: z.string(),
+  category: z.enum(businessLogicCategories),
+  title: z.string(),
+  description: z.string(),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+  intendedWorkflow: z.array(z.string()),
+  actualWorkflow: z.array(z.string()),
+  stateViolations: z.array(z.object({
+    fromState: z.string(),
+    toState: z.string(),
+    expectedTransitions: z.array(z.string()),
+    actualTransition: z.string(),
+    isViolation: z.boolean(),
+  })).optional(),
+  exploitSteps: z.array(z.string()),
+  impact: z.string(),
+  businessImpact: z.object({
+    financialLoss: z.string().optional(),
+    dataExposure: z.string().optional(),
+    reputationalDamage: z.string().optional(),
+    complianceViolation: z.string().optional(),
+  }).optional(),
+  validatedExploit: z.boolean(),
+  proofOfConcept: z.string().optional(),
+});
+
+export type BusinessLogicFinding = z.infer<typeof businessLogicFindingSchema>;
+
+// Workflow State Machine representation
+export const workflowStateMachineSchema = z.object({
+  name: z.string(),
+  states: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.enum(["initial", "intermediate", "terminal", "error"]),
+    requiredAuth: z.enum(["none", "user", "admin", "system"]).optional(),
+  })),
+  transitions: z.array(z.object({
+    id: z.string(),
+    from: z.string(),
+    to: z.string(),
+    trigger: z.string(),
+    guard: z.string().optional(),
+    isSecurityCritical: z.boolean().optional(),
+  })),
+  securityBoundaries: z.array(z.object({
+    name: z.string(),
+    statesWithin: z.array(z.string()),
+    requiredPrivilege: z.string(),
+  })).optional(),
+});
+
+export type WorkflowStateMachine = z.infer<typeof workflowStateMachineSchema>;
+
+// Multi-Vector Analysis Finding
+export const multiVectorFindingSchema = z.object({
+  id: z.string(),
+  vectorType: z.enum([...exposureTypes]),
+  cloudVector: z.enum([...cloudVectorTypes]).optional(),
+  title: z.string(),
+  description: z.string(),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+  affectedResources: z.array(z.string()),
+  chainableWith: z.array(z.string()).optional(),
+  exploitPath: z.array(z.object({
+    step: z.number(),
+    action: z.string(),
+    target: z.string(),
+    technique: z.string().optional(),
+  })),
+  iamContext: z.object({
+    principal: z.string().optional(),
+    assumableRoles: z.array(z.string()).optional(),
+    effectivePermissions: z.array(z.string()).optional(),
+    privilegeEscalationPath: z.string().optional(),
+  }).optional(),
+  cloudContext: z.object({
+    provider: z.enum(["aws", "gcp", "azure", "multi-cloud"]).optional(),
+    region: z.string().optional(),
+    service: z.string().optional(),
+    resourceArn: z.string().optional(),
+  }).optional(),
+  saasContext: z.object({
+    platform: z.string().optional(),
+    permissionLevel: z.string().optional(),
+    shadowAdminIndicators: z.array(z.string()).optional(),
+  }).optional(),
+});
+
+export type MultiVectorFinding = z.infer<typeof multiVectorFindingSchema>;
+
 // AEV Results table
 export const aevResults = pgTable("aev_results", {
   id: varchar("id").primaryKey(),
@@ -137,6 +283,9 @@ export const aevResults = pgTable("aev_results", {
   score: integer("score").notNull(), // 0-100
   attackPath: jsonb("attack_path").$type<AttackPathStep[]>(),
   attackGraph: jsonb("attack_graph").$type<AttackGraph>(),
+  businessLogicFindings: jsonb("business_logic_findings").$type<BusinessLogicFinding[]>(),
+  multiVectorFindings: jsonb("multi_vector_findings").$type<MultiVectorFinding[]>(),
+  workflowAnalysis: jsonb("workflow_analysis").$type<WorkflowStateMachine>(),
   impact: text("impact"),
   recommendations: jsonb("recommendations").$type<Recommendation[]>(),
   duration: integer("duration"), // milliseconds
