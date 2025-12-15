@@ -14,6 +14,7 @@ import { synthesizeResults } from "./synthesizer";
 import { synthesizeAttackGraph } from "./graph-synthesizer";
 import { generateEvidenceFromAnalysis } from "./evidence-collector";
 import { generateIntelligentScore } from "./scoring-engine";
+import { generateRemediationGuidance } from "./remediation-engine";
 
 export async function runAgentOrchestrator(
   assetId: string,
@@ -97,7 +98,7 @@ export async function runAgentOrchestrator(
     multiVectorFindings: memory.multiVector?.findings,
   });
 
-  onProgress?.("Scoring Engine", "scoring", 98, "Calculating intelligent risk scores...");
+  onProgress?.("Scoring Engine", "scoring", 93, "Calculating intelligent risk scores...");
   const intelligentScore = await generateIntelligentScore({
     assetId,
     exposureType,
@@ -108,6 +109,22 @@ export async function runAgentOrchestrator(
     attackGraph: graphResult.attackGraph,
     businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
     multiVectorFindings: memory.multiVector?.findings,
+  });
+
+  onProgress?.("Remediation Engine", "remediation", 96, "Generating remediation guidance...");
+  const remediationGuidance = await generateRemediationGuidance({
+    assetId,
+    exposureType,
+    priority,
+    description,
+    exploitable: result.exploitable,
+    attackPath: result.attackPath,
+    attackGraph: graphResult.attackGraph,
+    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
+    multiVectorFindings: memory.multiVector?.findings,
+    intelligentScore,
+  }, evaluationId, (stage, progress, message) => {
+    onProgress?.("Remediation Engine", stage, 96 + Math.floor(progress / 25), message);
   });
 
   const totalProcessingTime = Date.now() - startTime;
@@ -122,6 +139,7 @@ export async function runAgentOrchestrator(
     workflowAnalysis: memory.enhancedBusinessLogic?.workflowAnalysis || undefined,
     evidenceArtifacts,
     intelligentScore,
+    remediationGuidance,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,

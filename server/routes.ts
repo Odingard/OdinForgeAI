@@ -78,11 +78,31 @@ export async function registerRoutes(
         impact: result?.impact,
         evidenceArtifacts: result?.evidenceArtifacts,
         intelligentScore: result?.intelligentScore,
+        remediationGuidance: result?.remediationGuidance,
         duration: result?.duration,
       });
     } catch (error) {
       console.error("Error fetching evaluation:", error);
       res.status(500).json({ error: "Failed to fetch evaluation" });
+    }
+  });
+
+  app.delete("/api/aev/evaluations/:id", async (req, res) => {
+    try {
+      const evaluationId = req.params.id;
+      const evaluation = await storage.getEvaluation(evaluationId);
+      
+      if (!evaluation) {
+        return res.status(404).json({ error: "Evaluation not found" });
+      }
+
+      await storage.deleteResult(evaluationId);
+      await storage.deleteEvaluation(evaluationId);
+      
+      res.json({ success: true, message: "Evaluation deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting evaluation:", error);
+      res.status(500).json({ error: "Failed to delete evaluation" });
     }
   });
 
@@ -156,6 +176,7 @@ async function runEvaluation(evaluationId: string, data: {
       recommendations: result.recommendations,
       evidenceArtifacts: result.evidenceArtifacts,
       intelligentScore: result.intelligentScore,
+      remediationGuidance: result.remediationGuidance,
       duration,
     });
 

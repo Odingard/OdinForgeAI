@@ -27,6 +27,10 @@ export interface IStorage {
   // AEV Result operations
   createResult(data: InsertResult & { id: string }): Promise<Result>;
   getResultByEvaluationId(evaluationId: string): Promise<Result | undefined>;
+  
+  // Delete operations
+  deleteEvaluation(id: string): Promise<void>;
+  deleteResult(evaluationId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -100,6 +104,14 @@ export class DatabaseStorage implements IStorage {
       .from(aevResults)
       .where(eq(aevResults.evaluationId, evaluationId));
     return result;
+  }
+
+  async deleteEvaluation(id: string): Promise<void> {
+    await db.delete(aevEvaluations).where(eq(aevEvaluations.id, id));
+  }
+
+  async deleteResult(evaluationId: string): Promise<void> {
+    await db.delete(aevResults).where(eq(aevResults.evaluationId, evaluationId));
   }
 }
 

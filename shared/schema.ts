@@ -503,6 +503,145 @@ export const intelligentScoreSchema = z.object({
 
 export type IntelligentScore = z.infer<typeof intelligentScoreSchema>;
 
+// Remediation Types
+export const remediationTypes = [
+  "code_fix",           // Code-level patches
+  "config_change",      // Configuration updates
+  "waf_rule",           // WAF/firewall rules
+  "iam_policy",         // IAM policy changes
+  "network_control",    // Network segmentation/controls
+  "detection_rule",     // SIEM/detection signatures
+  "compensating",       // Compensating controls
+] as const;
+
+export type RemediationType = typeof remediationTypes[number];
+
+// Code Fix Schema
+export const codeFixSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  language: z.string(),
+  filePath: z.string().optional(),
+  vulnerability: z.string(),
+  beforeCode: z.string(),
+  afterCode: z.string(),
+  explanation: z.string(),
+  complexity: z.enum(["trivial", "low", "medium", "high"]),
+  testingNotes: z.string().optional(),
+});
+
+export type CodeFix = z.infer<typeof codeFixSchema>;
+
+// WAF Rule Schema
+export const wafRuleSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  platform: z.enum(["cloudflare", "aws_waf", "azure_waf", "modsecurity", "nginx", "generic"]),
+  ruleType: z.enum(["block", "rate_limit", "challenge", "log"]),
+  condition: z.string(),
+  action: z.string(),
+  priority: z.number(),
+  description: z.string(),
+  falsePositiveRisk: z.enum(["low", "medium", "high"]),
+  rawConfig: z.string(),
+});
+
+export type WafRule = z.infer<typeof wafRuleSchema>;
+
+// IAM Policy Schema
+export const iamPolicySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  platform: z.enum(["aws", "gcp", "azure", "okta", "generic"]),
+  policyType: z.enum(["deny", "allow", "boundary", "scp"]),
+  currentState: z.string(),
+  recommendedState: z.string(),
+  affectedPrincipals: z.array(z.string()),
+  riskReduction: z.number().min(0).max(100),
+  implementationSteps: z.array(z.string()),
+  rollbackPlan: z.string().optional(),
+  rawPolicy: z.string(),
+});
+
+export type IamPolicy = z.infer<typeof iamPolicySchema>;
+
+// Network Control Schema
+export const networkControlSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  controlType: z.enum(["firewall", "segmentation", "acl", "vpn", "proxy"]),
+  sourceZone: z.string(),
+  destinationZone: z.string(),
+  protocol: z.string(),
+  ports: z.array(z.string()),
+  action: z.enum(["allow", "deny", "log", "quarantine"]),
+  description: z.string(),
+  implementationGuide: z.string(),
+});
+
+export type NetworkControl = z.infer<typeof networkControlSchema>;
+
+// Detection Rule Schema
+export const detectionRuleSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  platform: z.enum(["splunk", "elastic", "sentinel", "sigma", "yara", "snort", "generic"]),
+  ruleType: z.enum(["correlation", "threshold", "anomaly", "signature"]),
+  severity: z.enum(["info", "low", "medium", "high", "critical"]),
+  description: z.string(),
+  logic: z.string(),
+  rawRule: z.string(),
+  dataSource: z.array(z.string()),
+  mitreTechniques: z.array(z.string()).optional(),
+  falsePositiveGuidance: z.string().optional(),
+  responsePlaybook: z.string().optional(),
+});
+
+export type DetectionRule = z.infer<typeof detectionRuleSchema>;
+
+// Compensating Control Schema
+export const compensatingControlSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  controlType: z.enum(["monitoring", "alerting", "access_review", "encryption", "backup", "training"]),
+  description: z.string(),
+  rationale: z.string(),
+  implementationGuide: z.string(),
+  effectiveness: z.number().min(0).max(100),
+  duration: z.enum(["temporary", "permanent"]),
+  reviewDate: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+});
+
+export type CompensatingControl = z.infer<typeof compensatingControlSchema>;
+
+// Complete Remediation Guidance
+export const remediationGuidanceSchema = z.object({
+  id: z.string(),
+  evaluationId: z.string(),
+  generatedAt: z.string(),
+  summary: z.string(),
+  executiveSummary: z.string(),
+  codeFixes: z.array(codeFixSchema).optional(),
+  wafRules: z.array(wafRuleSchema).optional(),
+  iamPolicies: z.array(iamPolicySchema).optional(),
+  networkControls: z.array(networkControlSchema).optional(),
+  detectionRules: z.array(detectionRuleSchema).optional(),
+  compensatingControls: z.array(compensatingControlSchema).optional(),
+  prioritizedActions: z.array(z.object({
+    order: z.number(),
+    action: z.string(),
+    type: z.enum(remediationTypes),
+    timeEstimate: z.string(),
+    riskReduction: z.number().min(0).max(100),
+    effort: z.enum(["low", "medium", "high"]),
+  })),
+  totalRiskReduction: z.number().min(0).max(100),
+  estimatedImplementationTime: z.string(),
+});
+
+export type RemediationGuidance = z.infer<typeof remediationGuidanceSchema>;
+
 // AEV Results table
 export const aevResults = pgTable("aev_results", {
   id: varchar("id").primaryKey(),
@@ -519,6 +658,7 @@ export const aevResults = pgTable("aev_results", {
   recommendations: jsonb("recommendations").$type<Recommendation[]>(),
   evidenceArtifacts: jsonb("evidence_artifacts").$type<EvidenceArtifact[]>(),
   intelligentScore: jsonb("intelligent_score").$type<IntelligentScore>(),
+  remediationGuidance: jsonb("remediation_guidance").$type<RemediationGuidance>(),
   duration: integer("duration"), // milliseconds
   completedAt: timestamp("completed_at"),
 });

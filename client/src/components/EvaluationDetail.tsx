@@ -1,9 +1,11 @@
-import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttackPathVisualizer } from "./AttackPathVisualizer";
 import { AttackGraphVisualizer } from "./AttackGraphVisualizer";
+import { AnimatedAttackGraph } from "./AnimatedAttackGraph";
 import { ExploitabilityGauge } from "./ExploitabilityGauge";
 import { RecommendationsPanel } from "./RecommendationsPanel";
 import { BusinessLogicFindingsPanel } from "./BusinessLogicFindingsPanel";
@@ -11,7 +13,12 @@ import { MultiVectorFindingsPanel } from "./MultiVectorFindingsPanel";
 import { WorkflowStateMachineVisualizer } from "./WorkflowStateMachineVisualizer";
 import { EvidencePanel } from "./EvidencePanel";
 import { IntelligentScorePanel } from "./IntelligentScorePanel";
-import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, EvidenceArtifact, IntelligentScore } from "@shared/schema";
+import { TimeToCompromiseMeter } from "./TimeToCompromiseMeter";
+import { ConfidenceGauge } from "./ConfidenceGauge";
+import { RiskHeatmap } from "./RiskHeatmap";
+import { ViewModeToggle } from "./ViewModeToggle";
+import { RemediationPanel } from "./RemediationPanel";
+import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, EvidenceArtifact, IntelligentScore, RemediationGuidance } from "@shared/schema";
 
 interface EvaluationDetailProps {
   evaluation: {
@@ -90,11 +97,15 @@ interface EvaluationDetailProps {
     workflowAnalysis?: WorkflowStateMachine;
     evidenceArtifacts?: EvidenceArtifact[];
     intelligentScore?: IntelligentScore;
+    remediationGuidance?: RemediationGuidance;
   };
   onBack: () => void;
 }
 
 export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) {
+  const [viewMode, setViewMode] = useState<"executive" | "engineer">("executive");
+  const [showAnimatedGraph, setShowAnimatedGraph] = useState(false);
+
   const getSeverityBadge = (priority: string) => {
     const classes: Record<string, string> = {
       critical: "bg-red-500/10 text-red-400 border-red-500/30",
@@ -125,17 +136,20 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
             <p className="text-sm text-muted-foreground font-mono mt-1">{evaluation.id}</p>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            <span>{new Date(evaluation.createdAt).toLocaleString()}</span>
-          </div>
-          {evaluation.duration && (
+        <div className="flex items-center gap-4 flex-wrap">
+          <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4" />
-              <span>{(evaluation.duration / 1000).toFixed(1)}s</span>
+              <Clock className="h-4 w-4" />
+              <span>{new Date(evaluation.createdAt).toLocaleString()}</span>
             </div>
-          )}
+            {evaluation.duration && (
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                <span>{(evaluation.duration / 1000).toFixed(1)}s</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -194,42 +208,63 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
 
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-border bg-muted/30">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-orange-500/10">
-                  <Target className="h-5 w-5 text-orange-400" />
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-orange-500/10">
+                    <Target className="h-5 w-5 text-orange-400" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-foreground">Attack Path Analysis</h2>
                 </div>
-                <h2 className="text-lg font-semibold text-foreground">Attack Path Analysis</h2>
+                {evaluation.attackGraph && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowAnimatedGraph(!showAnimatedGraph)}
+                    className="gap-2"
+                    data-testid="btn-toggle-animation-header"
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                    {showAnimatedGraph ? "Stop Animation" : "Play Attack"}
+                  </Button>
+                )}
               </div>
             </div>
             <div className="p-6">
-              <Tabs defaultValue={evaluation.attackGraph ? "graph" : "linear"} className="w-full">
-                <TabsList className="mb-4">
-                  {evaluation.attackGraph && (
-                    <TabsTrigger value="graph" className="gap-2" data-testid="tab-graph-view">
-                      <Network className="h-4 w-4" />
-                      Graph View
+              {showAnimatedGraph && evaluation.attackGraph ? (
+                <AnimatedAttackGraph 
+                  attackGraph={evaluation.attackGraph}
+                  isExploitable={evaluation.exploitable ?? false}
+                />
+              ) : (
+                <Tabs defaultValue={evaluation.attackGraph ? "graph" : "linear"} className="w-full">
+                  <TabsList className="mb-4">
+                    {evaluation.attackGraph && (
+                      <TabsTrigger value="graph" className="gap-2" data-testid="tab-graph-view">
+                        <Network className="h-4 w-4" />
+                        Graph View
+                      </TabsTrigger>
+                    )}
+                    <TabsTrigger value="linear" className="gap-2" data-testid="tab-linear-view">
+                      <Target className="h-4 w-4" />
+                      Linear View
                     </TabsTrigger>
+                  </TabsList>
+                  {evaluation.attackGraph && (
+                    <TabsContent value="graph">
+                      <AttackGraphVisualizer 
+                        attackGraph={evaluation.attackGraph} 
+                        isExploitable={evaluation.exploitable ?? false} 
+                      />
+                    </TabsContent>
                   )}
-                  <TabsTrigger value="linear" className="gap-2" data-testid="tab-linear-view">
-                    <Target className="h-4 w-4" />
-                    Linear View
-                  </TabsTrigger>
-                </TabsList>
-                {evaluation.attackGraph && (
-                  <TabsContent value="graph">
-                    <AttackGraphVisualizer 
-                      attackGraph={evaluation.attackGraph} 
+                  <TabsContent value="linear">
+                    <AttackPathVisualizer 
+                      steps={evaluation.attackPath || []} 
                       isExploitable={evaluation.exploitable ?? false} 
                     />
                   </TabsContent>
-                )}
-                <TabsContent value="linear">
-                  <AttackPathVisualizer 
-                    steps={evaluation.attackPath || []} 
-                    isExploitable={evaluation.exploitable ?? false} 
-                  />
-                </TabsContent>
-              </Tabs>
+                </Tabs>
+              )}
             </div>
           </div>
 
@@ -314,7 +349,36 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
         </div>
 
         <div className="space-y-6 lg:col-span-1">
-          {evaluation.intelligentScore ? (
+          {evaluation.attackGraph?.timeToCompromise && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="p-6">
+                <TimeToCompromiseMeter 
+                  expected={evaluation.attackGraph.timeToCompromise.expected}
+                  minimum={evaluation.attackGraph.timeToCompromise.minimum}
+                  maximum={evaluation.attackGraph.timeToCompromise.maximum}
+                  unit={evaluation.attackGraph.timeToCompromise.unit}
+                />
+              </div>
+            </div>
+          )}
+
+          {viewMode === "executive" && evaluation.intelligentScore && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-red-500/10">
+                    <Shield className="h-5 w-5 text-red-400" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-foreground">Risk Assessment</h2>
+                </div>
+              </div>
+              <div className="p-6">
+                <RiskHeatmap intelligentScore={evaluation.intelligentScore} />
+              </div>
+            </div>
+          )}
+
+          {viewMode === "engineer" && evaluation.intelligentScore && (
             <div className="bg-card border border-border rounded-lg overflow-hidden">
               <div className="px-6 py-4 border-b border-border bg-muted/30">
                 <div className="flex items-center gap-3">
@@ -328,7 +392,9 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                 <IntelligentScorePanel score={evaluation.intelligentScore} />
               </div>
             </div>
-          ) : (
+          )}
+
+          {!evaluation.intelligentScore && (
             <div className="bg-card border border-border rounded-lg overflow-hidden">
               <div className="px-6 py-4 border-b border-border bg-muted/30">
                 <div className="flex items-center gap-3">
@@ -339,11 +405,38 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                 </div>
               </div>
               <div className="p-6">
-                <ExploitabilityGauge 
-                  score={evaluation.score ?? 0} 
-                  confidence={evaluation.confidence ?? 0}
-                  size="md"
-                />
+                <div className="flex items-center justify-center gap-6">
+                  <ExploitabilityGauge 
+                    score={evaluation.score ?? 0} 
+                    confidence={evaluation.confidence ?? 0}
+                    size="md"
+                  />
+                  <ConfidenceGauge 
+                    confidence={evaluation.confidence ?? 0}
+                    size="md"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {evaluation.remediationGuidance && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-cyan-500/10">
+                    <Wrench className="h-5 w-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Remediation Guidance</h2>
+                    <p className="text-xs text-muted-foreground">
+                      AI-generated fixes and mitigations
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                <RemediationPanel guidance={evaluation.remediationGuidance} viewMode={viewMode} />
               </div>
             </div>
           )}
