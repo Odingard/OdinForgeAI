@@ -274,6 +274,235 @@ export const multiVectorFindingSchema = z.object({
 
 export type MultiVectorFinding = z.infer<typeof multiVectorFindingSchema>;
 
+// Evidence Artifact Types
+export const evidenceArtifactTypes = [
+  "request_response",     // HTTP request/response pair
+  "execution_trace",      // Step-by-step execution log
+  "log_capture",          // System/application logs
+  "screenshot",           // Safe screenshot capture
+  "configuration_dump",   // Config state at time of exploit
+  "data_sample",          // Sanitized data samples
+  "network_capture",      // Network traffic summary
+  "timeline_event",       // Timestamped event
+] as const;
+
+export type EvidenceArtifactType = typeof evidenceArtifactTypes[number];
+
+// Evidence Artifact Schema - proof of exploit
+export const evidenceArtifactSchema = z.object({
+  id: z.string(),
+  type: z.enum(evidenceArtifactTypes),
+  timestamp: z.string(),
+  title: z.string(),
+  description: z.string(),
+  data: z.object({
+    request: z.object({
+      method: z.string(),
+      url: z.string(),
+      headers: z.record(z.string()).optional(),
+      body: z.string().optional(),
+    }).optional(),
+    response: z.object({
+      statusCode: z.number(),
+      headers: z.record(z.string()).optional(),
+      body: z.string().optional(),
+      timing: z.number().optional(),
+    }).optional(),
+    logs: z.array(z.object({
+      timestamp: z.string(),
+      level: z.enum(["debug", "info", "warn", "error"]),
+      message: z.string(),
+      source: z.string().optional(),
+    })).optional(),
+    screenshot: z.object({
+      base64: z.string().optional(),
+      url: z.string().optional(),
+      caption: z.string(),
+    }).optional(),
+    trace: z.array(z.object({
+      step: z.number(),
+      action: z.string(),
+      result: z.string(),
+      duration: z.number().optional(),
+    })).optional(),
+  }),
+  tags: z.array(z.string()).optional(),
+  attackStepId: z.number().optional(),
+  findingId: z.string().optional(),
+  isSanitized: z.boolean().default(true),
+});
+
+export type EvidenceArtifact = z.infer<typeof evidenceArtifactSchema>;
+
+// Evidence Packet - collection of artifacts for sharing
+export const evidencePacketSchema = z.object({
+  id: z.string(),
+  evaluationId: z.string(),
+  createdAt: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  artifacts: z.array(evidenceArtifactSchema),
+  timeline: z.array(z.object({
+    timestamp: z.string(),
+    event: z.string(),
+    artifactId: z.string().optional(),
+  })),
+  executiveSummary: z.string().optional(),
+  replayInstructions: z.string().optional(),
+  metadata: z.object({
+    evaluationType: z.string(),
+    assetId: z.string(),
+    totalArtifacts: z.number(),
+    criticalFindings: z.number(),
+  }),
+});
+
+export type EvidencePacket = z.infer<typeof evidencePacketSchema>;
+
+// Compliance Frameworks
+export const complianceFrameworks = [
+  "pci_dss",    // Payment Card Industry
+  "hipaa",      // Healthcare
+  "sox",        // Financial reporting
+  "gdpr",       // EU data protection
+  "ccpa",       // California privacy
+  "iso27001",   // Information security
+  "nist",       // NIST Cybersecurity Framework
+  "soc2",       // Service Organization Control
+] as const;
+
+export type ComplianceFramework = typeof complianceFrameworks[number];
+
+// Exploitability Score Schema - contextual risk assessment
+export const exploitabilityScoreSchema = z.object({
+  score: z.number().min(0).max(100),
+  confidence: z.number().min(0).max(100),
+  factors: z.object({
+    attackComplexity: z.object({
+      level: z.enum(["trivial", "low", "medium", "high", "expert"]),
+      score: z.number().min(0).max(100),
+      rationale: z.string(),
+    }),
+    authenticationRequired: z.object({
+      level: z.enum(["none", "single", "multi-factor", "privileged"]),
+      score: z.number().min(0).max(100),
+      rationale: z.string(),
+    }),
+    environmentalContext: z.object({
+      networkExposure: z.enum(["internet", "dmz", "internal", "isolated"]),
+      patchLevel: z.enum(["current", "behind", "significantly_behind", "eol"]),
+      compensatingControls: z.array(z.string()),
+      score: z.number().min(0).max(100),
+    }),
+    detectionLikelihood: z.object({
+      level: z.enum(["unlikely", "possible", "likely", "certain"]),
+      monitoringCoverage: z.number().min(0).max(100),
+      evasionDifficulty: z.enum(["trivial", "moderate", "difficult", "near_impossible"]),
+      score: z.number().min(0).max(100),
+    }),
+    exploitMaturity: z.object({
+      availability: z.enum(["theoretical", "poc", "weaponized", "in_the_wild"]),
+      skillRequired: z.enum(["script_kiddie", "intermediate", "advanced", "nation_state"]),
+      score: z.number().min(0).max(100),
+    }),
+  }),
+});
+
+export type ExploitabilityScore = z.infer<typeof exploitabilityScoreSchema>;
+
+// Business Impact Score Schema
+export const businessImpactScoreSchema = z.object({
+  score: z.number().min(0).max(100),
+  riskLabel: z.enum(["minimal", "low", "moderate", "significant", "severe", "catastrophic"]),
+  factors: z.object({
+    dataSensitivity: z.object({
+      classification: z.enum(["public", "internal", "confidential", "restricted", "top_secret"]),
+      dataTypes: z.array(z.enum(["pii", "phi", "pci", "credentials", "trade_secrets", "financial", "customer_data"])),
+      recordsAtRisk: z.string(),
+      score: z.number().min(0).max(100),
+    }),
+    financialExposure: z.object({
+      directLoss: z.object({
+        min: z.number(),
+        max: z.number(),
+        currency: z.string().default("USD"),
+      }),
+      regulatoryFines: z.object({
+        potential: z.number(),
+        frameworks: z.array(z.string()),
+      }),
+      remediationCost: z.number(),
+      businessDisruptionCost: z.number(),
+      score: z.number().min(0).max(100),
+    }),
+    complianceImpact: z.object({
+      affectedFrameworks: z.array(z.enum(complianceFrameworks)),
+      violations: z.array(z.object({
+        framework: z.string(),
+        requirement: z.string(),
+        severity: z.enum(["minor", "major", "critical"]),
+      })),
+      auditImplications: z.string().optional(),
+      score: z.number().min(0).max(100),
+    }),
+    blastRadius: z.object({
+      affectedSystems: z.number(),
+      affectedUsers: z.string(),
+      downstreamDependencies: z.array(z.string()),
+      propagationRisk: z.enum(["contained", "limited", "spreading", "uncontained"]),
+      score: z.number().min(0).max(100),
+    }),
+    reputationalRisk: z.object({
+      customerTrust: z.enum(["minimal", "moderate", "significant", "severe"]),
+      mediaExposure: z.enum(["unlikely", "possible", "likely", "certain"]),
+      competitiveAdvantage: z.enum(["none", "minor", "moderate", "major"]),
+      score: z.number().min(0).max(100),
+    }),
+  }),
+});
+
+export type BusinessImpactScore = z.infer<typeof businessImpactScoreSchema>;
+
+// Combined Risk Rank Schema
+export const riskRankSchema = z.object({
+  overallScore: z.number().min(0).max(100),
+  riskLevel: z.enum(["info", "low", "medium", "high", "critical", "emergency"]),
+  executiveLabel: z.string(),
+  fixPriority: z.number().min(1).max(100),
+  recommendation: z.object({
+    action: z.string(),
+    timeframe: z.enum(["immediate", "24_hours", "7_days", "30_days", "90_days", "acceptable_risk"]),
+    justification: z.string(),
+  }),
+  comparison: z.object({
+    cvssEquivalent: z.number().optional(),
+    industryPercentile: z.number().optional(),
+    organizationPercentile: z.number().optional(),
+  }).optional(),
+  trendIndicator: z.enum(["improving", "stable", "degrading", "new"]).optional(),
+});
+
+export type RiskRank = z.infer<typeof riskRankSchema>;
+
+// Complete Intelligent Score combining all factors
+export const intelligentScoreSchema = z.object({
+  exploitability: exploitabilityScoreSchema,
+  businessImpact: businessImpactScoreSchema,
+  riskRank: riskRankSchema,
+  calculatedAt: z.string(),
+  methodology: z.string().optional(),
+  overrides: z.array(z.object({
+    field: z.string(),
+    originalValue: z.any(),
+    overrideValue: z.any(),
+    reason: z.string(),
+    overriddenBy: z.string(),
+    timestamp: z.string(),
+  })).optional(),
+});
+
+export type IntelligentScore = z.infer<typeof intelligentScoreSchema>;
+
 // AEV Results table
 export const aevResults = pgTable("aev_results", {
   id: varchar("id").primaryKey(),
@@ -288,6 +517,8 @@ export const aevResults = pgTable("aev_results", {
   workflowAnalysis: jsonb("workflow_analysis").$type<WorkflowStateMachine>(),
   impact: text("impact"),
   recommendations: jsonb("recommendations").$type<Recommendation[]>(),
+  evidenceArtifacts: jsonb("evidence_artifacts").$type<EvidenceArtifact[]>(),
+  intelligentScore: jsonb("intelligent_score").$type<IntelligentScore>(),
   duration: integer("duration"), // milliseconds
   completedAt: timestamp("completed_at"),
 });

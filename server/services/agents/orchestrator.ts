@@ -12,6 +12,8 @@ import { runMultiVectorAnalysisAgent, shouldRunMultiVectorAnalysis } from "./mul
 import { runImpactAgent } from "./impact";
 import { synthesizeResults } from "./synthesizer";
 import { synthesizeAttackGraph } from "./graph-synthesizer";
+import { generateEvidenceFromAnalysis } from "./evidence-collector";
+import { generateIntelligentScore } from "./scoring-engine";
 
 export async function runAgentOrchestrator(
   assetId: string,
@@ -82,8 +84,31 @@ export async function runAgentOrchestrator(
   onProgress?.("Synthesizer", "synthesis", 90, "Generating final report...");
   const result = await synthesizeResults(memory);
 
-  onProgress?.("Graph Synthesizer", "graph_synthesis", 95, "Building attack graph...");
+  onProgress?.("Graph Synthesizer", "graph_synthesis", 92, "Building attack graph...");
   const graphResult = await synthesizeAttackGraph(memory);
+
+  onProgress?.("Evidence Collector", "evidence", 95, "Capturing evidence artifacts...");
+  const evidenceArtifacts = generateEvidenceFromAnalysis({
+    evaluationId,
+    assetId,
+    exposureType,
+    attackPath: result.attackPath,
+    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
+    multiVectorFindings: memory.multiVector?.findings,
+  });
+
+  onProgress?.("Scoring Engine", "scoring", 98, "Calculating intelligent risk scores...");
+  const intelligentScore = await generateIntelligentScore({
+    assetId,
+    exposureType,
+    priority,
+    description,
+    exploitable: result.exploitable,
+    attackPath: result.attackPath,
+    attackGraph: graphResult.attackGraph,
+    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
+    multiVectorFindings: memory.multiVector?.findings,
+  });
 
   const totalProcessingTime = Date.now() - startTime;
 
@@ -95,6 +120,8 @@ export async function runAgentOrchestrator(
     businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
     multiVectorFindings: memory.multiVector?.findings,
     workflowAnalysis: memory.enhancedBusinessLogic?.workflowAnalysis || undefined,
+    evidenceArtifacts,
+    intelligentScore,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,

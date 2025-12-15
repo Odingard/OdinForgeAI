@@ -1,4 +1,4 @@
-import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType } from "@shared/schema";
+import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore } from "@shared/schema";
 
 export interface AgentContext {
   assetId: string;
@@ -209,6 +209,8 @@ export interface OrchestratorResult {
   businessLogicFindings?: BusinessLogicFinding[];
   multiVectorFindings?: MultiVectorFinding[];
   workflowAnalysis?: WorkflowStateMachine;
+  evidenceArtifacts?: EvidenceArtifact[];
+  intelligentScore?: IntelligentScore;
   impact: string;
   recommendations: Recommendation[];
   agentFindings: {
