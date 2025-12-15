@@ -1,4 +1,4 @@
-import type { AttackPathStep, Recommendation } from "@shared/schema";
+import type { AttackPathStep, Recommendation, AttackGraph } from "@shared/schema";
 
 export interface AgentContext {
   assetId: string;
@@ -87,6 +87,7 @@ export interface OrchestratorResult {
   confidence: number;
   score: number;
   attackPath: AttackPathStep[];
+  attackGraph?: AttackGraph;
   impact: string;
   recommendations: Recommendation[];
   agentFindings: {

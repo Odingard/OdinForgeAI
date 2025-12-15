@@ -86,7 +86,10 @@ export class DatabaseStorage implements IStorage {
   async createResult(data: InsertResult & { id: string }): Promise<Result> {
     const [result] = await db
       .insert(aevResults)
-      .values({ ...data, completedAt: new Date() })
+      .values({ 
+        ...data, 
+        completedAt: new Date() 
+      } as typeof aevResults.$inferInsert)
       .returning();
     return result;
   }

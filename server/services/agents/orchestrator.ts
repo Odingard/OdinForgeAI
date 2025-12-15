@@ -10,6 +10,7 @@ import { runLateralAgent } from "./lateral";
 import { runBusinessLogicAgent } from "./business-logic";
 import { runImpactAgent } from "./impact";
 import { synthesizeResults } from "./synthesizer";
+import { synthesizeAttackGraph } from "./graph-synthesizer";
 
 export async function runAgentOrchestrator(
   assetId: string,
@@ -61,8 +62,11 @@ export async function runAgentOrchestrator(
   });
   memory.impact = impactResult.findings;
 
-  onProgress?.("Synthesizer", "synthesis", 95, "Generating final report...");
+  onProgress?.("Synthesizer", "synthesis", 90, "Generating final report...");
   const result = await synthesizeResults(memory);
+
+  onProgress?.("Graph Synthesizer", "graph_synthesis", 95, "Building attack graph...");
+  const graphResult = await synthesizeAttackGraph(memory);
 
   const totalProcessingTime = Date.now() - startTime;
 
@@ -70,6 +74,7 @@ export async function runAgentOrchestrator(
 
   return {
     ...result,
+    attackGraph: graphResult.attackGraph,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,
