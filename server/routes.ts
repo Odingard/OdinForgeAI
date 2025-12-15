@@ -106,6 +106,42 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/aev/evaluations/:id/archive", async (req, res) => {
+    try {
+      const evaluationId = req.params.id;
+      const evaluation = await storage.getEvaluation(evaluationId);
+      
+      if (!evaluation) {
+        return res.status(404).json({ error: "Evaluation not found" });
+      }
+
+      await storage.updateEvaluationStatus(evaluationId, "archived");
+      
+      res.json({ success: true, message: "Evaluation archived successfully" });
+    } catch (error) {
+      console.error("Error archiving evaluation:", error);
+      res.status(500).json({ error: "Failed to archive evaluation" });
+    }
+  });
+
+  app.patch("/api/aev/evaluations/:id/unarchive", async (req, res) => {
+    try {
+      const evaluationId = req.params.id;
+      const evaluation = await storage.getEvaluation(evaluationId);
+      
+      if (!evaluation) {
+        return res.status(404).json({ error: "Evaluation not found" });
+      }
+
+      await storage.updateEvaluationStatus(evaluationId, "completed");
+      
+      res.json({ success: true, message: "Evaluation restored successfully" });
+    } catch (error) {
+      console.error("Error restoring evaluation:", error);
+      res.status(500).json({ error: "Failed to restore evaluation" });
+    }
+  });
+
   app.get("/api/aev/stats", async (req, res) => {
     try {
       const evaluations = await storage.getEvaluations();

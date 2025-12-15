@@ -1,8 +1,26 @@
 import { useState } from "react";
-import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play } from "lucide-react";
+import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play, Trash2, Archive, ArchiveRestore, MoreVertical } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AttackPathVisualizer } from "./AttackPathVisualizer";
 import { AttackGraphVisualizer } from "./AttackGraphVisualizer";
 import { AnimatedAttackGraph } from "./AnimatedAttackGraph";
@@ -18,6 +36,8 @@ import { ConfidenceGauge } from "./ConfidenceGauge";
 import { RiskHeatmap } from "./RiskHeatmap";
 import { ViewModeToggle } from "./ViewModeToggle";
 import { RemediationPanel } from "./RemediationPanel";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, EvidenceArtifact, IntelligentScore, RemediationGuidance } from "@shared/schema";
 
 interface EvaluationDetailProps {
@@ -105,6 +125,77 @@ interface EvaluationDetailProps {
 export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) {
   const [viewMode, setViewMode] = useState<"executive" | "engineer">("executive");
   const [showAnimatedGraph, setShowAnimatedGraph] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showArchiveDialog, setShowArchiveDialog] = useState(false);
+  const { toast } = useToast();
+
+  const isArchived = evaluation.status === "archived";
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/aev/evaluations/${evaluation.id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/stats"] });
+      toast({
+        title: "Evaluation deleted",
+        description: "The evaluation has been permanently removed.",
+      });
+      onBack();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete evaluation. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/aev/evaluations/${evaluation.id}/archive`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/stats"] });
+      toast({
+        title: "Evaluation archived",
+        description: "The evaluation has been moved to the archive.",
+      });
+      onBack();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to archive evaluation. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unarchiveMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("PATCH", `/api/aev/evaluations/${evaluation.id}/unarchive`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/stats"] });
+      toast({
+        title: "Evaluation restored",
+        description: "The evaluation has been restored from archive.",
+      });
+      onBack();
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to restore evaluation. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const getSeverityBadge = (priority: string) => {
     const classes: Record<string, string> = {
@@ -132,6 +223,11 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               }>
                 {evaluation.exploitable ? "EXPLOITABLE" : "NOT EXPLOITABLE"}
               </Badge>
+              {isArchived && (
+                <Badge className="bg-slate-500/10 text-slate-400 border-slate-500/30">
+                  ARCHIVED
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground font-mono mt-1">{evaluation.id}</p>
           </div>
@@ -150,6 +246,41 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </div>
             )}
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" data-testid="btn-actions-menu">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {isArchived ? (
+                <DropdownMenuItem 
+                  onClick={() => unarchiveMutation.mutate()}
+                  data-testid="btn-restore"
+                >
+                  <ArchiveRestore className="h-4 w-4 mr-2" />
+                  Restore from Archive
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem 
+                  onClick={() => setShowArchiveDialog(true)}
+                  data-testid="btn-archive"
+                >
+                  <Archive className="h-4 w-4 mr-2" />
+                  Archive Evaluation
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={() => setShowDeleteDialog(true)}
+                className="text-destructive focus:text-destructive"
+                data-testid="btn-delete"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Permanently
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -456,6 +587,59 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
           </div>
         </div>
       </div>
+
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Evaluation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete this evaluation? This action cannot be undone and all associated data will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              disabled={deleteMutation.isPending}
+              data-testid="btn-cancel-delete"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="btn-confirm-delete"
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive Evaluation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to archive this evaluation? Archived evaluations can be restored later from the actions menu.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel 
+              disabled={archiveMutation.isPending}
+              data-testid="btn-cancel-archive"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => archiveMutation.mutate()}
+              disabled={archiveMutation.isPending}
+              data-testid="btn-confirm-archive"
+            >
+              {archiveMutation.isPending ? "Archiving..." : "Archive"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
