@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { AgentMemory, AgentResult, LateralFindings } from "./types";
+import type { AgentMemory, AgentResult, LateralFindings, LateralShadowAdminIndicator } from "./types";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -32,8 +32,14 @@ Your mission is to analyze how an attacker could move laterally after initial co
 1. Pivot paths - how to move from one system/asset to another
 2. Privilege escalation opportunities
 3. Token reuse and credential harvesting opportunities
+4. Shadow admin discovery - identify users/accounts with admin-equivalent privileges who:
+   - Don't appear in official admin groups
+   - Have accumulated permissions over time through delegated/inherited access
+   - Can perform privileged actions through indirect paths (role assumption, service accounts)
+   - Control critical resources without proper oversight
 
-Use MITRE ATT&CK lateral movement techniques (TA0008). Think like a red team operator planning post-exploitation.`;
+Use MITRE ATT&CK lateral movement techniques (TA0008). Think like a red team operator planning post-exploitation.
+For cloud and SaaS environments, focus on IAM abuse paths and shadow admin indicators.`;
 
   const userPrompt = `Analyze lateral movement opportunities for this exposure:
 
@@ -60,7 +66,16 @@ Provide your lateral movement analysis as a JSON object with this structure:
       "likelihood": "high" | "medium" | "low"
     }
   ],
-  "tokenReuse": ["list of token/credential reuse opportunities"]
+  "tokenReuse": ["list of token/credential reuse opportunities"],
+  "shadowAdminIndicators": [
+    {
+      "principal": "User or service account identifier",
+      "platform": "AWS|GCP|Azure|Google Workspace|Microsoft 365|etc",
+      "indicatorType": "excessive_permissions|dormant_admin|service_account_abuse|delegated_admin|hidden_role",
+      "evidence": ["evidence of shadow admin status"],
+      "riskLevel": "critical|high|medium|low"
+    }
+  ]
 }`;
 
   try {
@@ -102,6 +117,15 @@ Provide your lateral movement analysis as a JSON object with this structure:
           }))
         : [],
       tokenReuse: Array.isArray(findings.tokenReuse) ? findings.tokenReuse : [],
+      shadowAdminIndicators: Array.isArray(findings.shadowAdminIndicators)
+        ? findings.shadowAdminIndicators.map((ind): LateralShadowAdminIndicator => ({
+            principal: String(ind.principal || ""),
+            platform: String(ind.platform || ""),
+            indicatorType: validateIndicatorType(ind.indicatorType),
+            evidence: Array.isArray(ind.evidence) ? ind.evidence.map(String) : [],
+            riskLevel: validateRiskLevel(ind.riskLevel),
+          }))
+        : [],
     };
 
     return {
@@ -119,4 +143,14 @@ Provide your lateral movement analysis as a JSON object with this structure:
 function validateLikelihood(likelihood: unknown): "high" | "medium" | "low" {
   const valid = ["high", "medium", "low"];
   return valid.includes(String(likelihood)) ? (likelihood as "high" | "medium" | "low") : "medium";
+}
+
+function validateRiskLevel(level: unknown): "critical" | "high" | "medium" | "low" {
+  const valid = ["critical", "high", "medium", "low"];
+  return valid.includes(String(level)) ? (level as "critical" | "high" | "medium" | "low") : "medium";
+}
+
+function validateIndicatorType(type: unknown): LateralShadowAdminIndicator["indicatorType"] {
+  const valid = ["excessive_permissions", "dormant_admin", "service_account_abuse", "delegated_admin", "hidden_role"];
+  return valid.includes(String(type)) ? (type as LateralShadowAdminIndicator["indicatorType"]) : "excessive_permissions";
 }

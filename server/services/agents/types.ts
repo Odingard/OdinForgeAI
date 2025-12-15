@@ -1,4 +1,4 @@
-import type { AttackPathStep, Recommendation, AttackGraph } from "@shared/schema";
+import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType } from "@shared/schema";
 
 export interface AgentContext {
   assetId: string;
@@ -29,6 +29,14 @@ export interface ExploitFindings {
   misconfigurations: string[];
 }
 
+export interface LateralShadowAdminIndicator {
+  principal: string;
+  platform: string;
+  indicatorType: "excessive_permissions" | "dormant_admin" | "service_account_abuse" | "delegated_admin" | "hidden_role";
+  evidence: string[];
+  riskLevel: "critical" | "high" | "medium" | "low";
+}
+
 export interface LateralFindings {
   pivotPaths: Array<{
     from: string;
@@ -42,6 +50,7 @@ export interface LateralFindings {
     likelihood: "high" | "medium" | "low";
   }>;
   tokenReuse: string[];
+  shadowAdminIndicators?: LateralShadowAdminIndicator[];
 }
 
 export interface BusinessLogicFindings {
@@ -50,6 +59,113 @@ export interface BusinessLogicFindings {
   raceConditions: string[];
   authorizationBypass: string[];
   criticalFlows: string[];
+}
+
+export interface EnhancedBusinessLogicFindings {
+  basicFindings: BusinessLogicFindings;
+  detailedFindings: BusinessLogicFinding[];
+  workflowAnalysis: WorkflowStateMachine | null;
+  paymentFlowVulnerabilities: PaymentFlowVulnerability[];
+  stateTransitionViolations: StateTransitionViolation[];
+  inferredWorkflows: InferredWorkflow[];
+}
+
+export interface PaymentFlowVulnerability {
+  id: string;
+  category: "payment_bypass" | "subscription_abuse" | "order_manipulation" | "price_tampering" | "coupon_abuse";
+  title: string;
+  description: string;
+  severity: "critical" | "high" | "medium" | "low";
+  affectedFlow: string[];
+  exploitSteps: string[];
+  financialImpact: string;
+  validatedExploit: boolean;
+}
+
+export interface StateTransitionViolation {
+  id: string;
+  fromState: string;
+  toState: string;
+  expectedTransitions: string[];
+  actualTransition: string;
+  violationType: "skip" | "reverse" | "unauthorized" | "race_condition";
+  severity: "critical" | "high" | "medium" | "low";
+  exploitability: string;
+}
+
+export interface InferredWorkflow {
+  name: string;
+  description: string;
+  steps: string[];
+  securityCheckpoints: string[];
+  potentialBypasses: string[];
+}
+
+export interface MultiVectorFindings {
+  findings: MultiVectorFinding[];
+  cloudFindings: CloudFinding[];
+  iamFindings: IAMFinding[];
+  saasFindings: SaaSFinding[];
+  shadowAdminIndicators: ShadowAdminIndicator[];
+  chainedAttackPaths: ChainedAttackPath[];
+}
+
+export interface CloudFinding {
+  id: string;
+  vectorType: CloudVectorType;
+  provider: "aws" | "gcp" | "azure" | "multi-cloud";
+  service: string;
+  resource: string;
+  title: string;
+  description: string;
+  severity: "critical" | "high" | "medium" | "low";
+  exploitPath: string[];
+  remediationSteps: string[];
+}
+
+export interface IAMFinding {
+  id: string;
+  principal: string;
+  assumableRoles: string[];
+  effectivePermissions: string[];
+  privilegeEscalationPath: string | null;
+  severity: "critical" | "high" | "medium" | "low";
+  title: string;
+  description: string;
+}
+
+export interface SaaSFinding {
+  id: string;
+  platform: string;
+  permissionLevel: string;
+  title: string;
+  description: string;
+  severity: "critical" | "high" | "medium" | "low";
+  shadowAdminIndicators: string[];
+  exploitPath: string[];
+}
+
+export interface ShadowAdminIndicator {
+  id: string;
+  principal: string;
+  platform: string;
+  indicatorType: "excessive_permissions" | "dormant_admin" | "service_account_abuse" | "delegated_admin" | "hidden_role";
+  evidence: string[];
+  riskLevel: "critical" | "high" | "medium" | "low";
+}
+
+export interface ChainedAttackPath {
+  id: string;
+  name: string;
+  vectors: string[];
+  steps: Array<{
+    step: number;
+    action: string;
+    target: string;
+    technique: string;
+  }>;
+  combinedImpact: string;
+  difficulty: "trivial" | "low" | "medium" | "high" | "expert";
 }
 
 export interface ImpactFindings {
@@ -72,6 +188,8 @@ export interface AgentMemory {
   exploit?: ExploitFindings;
   lateral?: LateralFindings;
   businessLogic?: BusinessLogicFindings;
+  enhancedBusinessLogic?: EnhancedBusinessLogicFindings;
+  multiVector?: MultiVectorFindings;
   impact?: ImpactFindings;
 }
 
@@ -88,6 +206,9 @@ export interface OrchestratorResult {
   score: number;
   attackPath: AttackPathStep[];
   attackGraph?: AttackGraph;
+  businessLogicFindings?: BusinessLogicFinding[];
+  multiVectorFindings?: MultiVectorFinding[];
+  workflowAnalysis?: WorkflowStateMachine;
   impact: string;
   recommendations: Recommendation[];
   agentFindings: {
@@ -95,6 +216,8 @@ export interface OrchestratorResult {
     exploit: ExploitFindings;
     lateral: LateralFindings;
     businessLogic: BusinessLogicFindings;
+    enhancedBusinessLogic?: EnhancedBusinessLogicFindings;
+    multiVector?: MultiVectorFindings;
     impact: ImpactFindings;
   };
   totalProcessingTime: number;

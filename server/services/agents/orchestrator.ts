@@ -7,7 +7,8 @@ import type {
 import { runReconAgent } from "./recon";
 import { runExploitAgent } from "./exploit";
 import { runLateralAgent } from "./lateral";
-import { runBusinessLogicAgent } from "./business-logic";
+import { runBusinessLogicAgent, runEnhancedBusinessLogicEngine, shouldRunEnhancedEngine } from "./business-logic";
+import { runMultiVectorAnalysisAgent, shouldRunMultiVectorAnalysis } from "./multi-vector";
 import { runImpactAgent } from "./impact";
 import { synthesizeResults } from "./synthesizer";
 import { synthesizeAttackGraph } from "./graph-synthesizer";
@@ -50,13 +51,29 @@ export async function runAgentOrchestrator(
   });
   memory.lateral = lateralResult.findings;
 
-  onProgress?.("Business Logic Agent", "business_logic", 65, "Analyzing business logic flaws...");
+  onProgress?.("Business Logic Agent", "business_logic", 55, "Analyzing business logic flaws...");
   const businessLogicResult = await runBusinessLogicAgent(memory, (stage: string, progress: number, message: string) => {
     onProgress?.("Business Logic Agent", stage, progress, message);
   });
   memory.businessLogic = businessLogicResult.findings;
 
-  onProgress?.("Impact Agent", "impact", 85, "Assessing business impact...");
+  if (shouldRunEnhancedEngine(exposureType)) {
+    onProgress?.("Business Logic Engine", "enhanced_business_logic", 60, "Running enhanced business logic analysis...");
+    const enhancedResult = await runEnhancedBusinessLogicEngine(memory, (stage: string, progress: number, message: string) => {
+      onProgress?.("Business Logic Engine", stage, progress, message);
+    });
+    memory.enhancedBusinessLogic = enhancedResult.findings;
+  }
+
+  if (shouldRunMultiVectorAnalysis(exposureType)) {
+    onProgress?.("Multi-Vector Agent", "multi_vector", 70, "Analyzing multi-vector attack paths...");
+    const multiVectorResult = await runMultiVectorAnalysisAgent(memory, (stage: string, progress: number, message: string) => {
+      onProgress?.("Multi-Vector Agent", stage, progress, message);
+    });
+    memory.multiVector = multiVectorResult.findings;
+  }
+
+  onProgress?.("Impact Agent", "impact", 80, "Assessing business impact...");
   const impactResult = await runImpactAgent(memory, (stage: string, progress: number, message: string) => {
     onProgress?.("Impact Agent", stage, progress, message);
   });
@@ -75,11 +92,16 @@ export async function runAgentOrchestrator(
   return {
     ...result,
     attackGraph: graphResult.attackGraph,
+    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
+    multiVectorFindings: memory.multiVector?.findings,
+    workflowAnalysis: memory.enhancedBusinessLogic?.workflowAnalysis || undefined,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,
       lateral: memory.lateral!,
       businessLogic: memory.businessLogic!,
+      enhancedBusinessLogic: memory.enhancedBusinessLogic,
+      multiVector: memory.multiVector,
       impact: memory.impact!,
     },
     totalProcessingTime,

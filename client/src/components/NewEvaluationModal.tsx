@@ -7,10 +7,37 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { ExposureType } from "@shared/schema";
+
+const exposureTypeLabels: Record<ExposureType, string> = {
+  cve: "CVE Exploitation",
+  misconfiguration: "Misconfiguration",
+  behavioral_anomaly: "Behavioral Anomaly",
+  network_vulnerability: "Network Vulnerability",
+  cloud_misconfiguration: "Cloud Misconfiguration",
+  iam_abuse: "IAM Abuse",
+  saas_permission: "SaaS Permission Abuse",
+  shadow_admin: "Shadow Admin Discovery",
+  api_sequence_abuse: "API Sequence Abuse",
+  payment_flow: "Payment Flow",
+  subscription_bypass: "Subscription Bypass",
+  state_machine: "State Machine Violation",
+  privilege_boundary: "Privilege Boundary",
+  workflow_desync: "Workflow Desync",
+  order_lifecycle: "Order Lifecycle Abuse",
+};
+
+const exposureTypeGroups = {
+  "Traditional Vectors": ["cve", "misconfiguration", "behavioral_anomaly", "network_vulnerability"] as ExposureType[],
+  "Cloud & IAM": ["cloud_misconfiguration", "iam_abuse", "saas_permission", "shadow_admin"] as ExposureType[],
+  "Business Logic": ["api_sequence_abuse", "payment_flow", "subscription_bypass", "state_machine", "privilege_boundary", "workflow_desync", "order_lifecycle"] as ExposureType[],
+};
 
 interface NewEvaluationModalProps {
   isOpen: boolean;
@@ -88,15 +115,19 @@ export function NewEvaluationModal({ isOpen, onClose, onSubmit }: NewEvaluationM
                 onValueChange={(value) => setFormData({ ...formData, exposureType: value })}
               >
                 <SelectTrigger data-testid="select-exposure-type">
-                  <SelectValue />
+                  <SelectValue placeholder="Select type" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cve">CVE</SelectItem>
-                  <SelectItem value="misconfiguration">Misconfiguration</SelectItem>
-                  <SelectItem value="behavior">Behavioral</SelectItem>
-                  <SelectItem value="network">Network</SelectItem>
-                  <SelectItem value="business_logic">Business Logic</SelectItem>
-                  <SelectItem value="api_abuse">API Abuse</SelectItem>
+                <SelectContent className="max-h-80">
+                  {Object.entries(exposureTypeGroups).map(([group, types]) => (
+                    <SelectGroup key={group}>
+                      <SelectLabel className="text-xs text-muted-foreground">{group}</SelectLabel>
+                      {types.map((type) => (
+                        <SelectItem key={type} value={type} data-testid={`option-${type}`}>
+                          {exposureTypeLabels[type]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

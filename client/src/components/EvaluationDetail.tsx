@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network } from "lucide-react";
+import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,6 +6,10 @@ import { AttackPathVisualizer } from "./AttackPathVisualizer";
 import { AttackGraphVisualizer } from "./AttackGraphVisualizer";
 import { ExploitabilityGauge } from "./ExploitabilityGauge";
 import { RecommendationsPanel } from "./RecommendationsPanel";
+import { BusinessLogicFindingsPanel } from "./BusinessLogicFindingsPanel";
+import { MultiVectorFindingsPanel } from "./MultiVectorFindingsPanel";
+import { WorkflowStateMachineVisualizer } from "./WorkflowStateMachineVisualizer";
+import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine } from "@shared/schema";
 
 interface EvaluationDetailProps {
   evaluation: {
@@ -79,6 +83,9 @@ interface EvaluationDetailProps {
       priority: "critical" | "high" | "medium" | "low";
       type: "remediation" | "compensating" | "preventive";
     }>;
+    businessLogicFindings?: BusinessLogicFinding[];
+    multiVectorFindings?: MultiVectorFinding[];
+    workflowAnalysis?: WorkflowStateMachine;
   };
   onBack: () => void;
 }
@@ -221,9 +228,67 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </Tabs>
             </div>
           </div>
+
+          {evaluation.businessLogicFindings && evaluation.businessLogicFindings.length > 0 && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-amber-500/10">
+                    <Workflow className="h-5 w-5 text-amber-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Business Logic Findings</h2>
+                    <p className="text-xs text-muted-foreground">
+                      {evaluation.businessLogicFindings.length} finding{evaluation.businessLogicFindings.length !== 1 ? 's' : ''} detected
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                <BusinessLogicFindingsPanel findings={evaluation.businessLogicFindings} />
+              </div>
+            </div>
+          )}
+
+          {evaluation.multiVectorFindings && evaluation.multiVectorFindings.length > 0 && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-cyan-500/10">
+                    <Cloud className="h-5 w-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Multi-Vector Findings</h2>
+                    <p className="text-xs text-muted-foreground">
+                      {evaluation.multiVectorFindings.length} cloud/IAM/SaaS finding{evaluation.multiVectorFindings.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                <MultiVectorFindingsPanel findings={evaluation.multiVectorFindings} />
+              </div>
+            </div>
+          )}
+
+          {evaluation.workflowAnalysis && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/10">
+                    <Workflow className="h-5 w-5 text-blue-400" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-foreground">Workflow State Machine</h2>
+                </div>
+              </div>
+              <div className="p-6">
+                <WorkflowStateMachineVisualizer workflow={evaluation.workflowAnalysis} />
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-6 lg:col-span-1">
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-border bg-muted/30">
               <div className="flex items-center gap-3">
