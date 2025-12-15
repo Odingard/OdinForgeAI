@@ -678,3 +678,322 @@ export type InsertEvaluation = z.infer<typeof insertEvaluationSchema>;
 export type Evaluation = typeof aevEvaluations.$inferSelect;
 export type InsertResult = z.infer<typeof insertResultSchema>;
 export type Result = typeof aevResults.$inferSelect;
+
+// ============================================================================
+// REPORTING & BATCH VALIDATION SCHEMAS
+// ============================================================================
+
+// Report Types
+export const reportTypes = [
+  "executive_summary",      // High-level for C-suite and board
+  "technical_deepdive",     // Detailed for security engineers
+  "compliance_mapping",     // Mapped to compliance frameworks
+  "evidence_bundle",        // Full evidence package for auditors
+] as const;
+
+export type ReportType = typeof reportTypes[number];
+
+// Export Formats
+export const exportFormats = [
+  "pdf",
+  "csv",
+  "json",
+  "html",
+] as const;
+
+export type ExportFormat = typeof exportFormats[number];
+
+// Report Finding Schema
+export const reportFindingSchema = z.object({
+  id: z.string(),
+  evaluationId: z.string(),
+  assetId: z.string(),
+  title: z.string(),
+  severity: z.enum(["critical", "high", "medium", "low"]),
+  exploitable: z.boolean(),
+  score: z.number().min(0).max(100),
+  description: z.string(),
+  impact: z.string().optional(),
+  recommendation: z.string().optional(),
+  complianceViolations: z.array(z.object({
+    framework: z.enum(complianceFrameworks),
+    control: z.string(),
+    description: z.string(),
+  })).optional(),
+  evidence: z.array(z.string()).optional(),
+});
+
+export type ReportFinding = z.infer<typeof reportFindingSchema>;
+
+// Executive Summary Schema
+export const executiveSummarySchema = z.object({
+  reportDate: z.string(),
+  reportPeriod: z.object({
+    from: z.string(),
+    to: z.string(),
+  }),
+  organizationId: z.string(),
+  overallRiskLevel: z.enum(["critical", "high", "medium", "low"]),
+  keyMetrics: z.object({
+    totalEvaluations: z.number(),
+    exploitableFindings: z.number(),
+    criticalFindings: z.number(),
+    highFindings: z.number(),
+    mediumFindings: z.number(),
+    lowFindings: z.number(),
+    averageScore: z.number(),
+    averageConfidence: z.number(),
+  }),
+  riskTrend: z.enum(["improving", "stable", "degrading"]),
+  topRisks: z.array(z.object({
+    assetId: z.string(),
+    riskDescription: z.string(),
+    severity: z.enum(["critical", "high", "medium", "low"]),
+    financialImpact: z.string().optional(),
+  })),
+  recommendations: z.array(z.object({
+    priority: z.number(),
+    action: z.string(),
+    impact: z.string(),
+    effort: z.enum(["low", "medium", "high"]),
+  })),
+  executiveNarrative: z.string(),
+});
+
+export type ExecutiveSummary = z.infer<typeof executiveSummarySchema>;
+
+// Technical Report Schema
+export const technicalReportSchema = z.object({
+  reportDate: z.string(),
+  reportPeriod: z.object({
+    from: z.string(),
+    to: z.string(),
+  }),
+  organizationId: z.string(),
+  findings: z.array(reportFindingSchema),
+  attackPaths: z.array(z.object({
+    evaluationId: z.string(),
+    assetId: z.string(),
+    steps: z.array(attackPathStepSchema),
+    complexity: z.number(),
+    timeToCompromise: z.string().optional(),
+  })),
+  vulnerabilityBreakdown: z.object({
+    byType: z.record(z.string(), z.number()),
+    bySeverity: z.record(z.string(), z.number()),
+    byAsset: z.record(z.string(), z.number()),
+  }),
+  technicalDetails: z.array(z.object({
+    evaluationId: z.string(),
+    assetId: z.string(),
+    exposureType: z.string(),
+    technicalAnalysis: z.string(),
+    exploitCode: z.string().optional(),
+    mitigations: z.array(z.string()),
+  })),
+});
+
+export type TechnicalReport = z.infer<typeof technicalReportSchema>;
+
+// Compliance Report Schema
+export const complianceReportSchema = z.object({
+  reportDate: z.string(),
+  framework: z.enum(complianceFrameworks),
+  organizationId: z.string(),
+  overallCompliance: z.number().min(0).max(100),
+  controlStatus: z.array(z.object({
+    controlId: z.string(),
+    controlName: z.string(),
+    status: z.enum(["compliant", "non_compliant", "partial", "not_applicable"]),
+    findings: z.array(z.string()),
+    remediationRequired: z.boolean(),
+    remediationDeadline: z.string().optional(),
+  })),
+  gaps: z.array(z.object({
+    controlId: z.string(),
+    gapDescription: z.string(),
+    severity: z.enum(["critical", "high", "medium", "low"]),
+    remediationGuidance: z.string(),
+  })),
+  auditReadiness: z.object({
+    score: z.number().min(0).max(100),
+    readyControls: z.number(),
+    totalControls: z.number(),
+    priorityActions: z.array(z.string()),
+  }),
+});
+
+export type ComplianceReport = z.infer<typeof complianceReportSchema>;
+
+// Reports Database Table
+export const reports = pgTable("reports", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  reportType: varchar("report_type").notNull(), // executive_summary, technical_deepdive, compliance_mapping, evidence_bundle
+  title: text("title").notNull(),
+  dateRangeFrom: timestamp("date_range_from").notNull(),
+  dateRangeTo: timestamp("date_range_to").notNull(),
+  framework: varchar("framework"), // For compliance reports
+  status: varchar("status").notNull().default("generating"), // generating, completed, failed
+  content: jsonb("content"), // The actual report content
+  evaluationIds: jsonb("evaluation_ids").$type<string[]>(), // Evaluations included
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertReportSchema = createInsertSchema(reports).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
+export type InsertReport = z.infer<typeof insertReportSchema>;
+export type Report = typeof reports.$inferSelect;
+
+// ============================================================================
+// BATCH EVALUATION & SCHEDULING SCHEMAS
+// ============================================================================
+
+// Batch Job Status
+export const batchJobStatuses = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+] as const;
+
+export type BatchJobStatus = typeof batchJobStatuses[number];
+
+// Schedule Frequency
+export const scheduleFrequencies = [
+  "once",
+  "daily",
+  "weekly",
+  "monthly",
+  "quarterly",
+] as const;
+
+export type ScheduleFrequency = typeof scheduleFrequencies[number];
+
+// Batch Evaluation Job
+export const batchJobs = pgTable("batch_jobs", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  name: text("name").notNull(),
+  description: text("description"),
+  assets: jsonb("assets").$type<Array<{
+    assetId: string;
+    exposureType: string;
+    priority: string;
+    description: string;
+  }>>().notNull(),
+  status: varchar("status").notNull().default("pending"),
+  progress: integer("progress").default(0), // 0-100
+  totalEvaluations: integer("total_evaluations").notNull(),
+  completedEvaluations: integer("completed_evaluations").default(0),
+  failedEvaluations: integer("failed_evaluations").default(0),
+  evaluationIds: jsonb("evaluation_ids").$type<string[]>(), // Created evaluation IDs
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertBatchJobSchema = createInsertSchema(batchJobs).omit({
+  id: true,
+  createdAt: true,
+  startedAt: true,
+  completedAt: true,
+  totalEvaluations: true,
+  completedEvaluations: true,
+  failedEvaluations: true,
+  evaluationIds: true,
+  progress: true,
+});
+
+export type InsertBatchJob = z.infer<typeof insertBatchJobSchema>;
+export type BatchJob = typeof batchJobs.$inferSelect;
+
+// Scheduled Scans
+export const scheduledScans = pgTable("scheduled_scans", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  name: text("name").notNull(),
+  description: text("description"),
+  assets: jsonb("assets").$type<Array<{
+    assetId: string;
+    exposureType: string;
+    priority: string;
+    description: string;
+  }>>().notNull(),
+  frequency: varchar("frequency").notNull(), // once, daily, weekly, monthly, quarterly
+  dayOfWeek: integer("day_of_week"), // 0-6 for weekly
+  dayOfMonth: integer("day_of_month"), // 1-31 for monthly
+  timeOfDay: varchar("time_of_day"), // HH:MM format
+  enabled: boolean("enabled").default(true),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  lastBatchJobId: varchar("last_batch_job_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertScheduledScanSchema = createInsertSchema(scheduledScans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastRunAt: true,
+  lastBatchJobId: true,
+});
+
+export type InsertScheduledScan = z.infer<typeof insertScheduledScanSchema>;
+export type ScheduledScan = typeof scheduledScans.$inferSelect;
+
+// Drift Detection / Comparison Result
+export const driftResultSchema = z.object({
+  comparisonId: z.string(),
+  baselineEvaluationId: z.string(),
+  currentEvaluationId: z.string(),
+  assetId: z.string(),
+  comparedAt: z.string(),
+  changes: z.object({
+    scoreChange: z.number(), // Positive = worse, negative = better
+    exploitabilityChange: z.enum(["became_exploitable", "became_safe", "unchanged"]),
+    newFindings: z.array(z.string()),
+    resolvedFindings: z.array(z.string()),
+    severityChanges: z.array(z.object({
+      findingId: z.string(),
+      from: z.enum(["critical", "high", "medium", "low"]),
+      to: z.enum(["critical", "high", "medium", "low"]),
+    })),
+  }),
+  summary: z.string(),
+  riskTrend: z.enum(["improving", "stable", "degrading"]),
+});
+
+export type DriftResult = z.infer<typeof driftResultSchema>;
+
+// Evaluation History for Drift Detection
+export const evaluationHistory = pgTable("evaluation_history", {
+  id: varchar("id").primaryKey(),
+  assetId: varchar("asset_id").notNull(),
+  evaluationId: varchar("evaluation_id").notNull(),
+  batchJobId: varchar("batch_job_id"),
+  scheduledScanId: varchar("scheduled_scan_id"),
+  snapshot: jsonb("snapshot").$type<{
+    exploitable: boolean;
+    score: number;
+    confidence: number;
+    findingSummary: string[];
+  }>(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEvaluationHistorySchema = createInsertSchema(evaluationHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEvaluationHistory = z.infer<typeof insertEvaluationHistorySchema>;
+export type EvaluationHistory = typeof evaluationHistory.$inferSelect;

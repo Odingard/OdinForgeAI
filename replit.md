@@ -25,6 +25,9 @@ The frontend is organized around a dashboard-centric design with:
 - Evaluation table with filtering and sorting capabilities
 - Detail views for individual evaluation results including attack path visualization
 - Modal-based workflows for creating new evaluations and viewing progress
+- Risk Dashboard with interactive visualizations (attack graphs, heatmaps, gauges)
+- Reports page for generating executive, technical, and compliance reports
+- Batch Jobs page for parallel security assessments
 
 ### Backend Architecture
 - **Framework**: Express.js with TypeScript
@@ -36,6 +39,8 @@ Key backend services:
 - **AEV Service** (`server/services/aev.ts`): Core AI analysis using OpenAI API to evaluate security exposures
 - **WebSocket Service** (`server/services/websocket.ts`): Broadcasts evaluation progress and completion events
 - **Storage Layer** (`server/storage.ts`): Database abstraction using Drizzle ORM
+- **Report Generator** (`server/services/report-generator.ts`): Generates executive, technical, and compliance reports
+- **Agent Orchestrator** (`server/services/agents/orchestrator.ts`): Coordinates AI agent workflow for evaluations
 
 ### Data Storage
 - **Database**: PostgreSQL with Drizzle ORM
@@ -44,6 +49,10 @@ Key backend services:
   - `users`: Basic user authentication
   - `aev_evaluations`: Stores evaluation requests with asset info, exposure type, priority
   - `aev_results`: Stores AI analysis results including exploitability scores, attack paths, recommendations
+  - `reports`: Stores generated reports (executive, technical, compliance)
+  - `batch_jobs`: Tracks batch evaluation jobs with progress and results
+  - `scheduled_scans`: Stores scheduled scan configurations
+  - `evaluation_history`: Tracks historical evaluation snapshots for drift detection
 
 ### AI Integration
 - **Provider**: OpenAI API (configurable via environment variables)

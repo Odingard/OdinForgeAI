@@ -66,6 +66,26 @@ export function Header() {
               Risk Dashboard
             </Button>
           </Link>
+          <Link href="/reports">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/reports") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-reports"
+            >
+              Reports
+            </Button>
+          </Link>
+          <Link href="/batch">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/batch") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-batch"
+            >
+              Batch Jobs
+            </Button>
+          </Link>
         </nav>
 
         <div className="flex items-center gap-2">

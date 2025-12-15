@@ -8,6 +8,8 @@ import { Header } from "./components/Header";
 import { Dashboard } from "./components/Dashboard";
 import RiskDashboard from "@/pages/RiskDashboard";
 import Assets from "@/pages/Assets";
+import Reports from "@/pages/Reports";
+import BatchJobs from "@/pages/BatchJobs";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -16,6 +18,8 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/risk" component={RiskDashboard} />
       <Route path="/assets" component={Assets} />
+      <Route path="/reports" component={Reports} />
+      <Route path="/batch" component={BatchJobs} />
       <Route component={NotFound} />
     </Switch>
   );
