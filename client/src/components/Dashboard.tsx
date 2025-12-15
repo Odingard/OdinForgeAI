@@ -50,6 +50,7 @@ interface EvaluationDetailData {
 interface ProgressEvent {
   type: "aev_progress" | "aev_complete";
   evaluationId: string;
+  agentName?: string;
   stage?: string;
   progress?: number;
   message?: string;
@@ -63,7 +64,7 @@ export function Dashboard() {
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [activeEvaluation, setActiveEvaluation] = useState<{ assetId: string; id: string } | null>(null);
   const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null);
-  const [progressData, setProgressData] = useState<{ stage: string; progress: number; message: string } | null>(null);
+  const [progressData, setProgressData] = useState<{ agentName?: string; stage: string; progress: number; message: string } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const { data: evaluations = [], isLoading, refetch } = useQuery<Evaluation[]>({
@@ -96,6 +97,7 @@ export function Dashboard() {
       
       if (data.type === "aev_progress" && data.evaluationId === activeEvaluation?.id) {
         setProgressData({
+          agentName: data.agentName,
           stage: data.stage || "",
           progress: data.progress || 0,
           message: data.message || "",

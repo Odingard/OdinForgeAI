@@ -4,6 +4,7 @@ import type { Server } from "http";
 interface AEVProgressEvent {
   type: "aev_progress";
   evaluationId: string;
+  agentName: string;
   stage: string;
   progress: number;
   message: string;
@@ -52,10 +53,11 @@ class WebSocketService {
     });
   }
 
-  sendProgress(evaluationId: string, stage: string, progress: number, message: string): void {
+  sendProgress(evaluationId: string, agentName: string, stage: string, progress: number, message: string): void {
     this.broadcast({
       type: "aev_progress",
       evaluationId,
+      agentName,
       stage,
       progress,
       message,

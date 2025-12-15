@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import {
-  Zap,
   Search,
-  Link2,
-  Shield,
-  Lightbulb,
+  Crosshair,
+  Network,
+  Workflow,
+  TrendingUp,
   CheckCircle,
   Loader2,
-  AlertTriangle,
   X,
   Target,
   Brain,
@@ -17,6 +16,7 @@ import { Button } from "@/components/ui/button";
 interface Stage {
   id: number;
   name: string;
+  agentKey: string;
   description: string;
   icon: typeof Search;
 }
@@ -24,27 +24,38 @@ interface Stage {
 const stages: Stage[] = [
   {
     id: 1,
-    name: "Attack Surface Analysis",
-    description: "AI reconnaissance agent mapping vulnerabilities and entry points",
+    name: "Recon Agent",
+    agentKey: "recon",
+    description: "Mapping attack surface, entry points, and reconnaissance",
     icon: Search,
   },
   {
     id: 2,
-    name: "Autonomous Exploit Chain",
-    description: "Multi-agent system discovering and chaining attack vectors",
-    icon: Link2,
+    name: "Exploit Agent",
+    agentKey: "exploit",
+    description: "Analyzing CVEs, exploit chains, and misconfigurations",
+    icon: Crosshair,
   },
   {
     id: 3,
-    name: "Business Impact Assessment",
-    description: "Calculating blast radius, data exposure, and financial risk",
-    icon: Shield,
+    name: "Lateral Movement Agent",
+    agentKey: "lateral",
+    description: "Identifying pivot paths and privilege escalation",
+    icon: Network,
   },
   {
     id: 4,
-    name: "Intelligent Remediation",
-    description: "Generating context-aware fixes and compensating controls",
-    icon: Lightbulb,
+    name: "Business Logic Agent",
+    agentKey: "business_logic",
+    description: "Detecting workflow abuse and authorization bypass",
+    icon: Workflow,
+  },
+  {
+    id: 5,
+    name: "Impact Agent",
+    agentKey: "impact",
+    description: "Assessing data exposure and financial risk",
+    icon: TrendingUp,
   },
 ];
 
@@ -53,19 +64,21 @@ interface ProgressModalProps {
   onClose: () => void;
   assetId: string;
   evaluationId: string;
-  progressData?: { stage: string; progress: number; message: string } | null;
+  progressData?: { agentName?: string; stage: string; progress: number; message: string } | null;
 }
 
 export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progressData }: ProgressModalProps) {
   const [progress, setProgress] = useState(0);
-  const [currentStage, setCurrentStage] = useState(1);
+  const [currentAgentKey, setCurrentAgentKey] = useState("recon");
+  const [currentAgentName, setCurrentAgentName] = useState("Recon Agent");
   const [stageMessage, setStageMessage] = useState("Initializing AI agents...");
   const [isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
       setProgress(0);
-      setCurrentStage(1);
+      setCurrentAgentKey("recon");
+      setCurrentAgentName("Recon Agent");
       setIsComplete(false);
       setStageMessage("Initializing AI agents...");
       return;
@@ -76,16 +89,12 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
     if (progressData) {
       setProgress(progressData.progress);
       setStageMessage(progressData.message);
+      setCurrentAgentKey(progressData.stage);
+      if (progressData.agentName) {
+        setCurrentAgentName(progressData.agentName);
+      }
       
-      const stageMap: Record<string, number> = {
-        attack_surface: 1,
-        exploit_chain: 2,
-        impact: 3,
-        remediation: 4,
-      };
-      setCurrentStage(stageMap[progressData.stage] || 1);
-      
-      if (progressData.progress >= 100) {
+      if (progressData.progress >= 100 || progressData.stage === "complete") {
         setIsComplete(true);
       }
     }
@@ -93,9 +102,15 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
 
   if (!isOpen) return null;
 
-  const getStageStatus = (stageId: number): "pending" | "active" | "complete" => {
-    if (progress >= stageId * 25) return "complete";
-    if (currentStage === stageId) return "active";
+  const getStageStatus = (stage: Stage): "pending" | "active" | "complete" => {
+    const stageIndex = stages.findIndex(s => s.agentKey === stage.agentKey);
+    const currentIndex = stages.findIndex(s => s.agentKey === currentAgentKey);
+    
+    if (currentAgentKey === "synthesis" || currentAgentKey === "complete") {
+      return "complete";
+    }
+    if (stageIndex < currentIndex) return "complete";
+    if (stageIndex === currentIndex) return "active";
     return "pending";
   };
 
@@ -115,7 +130,7 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                 </div>
               </div>
               <div>
-                <h3 className="font-semibold text-foreground">Autonomous Validation</h3>
+                <h3 className="font-semibold text-foreground">Multi-Agent Validation</h3>
                 <p className="text-xs text-muted-foreground font-mono">{assetId}</p>
               </div>
             </div>
@@ -131,8 +146,8 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
           {!isComplete ? (
             <>
               <div className="mb-6">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-muted-foreground">AI Agent Progress</span>
+                <div className="flex justify-between text-sm mb-2 gap-2 flex-wrap">
+                  <span className="text-muted-foreground">Active: <span className="text-cyan-400 font-medium">{currentAgentName}</span></span>
                   <span className="font-mono text-foreground">{Math.round(progress)}%</span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
@@ -143,24 +158,24 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {stages.map((stage) => {
-                  const status = getStageStatus(stage.id);
+                  const status = getStageStatus(stage);
                   const Icon = stage.icon;
                   
                   return (
                     <div
                       key={stage.id}
-                      className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-300 ${
+                      className={`flex items-start gap-3 p-2.5 rounded-lg border transition-all duration-300 ${
                         status === "active"
                           ? "bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/30"
                           : status === "complete"
                           ? "bg-emerald-500/10 border-emerald-500/30"
                           : "bg-muted/30 border-border opacity-50"
                       }`}
-                      data-testid={`stage-${stage.id}`}
+                      data-testid={`stage-${stage.agentKey}`}
                     >
-                      <div className={`p-2 rounded-lg flex-shrink-0 ${
+                      <div className={`p-1.5 rounded-lg flex-shrink-0 ${
                         status === "active"
                           ? "bg-gradient-to-br from-cyan-500/20 to-blue-500/20"
                           : status === "complete"
@@ -176,7 +191,7 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-sm font-medium ${
                             status === "pending" ? "text-muted-foreground" : "text-foreground"
                           }`}>
@@ -188,7 +203,7 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
                           {status === "active" ? stageMessage : stage.description}
                         </p>
                       </div>
@@ -197,10 +212,10 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                 })}
               </div>
 
-              <div className="mt-6 p-3 bg-muted/30 rounded-lg border border-border">
+              <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-border">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Target className="h-3.5 w-3.5 text-cyan-400 animate-pulse" />
-                  <span className="font-mono">{stageMessage}</span>
+                  <Target className="h-3.5 w-3.5 text-cyan-400 animate-pulse flex-shrink-0" />
+                  <span className="font-mono truncate">{stageMessage}</span>
                 </div>
               </div>
             </>
@@ -208,11 +223,11 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
             <div className="space-y-4">
               <div className="p-4 rounded-lg border bg-emerald-500/10 border-emerald-500/30">
                 <div className="flex items-center gap-3">
-                  <CheckCircle className="h-8 w-8 text-emerald-400" />
+                  <CheckCircle className="h-8 w-8 text-emerald-400 flex-shrink-0" />
                   <div>
                     <h4 className="font-semibold text-lg">Analysis Complete</h4>
                     <p className="text-sm text-muted-foreground">
-                      AI validation finished successfully
+                      All 5 AI agents finished validation
                     </p>
                   </div>
                 </div>

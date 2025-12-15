@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertEvaluationSchema } from "@shared/schema";
-import { analyzeExposure } from "./services/aev";
+import { runAgentOrchestrator } from "./services/agents";
 import { wsService } from "./services/websocket";
 import { randomUUID } from "crypto";
 
@@ -121,13 +121,14 @@ async function runEvaluation(evaluationId: string, data: {
   try {
     await storage.updateEvaluationStatus(evaluationId, "in_progress");
 
-    const result = await analyzeExposure(
+    const result = await runAgentOrchestrator(
       data.assetId,
       data.exposureType,
       data.priority,
       data.description,
-      (stage, progress, message) => {
-        wsService.sendProgress(evaluationId, stage, progress, message);
+      evaluationId,
+      (agentName, stage, progress, message) => {
+        wsService.sendProgress(evaluationId, agentName, stage, progress, message);
       }
     );
 
