@@ -6,12 +6,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { Header } from "./components/Header";
 import { Dashboard } from "./components/Dashboard";
+import RiskDashboard from "@/pages/RiskDashboard";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/risk" component={RiskDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

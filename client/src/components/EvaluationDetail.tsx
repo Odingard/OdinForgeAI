@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud } from "lucide-react";
+import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,7 +9,9 @@ import { RecommendationsPanel } from "./RecommendationsPanel";
 import { BusinessLogicFindingsPanel } from "./BusinessLogicFindingsPanel";
 import { MultiVectorFindingsPanel } from "./MultiVectorFindingsPanel";
 import { WorkflowStateMachineVisualizer } from "./WorkflowStateMachineVisualizer";
-import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine } from "@shared/schema";
+import { EvidencePanel } from "./EvidencePanel";
+import { IntelligentScorePanel } from "./IntelligentScorePanel";
+import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, EvidenceArtifact, IntelligentScore } from "@shared/schema";
 
 interface EvaluationDetailProps {
   evaluation: {
@@ -86,6 +88,8 @@ interface EvaluationDetailProps {
     businessLogicFindings?: BusinessLogicFinding[];
     multiVectorFindings?: MultiVectorFinding[];
     workflowAnalysis?: WorkflowStateMachine;
+    evidenceArtifacts?: EvidenceArtifact[];
+    intelligentScore?: IntelligentScore;
   };
   onBack: () => void;
 }
@@ -286,26 +290,63 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </div>
             </div>
           )}
+
+          {evaluation.evidenceArtifacts && evaluation.evidenceArtifacts.length > 0 && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-indigo-500/10">
+                    <FileSearch className="h-5 w-5 text-indigo-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-foreground">Evidence Artifacts</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Proof of exploit with sanitized data
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6">
+                <EvidencePanel artifacts={evaluation.evidenceArtifacts} evaluationId={evaluation.id} />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="space-y-6 lg:col-span-1">
-          <div className="bg-card border border-border rounded-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-border bg-muted/30">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-purple-500/10">
-                  <Shield className="h-5 w-5 text-purple-400" />
+          {evaluation.intelligentScore ? (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/10">
+                    <Brain className="h-5 w-5 text-purple-400" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-foreground">Intelligent Risk Score</h2>
                 </div>
-                <h2 className="text-lg font-semibold text-foreground">Exploitability Score</h2>
+              </div>
+              <div className="p-6">
+                <IntelligentScorePanel score={evaluation.intelligentScore} />
               </div>
             </div>
-            <div className="p-6">
-              <ExploitabilityGauge 
-                score={evaluation.score ?? 0} 
-                confidence={evaluation.confidence ?? 0}
-                size="md"
-              />
+          ) : (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-border bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/10">
+                    <Shield className="h-5 w-5 text-purple-400" />
+                  </div>
+                  <h2 className="text-lg font-semibold text-foreground">Exploitability Score</h2>
+                </div>
+              </div>
+              <div className="p-6">
+                <ExploitabilityGauge 
+                  score={evaluation.score ?? 0} 
+                  confidence={evaluation.confidence ?? 0}
+                  size="md"
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="bg-card border border-border rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-border bg-muted/30">

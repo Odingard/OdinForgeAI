@@ -43,6 +43,7 @@ export async function registerRoutes(
             exploitable: result?.exploitable,
             score: result?.score,
             confidence: result?.confidence ? result.confidence / 100 : undefined,
+            intelligentScore: result?.intelligentScore,
           };
         })
       );
@@ -70,8 +71,13 @@ export async function registerRoutes(
         confidence: result?.confidence ? result.confidence / 100 : undefined,
         attackPath: result?.attackPath,
         attackGraph: result?.attackGraph,
+        businessLogicFindings: result?.businessLogicFindings,
+        multiVectorFindings: result?.multiVectorFindings,
+        workflowAnalysis: result?.workflowAnalysis,
         recommendations: result?.recommendations,
         impact: result?.impact,
+        evidenceArtifacts: result?.evidenceArtifacts,
+        intelligentScore: result?.intelligentScore,
         duration: result?.duration,
       });
     } catch (error) {
@@ -143,8 +149,13 @@ async function runEvaluation(evaluationId: string, data: {
       score: result.score,
       attackPath: result.attackPath,
       attackGraph: result.attackGraph,
+      businessLogicFindings: result.businessLogicFindings,
+      multiVectorFindings: result.multiVectorFindings,
+      workflowAnalysis: result.workflowAnalysis,
       impact: result.impact,
       recommendations: result.recommendations,
+      evidenceArtifacts: result.evidenceArtifacts,
+      intelligentScore: result.intelligentScore,
       duration,
     });
 
