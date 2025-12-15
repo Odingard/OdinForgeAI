@@ -21,7 +21,7 @@ export async function registerRoutes(
 
       const evaluation = await storage.createEvaluation(parsed.data);
       
-      res.json({ evaluationId: evaluation.id, status: "started" });
+      res.json({ evaluationId: evaluation.id, assetId: evaluation.assetId, status: "started" });
 
       runEvaluation(evaluation.id, parsed.data);
     } catch (error) {

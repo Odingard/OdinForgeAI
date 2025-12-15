@@ -81,7 +81,7 @@ export function Dashboard() {
       return response.json();
     },
     onSuccess: (data) => {
-      setActiveEvaluation({ assetId: data.assetId || "asset", id: data.evaluationId });
+      setActiveEvaluation({ assetId: data.assetId, id: data.evaluationId });
       setShowProgressModal(true);
     },
   });
