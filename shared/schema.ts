@@ -758,6 +758,13 @@ export const executiveSummarySchema = z.object({
     effort: z.enum(["low", "medium", "high"]),
   })),
   executiveNarrative: z.string(),
+  executiveSummary: z.string().optional(),
+  findings: z.array(z.object({
+    title: z.string(),
+    description: z.string(),
+    recommendation: z.string(),
+    severity: z.enum(["critical", "high", "medium", "low"]),
+  })).optional(),
 });
 
 export type ExecutiveSummary = z.infer<typeof executiveSummarySchema>;
@@ -791,6 +798,8 @@ export const technicalReportSchema = z.object({
     exploitCode: z.string().optional(),
     mitigations: z.array(z.string()),
   })),
+  executiveSummary: z.string().optional(),
+  recommendations: z.array(z.string()).optional(),
 });
 
 export type TechnicalReport = z.infer<typeof technicalReportSchema>;
@@ -821,6 +830,19 @@ export const complianceReportSchema = z.object({
     totalControls: z.number(),
     priorityActions: z.array(z.string()),
   }),
+  executiveSummary: z.string().optional(),
+  findings: z.array(z.object({
+    title: z.string(),
+    description: z.string(),
+    recommendation: z.string(),
+    severity: z.enum(["critical", "high", "medium", "low"]),
+    status: z.enum(["open", "closed", "in_progress"]).optional(),
+  })).optional(),
+  recommendations: z.array(z.string()).optional(),
+  complianceStatus: z.record(z.string(), z.object({
+    status: z.string(),
+    coverage: z.number(),
+  })).optional(),
 });
 
 export type ComplianceReport = z.infer<typeof complianceReportSchema>;
