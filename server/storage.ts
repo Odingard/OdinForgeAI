@@ -27,6 +27,14 @@ import {
   type InsertPurpleTeamFinding,
   type AiSimulation,
   type InsertAiSimulation,
+  type DiscoveredAsset,
+  type InsertDiscoveredAsset,
+  type VulnerabilityImport,
+  type InsertVulnerabilityImport,
+  type ImportJob,
+  type InsertImportJob,
+  type CloudConnection,
+  type InsertCloudConnection,
   users,
   aevEvaluations,
   aevResults,
@@ -42,6 +50,10 @@ import {
   defensivePostureScores,
   purpleTeamFindings,
   aiSimulations,
+  discoveredAssets,
+  vulnerabilityImports,
+  importJobs,
+  cloudConnections,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -537,6 +549,236 @@ export class DatabaseStorage implements IStorage {
 
   async updateAiSimulation(id: string, updates: Partial<AiSimulation>): Promise<void> {
     await db.update(aiSimulations).set(updates).where(eq(aiSimulations.id, id));
+  }
+
+  // ============================================
+  // INFRASTRUCTURE DATA INGESTION OPERATIONS
+  // ============================================
+
+  // Discovered Asset operations
+  async createDiscoveredAsset(data: InsertDiscoveredAsset): Promise<DiscoveredAsset> {
+    const id = `asset-${randomUUID().slice(0, 8)}`;
+    const [asset] = await db
+      .insert(discoveredAssets)
+      .values({ ...data, id } as typeof discoveredAssets.$inferInsert)
+      .returning();
+    return asset;
+  }
+
+  async createDiscoveredAssets(assets: InsertDiscoveredAsset[]): Promise<DiscoveredAsset[]> {
+    if (assets.length === 0) return [];
+    const assetsWithIds = assets.map(a => ({
+      ...a,
+      id: `asset-${randomUUID().slice(0, 8)}`,
+    }));
+    return db
+      .insert(discoveredAssets)
+      .values(assetsWithIds as Array<typeof discoveredAssets.$inferInsert>)
+      .returning();
+  }
+
+  async getDiscoveredAsset(id: string): Promise<DiscoveredAsset | undefined> {
+    const [asset] = await db
+      .select()
+      .from(discoveredAssets)
+      .where(eq(discoveredAssets.id, id));
+    return asset;
+  }
+
+  async getDiscoveredAssets(organizationId?: string): Promise<DiscoveredAsset[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(discoveredAssets)
+        .where(eq(discoveredAssets.organizationId, organizationId))
+        .orderBy(desc(discoveredAssets.createdAt));
+    }
+    return db.select().from(discoveredAssets).orderBy(desc(discoveredAssets.createdAt));
+  }
+
+  async getDiscoveredAssetByIdentifier(assetIdentifier: string, organizationId?: string): Promise<DiscoveredAsset | undefined> {
+    const conditions = organizationId 
+      ? and(eq(discoveredAssets.assetIdentifier, assetIdentifier), eq(discoveredAssets.organizationId, organizationId))
+      : eq(discoveredAssets.assetIdentifier, assetIdentifier);
+    const [asset] = await db.select().from(discoveredAssets).where(conditions);
+    return asset;
+  }
+
+  async updateDiscoveredAsset(id: string, updates: Partial<DiscoveredAsset>): Promise<void> {
+    await db.update(discoveredAssets).set({ ...updates, updatedAt: new Date() }).where(eq(discoveredAssets.id, id));
+  }
+
+  async deleteDiscoveredAsset(id: string): Promise<void> {
+    await db.delete(discoveredAssets).where(eq(discoveredAssets.id, id));
+  }
+
+  // Vulnerability Import operations
+  async createVulnerabilityImport(data: InsertVulnerabilityImport): Promise<VulnerabilityImport> {
+    const id = `vuln-${randomUUID().slice(0, 8)}`;
+    const [vuln] = await db
+      .insert(vulnerabilityImports)
+      .values({ ...data, id } as typeof vulnerabilityImports.$inferInsert)
+      .returning();
+    return vuln;
+  }
+
+  async createVulnerabilityImports(vulns: InsertVulnerabilityImport[]): Promise<VulnerabilityImport[]> {
+    if (vulns.length === 0) return [];
+    const vulnsWithIds = vulns.map(v => ({
+      ...v,
+      id: `vuln-${randomUUID().slice(0, 8)}`,
+    }));
+    return db
+      .insert(vulnerabilityImports)
+      .values(vulnsWithIds as Array<typeof vulnerabilityImports.$inferInsert>)
+      .returning();
+  }
+
+  async getVulnerabilityImport(id: string): Promise<VulnerabilityImport | undefined> {
+    const [vuln] = await db
+      .select()
+      .from(vulnerabilityImports)
+      .where(eq(vulnerabilityImports.id, id));
+    return vuln;
+  }
+
+  async getVulnerabilityImports(organizationId?: string): Promise<VulnerabilityImport[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(vulnerabilityImports)
+        .where(eq(vulnerabilityImports.organizationId, organizationId))
+        .orderBy(desc(vulnerabilityImports.createdAt));
+    }
+    return db.select().from(vulnerabilityImports).orderBy(desc(vulnerabilityImports.createdAt));
+  }
+
+  async getVulnerabilityImportsByJobId(importJobId: string): Promise<VulnerabilityImport[]> {
+    return db
+      .select()
+      .from(vulnerabilityImports)
+      .where(eq(vulnerabilityImports.importJobId, importJobId))
+      .orderBy(desc(vulnerabilityImports.createdAt));
+  }
+
+  async getVulnerabilityImportsByAssetId(assetId: string): Promise<VulnerabilityImport[]> {
+    return db
+      .select()
+      .from(vulnerabilityImports)
+      .where(eq(vulnerabilityImports.assetId, assetId))
+      .orderBy(desc(vulnerabilityImports.createdAt));
+  }
+
+  async updateVulnerabilityImport(id: string, updates: Partial<VulnerabilityImport>): Promise<void> {
+    await db.update(vulnerabilityImports).set({ ...updates, updatedAt: new Date() }).where(eq(vulnerabilityImports.id, id));
+  }
+
+  async deleteVulnerabilityImport(id: string): Promise<void> {
+    await db.delete(vulnerabilityImports).where(eq(vulnerabilityImports.id, id));
+  }
+
+  // Import Job operations
+  async createImportJob(data: InsertImportJob): Promise<ImportJob> {
+    const id = `import-${randomUUID().slice(0, 8)}`;
+    const [job] = await db
+      .insert(importJobs)
+      .values({ ...data, id } as typeof importJobs.$inferInsert)
+      .returning();
+    return job;
+  }
+
+  async getImportJob(id: string): Promise<ImportJob | undefined> {
+    const [job] = await db
+      .select()
+      .from(importJobs)
+      .where(eq(importJobs.id, id));
+    return job;
+  }
+
+  async getImportJobs(organizationId?: string): Promise<ImportJob[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(importJobs)
+        .where(eq(importJobs.organizationId, organizationId))
+        .orderBy(desc(importJobs.createdAt));
+    }
+    return db.select().from(importJobs).orderBy(desc(importJobs.createdAt));
+  }
+
+  async updateImportJob(id: string, updates: Partial<ImportJob>): Promise<void> {
+    await db.update(importJobs).set(updates).where(eq(importJobs.id, id));
+  }
+
+  async deleteImportJob(id: string): Promise<void> {
+    await db.delete(vulnerabilityImports).where(eq(vulnerabilityImports.importJobId, id));
+    await db.delete(importJobs).where(eq(importJobs.id, id));
+  }
+
+  // Cloud Connection operations
+  async createCloudConnection(data: InsertCloudConnection): Promise<CloudConnection> {
+    const id = `cloud-${randomUUID().slice(0, 8)}`;
+    const [connection] = await db
+      .insert(cloudConnections)
+      .values({ ...data, id } as typeof cloudConnections.$inferInsert)
+      .returning();
+    return connection;
+  }
+
+  async getCloudConnection(id: string): Promise<CloudConnection | undefined> {
+    const [connection] = await db
+      .select()
+      .from(cloudConnections)
+      .where(eq(cloudConnections.id, id));
+    return connection;
+  }
+
+  async getCloudConnections(organizationId?: string): Promise<CloudConnection[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(cloudConnections)
+        .where(eq(cloudConnections.organizationId, organizationId))
+        .orderBy(desc(cloudConnections.createdAt));
+    }
+    return db.select().from(cloudConnections).orderBy(desc(cloudConnections.createdAt));
+  }
+
+  async updateCloudConnection(id: string, updates: Partial<CloudConnection>): Promise<void> {
+    await db.update(cloudConnections).set({ ...updates, updatedAt: new Date() }).where(eq(cloudConnections.id, id));
+  }
+
+  async deleteCloudConnection(id: string): Promise<void> {
+    await db.delete(cloudConnections).where(eq(cloudConnections.id, id));
+  }
+
+  // Get asset and vulnerability counts for dashboard
+  async getInfrastructureStats(organizationId?: string): Promise<{
+    totalAssets: number;
+    totalVulnerabilities: number;
+    criticalVulns: number;
+    highVulns: number;
+    pendingImports: number;
+    cloudConnections: number;
+  }> {
+    const orgFilter = organizationId ? eq(discoveredAssets.organizationId, organizationId) : sql`1=1`;
+    const vulnOrgFilter = organizationId ? eq(vulnerabilityImports.organizationId, organizationId) : sql`1=1`;
+    
+    const [assetCount] = await db.select({ count: sql<number>`count(*)::int` }).from(discoveredAssets).where(orgFilter);
+    const [vulnCount] = await db.select({ count: sql<number>`count(*)::int` }).from(vulnerabilityImports).where(vulnOrgFilter);
+    const [criticalCount] = await db.select({ count: sql<number>`count(*)::int` }).from(vulnerabilityImports).where(and(vulnOrgFilter, eq(vulnerabilityImports.severity, "critical")));
+    const [highCount] = await db.select({ count: sql<number>`count(*)::int` }).from(vulnerabilityImports).where(and(vulnOrgFilter, eq(vulnerabilityImports.severity, "high")));
+    const [pendingCount] = await db.select({ count: sql<number>`count(*)::int` }).from(importJobs).where(eq(importJobs.status, "pending"));
+    const [cloudCount] = await db.select({ count: sql<number>`count(*)::int` }).from(cloudConnections).where(eq(cloudConnections.status, "connected"));
+
+    return {
+      totalAssets: assetCount?.count || 0,
+      totalVulnerabilities: vulnCount?.count || 0,
+      criticalVulns: criticalCount?.count || 0,
+      highVulns: highCount?.count || 0,
+      pendingImports: pendingCount?.count || 0,
+      cloudConnections: cloudCount?.count || 0,
+    };
   }
 }
 

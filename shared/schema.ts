@@ -1322,3 +1322,296 @@ export const insertAiSimulationSchema = createInsertSchema(aiSimulations).omit({
 
 export type InsertAiSimulation = z.infer<typeof insertAiSimulationSchema>;
 export type AiSimulation = typeof aiSimulations.$inferSelect;
+
+// ============================================
+// INFRASTRUCTURE DATA INGESTION TABLES
+// ============================================
+
+// Asset Status Types
+export const assetStatuses = ["active", "inactive", "decommissioned", "unknown"] as const;
+export type AssetStatus = typeof assetStatuses[number];
+
+// Asset Types
+export const assetTypes = [
+  "server",
+  "workstation", 
+  "network_device",
+  "container",
+  "database",
+  "web_application",
+  "api_endpoint",
+  "cloud_instance",
+  "storage_bucket",
+  "lambda_function",
+  "kubernetes_cluster",
+  "load_balancer",
+  "firewall",
+  "iot_device",
+  "mobile_device",
+  "virtual_machine",
+  "other"
+] as const;
+export type AssetType = typeof assetTypes[number];
+
+// Cloud Providers
+export const cloudProviders = ["aws", "azure", "gcp", "oracle", "ibm", "other"] as const;
+export type CloudProvider = typeof cloudProviders[number];
+
+// Scanner Types
+export const scannerTypes = [
+  "nessus",
+  "qualys", 
+  "tenable",
+  "rapid7",
+  "openvas",
+  "nmap",
+  "custom_csv",
+  "custom_json",
+  "api_import"
+] as const;
+export type ScannerType = typeof scannerTypes[number];
+
+// Import Job Status
+export const importJobStatuses = ["pending", "processing", "completed", "failed", "cancelled"] as const;
+export type ImportJobStatus = typeof importJobStatuses[number];
+
+// Discovered Assets - Normalized asset inventory
+export const discoveredAssets = pgTable("discovered_assets", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  assetIdentifier: varchar("asset_identifier").notNull(), // IP, hostname, ARN, etc.
+  displayName: text("display_name"),
+  assetType: varchar("asset_type").notNull(), // One of assetTypes
+  status: varchar("status").default("active"), // One of assetStatuses
+  
+  // Network info
+  ipAddresses: jsonb("ip_addresses").$type<string[]>(),
+  hostname: varchar("hostname"),
+  fqdn: varchar("fqdn"),
+  macAddress: varchar("mac_address"),
+  
+  // Cloud info
+  cloudProvider: varchar("cloud_provider"), // One of cloudProviders
+  cloudRegion: varchar("cloud_region"),
+  cloudAccountId: varchar("cloud_account_id"),
+  cloudResourceId: varchar("cloud_resource_id"), // ARN, resource ID, etc.
+  cloudTags: jsonb("cloud_tags").$type<Record<string, string>>(),
+  
+  // OS/Software info
+  operatingSystem: varchar("operating_system"),
+  osVersion: varchar("os_version"),
+  installedSoftware: jsonb("installed_software").$type<Array<{
+    name: string;
+    version: string;
+    vendor?: string;
+  }>>(),
+  
+  // Services/Ports
+  openPorts: jsonb("open_ports").$type<Array<{
+    port: number;
+    protocol: string;
+    service?: string;
+    version?: string;
+  }>>(),
+  
+  // Business context
+  businessUnit: varchar("business_unit"),
+  owner: varchar("owner"),
+  criticality: varchar("criticality").default("medium"), // critical, high, medium, low
+  environment: varchar("environment"), // production, staging, development
+  
+  // Metadata
+  lastSeen: timestamp("last_seen"),
+  firstDiscovered: timestamp("first_discovered").defaultNow(),
+  discoverySource: varchar("discovery_source"), // Which import/scan found it
+  importJobId: varchar("import_job_id"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertDiscoveredAssetSchema = createInsertSchema(discoveredAssets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDiscoveredAsset = z.infer<typeof insertDiscoveredAssetSchema>;
+export type DiscoveredAsset = typeof discoveredAssets.$inferSelect;
+
+// Vulnerability Severity
+export const vulnSeverities = ["critical", "high", "medium", "low", "informational"] as const;
+export type VulnSeverity = typeof vulnSeverities[number];
+
+// Vulnerability Imports - Imported scanner findings
+export const vulnerabilityImports = pgTable("vulnerability_imports", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  importJobId: varchar("import_job_id").notNull(),
+  assetId: varchar("asset_id"), // Reference to discoveredAssets
+  
+  // Core vulnerability data
+  title: text("title").notNull(),
+  description: text("description"),
+  severity: varchar("severity").notNull(), // One of vulnSeverities
+  cveId: varchar("cve_id"), // CVE-XXXX-XXXXX
+  cvssScore: integer("cvss_score"), // 0-100 (stored as x10 for precision)
+  cvssVector: varchar("cvss_vector"),
+  
+  // Scanner-specific data
+  scannerPluginId: varchar("scanner_plugin_id"),
+  scannerName: varchar("scanner_name"),
+  scannerSeverity: varchar("scanner_severity"), // Original severity from scanner
+  
+  // Affected resource
+  affectedHost: varchar("affected_host"),
+  affectedPort: integer("affected_port"),
+  affectedService: varchar("affected_service"),
+  affectedSoftware: varchar("affected_software"),
+  affectedVersion: varchar("affected_version"),
+  
+  // Remediation info
+  solution: text("solution"),
+  solutionType: varchar("solution_type"), // patch, workaround, upgrade, configuration
+  patchAvailable: boolean("patch_available"),
+  exploitAvailable: boolean("exploit_available"),
+  
+  // References
+  references: jsonb("references").$type<Array<{
+    type: string; // cve, cwe, url, vendor
+    value: string;
+  }>>(),
+  
+  // Status tracking
+  status: varchar("status").default("open"), // open, remediated, accepted, false_positive
+  assignedTo: varchar("assigned_to"),
+  dueDate: timestamp("due_date"),
+  
+  // Link to AEV evaluation if analyzed
+  aevEvaluationId: varchar("aev_evaluation_id"),
+  
+  // Raw data preservation
+  rawData: jsonb("raw_data"), // Original scanner output
+  
+  detectedAt: timestamp("detected_at"), // When scanner found it
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertVulnerabilityImportSchema = createInsertSchema(vulnerabilityImports).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertVulnerabilityImport = z.infer<typeof insertVulnerabilityImportSchema>;
+export type VulnerabilityImport = typeof vulnerabilityImports.$inferSelect;
+
+// Import Jobs - Track bulk import status
+export const importJobs = pgTable("import_jobs", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Job info
+  name: text("name").notNull(),
+  description: text("description"),
+  sourceType: varchar("source_type").notNull(), // One of scannerTypes
+  
+  // File info (for file uploads)
+  fileName: varchar("file_name"),
+  fileSize: integer("file_size"),
+  fileMimeType: varchar("file_mime_type"),
+  
+  // Status tracking
+  status: varchar("status").default("pending"), // One of importJobStatuses
+  progress: integer("progress").default(0), // 0-100
+  
+  // Results
+  totalRecords: integer("total_records").default(0),
+  processedRecords: integer("processed_records").default(0),
+  successfulRecords: integer("successful_records").default(0),
+  failedRecords: integer("failed_records").default(0),
+  skippedRecords: integer("skipped_records").default(0),
+  
+  // Asset/Vuln counts
+  assetsDiscovered: integer("assets_discovered").default(0),
+  vulnerabilitiesFound: integer("vulnerabilities_found").default(0),
+  
+  // Error tracking
+  errors: jsonb("errors").$type<Array<{
+    line?: number;
+    record?: string;
+    error: string;
+  }>>(),
+  
+  // Processing info
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  
+  // User who initiated
+  initiatedBy: varchar("initiated_by"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertImportJobSchema = createInsertSchema(importJobs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertImportJob = z.infer<typeof insertImportJobSchema>;
+export type ImportJob = typeof importJobs.$inferSelect;
+
+// Cloud Connection Status
+export const cloudConnectionStatuses = ["connected", "disconnected", "error", "pending"] as const;
+export type CloudConnectionStatus = typeof cloudConnectionStatuses[number];
+
+// Cloud Connections - Store cloud API credentials
+export const cloudConnections = pgTable("cloud_connections", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Connection info
+  name: text("name").notNull(),
+  provider: varchar("provider").notNull(), // One of cloudProviders
+  
+  // AWS-specific
+  awsAccessKeyId: varchar("aws_access_key_id"),
+  awsRegions: jsonb("aws_regions").$type<string[]>(),
+  awsAssumeRoleArn: varchar("aws_assume_role_arn"),
+  
+  // Azure-specific
+  azureTenantId: varchar("azure_tenant_id"),
+  azureClientId: varchar("azure_client_id"),
+  azureSubscriptionIds: jsonb("azure_subscription_ids").$type<string[]>(),
+  
+  // GCP-specific
+  gcpProjectIds: jsonb("gcp_project_ids").$type<string[]>(),
+  gcpServiceAccountEmail: varchar("gcp_service_account_email"),
+  
+  // Status
+  status: varchar("status").default("pending"), // One of cloudConnectionStatuses
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncStatus: varchar("last_sync_status"),
+  lastError: text("last_error"),
+  
+  // Sync configuration
+  syncEnabled: boolean("sync_enabled").default(true),
+  syncInterval: integer("sync_interval").default(3600), // Seconds
+  
+  // Stats
+  assetsDiscovered: integer("assets_discovered").default(0),
+  lastAssetCount: integer("last_asset_count").default(0),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCloudConnectionSchema = createInsertSchema(cloudConnections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCloudConnection = z.infer<typeof insertCloudConnectionSchema>;
+export type CloudConnection = typeof cloudConnections.$inferSelect;
