@@ -441,6 +441,21 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/batch-jobs/:id", async (req, res) => {
+    try {
+      const job = await storage.getBatchJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Batch job not found" });
+      }
+      await storage.updateBatchJob(req.params.id, req.body);
+      const updatedJob = await storage.getBatchJob(req.params.id);
+      res.json(updatedJob);
+    } catch (error) {
+      console.error("Error updating batch job:", error);
+      res.status(500).json({ error: "Failed to update batch job" });
+    }
+  });
+
   // ========== SCHEDULED SCAN ENDPOINTS ==========
   
   app.post("/api/scheduled-scans", async (req, res) => {

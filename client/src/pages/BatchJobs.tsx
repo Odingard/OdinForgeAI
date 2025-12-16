@@ -105,6 +105,19 @@ export default function BatchJobs() {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("PATCH", `/api/batch-jobs/${id}`, { status: "failed" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/batch-jobs"] });
+      toast({
+        title: "Batch job stopped",
+        description: "Batch job has been cancelled",
+      });
+    },
+  });
+
   const addAsset = () => {
     setAssets([...assets, { assetId: "", exposureType: "cve", priority: "medium", description: "" }]);
   };
@@ -332,11 +345,23 @@ export default function BatchJobs() {
                     </div>
                     <div className="flex items-center gap-2">
                       {getStatusBadge(job.status)}
+                      {job.status === "running" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => cancelMutation.mutate(job.id)}
+                          disabled={cancelMutation.isPending}
+                          data-testid={`btn-cancel-batch-${job.id}`}
+                        >
+                          <XCircle className="w-3 h-3 mr-1" />
+                          Stop
+                        </Button>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"
                         onClick={() => deleteMutation.mutate(job.id)}
-                        disabled={deleteMutation.isPending || job.status === "running"}
+                        disabled={deleteMutation.isPending}
                         data-testid={`btn-delete-batch-${job.id}`}
                       >
                         <Trash2 className="w-4 h-4" />

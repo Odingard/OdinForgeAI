@@ -1,11 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2 } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useState } from "react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface EvaluationWithScore {
   id: string;
@@ -48,11 +50,32 @@ interface EvaluationWithScore {
 }
 
 export default function RiskDashboard() {
+  const { toast } = useToast();
   const [riskFilter, setRiskFilter] = useState<string>("all");
   const [timeframeFilter, setTimeframeFilter] = useState<string>("all");
 
   const { data: evaluations = [], isLoading } = useQuery<EvaluationWithScore[]>({
     queryKey: ["/api/aev/evaluations"],
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/aev/evaluations/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      toast({
+        title: "Evaluation removed",
+        description: "The evaluation has been deleted from the queue",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Delete failed",
+        description: "Failed to delete the evaluation",
+        variant: "destructive",
+      });
+    },
   });
 
   const evaluationsWithScores = evaluations.filter(e => e.intelligentScore);
@@ -296,6 +319,16 @@ export default function RiskDashboard() {
                     <a href={`/?evaluation=${evaluation.id}`} data-testid={`link-evaluation-${evaluation.id}`}>
                       <ArrowUpRight className="h-4 w-4" />
                     </a>
+                  </Button>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => deleteMutation.mutate(evaluation.id)}
+                    disabled={deleteMutation.isPending}
+                    data-testid={`btn-delete-risk-${evaluation.id}`}
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </div>
               ))}
