@@ -1,4 +1,4 @@
-import { Shield, Moon, Sun, Bell, User, ChevronDown, Brain } from "lucide-react";
+import { Shield, Moon, Sun, Bell, User, ChevronDown, Brain, Server } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "./ThemeProvider";
 import { Link, useLocation } from "wouter";
@@ -104,6 +104,17 @@ export function Header() {
               data-testid="nav-governance"
             >
               Governance
+            </Button>
+          </Link>
+          <Link href="/agents">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={`${isActive("/agents") ? "text-foreground" : "text-muted-foreground"} gap-1`} 
+              data-testid="nav-agents"
+            >
+              <Server className="h-3.5 w-3.5" />
+              Agents
             </Button>
           </Link>
           <Link href="/advanced">

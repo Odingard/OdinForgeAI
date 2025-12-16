@@ -6,6 +6,41 @@ import { runAgentOrchestrator } from "./services/agents";
 import { wsService } from "./services/websocket";
 import { reportGenerator } from "./services/report-generator";
 import { randomUUID } from "crypto";
+import bcrypt from "bcrypt";
+import { z } from "zod";
+
+// Agent API Validation Schemas
+const agentRegisterSchema = z.object({
+  agentName: z.string().min(1).max(128),
+  hostname: z.string().max(256).optional(),
+  platform: z.enum(["linux", "windows", "macos", "container", "kubernetes"]).optional(),
+  platformVersion: z.string().max(64).optional(),
+  architecture: z.string().max(32).optional(),
+  capabilities: z.array(z.string().max(64)).max(50).optional(),
+  environment: z.enum(["production", "staging", "development"]).optional(),
+  tags: z.array(z.string().max(64)).max(20).optional(),
+});
+
+const securityFindingSchema = z.object({
+  type: z.string().max(64).optional(),
+  severity: z.enum(["critical", "high", "medium", "low", "info"]).optional(),
+  title: z.string().max(256),
+  description: z.string().max(4096).optional(),
+  affectedComponent: z.string().max(256).optional(),
+  recommendation: z.string().max(2048).optional(),
+});
+
+const agentTelemetrySchema = z.object({
+  systemInfo: z.record(z.unknown()).optional(),
+  resourceMetrics: z.record(z.unknown()).optional(),
+  services: z.array(z.record(z.unknown())).optional(),
+  openPorts: z.array(z.record(z.unknown())).optional(),
+  networkConnections: z.array(z.record(z.unknown())).optional(),
+  installedSoftware: z.array(z.record(z.unknown())).optional(),
+  configData: z.record(z.unknown()).optional(),
+  securityFindings: z.array(securityFindingSchema).max(100).optional(),
+  collectedAt: z.string().datetime().optional(),
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1324,6 +1359,307 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error testing cloud connection:", error);
       res.status(500).json({ error: "Failed to test cloud connection" });
+    }
+  });
+
+  // ========== ENDPOINT AGENT API ==========
+
+  // Generate API key for agent
+  function generateApiKey(): string {
+    return `odin-${randomUUID().replace(/-/g, "")}`;
+  }
+
+  // Hash API key for storage
+  async function hashApiKey(apiKey: string): Promise<string> {
+    return bcrypt.hash(apiKey, 10);
+  }
+
+  // Verify API key against hash
+  async function verifyApiKey(apiKey: string, hash: string): Promise<boolean> {
+    return bcrypt.compare(apiKey, hash);
+  }
+
+  // Agent authentication middleware
+  async function authenticateAgent(req: any, res: any, next: any) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Missing or invalid authorization header" });
+    }
+    
+    const apiKey = authHeader.substring(7);
+    
+    // Get all agents and check hash (since we can't query by hashed key directly)
+    const agents = await storage.getEndpointAgents();
+    let authenticatedAgent = null;
+    
+    for (const agent of agents) {
+      if (agent.apiKeyHash && await verifyApiKey(apiKey, agent.apiKeyHash)) {
+        authenticatedAgent = agent;
+        break;
+      }
+      // Fallback: Support legacy plaintext keys during migration
+      if (agent.apiKey === apiKey) {
+        authenticatedAgent = agent;
+        break;
+      }
+    }
+    
+    if (!authenticatedAgent) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+    
+    req.agent = authenticatedAgent;
+    next();
+  }
+
+  // Register a new agent
+  app.post("/api/agents/register", async (req, res) => {
+    try {
+      const parsed = agentRegisterSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parsed.error.errors });
+      }
+
+      const { agentName, hostname, platform, platformVersion, architecture, capabilities, environment, tags } = parsed.data;
+
+      const apiKey = generateApiKey();
+      const apiKeyHash = await hashApiKey(apiKey);
+      
+      const agent = await storage.createEndpointAgent({
+        agentName,
+        apiKey: "", // Don't store plaintext key
+        apiKeyHash, // Store the hash
+        hostname,
+        platform,
+        platformVersion,
+        architecture,
+        capabilities: capabilities || [],
+        environment,
+        tags: tags || [],
+        organizationId: "default",
+        status: "online",
+      });
+
+      res.json({
+        id: agent.id,
+        apiKey, // Return plaintext key only once at registration
+        agentName: agent.agentName,
+        message: "Agent registered successfully. Store the API key securely - it cannot be retrieved again.",
+      });
+    } catch (error) {
+      console.error("Error registering agent:", error);
+      res.status(500).json({ error: "Failed to register agent" });
+    }
+  });
+
+  // Agent heartbeat
+  app.post("/api/agents/heartbeat", authenticateAgent, async (req: any, res) => {
+    try {
+      await storage.updateAgentHeartbeat(req.agent.id);
+      res.json({ success: true, timestamp: new Date().toISOString() });
+    } catch (error) {
+      console.error("Error processing heartbeat:", error);
+      res.status(500).json({ error: "Failed to process heartbeat" });
+    }
+  });
+
+  // Agent telemetry ingestion
+  app.post("/api/agents/telemetry", authenticateAgent, async (req: any, res) => {
+    try {
+      const parsed = agentTelemetrySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid telemetry data", details: parsed.error.errors });
+      }
+
+      const { systemInfo, resourceMetrics, services, openPorts, networkConnections, installedSoftware, configData, securityFindings, collectedAt } = parsed.data;
+
+      const telemetry = await storage.createAgentTelemetry({
+        agentId: req.agent.id,
+        organizationId: req.agent.organizationId,
+        systemInfo,
+        resourceMetrics,
+        services,
+        openPorts,
+        networkConnections,
+        installedSoftware,
+        configData,
+        securityFindings,
+        collectedAt: collectedAt ? new Date(collectedAt) : new Date(),
+      });
+
+      // Process security findings with deduplication
+      const createdFindings: string[] = [];
+      const triggeredEvaluations: string[] = [];
+      
+      if (securityFindings && Array.isArray(securityFindings)) {
+        // Get existing findings for this agent to deduplicate
+        const existingFindings = await storage.getAgentFindings(req.agent.id);
+        const existingFindingKeys = new Set(
+          existingFindings
+            .filter(f => f.status !== "resolved")
+            .map(f => `${f.findingType}|${f.title}|${f.affectedComponent || ""}`)
+        );
+
+        for (const finding of securityFindings) {
+          const findingKey = `${finding.type || "unknown"}|${finding.title}|${finding.affectedComponent || ""}`;
+          
+          // Skip if this finding already exists and is not resolved
+          if (existingFindingKeys.has(findingKey)) {
+            continue;
+          }
+
+          const agentFinding = await storage.createAgentFinding({
+            agentId: req.agent.id,
+            organizationId: req.agent.organizationId,
+            telemetryId: telemetry.id,
+            findingType: finding.type || "unknown",
+            severity: finding.severity || "medium",
+            title: finding.title,
+            description: finding.description,
+            affectedComponent: finding.affectedComponent,
+            recommendation: finding.recommendation,
+            detectedAt: new Date(),
+          });
+          createdFindings.push(agentFinding.id);
+          
+          // Add to set to prevent duplicates within same batch
+          existingFindingKeys.add(findingKey);
+
+          // Auto-trigger evaluation for critical/high severity findings
+          if (finding.severity === "critical" || finding.severity === "high") {
+            const evaluation = await storage.createEvaluation({
+              assetId: `${req.agent.hostname || req.agent.agentName}-${finding.affectedComponent || "unknown"}`,
+              exposureType: finding.type || "misconfiguration",
+              priority: finding.severity,
+              description: `Auto-triggered from agent finding:\n\nAgent: ${req.agent.agentName}\nHost: ${req.agent.hostname || "Unknown"}\n\n${finding.title}\n\n${finding.description}`,
+              organizationId: req.agent.organizationId,
+            });
+
+            await storage.updateAgentFinding(agentFinding.id, {
+              aevEvaluationId: evaluation.id,
+              autoEvaluationTriggered: true,
+            });
+            
+            triggeredEvaluations.push(evaluation.id);
+
+            // Run evaluation async
+            runEvaluation(evaluation.id, {
+              assetId: evaluation.assetId,
+              exposureType: evaluation.exposureType,
+              priority: evaluation.priority,
+              description: evaluation.description,
+            });
+          }
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        telemetryId: telemetry.id,
+        findingsCreated: createdFindings.length,
+        findingIds: createdFindings,
+        evaluationsTriggered: triggeredEvaluations.length,
+      });
+    } catch (error) {
+      console.error("Error ingesting telemetry:", error);
+      res.status(500).json({ error: "Failed to ingest telemetry" });
+    }
+  });
+
+  // Get all agents (for dashboard)
+  app.get("/api/agents", async (req, res) => {
+    try {
+      const agents = await storage.getEndpointAgents();
+      // Don't expose API keys in list view
+      const safeAgents = agents.map(({ apiKey, apiKeyHash, ...agent }) => agent);
+      res.json(safeAgents);
+    } catch (error) {
+      console.error("Error fetching agents:", error);
+      res.status(500).json({ error: "Failed to fetch agents" });
+    }
+  });
+
+  // Agent stats for dashboard (must be before :id route)
+  app.get("/api/agents/stats/summary", async (req, res) => {
+    try {
+      const stats = await storage.getAgentStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching agent stats:", error);
+      res.status(500).json({ error: "Failed to fetch agent stats" });
+    }
+  });
+
+  // Get agent by ID
+  app.get("/api/agents/:id", async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+      // Don't expose API key
+      const { apiKey, apiKeyHash, ...safeAgent } = agent;
+      res.json(safeAgent);
+    } catch (error) {
+      console.error("Error fetching agent:", error);
+      res.status(500).json({ error: "Failed to fetch agent" });
+    }
+  });
+
+  // Get agent telemetry
+  app.get("/api/agents/:id/telemetry", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 100;
+      const telemetry = await storage.getAgentTelemetry(req.params.id, limit);
+      res.json(telemetry);
+    } catch (error) {
+      console.error("Error fetching agent telemetry:", error);
+      res.status(500).json({ error: "Failed to fetch agent telemetry" });
+    }
+  });
+
+  // Get agent findings
+  app.get("/api/agents/:id/findings", async (req, res) => {
+    try {
+      const findings = await storage.getAgentFindings(req.params.id);
+      res.json(findings);
+    } catch (error) {
+      console.error("Error fetching agent findings:", error);
+      res.status(500).json({ error: "Failed to fetch agent findings" });
+    }
+  });
+
+  // Delete agent
+  app.delete("/api/agents/:id", async (req, res) => {
+    try {
+      await storage.deleteEndpointAgent(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting agent:", error);
+      res.status(500).json({ error: "Failed to delete agent" });
+    }
+  });
+
+  // Get all agent findings
+  app.get("/api/agent-findings", async (req, res) => {
+    try {
+      const findings = await storage.getAgentFindings();
+      res.json(findings);
+    } catch (error) {
+      console.error("Error fetching agent findings:", error);
+      res.status(500).json({ error: "Failed to fetch agent findings" });
+    }
+  });
+
+  // Update agent finding status
+  app.patch("/api/agent-findings/:id", async (req, res) => {
+    try {
+      await storage.updateAgentFinding(req.params.id, req.body);
+      const finding = await storage.getAgentFinding(req.params.id);
+      res.json(finding);
+    } catch (error) {
+      console.error("Error updating agent finding:", error);
+      res.status(500).json({ error: "Failed to update agent finding" });
     }
   });
 

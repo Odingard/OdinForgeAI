@@ -1615,3 +1615,217 @@ export const insertCloudConnectionSchema = createInsertSchema(cloudConnections).
 
 export type InsertCloudConnection = z.infer<typeof insertCloudConnectionSchema>;
 export type CloudConnection = typeof cloudConnections.$inferSelect;
+
+// ============================================
+// ENDPOINT AGENT SYSTEM
+// ============================================
+
+// Agent Status
+export const agentStatuses = ["online", "offline", "stale", "error"] as const;
+export type AgentStatus = typeof agentStatuses[number];
+
+// Agent Platform Types
+export const agentPlatforms = ["linux", "windows", "macos", "container", "kubernetes", "other"] as const;
+export type AgentPlatform = typeof agentPlatforms[number];
+
+// Endpoint Agents - Registered agents
+export const endpointAgents = pgTable("endpoint_agents", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Agent identity
+  agentName: text("agent_name").notNull(),
+  apiKey: varchar("api_key").notNull().unique(), // For authentication
+  apiKeyHash: varchar("api_key_hash"), // Hashed version for verification
+  
+  // Host information
+  hostname: varchar("hostname"),
+  platform: varchar("platform"), // One of agentPlatforms
+  platformVersion: varchar("platform_version"),
+  architecture: varchar("architecture"), // x86_64, arm64, etc.
+  
+  // Network info
+  ipAddresses: jsonb("ip_addresses").$type<string[]>(),
+  macAddresses: jsonb("mac_addresses").$type<string[]>(),
+  
+  // Agent metadata
+  agentVersion: varchar("agent_version"),
+  capabilities: jsonb("capabilities").$type<string[]>(), // service_scan, vuln_detect, config_audit, etc.
+  
+  // Status tracking
+  status: varchar("status").default("offline"), // One of agentStatuses
+  lastHeartbeat: timestamp("last_heartbeat"),
+  lastTelemetry: timestamp("last_telemetry"),
+  
+  // Configuration
+  telemetryInterval: integer("telemetry_interval").default(300), // seconds
+  scanEnabled: boolean("scan_enabled").default(true),
+  configAuditEnabled: boolean("config_audit_enabled").default(true),
+  
+  // Tags for organization
+  tags: jsonb("tags").$type<string[]>(),
+  environment: varchar("environment"), // production, staging, development
+  
+  registeredAt: timestamp("registered_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEndpointAgentSchema = createInsertSchema(endpointAgents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  registeredAt: true,
+});
+
+export type InsertEndpointAgent = z.infer<typeof insertEndpointAgentSchema>;
+export type EndpointAgent = typeof endpointAgents.$inferSelect;
+
+// Agent Telemetry - Live data from agents
+export const agentTelemetry = pgTable("agent_telemetry", {
+  id: varchar("id").primaryKey(),
+  agentId: varchar("agent_id").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // System info
+  systemInfo: jsonb("system_info").$type<{
+    hostname: string;
+    platform: string;
+    platformVersion: string;
+    kernel: string;
+    architecture: string;
+    uptime: number;
+    bootTime: string;
+  }>(),
+  
+  // Resource metrics
+  resourceMetrics: jsonb("resource_metrics").$type<{
+    cpuUsage: number;
+    memoryTotal: number;
+    memoryUsed: number;
+    memoryPercent: number;
+    diskTotal: number;
+    diskUsed: number;
+    diskPercent: number;
+  }>(),
+  
+  // Running services
+  services: jsonb("services").$type<Array<{
+    name: string;
+    version?: string;
+    port?: number;
+    protocol?: string;
+    status: string;
+    pid?: number;
+  }>>(),
+  
+  // Open ports
+  openPorts: jsonb("open_ports").$type<Array<{
+    port: number;
+    protocol: string;
+    service?: string;
+    state: string;
+    localAddress: string;
+    remoteAddress?: string;
+  }>>(),
+  
+  // Network connections
+  networkConnections: jsonb("network_connections").$type<Array<{
+    localAddress: string;
+    localPort: number;
+    remoteAddress: string;
+    remotePort: number;
+    protocol: string;
+    state: string;
+    process?: string;
+  }>>(),
+  
+  // Installed software
+  installedSoftware: jsonb("installed_software").$type<Array<{
+    name: string;
+    version: string;
+    vendor?: string;
+    installDate?: string;
+  }>>(),
+  
+  // Configuration data
+  configData: jsonb("config_data").$type<Record<string, any>>(),
+  
+  // Security findings from agent
+  securityFindings: jsonb("security_findings").$type<Array<{
+    type: string; // outdated_software, weak_config, open_port, etc.
+    severity: string;
+    title: string;
+    description: string;
+    affectedComponent: string;
+    recommendation?: string;
+  }>>(),
+  
+  // Raw data for debugging
+  rawData: jsonb("raw_data"),
+  
+  collectedAt: timestamp("collected_at").notNull(),
+  receivedAt: timestamp("received_at").defaultNow(),
+});
+
+export const insertAgentTelemetrySchema = createInsertSchema(agentTelemetry).omit({
+  id: true,
+  receivedAt: true,
+});
+
+export type InsertAgentTelemetry = z.infer<typeof insertAgentTelemetrySchema>;
+export type AgentTelemetry = typeof agentTelemetry.$inferSelect;
+
+// Agent Findings - Security issues detected by agents
+export const agentFindingStatuses = ["new", "acknowledged", "in_progress", "resolved", "false_positive"] as const;
+export type AgentFindingStatus = typeof agentFindingStatuses[number];
+
+export const agentFindings = pgTable("agent_findings", {
+  id: varchar("id").primaryKey(),
+  agentId: varchar("agent_id").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  telemetryId: varchar("telemetry_id"), // Reference to source telemetry
+  
+  // Finding details
+  findingType: varchar("finding_type").notNull(), // outdated_software, weak_config, open_port, cve_detected, etc.
+  severity: varchar("severity").notNull(), // critical, high, medium, low, informational
+  title: text("title").notNull(),
+  description: text("description"),
+  
+  // Affected component
+  affectedComponent: varchar("affected_component"),
+  affectedVersion: varchar("affected_version"),
+  affectedPort: integer("affected_port"),
+  affectedService: varchar("affected_service"),
+  
+  // CVE info if applicable
+  cveId: varchar("cve_id"),
+  cvssScore: integer("cvss_score"),
+  
+  // Remediation
+  recommendation: text("recommendation"),
+  
+  // Status tracking
+  status: varchar("status").default("new"), // One of agentFindingStatuses
+  assignedTo: varchar("assigned_to"),
+  
+  // Link to AEV evaluation if auto-triggered
+  aevEvaluationId: varchar("aev_evaluation_id"),
+  autoEvaluationTriggered: boolean("auto_evaluation_triggered").default(false),
+  
+  // Timestamps
+  detectedAt: timestamp("detected_at").notNull(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAgentFindingSchema = createInsertSchema(agentFindings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAgentFinding = z.infer<typeof insertAgentFindingSchema>;
+export type AgentFinding = typeof agentFindings.$inferSelect;

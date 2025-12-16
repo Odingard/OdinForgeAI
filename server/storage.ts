@@ -35,6 +35,12 @@ import {
   type InsertImportJob,
   type CloudConnection,
   type InsertCloudConnection,
+  type EndpointAgent,
+  type InsertEndpointAgent,
+  type AgentTelemetry,
+  type InsertAgentTelemetry,
+  type AgentFinding,
+  type InsertAgentFinding,
   users,
   aevEvaluations,
   aevResults,
@@ -54,6 +60,9 @@ import {
   vulnerabilityImports,
   importJobs,
   cloudConnections,
+  endpointAgents,
+  agentTelemetry,
+  agentFindings,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -778,6 +787,187 @@ export class DatabaseStorage implements IStorage {
       highVulns: highCount?.count || 0,
       pendingImports: pendingCount?.count || 0,
       cloudConnections: cloudCount?.count || 0,
+    };
+  }
+
+  // ========== ENDPOINT AGENT OPERATIONS ==========
+  
+  // Endpoint Agent operations
+  async createEndpointAgent(data: InsertEndpointAgent): Promise<EndpointAgent> {
+    const id = `agent-${randomUUID().slice(0, 8)}`;
+    const [agent] = await db
+      .insert(endpointAgents)
+      .values({ ...data, id } as typeof endpointAgents.$inferInsert)
+      .returning();
+    return agent;
+  }
+
+  async getEndpointAgent(id: string): Promise<EndpointAgent | undefined> {
+    const [agent] = await db
+      .select()
+      .from(endpointAgents)
+      .where(eq(endpointAgents.id, id));
+    return agent;
+  }
+
+  async getEndpointAgentByApiKey(apiKey: string): Promise<EndpointAgent | undefined> {
+    const [agent] = await db
+      .select()
+      .from(endpointAgents)
+      .where(eq(endpointAgents.apiKey, apiKey));
+    return agent;
+  }
+
+  async getEndpointAgents(organizationId?: string): Promise<EndpointAgent[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(endpointAgents)
+        .where(eq(endpointAgents.organizationId, organizationId))
+        .orderBy(desc(endpointAgents.registeredAt));
+    }
+    return db.select().from(endpointAgents).orderBy(desc(endpointAgents.registeredAt));
+  }
+
+  async updateEndpointAgent(id: string, updates: Partial<EndpointAgent>): Promise<void> {
+    await db.update(endpointAgents).set({ ...updates, updatedAt: new Date() }).where(eq(endpointAgents.id, id));
+  }
+
+  async deleteEndpointAgent(id: string): Promise<void> {
+    await db.delete(agentFindings).where(eq(agentFindings.agentId, id));
+    await db.delete(agentTelemetry).where(eq(agentTelemetry.agentId, id));
+    await db.delete(endpointAgents).where(eq(endpointAgents.id, id));
+  }
+
+  async updateAgentHeartbeat(id: string): Promise<void> {
+    await db.update(endpointAgents).set({ 
+      lastHeartbeat: new Date(),
+      status: "online",
+      updatedAt: new Date()
+    }).where(eq(endpointAgents.id, id));
+  }
+
+  // Agent Telemetry operations
+  async createAgentTelemetry(data: InsertAgentTelemetry): Promise<AgentTelemetry> {
+    const id = `tel-${randomUUID().slice(0, 8)}`;
+    const [telemetry] = await db
+      .insert(agentTelemetry)
+      .values({ ...data, id } as typeof agentTelemetry.$inferInsert)
+      .returning();
+    
+    await db.update(endpointAgents).set({ 
+      lastTelemetry: new Date(),
+      status: "online",
+      updatedAt: new Date()
+    }).where(eq(endpointAgents.id, data.agentId));
+    
+    return telemetry;
+  }
+
+  async getAgentTelemetry(agentId: string, limit: number = 100): Promise<AgentTelemetry[]> {
+    return db
+      .select()
+      .from(agentTelemetry)
+      .where(eq(agentTelemetry.agentId, agentId))
+      .orderBy(desc(agentTelemetry.collectedAt))
+      .limit(limit);
+  }
+
+  async getLatestAgentTelemetry(agentId: string): Promise<AgentTelemetry | undefined> {
+    const [telemetry] = await db
+      .select()
+      .from(agentTelemetry)
+      .where(eq(agentTelemetry.agentId, agentId))
+      .orderBy(desc(agentTelemetry.collectedAt))
+      .limit(1);
+    return telemetry;
+  }
+
+  // Agent Finding operations
+  async createAgentFinding(data: InsertAgentFinding): Promise<AgentFinding> {
+    const id = `finding-${randomUUID().slice(0, 8)}`;
+    const [finding] = await db
+      .insert(agentFindings)
+      .values({ ...data, id } as typeof agentFindings.$inferInsert)
+      .returning();
+    return finding;
+  }
+
+  async getAgentFinding(id: string): Promise<AgentFinding | undefined> {
+    const [finding] = await db
+      .select()
+      .from(agentFindings)
+      .where(eq(agentFindings.id, id));
+    return finding;
+  }
+
+  async getAgentFindings(agentId?: string, organizationId?: string): Promise<AgentFinding[]> {
+    if (agentId) {
+      return db
+        .select()
+        .from(agentFindings)
+        .where(eq(agentFindings.agentId, agentId))
+        .orderBy(desc(agentFindings.detectedAt));
+    }
+    if (organizationId) {
+      return db
+        .select()
+        .from(agentFindings)
+        .where(eq(agentFindings.organizationId, organizationId))
+        .orderBy(desc(agentFindings.detectedAt));
+    }
+    return db.select().from(agentFindings).orderBy(desc(agentFindings.detectedAt));
+  }
+
+  async getUnprocessedFindings(organizationId?: string): Promise<AgentFinding[]> {
+    const baseQuery = db
+      .select()
+      .from(agentFindings)
+      .where(and(
+        eq(agentFindings.autoEvaluationTriggered, false),
+        eq(agentFindings.status, "new")
+      ))
+      .orderBy(desc(agentFindings.detectedAt));
+    return baseQuery;
+  }
+
+  async updateAgentFinding(id: string, updates: Partial<AgentFinding>): Promise<void> {
+    await db.update(agentFindings).set({ ...updates, updatedAt: new Date() }).where(eq(agentFindings.id, id));
+  }
+
+  async deleteAgentFinding(id: string): Promise<void> {
+    await db.delete(agentFindings).where(eq(agentFindings.id, id));
+  }
+
+  // Agent stats for dashboard
+  async getAgentStats(organizationId?: string): Promise<{
+    totalAgents: number;
+    onlineAgents: number;
+    offlineAgents: number;
+    totalFindings: number;
+    criticalFindings: number;
+    highFindings: number;
+    newFindings: number;
+  }> {
+    const orgFilter = organizationId ? eq(endpointAgents.organizationId, organizationId) : sql`1=1`;
+    const findingOrgFilter = organizationId ? eq(agentFindings.organizationId, organizationId) : sql`1=1`;
+    
+    const [totalAgents] = await db.select({ count: sql<number>`count(*)::int` }).from(endpointAgents).where(orgFilter);
+    const [onlineAgents] = await db.select({ count: sql<number>`count(*)::int` }).from(endpointAgents).where(and(orgFilter, eq(endpointAgents.status, "online")));
+    const [offlineAgents] = await db.select({ count: sql<number>`count(*)::int` }).from(endpointAgents).where(and(orgFilter, eq(endpointAgents.status, "offline")));
+    const [totalFindings] = await db.select({ count: sql<number>`count(*)::int` }).from(agentFindings).where(findingOrgFilter);
+    const [criticalFindings] = await db.select({ count: sql<number>`count(*)::int` }).from(agentFindings).where(and(findingOrgFilter, eq(agentFindings.severity, "critical")));
+    const [highFindings] = await db.select({ count: sql<number>`count(*)::int` }).from(agentFindings).where(and(findingOrgFilter, eq(agentFindings.severity, "high")));
+    const [newFindings] = await db.select({ count: sql<number>`count(*)::int` }).from(agentFindings).where(and(findingOrgFilter, eq(agentFindings.status, "new")));
+
+    return {
+      totalAgents: totalAgents?.count || 0,
+      onlineAgents: onlineAgents?.count || 0,
+      offlineAgents: offlineAgents?.count || 0,
+      totalFindings: totalFindings?.count || 0,
+      criticalFindings: criticalFindings?.count || 0,
+      highFindings: highFindings?.count || 0,
+      newFindings: newFindings?.count || 0,
     };
   }
 }

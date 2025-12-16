@@ -13,6 +13,7 @@ import Reports from "@/pages/Reports";
 import BatchJobs from "@/pages/BatchJobs";
 import Governance from "@/pages/Governance";
 import Advanced from "@/pages/Advanced";
+import Agents from "@/pages/Agents";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/reports" component={Reports} />
       <Route path="/batch" component={BatchJobs} />
       <Route path="/governance" component={Governance} />
+      <Route path="/agents" component={Agents} />
       <Route path="/advanced" component={Advanced} />
       <Route component={NotFound} />
     </Switch>
