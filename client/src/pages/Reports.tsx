@@ -149,27 +149,133 @@ export default function Reports() {
 
   const convertToCSV = (data: any): string => {
     if (!data) return "";
-    const rows: string[] = [];
+    const sections: string[] = [];
     
-    const flatten = (obj: any, prefix = ""): Record<string, string> => {
-      const result: Record<string, string> = {};
-      for (const key in obj) {
-        const newKey = prefix ? `${prefix}.${key}` : key;
-        if (typeof obj[key] === "object" && obj[key] !== null && !Array.isArray(obj[key])) {
-          Object.assign(result, flatten(obj[key], newKey));
-        } else if (Array.isArray(obj[key])) {
-          result[newKey] = obj[key].join("; ");
+    const escapeCSV = (value: any): string => {
+      const str = String(value ?? "");
+      if (str.includes(",") || str.includes("\n") || str.includes('"')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    // Executive Summary section
+    if (data.executiveSummary) {
+      sections.push("EXECUTIVE SUMMARY");
+      sections.push(escapeCSV(data.executiveSummary));
+      sections.push("");
+    }
+
+    // Key Metrics section
+    if (data.keyMetrics) {
+      sections.push("KEY METRICS");
+      sections.push("Metric,Value");
+      for (const [key, value] of Object.entries(data.keyMetrics)) {
+        const label = key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase());
+        sections.push(`${escapeCSV(label)},${escapeCSV(value)}`);
+      }
+      sections.push("");
+    }
+
+    // Findings section
+    if (data.findings && Array.isArray(data.findings)) {
+      sections.push("SECURITY FINDINGS");
+      sections.push("Severity,Title,Description,Recommendation,Score");
+      for (const f of data.findings.slice(0, 50)) {
+        sections.push([
+          escapeCSV(f.severity?.toUpperCase() || "N/A"),
+          escapeCSV(f.title || "Untitled"),
+          escapeCSV(f.description || ""),
+          escapeCSV(f.recommendation || ""),
+          escapeCSV(f.score || f.riskScore || "N/A"),
+        ].join(","));
+      }
+      sections.push("");
+    }
+
+    // Recommendations section
+    if (data.recommendations && Array.isArray(data.recommendations)) {
+      sections.push("RECOMMENDATIONS");
+      sections.push("Priority,Action,Impact,Effort");
+      for (const rec of data.recommendations.slice(0, 20)) {
+        if (typeof rec === "string") {
+          sections.push(`1,${escapeCSV(rec)},,`);
+        } else if (rec.action) {
+          sections.push([
+            escapeCSV(rec.priority || ""),
+            escapeCSV(rec.action),
+            escapeCSV(rec.impact || ""),
+            escapeCSV(rec.effort || ""),
+          ].join(","));
         } else {
-          result[newKey] = String(obj[key] ?? "");
+          sections.push(`1,${escapeCSV(rec.description || rec.title || rec.text || "")},,`);
         }
       }
-      return result;
-    };
-    
-    const flat = flatten(data);
-    rows.push(Object.keys(flat).join(","));
-    rows.push(Object.values(flat).map(v => `"${v.replace(/"/g, '""')}"`).join(","));
-    return rows.join("\n");
+      sections.push("");
+    }
+
+    // Attack Paths section (for technical reports)
+    if (data.attackPaths && Array.isArray(data.attackPaths)) {
+      sections.push("ATTACK PATHS");
+      sections.push("Asset,Complexity,Time to Compromise,Steps");
+      for (const path of data.attackPaths.slice(0, 20)) {
+        const stepsText = path.steps?.map((s: any) => s.technique || s.description || s.action).join(" -> ") || "";
+        sections.push([
+          escapeCSV(path.assetId || ""),
+          escapeCSV(path.complexity || ""),
+          escapeCSV(path.timeToCompromise || ""),
+          escapeCSV(stepsText),
+        ].join(","));
+      }
+      sections.push("");
+    }
+
+    // Compliance Status section
+    if (data.complianceStatus) {
+      sections.push("COMPLIANCE STATUS");
+      sections.push("Control,Status,Coverage");
+      for (const [control, status] of Object.entries(data.complianceStatus)) {
+        const statusObj = status as any;
+        sections.push([
+          escapeCSV(control),
+          escapeCSV(typeof statusObj === "object" ? statusObj.status : String(statusObj)),
+          escapeCSV(typeof statusObj === "object" && statusObj.coverage ? `${statusObj.coverage}%` : "N/A"),
+        ].join(","));
+      }
+      sections.push("");
+    }
+
+    // Gaps section (for compliance reports)
+    if (data.gaps && Array.isArray(data.gaps)) {
+      sections.push("COMPLIANCE GAPS");
+      sections.push("Control ID,Gap Description,Severity,Remediation Guidance");
+      for (const gap of data.gaps) {
+        sections.push([
+          escapeCSV(gap.controlId || ""),
+          escapeCSV(gap.gapDescription || ""),
+          escapeCSV(gap.severity || ""),
+          escapeCSV(gap.remediationGuidance || ""),
+        ].join(","));
+      }
+      sections.push("");
+    }
+
+    // Top Risks section (for executive reports)
+    if (data.topRisks && Array.isArray(data.topRisks)) {
+      sections.push("TOP RISKS");
+      sections.push("Asset,Severity,Risk Description,Financial Impact");
+      for (const risk of data.topRisks) {
+        sections.push([
+          escapeCSV(risk.assetId || ""),
+          escapeCSV(risk.severity || ""),
+          escapeCSV(risk.riskDescription || ""),
+          escapeCSV(risk.financialImpact || ""),
+        ].join(","));
+      }
+      sections.push("");
+    }
+
+    return sections.join("\n");
   };
 
   const generatePdf = (report: Report) => {
@@ -352,6 +458,154 @@ export default function Reports() {
         margin: [0, 5, 0, 10],
       };
       content.push(riskTable);
+    }
+
+    // Top Risks section (for executive reports)
+    if (data.topRisks && Array.isArray(data.topRisks) && data.topRisks.length > 0) {
+      content.push({ text: "Top Business Risks", style: "sectionHeader" });
+      const risksTable = {
+        table: {
+          headerRows: 1,
+          widths: ["auto", "*", "auto", "auto"],
+          body: [
+            [
+              { text: "Severity", style: "tableHeader" },
+              { text: "Risk Description", style: "tableHeader" },
+              { text: "Asset", style: "tableHeader" },
+              { text: "Financial Impact", style: "tableHeader" },
+            ],
+            ...data.topRisks.slice(0, 10).map((risk: any) => [
+              { text: risk.severity?.toUpperCase() || "N/A", style: getSeverityStyle(risk.severity) },
+              { text: risk.riskDescription || "Risk requiring attention", style: "tableCell" },
+              { text: risk.assetId || "N/A", style: "tableCell" },
+              { text: risk.financialImpact || "TBD", style: "tableCell" },
+            ]),
+          ],
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(risksTable);
+    }
+
+    // Attack Paths section (for technical reports)
+    if (data.attackPaths && Array.isArray(data.attackPaths) && data.attackPaths.length > 0) {
+      content.push({ text: "Attack Path Analysis", style: "sectionHeader" });
+      content.push({ 
+        text: "The following attack paths were identified and validated during the security assessment:", 
+        style: "bodyText" 
+      });
+      
+      for (const [idx, path] of data.attackPaths.slice(0, 5).entries()) {
+        content.push({ text: `Attack Path ${idx + 1}: ${path.assetId || "Target Asset"}`, style: "subHeader" });
+        
+        const pathInfo = [];
+        if (path.complexity) pathInfo.push(`Complexity: ${path.complexity}/100`);
+        if (path.timeToCompromise) pathInfo.push(`Estimated Time to Compromise: ${path.timeToCompromise}`);
+        if (pathInfo.length > 0) {
+          content.push({ text: pathInfo.join(" | "), style: "bodyText", color: "#64748b" });
+        }
+        
+        if (path.steps && Array.isArray(path.steps)) {
+          const stepsText = path.steps.map((step: any, i: number) => {
+            const technique = step.technique || step.action || step.description || "Action";
+            const desc = step.description || step.details || "";
+            return `${i + 1}. ${technique}${desc ? `: ${desc}` : ""}`;
+          }).join("\n");
+          content.push({ text: stepsText, style: "listItem", margin: [10, 5, 0, 10] });
+        }
+      }
+    }
+
+    // Vulnerability Breakdown section (for technical reports)
+    if (data.vulnerabilityBreakdown) {
+      content.push({ text: "Vulnerability Distribution", style: "sectionHeader" });
+      
+      if (data.vulnerabilityBreakdown.bySeverity) {
+        content.push({ text: "By Severity:", style: "subHeader" });
+        const severityItems = Object.entries(data.vulnerabilityBreakdown.bySeverity)
+          .map(([sev, count]) => `${sev.charAt(0).toUpperCase() + sev.slice(1)}: ${count}`)
+          .join(", ");
+        content.push({ text: severityItems, style: "bodyText" });
+      }
+      
+      if (data.vulnerabilityBreakdown.byType) {
+        content.push({ text: "By Type:", style: "subHeader" });
+        const typeItems = Object.entries(data.vulnerabilityBreakdown.byType)
+          .map(([type, count]) => `${type.replace(/_/g, " ")}: ${count}`)
+          .join(", ");
+        content.push({ text: typeItems, style: "bodyText" });
+      }
+    }
+
+    // Compliance Gaps section
+    if (data.gaps && Array.isArray(data.gaps) && data.gaps.length > 0) {
+      content.push({ text: "Compliance Gaps", style: "sectionHeader" });
+      const gapsTable = {
+        table: {
+          headerRows: 1,
+          widths: ["auto", "*", "auto"],
+          body: [
+            [
+              { text: "Control ID", style: "tableHeader" },
+              { text: "Gap Description", style: "tableHeader" },
+              { text: "Severity", style: "tableHeader" },
+            ],
+            ...data.gaps.slice(0, 15).map((gap: any) => [
+              { text: gap.controlId || "N/A", style: "tableCell" },
+              { text: gap.gapDescription || "Gap requiring remediation", style: "tableCell" },
+              { text: gap.severity?.toUpperCase() || "MEDIUM", style: getSeverityStyle(gap.severity) },
+            ]),
+          ],
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(gapsTable);
+      
+      // Add remediation guidance
+      content.push({ text: "Remediation Guidance", style: "subHeader" });
+      const remediationList = {
+        ul: data.gaps.slice(0, 10).map((gap: any) => 
+          `${gap.controlId}: ${gap.remediationGuidance || "Review and implement required controls"}`
+        ),
+        style: "listItem",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(remediationList);
+    }
+
+    // Audit Readiness section (for compliance reports)
+    if (data.auditReadiness) {
+      content.push({ text: "Audit Readiness Assessment", style: "sectionHeader" });
+      
+      const readinessInfo = [
+        { label: "Overall Readiness Score", value: `${data.auditReadiness.score || 0}%` },
+        { label: "Compliant Controls", value: `${data.auditReadiness.readyControls || 0} of ${data.auditReadiness.totalControls || 0}` },
+      ];
+      
+      const readinessTable = {
+        table: {
+          widths: ["*", "auto"],
+          body: readinessInfo.map(item => [
+            { text: item.label, style: "tableCell" },
+            { text: item.value, style: "tableCell", bold: true },
+          ]),
+        },
+        layout: "noBorders",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(readinessTable);
+      
+      if (data.auditReadiness.priorityActions && Array.isArray(data.auditReadiness.priorityActions)) {
+        content.push({ text: "Priority Actions for Audit Preparation:", style: "subHeader" });
+        const actionsList = {
+          ol: data.auditReadiness.priorityActions.slice(0, 5),
+          style: "listItem",
+          margin: [0, 5, 0, 10],
+        };
+        content.push(actionsList);
+      }
     }
 
     if (content.length === 0) {
@@ -694,7 +948,108 @@ export default function Reports() {
                       </div>
                     )}
 
-                    {!previewData.data.executiveSummary && !previewData.data.recommendations && (
+                    {previewData.data.topRisks && Array.isArray(previewData.data.topRisks) && previewData.data.topRisks.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Top Business Risks</h3>
+                        <div className="space-y-3">
+                          {previewData.data.topRisks.slice(0, 5).map((risk: any, idx: number) => (
+                            <div key={idx} className="bg-muted p-3 rounded-md">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant={risk.severity === "critical" ? "destructive" : "secondary"}>
+                                  {risk.severity?.toUpperCase() || "N/A"}
+                                </Badge>
+                                <span className="font-medium">{risk.assetId || "Asset"}</span>
+                                {risk.financialImpact && (
+                                  <span className="text-sm text-muted-foreground ml-auto">{risk.financialImpact}</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">{risk.riskDescription}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {previewData.data.attackPaths && Array.isArray(previewData.data.attackPaths) && previewData.data.attackPaths.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Attack Path Analysis</h3>
+                        <div className="space-y-3">
+                          {previewData.data.attackPaths.slice(0, 3).map((path: any, idx: number) => (
+                            <div key={idx} className="bg-muted p-3 rounded-md">
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="font-medium">Path {idx + 1}: {path.assetId || "Target"}</span>
+                                {path.complexity && <Badge variant="outline">Complexity: {path.complexity}</Badge>}
+                                {path.timeToCompromise && <Badge variant="outline">{path.timeToCompromise}</Badge>}
+                              </div>
+                              {path.steps && Array.isArray(path.steps) && (
+                                <div className="text-sm text-muted-foreground">
+                                  {path.steps.map((step: any, i: number) => (
+                                    <span key={i}>
+                                      {i > 0 && " → "}
+                                      {step.technique || step.action || step.description || "Step"}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {previewData.data.gaps && Array.isArray(previewData.data.gaps) && previewData.data.gaps.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Compliance Gaps</h3>
+                        <div className="space-y-3">
+                          {previewData.data.gaps.slice(0, 5).map((gap: any, idx: number) => (
+                            <div key={idx} className="bg-muted p-3 rounded-md">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant={gap.severity === "critical" ? "destructive" : "secondary"}>
+                                  {gap.severity?.toUpperCase() || "MEDIUM"}
+                                </Badge>
+                                <span className="font-medium">{gap.controlId}</span>
+                              </div>
+                              <p className="text-sm text-muted-foreground">{gap.gapDescription}</p>
+                              {gap.remediationGuidance && (
+                                <p className="text-sm mt-2"><span className="font-medium">Remediation:</span> {gap.remediationGuidance}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {previewData.data.auditReadiness && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Audit Readiness</h3>
+                        <div className="bg-muted p-4 rounded-md">
+                          <div className="grid grid-cols-2 gap-4 mb-3">
+                            <div>
+                              <div className="text-sm text-muted-foreground">Readiness Score</div>
+                              <div className="text-2xl font-bold">{previewData.data.auditReadiness.score || 0}%</div>
+                            </div>
+                            <div>
+                              <div className="text-sm text-muted-foreground">Compliant Controls</div>
+                              <div className="text-2xl font-bold">
+                                {previewData.data.auditReadiness.readyControls || 0} / {previewData.data.auditReadiness.totalControls || 0}
+                              </div>
+                            </div>
+                          </div>
+                          {previewData.data.auditReadiness.priorityActions && Array.isArray(previewData.data.auditReadiness.priorityActions) && (
+                            <div>
+                              <div className="text-sm font-medium mb-2">Priority Actions:</div>
+                              <ul className="list-decimal list-inside text-sm text-muted-foreground space-y-1">
+                                {previewData.data.auditReadiness.priorityActions.slice(0, 3).map((action: string, idx: number) => (
+                                  <li key={idx}>{action}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {!previewData.data.executiveSummary && !previewData.data.recommendations && !previewData.data.findings && (
                       <pre className="text-sm font-mono bg-muted p-4 rounded-md overflow-x-auto">
                         {JSON.stringify(previewData.data, null, 2)}
                       </pre>
