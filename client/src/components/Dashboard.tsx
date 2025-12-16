@@ -8,15 +8,25 @@ import {
   Activity, 
   RefreshCw,
   Plus,
-  Loader2
+  Loader2,
+  Wand2,
+  FileText,
+  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { StatCard } from "./StatCard";
 import { FilterBar } from "./FilterBar";
 import { EvaluationTable, Evaluation } from "./EvaluationTable";
 import { NewEvaluationModal, EvaluationFormData } from "./NewEvaluationModal";
 import { ProgressModal } from "./ProgressModal";
 import { EvaluationDetail } from "./EvaluationDetail";
+import { EvaluationWizard } from "./EvaluationWizard";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface EvaluationDetailData {
@@ -61,6 +71,7 @@ interface ProgressEvent {
 export function Dashboard() {
   const [filter, setFilter] = useState("all");
   const [showNewModal, setShowNewModal] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [activeEvaluation, setActiveEvaluation] = useState<{ assetId: string; id: string } | null>(null);
   const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null);
@@ -213,15 +224,35 @@ export function Dashboard() {
             <RefreshCw className={`h-3.5 w-3.5 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button 
-            size="sm"
-            className="bg-gradient-to-r from-cyan-600 to-blue-600"
-            onClick={() => setShowNewModal(true)}
-            data-testid="button-new-evaluation"
-          >
-            <Plus className="h-3.5 w-3.5 mr-2" />
-            New Evaluation
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                size="sm"
+                className="bg-gradient-to-r from-cyan-600 to-blue-600"
+                data-testid="button-new-evaluation"
+              >
+                <Plus className="h-3.5 w-3.5 mr-2" />
+                New Evaluation
+                <ChevronDown className="h-3.5 w-3.5 ml-2" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem onClick={() => setShowWizard(true)} data-testid="menu-guided-wizard">
+                <Wand2 className="h-4 w-4 mr-2" />
+                <div>
+                  <div className="font-medium">Guided Wizard</div>
+                  <div className="text-xs text-muted-foreground">Step-by-step templates</div>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowNewModal(true)} data-testid="menu-quick-evaluation">
+                <FileText className="h-4 w-4 mr-2" />
+                <div>
+                  <div className="font-medium">Quick Evaluation</div>
+                  <div className="text-xs text-muted-foreground">Manual description input</div>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -279,6 +310,11 @@ export function Dashboard() {
         isOpen={showNewModal}
         onClose={() => setShowNewModal(false)}
         onSubmit={handleNewEvaluation}
+      />
+
+      <EvaluationWizard
+        open={showWizard}
+        onOpenChange={setShowWizard}
       />
 
       <ProgressModal 
