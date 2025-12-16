@@ -334,6 +334,52 @@ export async function registerRoutes(
     }
   });
 
+  // ========== EVIDENCE EXPORT ENDPOINT ==========
+  
+  app.post("/api/evidence/:evaluationId/export", async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const { format = "json" } = req.body;
+      
+      // Get the evaluation and its result
+      const evaluation = await storage.getEvaluation(evaluationId);
+      if (!evaluation) {
+        return res.status(404).json({ error: "Evaluation not found" });
+      }
+      
+      const result = await storage.getResultByEvaluationId(evaluationId);
+      
+      // Extract artifacts from the result
+      const artifacts = (result?.evidenceArtifacts as any[]) || [];
+      
+      // Generate AI-enhanced evidence package
+      const evidencePackage = await reportGenerator.generateEvidencePackage(
+        evaluationId,
+        artifacts,
+        result
+      );
+      
+      if (format === "pdf") {
+        // Return structured data for PDF generation (handled on frontend)
+        res.json({
+          success: true,
+          format: "pdf",
+          data: evidencePackage,
+        });
+      } else {
+        // Return JSON with natural language narratives
+        res.json({
+          success: true,
+          format: "json",
+          data: evidencePackage,
+        });
+      }
+    } catch (error) {
+      console.error("Error exporting evidence:", error);
+      res.status(500).json({ error: "Failed to export evidence" });
+    }
+  });
+
   // ========== BATCH JOB ENDPOINTS ==========
   
   app.post("/api/batch-jobs", async (req, res) => {

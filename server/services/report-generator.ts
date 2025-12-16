@@ -696,6 +696,152 @@ Focus on regulatory requirements, control effectiveness, and audit readiness. Li
     
     return frameworkControls[framework] || [];
   }
+  
+  async generateEvidencePackage(
+    evaluationId: string,
+    artifacts: any[],
+    evaluationData?: any
+  ): Promise<{
+    executiveSummary: string;
+    timelineNarrative: string;
+    findingsNarrative: string;
+    technicalDetails: string;
+    artifacts: any[];
+    metadata: {
+      evaluationId: string;
+      generatedAt: string;
+      totalArtifacts: number;
+      criticalFindings: number;
+    };
+  }> {
+    const client = getOpenAIClient();
+    
+    // Build context about the evidence
+    const criticalFindings = artifacts.filter(a => a.tags?.includes("critical")).length;
+    const artifactTypes = Array.from(new Set(artifacts.map(a => a.type)));
+    const timeline = artifacts.map(a => ({
+      timestamp: a.timestamp,
+      type: a.type,
+      title: a.title,
+      description: a.description?.substring(0, 200),
+    })).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    
+    const contextData = {
+      evaluationId,
+      totalArtifacts: artifacts.length,
+      criticalFindings,
+      artifactTypes,
+      timeline,
+      artifacts: artifacts.slice(0, 10).map(a => ({
+        type: a.type,
+        title: a.title,
+        description: a.description,
+        tags: a.tags,
+      })),
+      evaluationResult: evaluationData,
+    };
+    
+    // Templated fallback narratives
+    const templatedResponse = {
+      executiveSummary: `This evidence package contains ${artifacts.length} artifacts collected during the security evaluation of ${evaluationId}. ${criticalFindings > 0 ? `${criticalFindings} critical findings were identified that require immediate attention.` : "No critical findings were identified."} The evidence documents the complete attack chain validation and exploitation attempts conducted during the assessment.`,
+      timelineNarrative: `The evaluation began at ${timeline[0]?.timestamp || "unknown time"} and concluded with ${artifacts.length} total evidence artifacts captured. The assessment followed a systematic approach, documenting each phase of the security validation process from reconnaissance through exploitation verification.`,
+      findingsNarrative: criticalFindings > 0 
+        ? `The assessment identified ${criticalFindings} critical security issues requiring immediate remediation. These findings demonstrate exploitable vulnerabilities that could lead to unauthorized access or data compromise. Full technical details are provided in the artifact data below.`
+        : `The assessment completed successfully with no critical vulnerabilities identified. The evidence documents the testing methodology and confirms the security controls functioned as expected.`,
+      technicalDetails: `Evidence types collected: ${artifactTypes.join(", ")}. Total artifacts: ${artifacts.length}. The evidence package includes request/response captures, execution traces, log entries, and other forensic data supporting the evaluation conclusions.`,
+    };
+    
+    if (!client) {
+      return {
+        ...templatedResponse,
+        artifacts,
+        metadata: {
+          evaluationId,
+          generatedAt: new Date().toISOString(),
+          totalArtifacts: artifacts.length,
+          criticalFindings,
+        },
+      };
+    }
+    
+    try {
+      const response = await client.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { 
+            role: "system", 
+            content: "You are a cybersecurity forensics specialist writing evidence documentation. Always respond with valid JSON matching the exact schema requested." 
+          },
+          { 
+            role: "user", 
+            content: `You are documenting evidence from a security assessment. Based on the following evidence artifacts and evaluation data, write clear narratives that explain what the evidence shows.
+
+Evidence Data:
+${JSON.stringify(contextData, null, 2)}
+
+Provide your response as JSON with this exact structure:
+{
+  "executiveSummary": "A 2-3 sentence summary suitable for executives explaining what the evidence collection demonstrates about the security posture. Focus on business impact.",
+  "timelineNarrative": "A paragraph describing the sequence of events documented in the evidence, written in chronological order.",
+  "findingsNarrative": "A paragraph explaining the key security findings demonstrated by this evidence, what vulnerabilities were proven exploitable, and the risk implications.",
+  "technicalDetails": "A paragraph summarizing the technical evidence types collected, the attack techniques documented, and any notable exploitation methods captured."
+}
+
+Write in clear, professional language. Be specific about what the evidence demonstrates.`
+          }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
+        max_tokens: 1500,
+      });
+      
+      const content = response.choices[0].message.content;
+      if (!content) {
+        throw new Error("No response from AI");
+      }
+      
+      const parsed = JSON.parse(content);
+      
+      // Validate and sanitize the response
+      const validated = {
+        executiveSummary: typeof parsed.executiveSummary === "string" 
+          ? parsed.executiveSummary 
+          : templatedResponse.executiveSummary,
+        timelineNarrative: typeof parsed.timelineNarrative === "string"
+          ? parsed.timelineNarrative
+          : templatedResponse.timelineNarrative,
+        findingsNarrative: typeof parsed.findingsNarrative === "string"
+          ? parsed.findingsNarrative
+          : templatedResponse.findingsNarrative,
+        technicalDetails: typeof parsed.technicalDetails === "string"
+          ? parsed.technicalDetails
+          : templatedResponse.technicalDetails,
+      };
+      
+      return {
+        ...validated,
+        artifacts,
+        metadata: {
+          evaluationId,
+          generatedAt: new Date().toISOString(),
+          totalArtifacts: artifacts.length,
+          criticalFindings,
+        },
+      };
+    } catch (error) {
+      console.error("AI evidence narrative generation failed, using template:", error);
+      return {
+        ...templatedResponse,
+        artifacts,
+        metadata: {
+          evaluationId,
+          generatedAt: new Date().toISOString(),
+          totalArtifacts: artifacts.length,
+          criticalFindings,
+        },
+      };
+    }
+  }
 }
 
 export const reportGenerator = new ReportGenerator();

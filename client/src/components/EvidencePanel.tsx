@@ -1,9 +1,18 @@
 import { useState } from "react";
-import { Download, Clock, FileCode, Terminal, FileText, ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
+import { Download, Clock, FileCode, Terminal, FileText, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import pdfMake from "pdfmake/build/pdfmake";
 import type { EvidenceArtifact } from "@shared/schema";
 
 interface EvidencePanelProps {
@@ -13,6 +22,8 @@ interface EvidencePanelProps {
 
 export function EvidencePanel({ artifacts, evaluationId }: EvidencePanelProps) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const { toast } = useToast();
 
   const toggleExpanded = (id: string) => {
     const newSet = new Set(expandedIds);
@@ -52,36 +63,92 @@ export function EvidencePanel({ artifacts, evaluationId }: EvidencePanelProps) {
     return <Badge className={config.className}>{config.label}</Badge>;
   };
 
-  const downloadEvidence = () => {
-    const evidencePacket = {
-      id: `packet-${evaluationId}`,
-      evaluationId,
-      createdAt: new Date().toISOString(),
-      title: `Evidence Package - ${evaluationId}`,
-      summary: `Evidence collection containing ${artifacts.length} artifacts`,
-      artifacts,
-      timeline: artifacts.map((a, i) => ({
-        timestamp: a.timestamp,
-        event: a.title,
-        artifactId: a.id,
-      })),
-      metadata: {
-        evaluationType: "AEV",
-        assetId: evaluationId,
-        totalArtifacts: artifacts.length,
-        criticalFindings: artifacts.filter(a => a.tags?.includes("critical")).length,
+  const exportEvidence = async (format: "json" | "pdf") => {
+    setIsExporting(true);
+    try {
+      const response = await apiRequest("POST", `/api/evidence/${evaluationId}/export`, { format });
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || "Export failed");
       }
-    };
-
-    const blob = new Blob([JSON.stringify(evidencePacket, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `evidence-${evaluationId}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+      
+      const { data } = result;
+      
+      if (format === "json") {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `evidence-${evaluationId}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } else if (format === "pdf") {
+        // Generate PDF with the AI-enhanced narratives
+        const docDefinition: any = {
+          content: [
+            { text: "Evidence Package", style: "header" },
+            { text: `Evaluation ID: ${evaluationId}`, style: "subheader" },
+            { text: `Generated: ${data.metadata.generatedAt}`, style: "metadata" },
+            { text: " " },
+            
+            { text: "Executive Summary", style: "sectionHeader" },
+            { text: data.executiveSummary, style: "paragraph" },
+            { text: " " },
+            
+            { text: "Timeline of Events", style: "sectionHeader" },
+            { text: data.timelineNarrative, style: "paragraph" },
+            { text: " " },
+            
+            { text: "Key Findings", style: "sectionHeader" },
+            { text: data.findingsNarrative, style: "paragraph" },
+            { text: " " },
+            
+            { text: "Technical Details", style: "sectionHeader" },
+            { text: data.technicalDetails, style: "paragraph" },
+            { text: " " },
+            
+            { text: "Evidence Artifacts", style: "sectionHeader" },
+            {
+              ul: data.artifacts.slice(0, 20).map((a: any) => ({
+                text: [
+                  { text: `${a.title}`, bold: true },
+                  { text: ` (${a.type})` },
+                  a.description ? { text: ` - ${a.description.substring(0, 100)}${a.description.length > 100 ? "..." : ""}` } : "",
+                ],
+              })),
+            },
+          ],
+          styles: {
+            header: { fontSize: 22, bold: true, margin: [0, 0, 0, 10] },
+            subheader: { fontSize: 14, color: "#666", margin: [0, 0, 0, 5] },
+            metadata: { fontSize: 10, color: "#999", margin: [0, 0, 0, 20] },
+            sectionHeader: { fontSize: 14, bold: true, margin: [0, 10, 0, 5], color: "#333" },
+            paragraph: { fontSize: 11, lineHeight: 1.4, margin: [0, 0, 0, 10] },
+          },
+          defaultStyle: { font: "Helvetica" },
+          pageMargins: [40, 40, 40, 40],
+        };
+        
+        pdfMake.createPdf(docDefinition).download(`evidence-${evaluationId}.pdf`);
+      }
+      
+      toast({
+        title: "Export Successful",
+        description: `Evidence package exported as ${format.toUpperCase()}`,
+      });
+    } catch (error) {
+      console.error("Export failed:", error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to generate evidence package. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   if (!artifacts || artifacts.length === 0) {
@@ -95,14 +162,39 @@ export function EvidencePanel({ artifacts, evaluationId }: EvidencePanelProps) {
 
   return (
     <div className="space-y-4" data-testid="evidence-panel">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="text-sm text-muted-foreground">
           {artifacts.length} artifact{artifacts.length !== 1 ? "s" : ""} captured
         </div>
-        <Button variant="outline" size="sm" onClick={downloadEvidence} data-testid="button-download-evidence">
-          <Download className="h-4 w-4 mr-2" />
-          Export
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" disabled={isExporting} data-testid="button-download-evidence">
+              {isExporting ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {isExporting ? "Generating..." : "Export"}
+              <ChevronDown className="h-3 w-3 ml-2" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem 
+              onClick={() => exportEvidence("pdf")}
+              data-testid="button-export-pdf"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Export as PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => exportEvidence("json")}
+              data-testid="button-export-json"
+            >
+              <FileCode className="h-4 w-4 mr-2" />
+              Export as JSON
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       <ScrollArea className="h-[400px]">
