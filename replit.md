@@ -61,6 +61,22 @@ Key backend services:
   - `batch_jobs`: Tracks batch evaluation jobs with progress and results
   - `scheduled_scans`: Stores scheduled scan configurations
   - `evaluation_history`: Tracks historical evaluation snapshots for drift detection
+  - `endpoint_agents`: Tracks deployed endpoint agents with hashed API keys and metadata
+  - `agent_telemetry`: Stores system info, metrics, and security findings from agents
+  - `agent_findings`: Individual security findings detected by agents with auto-evaluation triggers
+
+### Endpoint Agent System
+The platform includes a live agent deployment system for real-time security monitoring:
+- **Agent Registration**: Agents register via `/api/agents/register` and receive a one-time API key (bcrypt hashed for storage)
+- **Telemetry Ingestion**: Agents send system data and security findings via `/api/agents/telemetry`
+- **Auto-evaluation Triggers**: Critical/high severity findings automatically create AEV evaluations
+- **Deduplication**: Findings are deduplicated using composite keys (findingType|title|affectedComponent)
+- **Sample Agent**: Python agent script at `scripts/odinforge_agent.py` with HTTPS enforcement, exponential backoff, and secure credential handling
+
+**Security Features**:
+- API keys hashed with bcrypt before storage (plaintext only shown once at registration)
+- Zod validation on all agent API endpoints
+- HTTPS enforcement in Python agent (blocks non-localhost HTTP connections)
 
 ### AI Integration
 - **Provider**: OpenAI API (configurable via environment variables)
