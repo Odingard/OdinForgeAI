@@ -8,6 +8,7 @@ import { Header } from "./components/Header";
 import { Dashboard } from "./components/Dashboard";
 import RiskDashboard from "@/pages/RiskDashboard";
 import Assets from "@/pages/Assets";
+import Infrastructure from "@/pages/Infrastructure";
 import Reports from "@/pages/Reports";
 import BatchJobs from "@/pages/BatchJobs";
 import Governance from "@/pages/Governance";
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/risk" component={RiskDashboard} />
       <Route path="/assets" component={Assets} />
+      <Route path="/infrastructure" component={Infrastructure} />
       <Route path="/reports" component={Reports} />
       <Route path="/batch" component={BatchJobs} />
       <Route path="/governance" component={Governance} />

@@ -56,6 +56,16 @@ export function Header() {
               Assets
             </Button>
           </Link>
+          <Link href="/infrastructure">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={isActive("/infrastructure") ? "text-foreground" : "text-muted-foreground"} 
+              data-testid="nav-infrastructure"
+            >
+              Infrastructure
+            </Button>
+          </Link>
           <Link href="/risk">
             <Button 
               variant="ghost" 

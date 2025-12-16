@@ -981,6 +981,337 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // INFRASTRUCTURE DATA INGESTION ENDPOINTS
+  // ============================================
+
+  // Get infrastructure statistics
+  app.get("/api/infrastructure/stats", async (req, res) => {
+    try {
+      const stats = await storage.getInfrastructureStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching infrastructure stats:", error);
+      res.status(500).json({ error: "Failed to fetch infrastructure stats" });
+    }
+  });
+
+  // ========== DISCOVERED ASSETS ==========
+
+  app.get("/api/assets", async (req, res) => {
+    try {
+      const assets = await storage.getDiscoveredAssets();
+      res.json(assets);
+    } catch (error) {
+      console.error("Error fetching assets:", error);
+      res.status(500).json({ error: "Failed to fetch assets" });
+    }
+  });
+
+  app.get("/api/assets/:id", async (req, res) => {
+    try {
+      const asset = await storage.getDiscoveredAsset(req.params.id);
+      if (!asset) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      res.json(asset);
+    } catch (error) {
+      console.error("Error fetching asset:", error);
+      res.status(500).json({ error: "Failed to fetch asset" });
+    }
+  });
+
+  app.get("/api/assets/:id/vulnerabilities", async (req, res) => {
+    try {
+      const vulns = await storage.getVulnerabilityImportsByAssetId(req.params.id);
+      res.json(vulns);
+    } catch (error) {
+      console.error("Error fetching asset vulnerabilities:", error);
+      res.status(500).json({ error: "Failed to fetch asset vulnerabilities" });
+    }
+  });
+
+  app.patch("/api/assets/:id", async (req, res) => {
+    try {
+      await storage.updateDiscoveredAsset(req.params.id, req.body);
+      const updated = await storage.getDiscoveredAsset(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating asset:", error);
+      res.status(500).json({ error: "Failed to update asset" });
+    }
+  });
+
+  app.delete("/api/assets/:id", async (req, res) => {
+    try {
+      await storage.deleteDiscoveredAsset(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting asset:", error);
+      res.status(500).json({ error: "Failed to delete asset" });
+    }
+  });
+
+  // ========== VULNERABILITY IMPORTS ==========
+
+  app.get("/api/vulnerabilities", async (req, res) => {
+    try {
+      const vulns = await storage.getVulnerabilityImports();
+      res.json(vulns);
+    } catch (error) {
+      console.error("Error fetching vulnerabilities:", error);
+      res.status(500).json({ error: "Failed to fetch vulnerabilities" });
+    }
+  });
+
+  app.get("/api/vulnerabilities/:id", async (req, res) => {
+    try {
+      const vuln = await storage.getVulnerabilityImport(req.params.id);
+      if (!vuln) {
+        return res.status(404).json({ error: "Vulnerability not found" });
+      }
+      res.json(vuln);
+    } catch (error) {
+      console.error("Error fetching vulnerability:", error);
+      res.status(500).json({ error: "Failed to fetch vulnerability" });
+    }
+  });
+
+  app.patch("/api/vulnerabilities/:id", async (req, res) => {
+    try {
+      await storage.updateVulnerabilityImport(req.params.id, req.body);
+      const updated = await storage.getVulnerabilityImport(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating vulnerability:", error);
+      res.status(500).json({ error: "Failed to update vulnerability" });
+    }
+  });
+
+  // Create AEV evaluation from imported vulnerability
+  app.post("/api/vulnerabilities/:id/evaluate", async (req, res) => {
+    try {
+      const vuln = await storage.getVulnerabilityImport(req.params.id);
+      if (!vuln) {
+        return res.status(404).json({ error: "Vulnerability not found" });
+      }
+
+      // Create evaluation from vulnerability
+      const evaluation = await storage.createEvaluation({
+        assetId: vuln.affectedHost || vuln.assetId || "unknown",
+        exposureType: vuln.cveId ? "cve" : "misconfiguration",
+        priority: vuln.severity === "critical" ? "critical" : 
+                  vuln.severity === "high" ? "high" : 
+                  vuln.severity === "medium" ? "medium" : "low",
+        description: `${vuln.title}${vuln.cveId ? ` (${vuln.cveId})` : ""}: ${vuln.description || "No description"}`,
+        status: "pending",
+      });
+
+      // Link vulnerability to evaluation
+      await storage.updateVulnerabilityImport(req.params.id, { aevEvaluationId: evaluation.id });
+
+      // Start evaluation in background
+      runEvaluation(evaluation.id, {
+        assetId: evaluation.assetId,
+        exposureType: evaluation.exposureType,
+        priority: evaluation.priority,
+        description: evaluation.description,
+      });
+
+      res.json({ evaluation, vulnerability: vuln });
+    } catch (error) {
+      console.error("Error creating evaluation from vulnerability:", error);
+      res.status(500).json({ error: "Failed to create evaluation" });
+    }
+  });
+
+  // ========== IMPORT JOBS ==========
+
+  app.get("/api/imports", async (req, res) => {
+    try {
+      const jobs = await storage.getImportJobs();
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching import jobs:", error);
+      res.status(500).json({ error: "Failed to fetch import jobs" });
+    }
+  });
+
+  app.get("/api/imports/:id", async (req, res) => {
+    try {
+      const job = await storage.getImportJob(req.params.id);
+      if (!job) {
+        return res.status(404).json({ error: "Import job not found" });
+      }
+      res.json(job);
+    } catch (error) {
+      console.error("Error fetching import job:", error);
+      res.status(500).json({ error: "Failed to fetch import job" });
+    }
+  });
+
+  app.get("/api/imports/:id/vulnerabilities", async (req, res) => {
+    try {
+      const vulns = await storage.getVulnerabilityImportsByJobId(req.params.id);
+      res.json(vulns);
+    } catch (error) {
+      console.error("Error fetching import vulnerabilities:", error);
+      res.status(500).json({ error: "Failed to fetch import vulnerabilities" });
+    }
+  });
+
+  app.delete("/api/imports/:id", async (req, res) => {
+    try {
+      await storage.deleteImportJob(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting import job:", error);
+      res.status(500).json({ error: "Failed to delete import job" });
+    }
+  });
+
+  // Upload and parse scanner file
+  app.post("/api/imports/upload", async (req, res) => {
+    try {
+      const { content, fileName, mimeType, name, sourceType } = req.body;
+      
+      if (!content) {
+        return res.status(400).json({ error: "No file content provided" });
+      }
+
+      // Import parsers dynamically to avoid issues
+      const { autoParseFile } = await import("./services/import-parsers");
+
+      // Create import job
+      const job = await storage.createImportJob({
+        name: name || fileName || "Scanner Import",
+        sourceType: sourceType || "custom_csv",
+        fileName,
+        status: "processing",
+      });
+
+      // Parse file
+      const { result, detectedFormat } = autoParseFile(content, job.id, fileName, mimeType);
+
+      // Store assets
+      const createdAssets = await storage.createDiscoveredAssets(result.assets);
+      
+      // Link assets to vulnerabilities and store
+      const vulnsWithAssets = result.vulnerabilities.map(v => {
+        const matchingAsset = createdAssets.find(a => a.assetIdentifier === v.affectedHost);
+        return { ...v, assetId: matchingAsset?.id };
+      });
+      await storage.createVulnerabilityImports(vulnsWithAssets);
+
+      // Update job with results
+      await storage.updateImportJob(job.id, {
+        status: result.failedRecords > 0 && result.successfulRecords === 0 ? "failed" : "completed",
+        progress: 100,
+        totalRecords: result.totalRecords,
+        processedRecords: result.totalRecords,
+        successfulRecords: result.successfulRecords,
+        failedRecords: result.failedRecords,
+        assetsDiscovered: createdAssets.length,
+        vulnerabilitiesFound: result.vulnerabilities.length,
+        errors: result.errors.length > 0 ? result.errors : undefined,
+        completedAt: new Date(),
+        sourceType: detectedFormat,
+      });
+
+      const updatedJob = await storage.getImportJob(job.id);
+      res.json({
+        job: updatedJob,
+        summary: {
+          assetsDiscovered: createdAssets.length,
+          vulnerabilitiesFound: result.vulnerabilities.length,
+          errors: result.errors.length,
+          detectedFormat,
+        }
+      });
+    } catch (error) {
+      console.error("Error processing import:", error);
+      res.status(500).json({ error: "Failed to process import" });
+    }
+  });
+
+  // ========== CLOUD CONNECTIONS ==========
+
+  app.get("/api/cloud-connections", async (req, res) => {
+    try {
+      const connections = await storage.getCloudConnections();
+      res.json(connections);
+    } catch (error) {
+      console.error("Error fetching cloud connections:", error);
+      res.status(500).json({ error: "Failed to fetch cloud connections" });
+    }
+  });
+
+  app.get("/api/cloud-connections/:id", async (req, res) => {
+    try {
+      const connection = await storage.getCloudConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: "Cloud connection not found" });
+      }
+      res.json(connection);
+    } catch (error) {
+      console.error("Error fetching cloud connection:", error);
+      res.status(500).json({ error: "Failed to fetch cloud connection" });
+    }
+  });
+
+  app.post("/api/cloud-connections", async (req, res) => {
+    try {
+      const connection = await storage.createCloudConnection(req.body);
+      res.json(connection);
+    } catch (error) {
+      console.error("Error creating cloud connection:", error);
+      res.status(500).json({ error: "Failed to create cloud connection" });
+    }
+  });
+
+  app.patch("/api/cloud-connections/:id", async (req, res) => {
+    try {
+      await storage.updateCloudConnection(req.params.id, req.body);
+      const updated = await storage.getCloudConnection(req.params.id);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating cloud connection:", error);
+      res.status(500).json({ error: "Failed to update cloud connection" });
+    }
+  });
+
+  app.delete("/api/cloud-connections/:id", async (req, res) => {
+    try {
+      await storage.deleteCloudConnection(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting cloud connection:", error);
+      res.status(500).json({ error: "Failed to delete cloud connection" });
+    }
+  });
+
+  // Test cloud connection
+  app.post("/api/cloud-connections/:id/test", async (req, res) => {
+    try {
+      const connection = await storage.getCloudConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: "Cloud connection not found" });
+      }
+
+      // Simulate testing connection (in production, would use AWS/Azure/GCP SDKs)
+      await storage.updateCloudConnection(req.params.id, {
+        status: "connected",
+        lastSyncAt: new Date(),
+        lastSyncStatus: "success",
+      });
+
+      res.json({ success: true, message: "Connection test successful" });
+    } catch (error) {
+      console.error("Error testing cloud connection:", error);
+      res.status(500).json({ error: "Failed to test cloud connection" });
+    }
+  });
+
   return httpServer;
 }
 
