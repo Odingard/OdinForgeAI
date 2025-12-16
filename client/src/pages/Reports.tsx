@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -27,7 +28,12 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  FileType,
 } from "lucide-react";
+import pdfMake from "pdfmake/build/pdfmake";
+import pdfFonts from "pdfmake/build/vfs_fonts";
+
+pdfMake.vfs = pdfFonts.vfs;
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
 
@@ -49,6 +55,7 @@ const complianceFrameworks = [
 ];
 
 const exportFormats = [
+  { value: "pdf", label: "PDF", icon: FileType },
   { value: "json", label: "JSON", icon: FileJson },
   { value: "csv", label: "CSV", icon: FileSpreadsheet },
 ];
@@ -57,7 +64,7 @@ export default function Reports() {
   const { toast } = useToast();
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<string>("executive_summary");
-  const [selectedFormat, setSelectedFormat] = useState<string>("json");
+  const [selectedFormat, setSelectedFormat] = useState<string>("pdf");
   const [selectedFramework, setSelectedFramework] = useState<string>("soc2");
   const [dateFrom, setDateFrom] = useState<string>(
     format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd")
@@ -114,15 +121,249 @@ export default function Reports() {
     });
   };
 
-  const handleDownload = (report: Report) => {
-    const content = JSON.stringify(report.content, null, 2);
-    const blob = new Blob([content], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${report.title.replace(/\s+/g, "_")}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownload = (report: Report, downloadFormat: "pdf" | "json" | "csv" = "pdf") => {
+    const filename = report.title.replace(/\s+/g, "_");
+    
+    if (downloadFormat === "pdf") {
+      generatePdf(report);
+    } else if (downloadFormat === "json") {
+      const content = JSON.stringify(report.content, null, 2);
+      const blob = new Blob([content], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (downloadFormat === "csv") {
+      const csvContent = convertToCSV(report.content);
+      const blob = new Blob([csvContent], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${filename}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const convertToCSV = (data: any): string => {
+    if (!data) return "";
+    const rows: string[] = [];
+    
+    const flatten = (obj: any, prefix = ""): Record<string, string> => {
+      const result: Record<string, string> = {};
+      for (const key in obj) {
+        const newKey = prefix ? `${prefix}.${key}` : key;
+        if (typeof obj[key] === "object" && obj[key] !== null && !Array.isArray(obj[key])) {
+          Object.assign(result, flatten(obj[key], newKey));
+        } else if (Array.isArray(obj[key])) {
+          result[newKey] = obj[key].join("; ");
+        } else {
+          result[newKey] = String(obj[key] ?? "");
+        }
+      }
+      return result;
+    };
+    
+    const flat = flatten(data);
+    rows.push(Object.keys(flat).join(","));
+    rows.push(Object.values(flat).map(v => `"${v.replace(/"/g, '""')}"`).join(","));
+    return rows.join("\n");
+  };
+
+  const generatePdf = (report: Report) => {
+    const content = report.content as any;
+    const reportTypeLabel = reportTypes.find(t => t.value === report.reportType)?.label || report.reportType;
+    
+    const docDefinition: any = {
+      pageSize: "A4",
+      pageMargins: [40, 60, 40, 60],
+      info: {
+        title: report.title,
+        author: "OdinForge AI",
+        subject: `${reportTypeLabel} - Security Assessment`,
+      },
+      header: {
+        columns: [
+          { text: "OdinForge AI", style: "headerText", margin: [40, 20, 0, 0] },
+          { text: reportTypeLabel, style: "headerText", alignment: "right", margin: [0, 20, 40, 0] },
+        ],
+      },
+      footer: (currentPage: number, pageCount: number) => ({
+        columns: [
+          { text: `Generated: ${format(new Date(report.createdAt || new Date()), "MMM d, yyyy HH:mm")}`, style: "footerText", margin: [40, 0, 0, 0] },
+          { text: `Page ${currentPage} of ${pageCount}`, style: "footerText", alignment: "right", margin: [0, 0, 40, 0] },
+        ],
+      }),
+      content: [
+        { text: report.title, style: "title" },
+        { text: `Date Range: ${format(new Date(report.dateRangeFrom), "MMM d, yyyy")} - ${format(new Date(report.dateRangeTo), "MMM d, yyyy")}`, style: "subtitle" },
+        report.framework && { text: `Compliance Framework: ${report.framework.toUpperCase()}`, style: "subtitle" },
+        { text: "", margin: [0, 10, 0, 10] },
+        ...buildPdfContent(content, report.reportType),
+      ].filter(Boolean),
+      styles: {
+        title: { fontSize: 22, bold: true, margin: [0, 0, 0, 10], color: "#1a365d" },
+        subtitle: { fontSize: 11, color: "#64748b", margin: [0, 0, 0, 5] },
+        sectionHeader: { fontSize: 14, bold: true, margin: [0, 15, 0, 8], color: "#0f172a" },
+        subHeader: { fontSize: 12, bold: true, margin: [0, 10, 0, 5], color: "#334155" },
+        bodyText: { fontSize: 10, margin: [0, 0, 0, 5], lineHeight: 1.4 },
+        tableHeader: { fontSize: 10, bold: true, fillColor: "#f1f5f9", color: "#0f172a" },
+        tableCell: { fontSize: 9 },
+        criticalBadge: { fontSize: 9, bold: true, color: "#dc2626" },
+        highBadge: { fontSize: 9, bold: true, color: "#ea580c" },
+        mediumBadge: { fontSize: 9, bold: true, color: "#ca8a04" },
+        lowBadge: { fontSize: 9, bold: true, color: "#16a34a" },
+        headerText: { fontSize: 9, color: "#64748b" },
+        footerText: { fontSize: 8, color: "#94a3b8" },
+        listItem: { fontSize: 10, margin: [0, 2, 0, 2] },
+      },
+      defaultStyle: { font: "Roboto" },
+    };
+
+    pdfMake.createPdf(docDefinition).download(`${report.title.replace(/\s+/g, "_")}.pdf`);
+    toast({
+      title: "PDF Downloaded",
+      description: `${report.title}.pdf has been downloaded`,
+    });
+  };
+
+  const buildPdfContent = (data: any, reportType: string): any[] => {
+    const content: any[] = [];
+    
+    if (!data) {
+      content.push({ text: "No data available for this report.", style: "bodyText" });
+      return content;
+    }
+
+    if (data.executiveSummary || reportType === "executive_summary") {
+      content.push({ text: "Executive Summary", style: "sectionHeader" });
+      if (data.executiveSummary) {
+        content.push({ text: data.executiveSummary, style: "bodyText" });
+      }
+      
+      if (data.keyMetrics) {
+        content.push({ text: "Key Metrics", style: "subHeader" });
+        const metricsTable = {
+          table: {
+            headerRows: 1,
+            widths: ["*", "*"],
+            body: [
+              [{ text: "Metric", style: "tableHeader" }, { text: "Value", style: "tableHeader" }],
+              ...Object.entries(data.keyMetrics).map(([key, value]) => [
+                { text: key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase()), style: "tableCell" },
+                { text: String(value), style: "tableCell" },
+              ]),
+            ],
+          },
+          layout: "lightHorizontalLines",
+          margin: [0, 5, 0, 10],
+        };
+        content.push(metricsTable);
+      }
+    }
+
+    if (data.findings && Array.isArray(data.findings)) {
+      content.push({ text: "Security Findings", style: "sectionHeader" });
+      const findingsTable = {
+        table: {
+          headerRows: 1,
+          widths: ["auto", "*", "auto", "auto"],
+          body: [
+            [
+              { text: "Severity", style: "tableHeader" },
+              { text: "Finding", style: "tableHeader" },
+              { text: "Status", style: "tableHeader" },
+              { text: "Risk Score", style: "tableHeader" },
+            ],
+            ...data.findings.slice(0, 20).map((finding: any) => [
+              { text: finding.severity?.toUpperCase() || "N/A", style: getSeverityStyle(finding.severity) },
+              { text: finding.title || finding.description || "N/A", style: "tableCell" },
+              { text: finding.status || "Open", style: "tableCell" },
+              { text: String(finding.riskScore || finding.score || "N/A"), style: "tableCell" },
+            ]),
+          ],
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(findingsTable);
+    }
+
+    if (data.recommendations && Array.isArray(data.recommendations)) {
+      content.push({ text: "Recommendations", style: "sectionHeader" });
+      const recList = {
+        ul: data.recommendations.slice(0, 10).map((rec: any) => 
+          typeof rec === "string" ? rec : rec.description || rec.title || JSON.stringify(rec)
+        ),
+        style: "listItem",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(recList);
+    }
+
+    if (data.complianceStatus) {
+      content.push({ text: "Compliance Status", style: "sectionHeader" });
+      const complianceTable = {
+        table: {
+          headerRows: 1,
+          widths: ["*", "auto", "auto"],
+          body: [
+            [
+              { text: "Control", style: "tableHeader" },
+              { text: "Status", style: "tableHeader" },
+              { text: "Coverage", style: "tableHeader" },
+            ],
+            ...Object.entries(data.complianceStatus).slice(0, 15).map(([control, status]: [string, any]) => [
+              { text: control, style: "tableCell" },
+              { text: typeof status === "object" ? status.status : String(status), style: "tableCell" },
+              { text: typeof status === "object" && status.coverage ? `${status.coverage}%` : "N/A", style: "tableCell" },
+            ]),
+          ],
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(complianceTable);
+    }
+
+    if (data.riskBreakdown) {
+      content.push({ text: "Risk Breakdown", style: "sectionHeader" });
+      const riskTable = {
+        table: {
+          headerRows: 1,
+          widths: ["*", "auto"],
+          body: [
+            [{ text: "Category", style: "tableHeader" }, { text: "Count", style: "tableHeader" }],
+            ...Object.entries(data.riskBreakdown).map(([category, count]) => [
+              { text: category.charAt(0).toUpperCase() + category.slice(1), style: "tableCell" },
+              { text: String(count), style: "tableCell" },
+            ]),
+          ],
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 5, 0, 10],
+      };
+      content.push(riskTable);
+    }
+
+    if (content.length === 0) {
+      content.push({ text: "Report Data", style: "sectionHeader" });
+      content.push({ text: JSON.stringify(data, null, 2), style: "bodyText", preserveLeadingSpaces: true });
+    }
+
+    return content;
+  };
+
+  const getSeverityStyle = (severity: string): string => {
+    switch (severity?.toLowerCase()) {
+      case "critical": return "criticalBadge";
+      case "high": return "highBadge";
+      case "medium": return "mediumBadge";
+      case "low": return "lowBadge";
+      default: return "tableCell";
+    }
   };
 
   const getReportIcon = (type: string) => {
@@ -321,14 +562,40 @@ export default function Reports() {
                       </div>
                       <div className="flex items-center gap-2">
                         {getStatusBadge(report.status)}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleDownload(report)}
-                          data-testid={`btn-download-${report.id}`}
-                        >
-                          <Download className="w-4 h-4" />
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              data-testid={`btn-download-${report.id}`}
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem 
+                              onClick={() => handleDownload(report, "pdf")}
+                              data-testid={`btn-download-pdf-${report.id}`}
+                            >
+                              <FileType className="w-4 h-4 mr-2" />
+                              Download PDF
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleDownload(report, "json")}
+                              data-testid={`btn-download-json-${report.id}`}
+                            >
+                              <FileJson className="w-4 h-4 mr-2" />
+                              Download JSON
+                            </DropdownMenuItem>
+                            <DropdownMenuItem 
+                              onClick={() => handleDownload(report, "csv")}
+                              data-testid={`btn-download-csv-${report.id}`}
+                            >
+                              <FileSpreadsheet className="w-4 h-4 mr-2" />
+                              Download CSV
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <Button
                           size="icon"
                           variant="ghost"
