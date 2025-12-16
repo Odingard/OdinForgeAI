@@ -294,9 +294,15 @@ export default function Reports() {
     if (data.recommendations && Array.isArray(data.recommendations)) {
       content.push({ text: "Recommendations", style: "sectionHeader" });
       const recList = {
-        ul: data.recommendations.slice(0, 10).map((rec: any) => 
-          typeof rec === "string" ? rec : rec.description || rec.title || JSON.stringify(rec)
-        ),
+        ul: data.recommendations.slice(0, 10).map((rec: any) => {
+          if (typeof rec === "string") return rec;
+          if (rec.action) {
+            const priority = rec.priority ? `Priority ${rec.priority}: ` : "";
+            const impact = rec.impact ? ` (${rec.impact})` : "";
+            return `${priority}${rec.action}${impact}`;
+          }
+          return rec.description || rec.title || rec.text || "Recommendation pending";
+        }),
         style: "listItem",
         margin: [0, 5, 0, 10],
       };
@@ -623,9 +629,77 @@ export default function Reports() {
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[500px]">
-                  <pre className="text-sm font-mono bg-muted p-4 rounded-md overflow-x-auto">
-                    {JSON.stringify(previewData.data, null, 2)}
-                  </pre>
+                  <div className="space-y-6">
+                    {previewData.data.executiveSummary && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Executive Summary</h3>
+                        <p className="text-muted-foreground">{previewData.data.executiveSummary}</p>
+                      </div>
+                    )}
+                    
+                    {previewData.data.keyMetrics && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Key Metrics</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {Object.entries(previewData.data.keyMetrics).map(([key, value]) => (
+                            <div key={key} className="bg-muted p-3 rounded-md">
+                              <div className="text-sm text-muted-foreground">{key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase())}</div>
+                              <div className="text-lg font-semibold">{String(value)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {previewData.data.recommendations && Array.isArray(previewData.data.recommendations) && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Recommendations</h3>
+                        <ul className="list-disc list-inside space-y-2">
+                          {previewData.data.recommendations.map((rec: any, idx: number) => (
+                            <li key={idx} className="text-muted-foreground">
+                              {typeof rec === "string" ? rec : (
+                                rec.action ? (
+                                  <span>
+                                    {rec.priority && <Badge className="mr-2">Priority {rec.priority}</Badge>}
+                                    {rec.action}
+                                    {rec.impact && <span className="text-sm italic ml-2">({rec.impact})</span>}
+                                  </span>
+                                ) : (rec.description || rec.title || rec.text || "Recommendation pending")
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {previewData.data.findings && Array.isArray(previewData.data.findings) && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Findings</h3>
+                        <div className="space-y-3">
+                          {previewData.data.findings.slice(0, 10).map((finding: any, idx: number) => (
+                            <div key={idx} className="bg-muted p-3 rounded-md">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant={finding.severity === "critical" ? "destructive" : "secondary"}>
+                                  {finding.severity?.toUpperCase() || "N/A"}
+                                </Badge>
+                                <span className="font-medium">{finding.title || "Untitled Finding"}</span>
+                              </div>
+                              <p className="text-sm text-muted-foreground">{finding.description}</p>
+                              {finding.recommendation && (
+                                <p className="text-sm mt-2"><span className="font-medium">Recommendation:</span> {finding.recommendation}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {!previewData.data.executiveSummary && !previewData.data.recommendations && (
+                      <pre className="text-sm font-mono bg-muted p-4 rounded-md overflow-x-auto">
+                        {JSON.stringify(previewData.data, null, 2)}
+                      </pre>
+                    )}
+                  </div>
                 </ScrollArea>
               </CardContent>
             </Card>
