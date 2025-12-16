@@ -22,12 +22,20 @@ Preferred communication style: Simple, everyday language.
 
 The frontend is organized around a dashboard-centric design with:
 - Main dashboard showing evaluation statistics and active assessments
+- **Guided Evaluation Wizard** for non-technical users with 8 infrastructure categories (Web Servers, Databases, Cloud Storage, Containers, Network, Identity, Email, Applications)
 - Evaluation table with filtering and sorting capabilities
 - Detail views for individual evaluation results including attack path visualization
 - Modal-based workflows for creating new evaluations and viewing progress
 - Risk Dashboard with interactive visualizations (attack graphs, heatmaps, gauges)
 - Reports page for generating executive, technical, and compliance reports
 - Batch Jobs page for parallel security assessments
+
+### Evaluation Wizard System
+The platform includes a guided wizard (`client/src/components/EvaluationWizard.tsx`) for non-technical administrators:
+- **Templates** (`client/src/lib/evaluation-templates.ts`): 8 infrastructure categories with specific types, versions, and configuration questions
+- **Smart Priority Calculation**: Layered risk scoring considers internet exposure, data sensitivity, patch status, authentication methods, and risk factor combinations
+- **Auto-generated Descriptions**: Converts wizard answers into structured technical descriptions for AI analysis
+- **Dual Paths**: Dashboard offers both "Guided Wizard" (template-based) and "Quick Evaluation" (manual entry) options
 
 ### Backend Architecture
 - **Framework**: Express.js with TypeScript
