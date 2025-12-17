@@ -3,15 +3,73 @@ import { pgTable, text, varchar, boolean, integer, timestamp, jsonb } from "driz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Role types for RBAC
+export const userRoles = ["admin", "analyst", "viewer"] as const;
+export type UserRole = typeof userRoles[number];
+
+// Permissions for each module
+export const permissions = [
+  "evaluations:read",
+  "evaluations:write",
+  "evaluations:delete",
+  "assets:read",
+  "assets:write",
+  "assets:delete",
+  "reports:read",
+  "reports:generate",
+  "agents:read",
+  "agents:manage",
+  "simulations:read",
+  "simulations:run",
+  "governance:read",
+  "governance:manage",
+  "admin:users",
+  "admin:settings",
+] as const;
+export type Permission = typeof permissions[number];
+
+// Role-permission mapping
+export const rolePermissions: Record<UserRole, Permission[]> = {
+  admin: [...permissions], // All permissions
+  analyst: [
+    "evaluations:read",
+    "evaluations:write",
+    "assets:read",
+    "assets:write",
+    "reports:read",
+    "reports:generate",
+    "agents:read",
+    "simulations:read",
+    "simulations:run",
+    "governance:read",
+  ],
+  viewer: [
+    "evaluations:read",
+    "assets:read",
+    "reports:read",
+    "agents:read",
+    "simulations:read",
+    "governance:read",
+  ],
+};
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  role: varchar("role").notNull().default("viewer"), // admin, analyst, viewer
+  displayName: text("display_name"),
+  email: text("email"),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastLoginAt: timestamp("last_login_at"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
+  role: true,
+  displayName: true,
+  email: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
