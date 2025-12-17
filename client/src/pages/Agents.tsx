@@ -778,6 +778,109 @@ if __name__ == "__main__":
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Agent Details Dialog */}
+      <Dialog open={selectedAgent !== null} onOpenChange={(open) => !open && setSelectedAgent(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Server className="h-5 w-5" />
+              {selectedAgent?.agentName}
+            </DialogTitle>
+            <DialogDescription>
+              Agent details and system information
+            </DialogDescription>
+          </DialogHeader>
+          {selectedAgent && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Status</Label>
+                  <div className="flex items-center gap-2">
+                    {getStatusIcon(selectedAgent.status)}
+                    <span className="capitalize font-medium">{selectedAgent.status}</span>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Environment</Label>
+                  <div>
+                    <Badge variant="outline" className="capitalize">
+                      {selectedAgent.environment || "Unknown"}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Hostname</Label>
+                  <p className="font-mono text-sm">{selectedAgent.hostname || "-"}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Platform</Label>
+                  <p className="font-mono text-sm capitalize">
+                    {selectedAgent.platform || "-"} {selectedAgent.platformVersion || ""}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Architecture</Label>
+                  <p className="font-mono text-sm">{selectedAgent.architecture || "-"}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Registered</Label>
+                  <p className="text-sm">
+                    {formatDistanceToNow(new Date(selectedAgent.registeredAt), { addSuffix: true })}
+                  </p>
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <Label className="text-xs text-muted-foreground">IP Addresses</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedAgent.ipAddresses && selectedAgent.ipAddresses.length > 0 ? (
+                      selectedAgent.ipAddresses.map((ip, i) => (
+                        <Badge key={i} variant="secondary" className="font-mono text-xs">
+                          {ip}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">No IP addresses reported</span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1 col-span-2">
+                  <Label className="text-xs text-muted-foreground">Tags</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedAgent.tags && selectedAgent.tags.length > 0 ? (
+                      selectedAgent.tags.map((tag, i) => (
+                        <Badge key={i} variant="outline" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">No tags</span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Last Heartbeat</Label>
+                  <p className="text-sm">
+                    {selectedAgent.lastHeartbeat
+                      ? formatDistanceToNow(new Date(selectedAgent.lastHeartbeat), { addSuffix: true })
+                      : "Never"}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Last Telemetry</Label>
+                  <p className="text-sm">
+                    {selectedAgent.lastTelemetry
+                      ? formatDistanceToNow(new Date(selectedAgent.lastTelemetry), { addSuffix: true })
+                      : "Never"}
+                  </p>
+                </div>
+              </div>
+              <div className="pt-2 border-t">
+                <p className="text-xs text-muted-foreground font-mono">ID: {selectedAgent.id}</p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
