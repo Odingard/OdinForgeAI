@@ -420,7 +420,6 @@ def main():
     print("=" * 60)
     print(f"  Server URL: {ODINFORGE_URL}")
     print(f"  Telemetry Interval: {TELEMETRY_INTERVAL}s")
-    print(f"  API Key: {'Configured' if API_KEY else 'NOT CONFIGURED'}")
     print("=" * 60)
     
     if not API_KEY:
