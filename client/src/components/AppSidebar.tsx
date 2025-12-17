@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
+import { roleMetadata } from "@shared/schema";
 
 const mainNavItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -61,10 +62,20 @@ export function AppSidebar() {
 
   const getRoleBadgeStyle = (role: string) => {
     switch (role) {
-      case "admin":
+      case "platform_super_admin":
         return "bg-red-500/10 text-red-400 border-red-500/30";
-      case "analyst":
+      case "organization_owner":
+        return "bg-purple-500/10 text-purple-400 border-purple-500/30";
+      case "security_administrator":
+        return "bg-orange-500/10 text-orange-400 border-orange-500/30";
+      case "security_engineer":
         return "bg-cyan-500/10 text-cyan-400 border-cyan-500/30";
+      case "security_analyst":
+        return "bg-blue-500/10 text-blue-400 border-blue-500/30";
+      case "executive_viewer":
+        return "bg-amber-500/10 text-amber-400 border-amber-500/30";
+      case "compliance_officer":
+        return "bg-teal-500/10 text-teal-400 border-teal-500/30";
       default:
         return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
     }
@@ -164,7 +175,7 @@ export function AppSidebar() {
           </SidebarGroup>
         </Collapsible>
 
-        {hasPermission("admin:users") && (
+        {hasPermission("org:manage_users") && (
           <SidebarGroup>
             <SidebarGroupLabel>Administration</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -177,14 +188,16 @@ export function AppSidebar() {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
-                    <Link href="/admin/settings" data-testid="nav-admin-settings">
-                      <Settings className="h-4 w-4" />
-                      <span>Settings</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {hasPermission("org:manage_settings") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <Link href="/admin/settings" data-testid="nav-admin-settings">
+                        <Settings className="h-4 w-4" />
+                        <span>Settings</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -202,8 +215,8 @@ export function AppSidebar() {
             <span className="text-sm font-medium truncate">
               {user?.displayName || user?.username || "User"}
             </span>
-            <Badge className={`text-[10px] w-fit ${getRoleBadgeStyle(user?.role || "viewer")}`}>
-              {user?.role?.toUpperCase() || "VIEWER"}
+            <Badge className={`text-[10px] w-fit ${getRoleBadgeStyle(user?.role || "security_analyst")}`}>
+              {user?.role ? roleMetadata[user.role]?.displayName || user.role : "Security Analyst"}
             </Badge>
           </div>
         </div>

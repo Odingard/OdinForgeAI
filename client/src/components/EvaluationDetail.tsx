@@ -38,6 +38,9 @@ import { RemediationPanel } from "./RemediationPanel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useViewMode } from "@/contexts/ViewModeContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Lock } from "lucide-react";
 import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, EvidenceArtifact, IntelligentScore, RemediationGuidance } from "@shared/schema";
 
 interface EvaluationDetailProps {
@@ -124,10 +127,14 @@ interface EvaluationDetailProps {
 
 export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) {
   const { viewMode } = useViewMode();
+  const { needsSanitizedView, hasPermission } = useAuth();
   const [showAnimatedGraph, setShowAnimatedGraph] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
   const { toast } = useToast();
+  
+  const isSanitized = needsSanitizedView();
+  const canViewFullEvidence = hasPermission("evidence:read");
 
   const isArchived = evaluation.status === "archived";
 
@@ -466,13 +473,30 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                   <div>
                     <h2 className="text-lg font-semibold text-foreground">Evidence Artifacts</h2>
                     <p className="text-xs text-muted-foreground">
-                      Proof of exploit with sanitized data
+                      {isSanitized ? "Summary of evidence (details restricted)" : "Proof of exploit with sanitized data"}
                     </p>
                   </div>
                 </div>
               </div>
               <div className="p-6">
-                <EvidencePanel artifacts={evaluation.evidenceArtifacts} evaluationId={evaluation.id} />
+                {isSanitized ? (
+                  <Alert>
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>Evidence Details Restricted</AlertTitle>
+                    <AlertDescription>
+                      <p className="mb-2">
+                        Raw exploit evidence and technical artifacts are not available for your role. 
+                        This includes code snippets, payloads, and detailed attack traces.
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        <strong>{evaluation.evidenceArtifacts.length}</strong> evidence artifact(s) collected. 
+                        Contact a Security Administrator for full access.
+                      </p>
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <EvidencePanel artifacts={evaluation.evidenceArtifacts} evaluationId={evaluation.id} />
+                )}
               </div>
             </div>
           )}

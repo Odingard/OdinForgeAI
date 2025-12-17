@@ -3,55 +3,379 @@ import { pgTable, text, varchar, boolean, integer, timestamp, jsonb } from "driz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Role types for RBAC
-export const userRoles = ["admin", "analyst", "viewer"] as const;
+// ============================================================================
+// OdinForge Role-Based Access Control (RBAC)
+// Comprehensive 9-role model with granular permissions
+// ============================================================================
+
+// Platform Roles (System-Level) - Not customer assignable
+export const platformRoles = ["platform_super_admin"] as const;
+export type PlatformRole = typeof platformRoles[number];
+
+// Organization Roles (Customer-Facing)
+export const organizationRoles = [
+  "organization_owner",      // Business & security ownership
+  "security_administrator",  // Operational control
+  "security_engineer",       // Hands-on technical work
+  "security_analyst",        // Investigation & triage (read-only)
+  "executive_viewer",        // Business risk visibility only
+] as const;
+export type OrganizationRole = typeof organizationRoles[number];
+
+// Specialized Roles (Optional per tenant)
+export const specializedRoles = [
+  "compliance_officer",      // GRC, audit teams
+  "automation_account",      // CI/CD pipelines, SOAR tools (API-only)
+] as const;
+export type SpecializedRole = typeof specializedRoles[number];
+
+// Non-User Roles (System identities)
+export const systemRoles = ["endpoint_agent"] as const;
+export type SystemRole = typeof systemRoles[number];
+
+// Combined user roles (all assignable roles)
+export const userRoles = [
+  ...platformRoles,
+  ...organizationRoles,
+  ...specializedRoles,
+] as const;
 export type UserRole = typeof userRoles[number];
 
-// Permissions for each module
+// All roles including system
+export const allRoles = [...userRoles, ...systemRoles] as const;
+export type AllRole = typeof allRoles[number];
+
+// Execution modes for evaluations
+export const executionModes = ["safe", "simulation", "live"] as const;
+export type ExecutionMode = typeof executionModes[number];
+
+// Granular permissions for each module
 export const permissions = [
+  // Evaluations
   "evaluations:read",
-  "evaluations:write",
+  "evaluations:create",
+  "evaluations:execute_safe",       // Run in safe mode
+  "evaluations:execute_simulation", // Run in simulation mode
+  "evaluations:execute_live",       // Run in live mode (requires approval)
+  "evaluations:approve_live",       // Approve live execution
   "evaluations:delete",
+  "evaluations:archive",
+  
+  // Assets
   "assets:read",
-  "assets:write",
+  "assets:create",
+  "assets:update",
   "assets:delete",
+  
+  // Reports
   "reports:read",
+  "reports:read_executive",         // Executive summaries only
   "reports:generate",
+  "reports:export",
+  
+  // Agents
   "agents:read",
+  "agents:register",
   "agents:manage",
+  "agents:revoke",
+  
+  // Evidence & Findings
+  "evidence:read",
+  "evidence:read_sanitized",        // No raw exploit details
+  "findings:read",
+  "findings:triage",
+  
+  // Simulations
   "simulations:read",
   "simulations:run",
+  
+  // Governance & Audit
   "governance:read",
   "governance:manage",
-  "admin:users",
-  "admin:settings",
+  "audit:read",
+  "audit:read_global",              // Cross-tenant audit (platform admin only)
+  
+  // Organization Management
+  "org:read",
+  "org:manage_settings",
+  "org:manage_users",
+  "org:assign_roles",
+  
+  // Platform Administration (Super Admin only)
+  "platform:emergency_access",
+  "platform:feature_flags",
+  "platform:rate_limits",
+  "platform:cross_tenant_access",
+  
+  // API Access
+  "api:read",
+  "api:write",
 ] as const;
 export type Permission = typeof permissions[number];
 
+// Role metadata for UI display and restrictions
+export interface RoleMetadata {
+  displayName: string;
+  description: string;
+  category: "platform" | "organization" | "specialized" | "system";
+  requiresMFA: boolean;
+  uiAccess: boolean;           // Can access web UI
+  apiOnly: boolean;            // API-only access
+  customerAssignable: boolean; // Can customers assign this role?
+}
+
+export const roleMetadata: Record<AllRole, RoleMetadata> = {
+  platform_super_admin: {
+    displayName: "Platform Super Admin",
+    description: "Full platform operations & emergency control",
+    category: "platform",
+    requiresMFA: true,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: false,
+  },
+  organization_owner: {
+    displayName: "Organization Owner",
+    description: "Business & security ownership of organization",
+    category: "organization",
+    requiresMFA: true,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: true,
+  },
+  security_administrator: {
+    displayName: "Security Administrator",
+    description: "Operational control over security assessments",
+    category: "organization",
+    requiresMFA: false,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: true,
+  },
+  security_engineer: {
+    displayName: "Security Engineer",
+    description: "Hands-on technical security work",
+    category: "organization",
+    requiresMFA: false,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: true,
+  },
+  security_analyst: {
+    displayName: "Security Analyst",
+    description: "Investigation & triage of findings",
+    category: "organization",
+    requiresMFA: false,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: true,
+  },
+  executive_viewer: {
+    displayName: "Executive Viewer",
+    description: "Business risk visibility for leadership",
+    category: "organization",
+    requiresMFA: false,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: true,
+  },
+  compliance_officer: {
+    displayName: "Compliance Officer",
+    description: "GRC and audit oversight",
+    category: "specialized",
+    requiresMFA: false,
+    uiAccess: true,
+    apiOnly: false,
+    customerAssignable: true,
+  },
+  automation_account: {
+    displayName: "Automation Account",
+    description: "CI/CD and SOAR integration",
+    category: "specialized",
+    requiresMFA: false,
+    uiAccess: false,
+    apiOnly: true,
+    customerAssignable: true,
+  },
+  endpoint_agent: {
+    displayName: "Endpoint Agent",
+    description: "System identity for deployed agents",
+    category: "system",
+    requiresMFA: false,
+    uiAccess: false,
+    apiOnly: true,
+    customerAssignable: false,
+  },
+};
+
 // Role-permission mapping
 export const rolePermissions: Record<UserRole, Permission[]> = {
-  admin: [...permissions], // All permissions
-  analyst: [
+  // Platform Super Admin - Full access
+  platform_super_admin: [...permissions],
+  
+  // Organization Owner - Business & security ownership
+  organization_owner: [
     "evaluations:read",
-    "evaluations:write",
+    "evaluations:create",
+    "evaluations:execute_safe",
+    "evaluations:execute_simulation",
+    "evaluations:approve_live",
+    "evaluations:delete",
+    "evaluations:archive",
     "assets:read",
-    "assets:write",
+    "assets:create",
+    "assets:update",
+    "assets:delete",
     "reports:read",
+    "reports:read_executive",
     "reports:generate",
+    "reports:export",
     "agents:read",
+    "agents:register",
+    "agents:manage",
+    "evidence:read",
+    "findings:read",
+    "findings:triage",
     "simulations:read",
     "simulations:run",
     "governance:read",
+    "audit:read",
+    "org:read",
+    "org:manage_settings",
+    "org:manage_users",
+    "org:assign_roles",
+    "api:read",
+    "api:write",
   ],
-  viewer: [
+  
+  // Security Administrator - Operational control
+  security_administrator: [
+    "evaluations:read",
+    "evaluations:create",
+    "evaluations:execute_safe",
+    "evaluations:execute_simulation",
+    "evaluations:execute_live",
+    "evaluations:archive",
+    "assets:read",
+    "assets:create",
+    "assets:update",
+    "reports:read",
+    "reports:generate",
+    "reports:export",
+    "agents:read",
+    "agents:register",
+    "agents:manage",
+    "evidence:read",
+    "findings:read",
+    "findings:triage",
+    "simulations:read",
+    "simulations:run",
+    "governance:read",
+    "governance:manage",
+    "audit:read",
+    "org:read",
+    "api:read",
+    "api:write",
+  ],
+  
+  // Security Engineer - Technical work
+  security_engineer: [
+    "evaluations:read",
+    "evaluations:create",
+    "evaluations:execute_safe",
+    "evaluations:execute_simulation",
+    "assets:read",
+    "assets:create",
+    "reports:read",
+    "reports:generate",
+    "reports:export",
+    "agents:read",
+    "agents:register",
+    "evidence:read",
+    "findings:read",
+    "simulations:read",
+    "simulations:run",
+    "governance:read",
+    "api:read",
+  ],
+  
+  // Security Analyst - Investigation & triage (read-heavy)
+  security_analyst: [
     "evaluations:read",
     "assets:read",
     "reports:read",
+    "reports:export",
     "agents:read",
+    "evidence:read",
+    "findings:read",
     "simulations:read",
     "governance:read",
+    "api:read",
+  ],
+  
+  // Executive Viewer - Business risk visibility (sanitized view)
+  executive_viewer: [
+    "evaluations:read",
+    "assets:read",
+    "reports:read",
+    "reports:read_executive",
+    "evidence:read_sanitized",
+    "findings:read",
+    "governance:read",
+  ],
+  
+  // Compliance Officer - GRC oversight
+  compliance_officer: [
+    "evaluations:read",
+    "assets:read",
+    "reports:read",
+    "reports:export",
+    "evidence:read",
+    "findings:read",
+    "governance:read",
+    "audit:read",
+    "api:read",
+  ],
+  
+  // Automation Account - API-only, scoped
+  automation_account: [
+    "evaluations:read",
+    "evaluations:create",
+    "evaluations:execute_safe",
+    "evaluations:execute_simulation",
+    "assets:read",
+    "reports:read",
+    "findings:read",
+    "api:read",
+    "api:write",
   ],
 };
+
+// Helper to check if role can execute in a specific mode
+export function canExecuteMode(role: UserRole, mode: ExecutionMode): boolean {
+  const perms = rolePermissions[role] || [];
+  switch (mode) {
+    case "safe":
+      return perms.includes("evaluations:execute_safe");
+    case "simulation":
+      return perms.includes("evaluations:execute_simulation");
+    case "live":
+      return perms.includes("evaluations:execute_live");
+    default:
+      return false;
+  }
+}
+
+// Helper to check if role needs sanitized evidence view
+export function needsSanitizedView(role: UserRole): boolean {
+  const perms = rolePermissions[role] || [];
+  return perms.includes("evidence:read_sanitized") && !perms.includes("evidence:read");
+}
+
+// Helper to check if role is API-only
+export function isApiOnlyRole(role: AllRole): boolean {
+  return roleMetadata[role]?.apiOnly ?? false;
+}
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1080,10 +1404,6 @@ export type InsertEvaluationHistory = z.infer<typeof insertEvaluationHistorySche
 export type EvaluationHistory = typeof evaluationHistory.$inferSelect;
 
 // ========== GOVERNANCE, SAFETY & TRUST CONTROLS ==========
-
-// Execution Modes
-export const executionModes = ["safe", "live", "simulation"] as const;
-export type ExecutionMode = typeof executionModes[number];
 
 // Organization Governance Settings
 export const organizationGovernance = pgTable("organization_governance", {

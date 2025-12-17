@@ -30,7 +30,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "./contexts/AuthContext";
-import type { UserRole } from "@shared/schema";
+import { roleMetadata } from "@shared/schema";
 
 function Router() {
   return (
@@ -53,9 +53,7 @@ function Router() {
 function AppHeader() {
   const { theme, toggleTheme } = useTheme();
   const { viewMode, setViewMode } = useViewMode();
-  const { user, setUserRole } = useAuth();
-
-  const roles: UserRole[] = ["admin", "analyst", "viewer"];
+  const { user, setUserRole, availableRoles } = useAuth();
 
   return (
     <header className="h-14 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-40">
@@ -95,19 +93,19 @@ function AppHeader() {
                 <ChevronDown className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem data-testid="menu-profile">Profile</DropdownMenuItem>
               <DropdownMenuItem data-testid="menu-settings">Settings</DropdownMenuItem>
               <DropdownMenuSeparator />
               <div className="px-2 py-1.5 text-xs text-muted-foreground">Switch Role (Demo)</div>
-              {roles.map(role => (
+              {availableRoles.map(role => (
                 <DropdownMenuItem 
                   key={role}
                   onClick={() => setUserRole(role)}
                   className={user?.role === role ? "bg-accent" : ""}
                   data-testid={`menu-role-${role}`}
                 >
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                  {roleMetadata[role]?.displayName || role}
                   {user?.role === role && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
                 </DropdownMenuItem>
               ))}
