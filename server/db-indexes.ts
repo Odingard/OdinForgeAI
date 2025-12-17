@@ -221,7 +221,7 @@ export async function dropAllCustomIndexes(): Promise<void> {
   
   for (const name of indexNames) {
     try {
-      await db.execute(sql.raw(`DROP INDEX IF EXISTS ${name}`));
+      await db.execute(sql`DROP INDEX IF EXISTS ${sql.identifier(name)}`);
       console.log(`  [OK] Dropped ${name}`);
     } catch (error: any) {
       console.error(`  [FAIL] ${name}: ${error.message}`);
@@ -245,7 +245,7 @@ export async function analyzeTableStats(): Promise<void> {
   
   for (const table of tables) {
     try {
-      await db.execute(sql.raw(`ANALYZE ${table}`));
+      await db.execute(sql`ANALYZE ${sql.identifier(table)}`);
       console.log(`  [OK] Analyzed ${table}`);
     } catch (error: any) {
       console.error(`  [FAIL] ${table}: ${error.message}`);
