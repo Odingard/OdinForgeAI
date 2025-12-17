@@ -1,0 +1,120 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"odinforge-agent/internal/collector"
+	"odinforge-agent/internal/config"
+	"odinforge-agent/internal/queue"
+	"odinforge-agent/internal/sender"
+)
+
+func main() {
+	var (
+		cfgPath = flag.String("config", "", "Path to agent YAML config (optional)")
+		once    = flag.Bool("once", false, "Run once (collect + send) then exit")
+	)
+	flag.Parse()
+
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		log.Fatalf("config load failed: %v", err)
+	}
+
+	// Basic safety guard: require HTTPS unless explicitly allowed.
+	if cfg.Safety.RequireHTTPS && !config.IsHTTPS(cfg.Server.URL) && !config.IsLocalhost(cfg.Server.URL) {
+		log.Fatalf("refusing to run: server url must be https (got %s)", cfg.Server.URL)
+	}
+
+	q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
+	if err != nil {
+		log.Fatalf("queue init failed: %v", err)
+	}
+	defer q.Close()
+
+	c := collector.New(cfg)
+	s, err := sender.New(cfg)
+	if err != nil {
+		log.Fatalf("sender init failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Graceful shutdown
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Printf("shutdown signal received")
+		cancel()
+	}()
+
+	// If once, do a single run.
+	if *once {
+		runOnce(ctx, cfg, c, q, s)
+		return
+	}
+
+	// Schedulers (with jitter)
+	telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
+	heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
+	flushTicker := time.NewTicker(5 * time.Second)
+	defer telemetryTicker.Stop()
+	defer heartbeatTicker.Stop()
+	defer flushTicker.Stop()
+
+	log.Printf("odinforge-agent started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+
+	// initial telemetry
+	enqueueTelemetry(ctx, cfg, c, q)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("exiting main loop")
+			return
+		case <-heartbeatTicker.C:
+			enqueueHeartbeat(cfg, q)
+		case <-telemetryTicker.C:
+			enqueueTelemetry(ctx, cfg, c, q)
+		case <-flushTicker.C:
+			// drain queue in the background cadence
+			if err := s.Flush(ctx, q); err != nil {
+				log.Printf("flush error: %v", err)
+			}
+		}
+	}
+}
+
+func runOnce(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender) {
+	enqueueTelemetry(ctx, cfg, c, q)
+	enqueueHeartbeat(cfg, q)
+	if err := s.Flush(ctx, q); err != nil {
+		log.Fatalf("flush failed: %v", err)
+	}
+}
+
+func enqueueTelemetry(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue) {
+	ev, err := c.CollectTelemetry(ctx)
+	if err != nil {
+		log.Printf("telemetry collection failed: %v", err)
+		return
+	}
+	if err := q.Enqueue(ev); err != nil {
+		log.Printf("queue enqueue failed: %v", err)
+	}
+}
+
+func enqueueHeartbeat(cfg config.Config, q *queue.BoltQueue) {
+	ev := collector.HeartbeatEvent(cfg)
+	if err := q.Enqueue(ev); err != nil {
+		log.Printf("heartbeat enqueue failed: %v", err)
+	}
+}
