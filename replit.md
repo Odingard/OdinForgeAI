@@ -130,3 +130,33 @@ The platform follows custom design guidelines (`design_guidelines.md`) combining
 ### Real-time Communication
 - **ws**: WebSocket library for server-side real-time communication
 - Native WebSocket API on client for receiving evaluation progress updates
+
+## Production Hardening
+
+### Rate Limiting
+- Sliding window algorithm with per-endpoint configurations
+- Default limits: Auth (10 req/15min), API (100 req/min), Agent telemetry (1000 req/min)
+- Strict limits for heavy operations: Simulations (3 req/5min), Reports (5 req/min)
+- Response headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After
+
+### Database Optimization
+- 37 performance indexes created at startup (server/db-indexes.ts)
+- Covers: evaluations, results, agents, findings, telemetry, reports, simulations, authorization logs
+- Indexes created via pg client during application startup
+
+### WebSocket Scaling
+- Connection limits: 1000 global, 50 per IP
+- Heartbeat monitoring: 30s ping interval, 60s timeout
+- Automatic cleanup of stale connections
+- Message queuing: 100 messages max per client
+
+### Production Environment Variables
+- `NODE_ENV=production` - Enables production mode
+- `WS_REQUIRE_AUTH=true` - Enables JWT authentication for WebSocket connections (enabled by default in production; set to "false" only for demo/testing)
+- `SESSION_SECRET` - Required for JWT signing (minimum 32 characters recommended)
+
+### Load Testing
+- Load test script at `scripts/load-test.ts`
+- Usage: `npx tsx scripts/load-test.ts [concurrency] [requestsPerEndpoint]`
+- Example: `npx tsx scripts/load-test.ts 10 100` (10 concurrent, 100 requests each)
+- Metrics: latency percentiles (P50/P95/P99), throughput, rate limit detection

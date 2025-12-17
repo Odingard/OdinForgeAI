@@ -8,6 +8,15 @@ import { reportGenerator } from "./services/report-generator";
 import { unifiedAuthService } from "./services/unified-auth";
 import { mtlsAuthService } from "./services/mtls-auth";
 import { jwtAuthService } from "./services/jwt-auth";
+import { 
+  apiRateLimiter, 
+  authRateLimiter, 
+  agentTelemetryRateLimiter, 
+  batchRateLimiter, 
+  evaluationRateLimiter,
+  reportRateLimiter,
+  simulationRateLimiter
+} from "./services/rate-limiter";
 import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
@@ -50,8 +59,11 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   wsService.initialize(httpServer);
+  
+  // Apply API-wide rate limiting as a fallback for all endpoints
+  app.use("/api", apiRateLimiter);
 
-  app.post("/api/aev/evaluate", async (req, res) => {
+  app.post("/api/aev/evaluate", evaluationRateLimiter, async (req, res) => {
     try {
       const parsed = insertEvaluationSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -215,9 +227,21 @@ export async function registerRoutes(
     }
   });
 
+  // ========== SYSTEM MONITORING ENDPOINTS ==========
+  
+  app.get("/api/system/websocket-stats", async (req, res) => {
+    try {
+      const stats = wsService.getStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching WebSocket stats:", error);
+      res.status(500).json({ error: "Failed to fetch WebSocket stats" });
+    }
+  });
+
   // ========== REPORTING ENDPOINTS ==========
   
-  app.post("/api/reports/generate", async (req, res) => {
+  app.post("/api/reports/generate", reportRateLimiter, async (req, res) => {
     try {
       const { type, format, from, to, framework, organizationId = "default" } = req.body;
       
@@ -421,7 +445,7 @@ export async function registerRoutes(
 
   // ========== BATCH JOB ENDPOINTS ==========
   
-  app.post("/api/batch-jobs", async (req, res) => {
+  app.post("/api/batch-jobs", batchRateLimiter, async (req, res) => {
     try {
       const parsed = insertBatchJobSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1381,7 +1405,7 @@ export async function registerRoutes(
   });
 
   // Start a new AI vs AI simulation
-  app.post("/api/simulations", async (req, res) => {
+  app.post("/api/simulations", simulationRateLimiter, async (req, res) => {
     try {
       const parseResult = createSimulationSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -1563,7 +1587,7 @@ export async function registerRoutes(
   }
 
   // Register a new agent
-  app.post("/api/agents/register", async (req, res) => {
+  app.post("/api/agents/register", authRateLimiter, async (req, res) => {
     try {
       const parsed = agentRegisterSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1614,7 +1638,7 @@ export async function registerRoutes(
   });
 
   // Agent telemetry ingestion
-  app.post("/api/agents/telemetry", authenticateAgent, async (req: any, res) => {
+  app.post("/api/agents/telemetry", agentTelemetryRateLimiter, authenticateAgent, async (req: any, res) => {
     try {
       const parsed = agentTelemetrySchema.safeParse(req.body);
       if (!parsed.success) {
