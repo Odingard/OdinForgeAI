@@ -1,0 +1,167 @@
+Recommended OdinForge Role Model (Hard-Coded)
+
+1. Platform Roles (System-Level)
+
+These are non-negotiable and should be hard-coded.
+
+1. Platform Super Admin
+
+Who: Your internal team only
+Purpose: Platform operations & emergency control
+
+Capabilities
+•	Full access to all tenants (break-glass)
+•	Emergency kill switch
+•	Global rate limit overrides
+•	Agent revoke across tenants
+•	Infrastructure & feature flag control
+•	Audit log access (global)
+
+Notes
+•	Not customer assignable
+•	MFA required
+•	Limited accounts
+ 
+2. Organization Roles (Customer-Facing)
+
+2. Organization Owner
+
+Who: Customer executive sponsor / security lead
+Purpose: Business & security ownership
+
+Capabilities
+•	Manage organization settings
+•	Invite/remove users
+•	Assign roles
+•	View all dashboards and reports
+•	View financial exposure & executive risk
+•	Approve Live execution mode
+•	Archive/delete evaluations
+
+Cannot
+•	Modify platform-wide settings
+•	Disable governance controls
+ 
+3. Security Administrator
+
+Who: Security engineering lead / SOC manager
+Purpose: Operational control
+
+Capabilities
+•	Create and run evaluations
+•	Configure execution modes (Safe/Simulation/Live)
+•	Manage agents and cloud connections
+•	Define scope & whitelists
+•	Trigger batch evaluations
+•	View all findings, evidence, and remediation
+•	Access governance & audit logs
+
+Cannot
+•	Manage billing
+•	Remove Organization Owner
+ 
+4. Security Engineer
+
+Who: AppSec, CloudSec, Red Team, Blue Team
+Purpose: Hands-on technical work
+
+Capabilities
+•	Run evaluations (Safe/Simulation)
+•	View attack graphs, evidence, and scoring
+•	View remediation guidance (Engineer view)
+•	Trigger agent-based evaluations
+•	Export technical reports
+•	View simulations
+
+Cannot
+•	Approve Live mode
+•	Change org-wide governance
+•	Delete evaluations permanently
+ 
+5. Security Analyst
+
+Who: SOC analysts, junior engineers
+Purpose: Investigation & triage
+
+Capabilities
+•	View evaluations and findings
+•	View evidence artifacts
+•	Use Risk Dashboard
+•	Filter, search, and export data (read-only exports)
+•	View agent findings
+
+Cannot
+•	Run evaluations
+•	Modify scope or execution modes
+•	Delete or archive evaluations
+ 
+6. Executive Viewer
+
+Who: CIO, CISO, Risk Officer, Board
+Purpose: Business risk visibility
+
+Capabilities
+•	View dashboards and executive reports
+•	View financial exposure & blast radius
+•	View fix priority and timelines
+•	Access compliance-aligned reporting
+
+Cannot
+•	View raw exploit details
+•	View sensitive evidence artifacts
+•	Run evaluations
+ 
+3. Specialized Roles (Optional but Recommended)
+
+These can still be hard-coded but are optional to enable per tenant.
+ 
+7. Compliance Officer
+
+Who: GRC, audit teams
+Purpose: Compliance & audit oversight
+
+Capabilities
+•	View compliance impact mapping
+•	Export compliance reports
+•	View evidence artifacts (read-only)
+•	Access authorization logs
+
+Cannot
+•	Run evaluations
+•	Modify scope or execution modes
+ 
+8. Automation / Integration Account
+
+Who: CI/CD pipelines, SOAR tools
+Purpose: Machine-to-machine access
+
+Capabilities
+•	API-only access
+•	Trigger evaluations
+•	Fetch results
+•	Push findings into external tools
+
+Restrictions
+•	No UI access
+•	Strict rate limits
+•	Scoped permissions
+ 
+4. Endpoint & Agent Roles (Non-User)
+
+These are system identities, not humans.
+ 
+9. Endpoint Agent Identity
+
+Purpose
+•	Telemetry ingestion
+•	Auto-trigger evaluations
+
+Capabilities
+•	POST telemetry
+•	POST findings
+•	Read-only org context
+
+Restrictions
+•	No UI
+•	No cross-tenant access
+•	mTLS + API key enforced
