@@ -2200,6 +2200,163 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================================================
+  // ORGANIZATION SETTINGS ENDPOINTS
+  // ============================================================================
+
+  // In-memory organization settings (extends governance table data)
+  const organizationSettings = {
+    organizationName: "OdinForge Security",
+    organizationDescription: "Advanced adversarial exposure validation platform",
+    contactEmail: "security@odinforge.ai",
+    contactPhone: "",
+    sessionTimeoutMinutes: 30,
+    mfaRequired: false,
+    mfaGracePeriodDays: 7,
+    passwordMinLength: 12,
+    passwordRequireUppercase: true,
+    passwordRequireLowercase: true,
+    passwordRequireNumbers: true,
+    passwordRequireSpecial: true,
+    passwordExpiryDays: 90,
+    emailNotificationsEnabled: true,
+    emailCriticalAlerts: true,
+    emailHighAlerts: true,
+    emailMediumAlerts: false,
+    emailLowAlerts: false,
+    emailDailyDigest: true,
+    alertThresholdCritical: 90,
+    alertThresholdHigh: 70,
+    alertThresholdMedium: 40,
+    apiRateLimitPerMinute: 60,
+    apiRateLimitPerHour: 1000,
+    apiRateLimitPerDay: 10000,
+    apiLoggingEnabled: true,
+    webhooksEnabled: false,
+    webhookUrl: "",
+  };
+
+  // Get organization settings
+  app.get("/api/organization/settings", requireAdminAuth, async (req, res) => {
+    try {
+      res.json(organizationSettings);
+    } catch (error) {
+      console.error("Error fetching organization settings:", error);
+      res.status(500).json({ error: "Failed to fetch organization settings" });
+    }
+  });
+
+  // Update organization settings
+  app.patch("/api/organization/settings", requireAdminAuth, async (req, res) => {
+    try {
+      const updates = req.body;
+      Object.keys(updates).forEach(key => {
+        if (key in organizationSettings) {
+          (organizationSettings as any)[key] = updates[key];
+        }
+      });
+      console.log(`[AUDIT] Organization settings updated:`, Object.keys(updates));
+      res.json(organizationSettings);
+    } catch (error) {
+      console.error("Error updating organization settings:", error);
+      res.status(500).json({ error: "Failed to update organization settings" });
+    }
+  });
+
+  // ============================================================================
+  // USER MANAGEMENT ENDPOINTS
+  // Note: Requires admin authentication for all operations
+  // ============================================================================
+
+  // Get all users
+  app.get("/api/users", requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+      const users = await storage.getAllUsers(organizationId);
+      res.json(users.map(u => ({ ...u, password: undefined })));
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  // Create a new user
+  app.post("/api/users", requireAdminAuth, async (req, res) => {
+    try {
+      const { username, password, role, displayName, email } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
+      }
+
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(409).json({ error: "Username already exists" });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      const user = await storage.createUser({
+        username,
+        password: hashedPassword,
+        role: role || "security_analyst",
+        displayName,
+        email,
+      });
+
+      console.log(`[AUDIT] User ${user.id} (${username}) created by admin`);
+      res.json({ ...user, password: undefined });
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  // Update a user
+  app.patch("/api/users/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { role, displayName, email, password } = req.body;
+      const user = await storage.getUser(req.params.id);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const updates: any = {};
+      if (role !== undefined) updates.role = role;
+      if (displayName !== undefined) updates.displayName = displayName;
+      if (email !== undefined) updates.email = email;
+      if (password) updates.password = await bcrypt.hash(password, 10);
+
+      await storage.updateUser(req.params.id, updates);
+      const updatedUser = await storage.getUser(req.params.id);
+      
+      console.log(`[AUDIT] User ${req.params.id} updated by admin`);
+      res.json({ ...updatedUser, password: undefined });
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
+  // Delete a user
+  app.delete("/api/users/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      await storage.deleteUser(req.params.id);
+      
+      console.log(`[AUDIT] User ${req.params.id} (${user.username}) deleted by admin`);
+      res.json({ success: true, message: "User deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
   return httpServer;
 }
 

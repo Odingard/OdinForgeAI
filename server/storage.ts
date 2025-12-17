@@ -72,6 +72,9 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getAllUsers(organizationId?: string): Promise<User[]>;
+  updateUser(id: string, updates: Partial<User>): Promise<void>;
+  deleteUser(id: string): Promise<void>;
   
   // AEV Evaluation operations
   createEvaluation(data: InsertEvaluation): Promise<Evaluation>;
@@ -126,6 +129,18 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [user] = await db.insert(users).values({ ...insertUser, id }).returning();
     return user;
+  }
+
+  async getAllUsers(organizationId?: string): Promise<User[]> {
+    return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<void> {
+    await db.update(users).set(updates).where(eq(users.id, id));
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
   }
 
   // AEV Evaluation operations

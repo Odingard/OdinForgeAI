@@ -19,6 +19,8 @@ import Governance from "@/pages/Governance";
 import Advanced from "@/pages/Advanced";
 import Agents from "@/pages/Agents";
 import Simulations from "@/pages/Simulations";
+import UserManagement from "@/pages/UserManagement";
+import Settings from "@/pages/Settings";
 import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, Bell, User, ChevronDown } from "lucide-react";
@@ -45,6 +47,8 @@ function Router() {
       <Route path="/agents" component={Agents} />
       <Route path="/simulations" component={Simulations} />
       <Route path="/advanced" component={Advanced} />
+      <Route path="/admin/users" component={UserManagement} />
+      <Route path="/admin/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );
