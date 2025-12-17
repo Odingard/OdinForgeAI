@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Zap, Target, Info } from "lucide-react";
+import { X, Zap, Target, Info, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +13,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ExposureType } from "@shared/schema";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { ExposureType, AdversaryProfile } from "@shared/schema";
+
+const adversaryProfileLabels: Record<AdversaryProfile, { label: string; description: string }> = {
+  script_kiddie: { label: "Script Kiddie", description: "Low sophistication, uses public tools" },
+  opportunistic_criminal: { label: "Opportunistic Criminal", description: "Moderate skill, seeks easy financial gains" },
+  organized_crime: { label: "Organized Crime", description: "Well-funded criminal organization" },
+  insider_threat: { label: "Insider Threat", description: "Trusted insider with legitimate access" },
+  nation_state: { label: "Nation State", description: "State-sponsored with unlimited resources" },
+  apt_group: { label: "APT Group", description: "Advanced Persistent Threat group" },
+  hacktivist: { label: "Hacktivist", description: "Ideologically motivated attacker" },
+  competitor: { label: "Competitor", description: "Corporate espionage actor" },
+};
 
 const exposureTypeLabels: Record<ExposureType, string> = {
   cve: "CVE Exploitation",
@@ -50,6 +62,7 @@ export interface EvaluationFormData {
   exposureType: string;
   priority: string;
   description: string;
+  adversaryProfile?: string;
 }
 
 export function NewEvaluationModal({ isOpen, onClose, onSubmit }: NewEvaluationModalProps) {
@@ -58,6 +71,7 @@ export function NewEvaluationModal({ isOpen, onClose, onSubmit }: NewEvaluationM
     exposureType: "cve",
     priority: "medium",
     description: "",
+    adversaryProfile: undefined,
   });
 
   if (!isOpen) return null;
@@ -65,7 +79,7 @@ export function NewEvaluationModal({ isOpen, onClose, onSubmit }: NewEvaluationM
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formData);
-    setFormData({ assetId: "", exposureType: "cve", priority: "medium", description: "" });
+    setFormData({ assetId: "", exposureType: "cve", priority: "medium", description: "", adversaryProfile: undefined });
   };
 
   return (
@@ -149,6 +163,38 @@ export function NewEvaluationModal({ isOpen, onClose, onSubmit }: NewEvaluationM
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs uppercase tracking-wider">Adversary Profile</Label>
+              <Tooltip>
+                <TooltipTrigger>
+                  <UserRound className="h-3 w-3 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs text-xs">Simulates attack from a specific threat actor type. The AI will adjust its tactics and techniques accordingly.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <Select
+              value={formData.adversaryProfile || "__none__"}
+              onValueChange={(value) => setFormData({ ...formData, adversaryProfile: value === "__none__" ? undefined : value })}
+            >
+              <SelectTrigger data-testid="select-adversary-profile">
+                <SelectValue placeholder="Default (balanced analysis)" />
+              </SelectTrigger>
+              <SelectContent className="max-h-80">
+                <SelectItem value="__none__">Default (balanced analysis)</SelectItem>
+                {(Object.keys(adversaryProfileLabels) as AdversaryProfile[]).map((profile) => (
+                  <SelectItem key={profile} value={profile} data-testid={`option-${profile}`}>
+                    <span className="flex flex-col">
+                      <span>{adversaryProfileLabels[profile].label}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="space-y-2">

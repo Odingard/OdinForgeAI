@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ImpactFindings } from "./types";
+import { generateAdversaryPromptContext } from "./adversary-profile";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -15,6 +16,10 @@ export async function runImpactAgent(
   const startTime = Date.now();
   
   onProgress?.("impact", 85, "Assessing data exposure risk...");
+
+  const adversaryContext = memory.context.adversaryProfile 
+    ? generateAdversaryPromptContext(memory.context.adversaryProfile)
+    : "";
 
   const previousContext = `
 Recon Findings:
@@ -43,7 +48,8 @@ Your mission is to assess the potential impact if the vulnerability is exploited
 3. Compliance impact - which regulations could be violated
 4. Reputational risk - brand and customer trust impact
 
-Think like a risk analyst providing executive-level impact assessment. Be realistic and data-driven.`;
+Think like a risk analyst providing executive-level impact assessment. Be realistic and data-driven.
+${adversaryContext}`;
 
   const userPrompt = `Assess the business impact for this exposure:
 

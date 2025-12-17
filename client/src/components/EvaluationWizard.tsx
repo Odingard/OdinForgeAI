@@ -21,6 +21,8 @@ import {
   type TemplateCategory,
   type InfrastructureType,
 } from "@/lib/evaluation-templates";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { AdversaryProfile } from "@shared/schema";
 import {
   ArrowLeft,
   ArrowRight,
@@ -39,7 +41,19 @@ import {
   Sparkles,
   FileText,
   AlertTriangle,
+  UserRound,
 } from "lucide-react";
+
+const adversaryProfileLabels: Record<AdversaryProfile, { label: string; description: string }> = {
+  script_kiddie: { label: "Script Kiddie", description: "Low sophistication, uses public tools" },
+  opportunistic_criminal: { label: "Opportunistic Criminal", description: "Moderate skill, seeks easy financial gains" },
+  organized_crime: { label: "Organized Crime", description: "Well-funded criminal organization" },
+  insider_threat: { label: "Insider Threat", description: "Trusted insider with legitimate access" },
+  nation_state: { label: "Nation State", description: "State-sponsored with unlimited resources" },
+  apt_group: { label: "APT Group", description: "Advanced Persistent Threat group" },
+  hacktivist: { label: "Hacktivist", description: "Ideologically motivated attacker" },
+  competitor: { label: "Competitor", description: "Corporate espionage actor" },
+};
 
 const categoryIcons: Record<string, typeof Globe> = {
   web_servers: Globe,
@@ -75,6 +89,7 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [additionalContext, setAdditionalContext] = useState("");
   const [assetName, setAssetName] = useState("");
+  const [adversaryProfile, setAdversaryProfile] = useState<string>("");
 
   const resetWizard = () => {
     setStep("category");
@@ -84,6 +99,7 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
     setAnswers({});
     setAdditionalContext("");
     setAssetName("");
+    setAdversaryProfile("");
   };
 
   const handleOpenChange = (open: boolean) => {
@@ -99,6 +115,7 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
       exposureType: string;
       priority: string;
       description: string;
+      adversaryProfile?: string;
     }) => {
       const response = await apiRequest("POST", "/api/aev/evaluate", data);
       return response.json();
@@ -184,6 +201,7 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
       exposureType,
       priority,
       description,
+      adversaryProfile: adversaryProfile || undefined,
     });
   };
 
@@ -406,6 +424,41 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
               data-testid="textarea-additional-context"
             />
           </div>
+          
+          <div className="space-y-3 pt-4 border-t">
+            <div className="flex items-center gap-2">
+              <Label className="text-sm font-medium">Threat Actor Profile (optional)</Label>
+              <Tooltip>
+                <TooltipTrigger>
+                  <UserRound className="h-3 w-3 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs text-xs">Simulates attack from a specific threat actor type. The AI will adjust its tactics and techniques accordingly.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <Select
+              value={adversaryProfile || "__none__"}
+              onValueChange={(value) => setAdversaryProfile(value === "__none__" ? "" : value)}
+            >
+              <SelectTrigger data-testid="select-adversary-profile">
+                <SelectValue placeholder="Default (balanced analysis)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Default (balanced analysis)</SelectItem>
+                {(Object.keys(adversaryProfileLabels) as AdversaryProfile[]).map((profile) => (
+                  <SelectItem key={profile} value={profile} data-testid={`option-${profile}`}>
+                    {adversaryProfileLabels[profile].label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {adversaryProfile && (
+              <p className="text-xs text-muted-foreground">
+                {adversaryProfileLabels[adversaryProfile as AdversaryProfile]?.description}
+              </p>
+            )}
+          </div>
         </div>
       </ScrollArea>
       
@@ -452,7 +505,7 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <div>
               <p className="text-xs text-muted-foreground">Exposure Type</p>
               <Badge variant="outline">{exposureType}</Badge>
@@ -463,6 +516,14 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
                 {priority.charAt(0).toUpperCase() + priority.slice(1)}
               </Badge>
             </div>
+            {adversaryProfile && (
+              <div>
+                <p className="text-xs text-muted-foreground">Threat Actor</p>
+                <Badge variant="outline" className="bg-violet-500/10 text-violet-400 border-violet-500/30">
+                  {adversaryProfileLabels[adversaryProfile as AdversaryProfile]?.label}
+                </Badge>
+              </div>
+            )}
           </div>
         </div>
         

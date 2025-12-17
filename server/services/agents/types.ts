@@ -1,4 +1,4 @@
-import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore, RemediationGuidance } from "@shared/schema";
+import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore, RemediationGuidance, AdversaryProfile } from "@shared/schema";
 
 export interface AgentContext {
   assetId: string;
@@ -6,6 +6,7 @@ export interface AgentContext {
   priority: string;
   description: string;
   evaluationId: string;
+  adversaryProfile?: AdversaryProfile;
 }
 
 export interface ReconFindings {

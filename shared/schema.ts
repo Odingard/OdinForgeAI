@@ -78,6 +78,7 @@ export const aevEvaluations = pgTable("aev_evaluations", {
   exposureType: varchar("exposure_type").notNull(), // One of exposureTypes
   priority: varchar("priority").notNull().default("medium"), // critical, high, medium, low
   description: text("description").notNull(),
+  adversaryProfile: varchar("adversary_profile"), // One of adversaryProfiles (optional)
   status: varchar("status").notNull().default("pending"), // pending, in_progress, completed, failed
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

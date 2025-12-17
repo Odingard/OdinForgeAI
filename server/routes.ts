@@ -64,6 +64,7 @@ export async function registerRoutes(
         exposureType: parsed.data.exposureType,
         priority: parsed.data.priority || "medium",
         description: parsed.data.description,
+        adversaryProfile: parsed.data.adversaryProfile || undefined,
       });
     } catch (error) {
       console.error("Error starting evaluation:", error);
@@ -1815,6 +1816,7 @@ async function runEvaluation(evaluationId: string, data: {
   exposureType: string;
   priority: string;
   description: string;
+  adversaryProfile?: string;
 }) {
   const startTime = Date.now();
   
@@ -1829,7 +1831,8 @@ async function runEvaluation(evaluationId: string, data: {
       evaluationId,
       (agentName, stage, progress, message) => {
         wsService.sendProgress(evaluationId, agentName, stage, progress, message);
-      }
+      },
+      { adversaryProfile: data.adversaryProfile as any }
     );
 
     const duration = Date.now() - startTime;

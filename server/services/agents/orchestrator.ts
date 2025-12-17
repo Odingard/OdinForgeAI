@@ -4,6 +4,7 @@ import type {
   OrchestratorResult,
   ProgressCallback,
 } from "./types";
+import type { AdversaryProfile } from "@shared/schema";
 import { runReconAgent } from "./recon";
 import { runExploitAgent } from "./exploit";
 import { runLateralAgent } from "./lateral";
@@ -16,13 +17,18 @@ import { generateEvidenceFromAnalysis } from "./evidence-collector";
 import { generateIntelligentScore } from "./scoring-engine";
 import { generateRemediationGuidance } from "./remediation-engine";
 
+export interface OrchestratorOptions {
+  adversaryProfile?: AdversaryProfile;
+}
+
 export async function runAgentOrchestrator(
   assetId: string,
   exposureType: string,
   priority: string,
   description: string,
   evaluationId: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  options?: OrchestratorOptions
 ): Promise<OrchestratorResult> {
   const startTime = Date.now();
 
@@ -32,6 +38,7 @@ export async function runAgentOrchestrator(
     priority,
     description,
     evaluationId,
+    adversaryProfile: options?.adversaryProfile,
   };
 
   const memory: AgentMemory = { context };

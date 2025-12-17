@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ReconFindings } from "./types";
+import { generateAdversaryPromptContext } from "./adversary-profile";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -16,6 +17,10 @@ export async function runReconAgent(
   
   onProgress?.("recon", 10, "Mapping attack surface...");
 
+  const adversaryContext = memory.context.adversaryProfile 
+    ? generateAdversaryPromptContext(memory.context.adversaryProfile)
+    : "";
+
   const systemPrompt = `You are the RECON AGENT, a specialized AI security reconnaissance system for OdinForge AI.
 
 Your mission is to perform comprehensive reconnaissance on the target asset to identify:
@@ -26,7 +31,8 @@ Your mission is to perform comprehensive reconnaissance on the target asset to i
 5. Technologies - frameworks, libraries, infrastructure components
 6. Potential vulnerabilities - based on reconnaissance findings
 
-Think like a penetration tester performing initial reconnaissance. Be thorough but realistic.`;
+Think like a penetration tester performing initial reconnaissance. Be thorough but realistic.
+${adversaryContext}`;
 
   const userPrompt = `Perform reconnaissance analysis on this security exposure:
 
