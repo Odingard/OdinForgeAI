@@ -5,6 +5,9 @@ import { insertEvaluationSchema, insertReportSchema, insertBatchJobSchema, inser
 import { runAgentOrchestrator } from "./services/agents";
 import { wsService } from "./services/websocket";
 import { reportGenerator } from "./services/report-generator";
+import { unifiedAuthService } from "./services/unified-auth";
+import { mtlsAuthService } from "./services/mtls-auth";
+import { jwtAuthService } from "./services/jwt-auth";
 import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
@@ -1524,33 +1527,35 @@ export async function registerRoutes(
     return bcrypt.compare(apiKey, hash);
   }
 
-  // Agent authentication middleware
+  // Agent authentication middleware - supports API key, mTLS, and JWT
   async function authenticateAgent(req: any, res: any, next: any) {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Missing or invalid authorization header" });
+    const clientCertHeader = req.headers["x-client-cert-fingerprint"] || req.headers["x-ssl-client-cert"];
+    const certSecretHeader = req.headers["x-cert-secret"];
+    
+    // Get all agents for API key comparison
+    const agents = await storage.getEndpointAgents();
+    
+    // Use unified auth service for multi-method authentication
+    const authResult = await unifiedAuthService.authenticateRequest(
+      authHeader,
+      clientCertHeader,
+      agents,
+      certSecretHeader
+    );
+    
+    if (!authResult.authenticated) {
+      return res.status(401).json({ error: authResult.error || "Authentication failed" });
     }
     
-    const apiKey = authHeader.substring(7);
-    
-    // Get all agents and check hash (since we can't query by hashed key directly)
-    const agents = await storage.getEndpointAgents();
+    // Find the authenticated agent
     let authenticatedAgent = null;
-    
-    for (const agent of agents) {
-      if (agent.apiKeyHash && await verifyApiKey(apiKey, agent.apiKeyHash)) {
-        authenticatedAgent = agent;
-        break;
-      }
-      // Fallback: Support legacy plaintext keys during migration
-      if (agent.apiKey === apiKey) {
-        authenticatedAgent = agent;
-        break;
-      }
+    if (authResult.agentId) {
+      authenticatedAgent = agents.find(a => a.id === authResult.agentId);
     }
     
     if (!authenticatedAgent) {
-      return res.status(401).json({ error: "Invalid API key" });
+      return res.status(401).json({ error: "Agent not found" });
     }
     
     req.agent = authenticatedAgent;
@@ -1805,6 +1810,369 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating agent finding:", error);
       res.status(500).json({ error: "Failed to update agent finding" });
+    }
+  });
+
+  // ============================================================================
+  // mTLS Certificate Management Endpoints
+  // Note: These endpoints require authenticated session (admin access)
+  // ============================================================================
+
+  // Middleware to check admin authentication for credential management
+  const requireAdminAuth = (req: any, res: any, next: any) => {
+    // Check for authenticated session (Replit Auth)
+    if (req.isAuthenticated && req.isAuthenticated()) {
+      return next();
+    }
+    // Check for admin API key header
+    const adminKey = req.headers["x-admin-key"];
+    const expectedAdminKey = process.env.ADMIN_API_KEY;
+    if (expectedAdminKey && adminKey === expectedAdminKey) {
+      return next();
+    }
+    // In development mode without session, allow access with warning
+    if (process.env.NODE_ENV === "development" && !expectedAdminKey) {
+      console.warn("WARNING: Credential management endpoint accessed without authentication (development mode)");
+      return next();
+    }
+    return res.status(401).json({ error: "Admin authentication required for credential management" });
+  };
+
+  // Request a new certificate for an agent
+  app.post("/api/agents/:id/certificates", requireAdminAuth, async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const commonName = req.body.commonName || agent.agentName;
+      const validityDays = req.body.validityDays || 365;
+
+      const certificate = await mtlsAuthService.generateCertificate({
+        agentId: agent.id,
+        organizationId: agent.organizationId,
+        commonName,
+        validityDays,
+      });
+
+      console.log(`[AUDIT] Certificate generated for agent ${agent.id} by admin`);
+
+      res.json({
+        certificateId: certificate.certificateId,
+        fingerprint: certificate.fingerprint,
+        certificate: certificate.certificate,
+        privateKey: certificate.privateKey,
+        validFrom: certificate.validFrom,
+        validTo: certificate.validTo,
+        message: "Certificate generated. Store the private key securely - it cannot be retrieved again.",
+      });
+    } catch (error) {
+      console.error("Error generating certificate:", error);
+      res.status(500).json({ error: "Failed to generate certificate" });
+    }
+  });
+
+  // List certificates for an agent
+  app.get("/api/agents/:id/certificates", async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const certificates = await mtlsAuthService.getAgentCertificates(agent.id);
+      res.json(certificates.map(cert => ({
+        id: cert.id,
+        fingerprint: cert.fingerprint,
+        subject: cert.subject,
+        issuer: cert.issuer,
+        validFrom: cert.validFrom,
+        validTo: cert.validTo,
+        status: cert.status,
+        createdAt: cert.createdAt,
+      })));
+    } catch (error) {
+      console.error("Error fetching certificates:", error);
+      res.status(500).json({ error: "Failed to fetch certificates" });
+    }
+  });
+
+  // Renew a certificate
+  app.post("/api/agents/:id/certificates/:certId/renew", requireAdminAuth, async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const newCert = await mtlsAuthService.renewCertificate(req.params.certId);
+      if (!newCert) {
+        return res.status(400).json({ error: "Unable to renew certificate" });
+      }
+
+      console.log(`[AUDIT] Certificate ${req.params.certId} renewed for agent ${agent.id} by admin`);
+
+      res.json({
+        certificateId: newCert.certificateId,
+        fingerprint: newCert.fingerprint,
+        certificate: newCert.certificate,
+        privateKey: newCert.privateKey,
+        validFrom: newCert.validFrom,
+        validTo: newCert.validTo,
+        message: "Certificate renewed. Store the new private key securely.",
+      });
+    } catch (error) {
+      console.error("Error renewing certificate:", error);
+      res.status(500).json({ error: "Failed to renew certificate" });
+    }
+  });
+
+  // Revoke a certificate
+  app.delete("/api/agents/:id/certificates/:certId", requireAdminAuth, async (req, res) => {
+    try {
+      const reason = req.body.reason || "Manually revoked";
+      const success = await mtlsAuthService.revokeCertificate(req.params.certId, reason);
+      
+      if (!success) {
+        return res.status(404).json({ error: "Certificate not found" });
+      }
+
+      console.log(`[AUDIT] Certificate ${req.params.certId} revoked by admin: ${reason}`);
+
+      res.json({ success: true, message: "Certificate revoked" });
+    } catch (error) {
+      console.error("Error revoking certificate:", error);
+      res.status(500).json({ error: "Failed to revoke certificate" });
+    }
+  });
+
+  // ============================================================================
+  // JWT Token Management Endpoints
+  // Note: Token generation requires admin auth, refresh is self-service
+  // ============================================================================
+
+  // Generate JWT tokens for an agent
+  app.post("/api/agents/:id/tokens", requireAdminAuth, async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const scopes = req.body.scopes || ["read", "write"];
+      const tokenPair = await jwtAuthService.generateTokenPair({
+        organizationId: agent.organizationId,
+        agentId: agent.id,
+        scopes,
+        subject: agent.agentName,
+      });
+
+      console.log(`[AUDIT] JWT tokens generated for agent ${agent.id} by admin`);
+
+      res.json({
+        accessToken: tokenPair.accessToken,
+        refreshToken: tokenPair.refreshToken,
+        accessTokenExpiresAt: tokenPair.accessTokenExpiresAt,
+        refreshTokenExpiresAt: tokenPair.refreshTokenExpiresAt,
+        message: "Tokens generated. Store the refresh token securely.",
+      });
+    } catch (error) {
+      console.error("Error generating tokens:", error);
+      res.status(500).json({ error: "Failed to generate tokens" });
+    }
+  });
+
+  // Refresh JWT tokens
+  app.post("/api/auth/refresh", async (req, res) => {
+    try {
+      const { refreshToken } = req.body;
+      if (!refreshToken) {
+        return res.status(400).json({ error: "Refresh token required" });
+      }
+
+      const newTokens = await jwtAuthService.refreshAccessToken(refreshToken);
+      if (!newTokens) {
+        return res.status(401).json({ error: "Invalid or expired refresh token" });
+      }
+
+      res.json({
+        accessToken: newTokens.accessToken,
+        refreshToken: newTokens.refreshToken,
+        accessTokenExpiresAt: newTokens.accessTokenExpiresAt,
+        refreshTokenExpiresAt: newTokens.refreshTokenExpiresAt,
+      });
+    } catch (error) {
+      console.error("Error refreshing tokens:", error);
+      res.status(500).json({ error: "Failed to refresh tokens" });
+    }
+  });
+
+  // Revoke all credentials for an agent
+  app.post("/api/agents/:id/revoke-all", requireAdminAuth, async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const result = await unifiedAuthService.revokeAgentCredentials(agent.id);
+      console.log(`[AUDIT] All credentials revoked for agent ${agent.id} by admin: ${result.revokedCerts} certs, ${result.revokedTokens} tokens`);
+      
+      res.json({
+        success: true,
+        revokedCertificates: result.revokedCerts,
+        revokedTokens: result.revokedTokens,
+        message: "All agent credentials revoked",
+      });
+    } catch (error) {
+      console.error("Error revoking credentials:", error);
+      res.status(500).json({ error: "Failed to revoke credentials" });
+    }
+  });
+
+  // Get agent authentication status
+  app.get("/api/agents/:id/auth-status", async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const status = await unifiedAuthService.getAgentAuthStatus(agent.id);
+      res.json({
+        agentId: agent.id,
+        agentName: agent.agentName,
+        hasApiKey: !!agent.apiKeyHash || !!agent.apiKey,
+        ...status,
+      });
+    } catch (error) {
+      console.error("Error fetching auth status:", error);
+      res.status(500).json({ error: "Failed to fetch auth status" });
+    }
+  });
+
+  // ============================================================================
+  // Tenant Management Endpoints
+  // Note: These endpoints require admin authentication
+  // ============================================================================
+
+  // Create a new tenant
+  app.post("/api/tenants", requireAdminAuth, async (req, res) => {
+    try {
+      const { name, organizationId, allowedScopes, accessTokenTTL, refreshTokenTTL } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "Tenant name required" });
+      }
+
+      const tenant = await jwtAuthService.createTenant({
+        organizationId: organizationId || "default",
+        name,
+        allowedScopes,
+        accessTokenTTL,
+        refreshTokenTTL,
+      });
+
+      console.log(`[AUDIT] Tenant ${tenant.id} created by admin: ${name}`);
+
+      res.json({
+        id: tenant.id,
+        name: tenant.name,
+        organizationId: tenant.organizationId,
+        secretKey: tenant.secretKey,
+        allowedScopes: tenant.allowedScopes,
+        accessTokenTTL: tenant.accessTokenTTL,
+        refreshTokenTTL: tenant.refreshTokenTTL,
+        createdAt: tenant.createdAt,
+        message: "Tenant created. Store the secret key securely - it cannot be retrieved again.",
+      });
+    } catch (error) {
+      console.error("Error creating tenant:", error);
+      res.status(500).json({ error: "Failed to create tenant" });
+    }
+  });
+
+  // List tenants
+  app.get("/api/tenants", async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+      const tenants = await jwtAuthService.listTenants(organizationId);
+      res.json(tenants);
+    } catch (error) {
+      console.error("Error fetching tenants:", error);
+      res.status(500).json({ error: "Failed to fetch tenants" });
+    }
+  });
+
+  // Get tenant by ID
+  app.get("/api/tenants/:id", async (req, res) => {
+    try {
+      const tenant = await jwtAuthService.getTenant(req.params.id);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+      
+      res.json({
+        id: tenant.id,
+        name: tenant.name,
+        organizationId: tenant.organizationId,
+        allowedScopes: tenant.allowedScopes,
+        accessTokenTTL: tenant.accessTokenTTL,
+        refreshTokenTTL: tenant.refreshTokenTTL,
+        active: tenant.active,
+        createdAt: tenant.createdAt,
+        updatedAt: tenant.updatedAt,
+      });
+    } catch (error) {
+      console.error("Error fetching tenant:", error);
+      res.status(500).json({ error: "Failed to fetch tenant" });
+    }
+  });
+
+  // Deactivate tenant
+  app.delete("/api/tenants/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const success = await jwtAuthService.deactivateTenant(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+      
+      console.log(`[AUDIT] Tenant ${req.params.id} deactivated by admin`);
+      
+      res.json({ success: true, message: "Tenant deactivated" });
+    } catch (error) {
+      console.error("Error deactivating tenant:", error);
+      res.status(500).json({ error: "Failed to deactivate tenant" });
+    }
+  });
+
+  // ============================================================================
+  // Auth Configuration Endpoint
+  // Note: Config changes require admin authentication
+  // ============================================================================
+
+  // Get authentication configuration (read-only, no auth required)
+  app.get("/api/auth/config", async (req, res) => {
+    try {
+      const config = unifiedAuthService.getConfig();
+      res.json(config);
+    } catch (error) {
+      console.error("Error fetching auth config:", error);
+      res.status(500).json({ error: "Failed to fetch auth config" });
+    }
+  });
+
+  // Update authentication configuration (admin only)
+  app.patch("/api/auth/config", requireAdminAuth, async (req, res) => {
+    try {
+      const updates = req.body;
+      unifiedAuthService.configure(updates);
+      console.log(`[AUDIT] Auth config updated by admin:`, updates);
+      const config = unifiedAuthService.getConfig();
+      res.json(config);
+    } catch (error) {
+      console.error("Error updating auth config:", error);
+      res.status(500).json({ error: "Failed to update auth config" });
     }
   });
 

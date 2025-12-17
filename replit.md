@@ -48,9 +48,12 @@ Key backend services:
 - **WebSocket Service** (`server/services/websocket.ts`): Broadcasts evaluation progress and completion events
 - **Storage Layer** (`server/storage.ts`): Database abstraction using Drizzle ORM
 - **Report Generator** (`server/services/report-generator.ts`): Generates executive, technical, and compliance reports
-- **Agent Orchestrator** (`server/services/agents/orchestrator.ts`): Coordinates AI agent workflow for evaluations
+- **Agent Orchestrator** (`server/services/agents/orchestrator.ts`): Coordinates AI agent workflow for evaluations with adversary profile support
 - **Defender Agent** (`server/services/agents/defender.ts`): AI agent for detecting attacks, recommending responses, and assessing control effectiveness
 - **AI Simulation Orchestrator** (`server/services/agents/ai-simulation.ts`): Runs AI vs AI simulations with iterative attack/defense cycles and purple team feedback
+- **mTLS Auth Service** (`server/services/mtls-auth.ts`): Certificate generation, validation, rotation, and revocation for agent authentication
+- **JWT Auth Service** (`server/services/jwt-auth.ts`): JWT token management with multi-tenant support and scope-based authorization
+- **Unified Auth Service** (`server/services/unified-auth.ts`): Unified authentication middleware supporting API keys, mTLS certificates, and JWT tokens
 
 ### AI vs AI Simulation System
 The platform includes an AI vs AI simulation capability for purple team exercises:
