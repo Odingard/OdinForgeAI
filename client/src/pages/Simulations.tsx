@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +11,17 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Play, Trash2, Eye, Clock, CheckCircle2, XCircle, Loader2, Shield, Skull, Zap } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Swords, Play, Trash2, Eye, Clock, CheckCircle2, XCircle, Loader2, Shield, Skull, Zap, Lock } from "lucide-react";
 import { format } from "date-fns";
 import type { AiSimulation } from "@shared/schema";
 
 export default function Simulations() {
   const { toast } = useToast();
+  const { hasPermission } = useAuth();
+  
+  const canRunSimulation = hasPermission("simulations:run");
+  const canDeleteSimulation = hasPermission("simulations:delete");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedSimulation, setSelectedSimulation] = useState<AiSimulation | null>(null);
   const [formData, setFormData] = useState({
@@ -96,8 +102,8 @@ export default function Simulations() {
         </div>
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="button-new-simulation">
-              <Play className="h-4 w-4 mr-2" />
+            <Button data-testid="button-new-simulation" disabled={!canRunSimulation}>
+              {canRunSimulation ? <Play className="h-4 w-4 mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
               Start Simulation
             </Button>
           </DialogTrigger>
@@ -272,15 +278,17 @@ export default function Simulations() {
                         <Eye className="h-4 w-4 mr-1" />
                         View Results
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => deleteMutation.mutate(simulation.id)}
-                        disabled={simulation.simulationStatus === "running"}
-                        data-testid={`button-delete-${simulation.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {canDeleteSimulation && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteMutation.mutate(simulation.id)}
+                          disabled={simulation.simulationStatus === "running"}
+                          data-testid={`button-delete-${simulation.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>

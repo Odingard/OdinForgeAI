@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
 import { 
@@ -25,7 +27,9 @@ import {
   Wifi,
   WifiOff,
   Terminal,
-  Eye
+  Eye,
+  Lock,
+  Shield
 } from "lucide-react";
 
 interface EndpointAgent {
@@ -70,6 +74,12 @@ interface AgentStats {
 
 export default function Agents() {
   const { toast } = useToast();
+  const { hasPermission } = useAuth();
+  
+  const canRegisterAgent = hasPermission("agents:register");
+  const canManageAgent = hasPermission("agents:manage");
+  const canDeleteAgent = hasPermission("agents:delete");
+  
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentPlatform, setNewAgentPlatform] = useState("linux");
@@ -424,8 +434,8 @@ if __name__ == "__main__":
             }
           }}>
             <DialogTrigger asChild>
-              <Button data-testid="btn-register-agent">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button data-testid="btn-register-agent" disabled={!canRegisterAgent}>
+                {canRegisterAgent ? <Plus className="h-4 w-4 mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
                 Register Agent
               </Button>
             </DialogTrigger>
@@ -654,14 +664,16 @@ if __name__ == "__main__":
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => deleteAgentMutation.mutate(agent.id)}
-                              data-testid={`btn-delete-agent-${agent.id}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {canDeleteAgent && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => deleteAgentMutation.mutate(agent.id)}
+                                data-testid={`btn-delete-agent-${agent.id}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

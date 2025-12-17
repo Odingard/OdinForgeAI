@@ -11,7 +11,9 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
   FileText, 
@@ -29,6 +31,7 @@ import {
   CheckCircle2,
   Clock,
   FileType,
+  Lock,
 } from "lucide-react";
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
@@ -62,6 +65,13 @@ const exportFormats = [
 
 export default function Reports() {
   const { toast } = useToast();
+  const { hasPermission, needsSanitizedView } = useAuth();
+  
+  const canGenerateReport = hasPermission("reports:generate");
+  const canDeleteReport = hasPermission("reports:delete");
+  const canExportReport = hasPermission("reports:export");
+  const isExecutiveView = needsSanitizedView();
+  
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<string>("executive_summary");
   const [selectedFormat, setSelectedFormat] = useState<string>("pdf");
@@ -650,6 +660,16 @@ export default function Reports() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      {isExecutiveView && (
+        <Alert>
+          <Briefcase className="h-4 w-4" />
+          <AlertDescription>
+            You are viewing reports in executive mode. Only executive summary reports are available. 
+            Technical details and raw findings are not shown.
+          </AlertDescription>
+        </Alert>
+      )}
+      
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold" data-testid="text-reports-title">Enterprise Reports</h1>
@@ -657,8 +677,8 @@ export default function Reports() {
         </div>
         <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="btn-generate-report">
-              <Plus className="w-4 h-4 mr-2" />
+            <Button data-testid="btn-generate-report" disabled={!canGenerateReport}>
+              {canGenerateReport ? <Plus className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
               Generate Report
             </Button>
           </DialogTrigger>
@@ -856,15 +876,17 @@ export default function Reports() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => deleteMutation.mutate(report.id)}
-                          disabled={deleteMutation.isPending}
-                          data-testid={`btn-delete-${report.id}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {canDeleteReport && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => deleteMutation.mutate(report.id)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`btn-delete-${report.id}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </CardContent>
