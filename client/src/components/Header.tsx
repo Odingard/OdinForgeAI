@@ -1,4 +1,4 @@
-import { Shield, Moon, Sun, Bell, User, ChevronDown, Brain, Server } from "lucide-react";
+import { Shield, Moon, Sun, Bell, User, ChevronDown, Brain, Server, Swords } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "./ThemeProvider";
 import { Link, useLocation } from "wouter";
@@ -115,6 +115,17 @@ export function Header() {
             >
               <Server className="h-3.5 w-3.5" />
               Agents
+            </Button>
+          </Link>
+          <Link href="/simulations">
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className={`${isActive("/simulations") ? "text-foreground" : "text-muted-foreground"} gap-1`} 
+              data-testid="nav-simulations"
+            >
+              <Swords className="h-3.5 w-3.5" />
+              Simulations
             </Button>
           </Link>
           <Link href="/advanced">

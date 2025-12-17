@@ -1362,6 +1362,150 @@ export async function registerRoutes(
     }
   });
 
+  // ========== AI VS AI SIMULATION API ==========
+
+  // Import the AI simulation runner
+  const { runAISimulation } = await import("./services/agents/ai-simulation");
+
+  // Validation schema for simulation creation
+  const createSimulationSchema = z.object({
+    assetId: z.string().min(1, "assetId is required"),
+    exposureType: z.enum(["cve", "misconfiguration", "network", "api", "iam_abuse", "data_exfiltration", "payment_flow"]),
+    priority: z.enum(["critical", "high", "medium", "low"]).default("high"),
+    description: z.string().min(1, "description is required"),
+    rounds: z.number().int().min(1).max(10).default(3),
+  });
+
+  // Start a new AI vs AI simulation
+  app.post("/api/simulations", async (req, res) => {
+    try {
+      const parseResult = createSimulationSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: parseResult.error.errors[0].message });
+      }
+      const { assetId, exposureType, priority, description, rounds } = parseResult.data;
+
+      // Create simulation record in database
+      const simulation = await storage.createAiSimulation({
+        organizationId: "default",
+        name: `AI vs AI Simulation: ${assetId}`,
+        description,
+        simulationStatus: "running",
+        startedAt: new Date(),
+      });
+      const simulationId = simulation.id;
+
+      // Run simulation asynchronously
+      runSimulation(simulationId, assetId, exposureType, priority || "high", description, rounds);
+
+      res.json({ 
+        simulationId,
+        status: "running",
+        message: "AI vs AI simulation started. Use WebSocket or GET /api/simulations/:id for progress updates.",
+      });
+    } catch (error) {
+      console.error("Error starting simulation:", error);
+      res.status(500).json({ error: "Failed to start simulation" });
+    }
+  });
+
+  // Get all simulations
+  app.get("/api/simulations", async (req, res) => {
+    try {
+      const simulations = await storage.getAllAiSimulations();
+      res.json(simulations);
+    } catch (error) {
+      console.error("Error fetching simulations:", error);
+      res.status(500).json({ error: "Failed to fetch simulations" });
+    }
+  });
+
+  // Get a specific simulation
+  app.get("/api/simulations/:id", async (req, res) => {
+    try {
+      const simulation = await storage.getAiSimulation(req.params.id);
+      if (!simulation) {
+        return res.status(404).json({ error: "Simulation not found" });
+      }
+      res.json(simulation);
+    } catch (error) {
+      console.error("Error fetching simulation:", error);
+      res.status(500).json({ error: "Failed to fetch simulation" });
+    }
+  });
+
+  // Delete a simulation
+  app.delete("/api/simulations/:id", async (req, res) => {
+    try {
+      const simulation = await storage.getAiSimulation(req.params.id);
+      if (!simulation) {
+        return res.status(404).json({ error: "Simulation not found" });
+      }
+      await storage.deleteAiSimulation(req.params.id);
+      res.json({ success: true, message: "Simulation deleted" });
+    } catch (error) {
+      console.error("Error deleting simulation:", error);
+      res.status(500).json({ error: "Failed to delete simulation" });
+    }
+  });
+
+  // Helper function to run simulation asynchronously
+  async function runSimulation(
+    simulationId: string,
+    assetId: string,
+    exposureType: string,
+    priority: string,
+    description: string,
+    rounds: number
+  ) {
+    try {
+      wsService.sendProgress(simulationId, "AI Simulation", "starting", 0, "Starting AI vs AI simulation...");
+
+      const result = await runAISimulation(
+        assetId,
+        exposureType,
+        priority,
+        description,
+        simulationId,
+        rounds,
+        (phase, round, progress, message) => {
+          wsService.sendProgress(simulationId, `AI Simulation (Round ${round})`, phase, progress, message);
+        }
+      );
+
+      // Update simulation with results
+      await storage.updateAiSimulation(simulationId, {
+        simulationStatus: "completed",
+        completedAt: new Date(),
+        simulationResults: {
+          attackerSuccesses: Math.round(result.finalAttackScore * 100),
+          defenderBlocks: Math.round(result.finalDefenseScore * 100),
+          timeToDetection: 0,
+          timeToContainment: 0,
+          attackPath: result.rounds.flatMap(r => 
+            r.attackerFindings.attackPath.map(s => s.title)
+          ),
+          detectionPoints: result.rounds.flatMap(r => 
+            r.defenderFindings.detectedAttacks.map(d => d.attackType)
+          ),
+          missedAttacks: result.rounds.flatMap(r => 
+            r.defenderFindings.gapsIdentified
+          ),
+          recommendations: result.recommendations.map(r => r.description),
+        },
+      });
+
+      wsService.sendComplete(simulationId, true);
+    } catch (error) {
+      console.error("Simulation failed:", error);
+      await storage.updateAiSimulation(simulationId, {
+        simulationStatus: "failed",
+        completedAt: new Date(),
+      });
+      wsService.sendComplete(simulationId, false, String(error));
+    }
+  }
+
   // ========== ENDPOINT AGENT API ==========
 
   // Generate API key for agent

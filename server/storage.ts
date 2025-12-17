@@ -560,6 +560,17 @@ export class DatabaseStorage implements IStorage {
     await db.update(aiSimulations).set(updates).where(eq(aiSimulations.id, id));
   }
 
+  async deleteAiSimulation(id: string): Promise<void> {
+    await db.delete(aiSimulations).where(eq(aiSimulations.id, id));
+  }
+
+  async getAllAiSimulations(): Promise<AiSimulation[]> {
+    return db
+      .select()
+      .from(aiSimulations)
+      .orderBy(desc(aiSimulations.createdAt));
+  }
+
   // ============================================
   // INFRASTRUCTURE DATA INGESTION OPERATIONS
   // ============================================

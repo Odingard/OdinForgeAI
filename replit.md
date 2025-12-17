@@ -49,6 +49,16 @@ Key backend services:
 - **Storage Layer** (`server/storage.ts`): Database abstraction using Drizzle ORM
 - **Report Generator** (`server/services/report-generator.ts`): Generates executive, technical, and compliance reports
 - **Agent Orchestrator** (`server/services/agents/orchestrator.ts`): Coordinates AI agent workflow for evaluations
+- **Defender Agent** (`server/services/agents/defender.ts`): AI agent for detecting attacks, recommending responses, and assessing control effectiveness
+- **AI Simulation Orchestrator** (`server/services/agents/ai-simulation.ts`): Runs AI vs AI simulations with iterative attack/defense cycles and purple team feedback
+
+### AI vs AI Simulation System
+The platform includes an AI vs AI simulation capability for purple team exercises:
+- **Attacker AI**: Uses the orchestrator's multi-agent system (recon, exploit, lateral, business logic, multi-vector agents)
+- **Defender AI**: Detects attacks, recommends responses, assesses defensive control effectiveness
+- **Iterative Rounds**: Configurable number of attack/defense cycles
+- **Purple Team Feedback**: Generates actionable recommendations based on simulation results
+- **Frontend Page**: `/simulations` route with simulation creation, progress tracking, and result visualization
 
 ### Data Storage
 - **Database**: PostgreSQL with Drizzle ORM
@@ -64,6 +74,8 @@ Key backend services:
   - `endpoint_agents`: Tracks deployed endpoint agents with hashed API keys and metadata
   - `agent_telemetry`: Stores system info, metrics, and security findings from agents
   - `agent_findings`: Individual security findings detected by agents with auto-evaluation triggers
+  - `ai_simulations`: Tracks AI vs AI simulation sessions with attacker/defender results
+  - `purple_team_findings`: Stores purple team findings and recommendations from simulations
 
 ### Endpoint Agent System
 The platform includes a live agent deployment system for real-time security monitoring:
