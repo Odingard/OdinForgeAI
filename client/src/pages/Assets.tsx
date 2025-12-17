@@ -1,8 +1,29 @@
-import { useQuery } from "@tanstack/react-query";
-import { Server, Shield, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Server, AlertTriangle, CheckCircle, Clock, Trash2, MoreVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useState } from "react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Evaluation {
   id: string;
@@ -17,6 +38,7 @@ interface Evaluation {
 
 interface AssetSummary {
   assetId: string;
+  evaluationIds: string[];
   evaluationCount: number;
   exploitableCount: number;
   highestPriority: string;
@@ -26,9 +48,64 @@ interface AssetSummary {
 }
 
 export default function Assets() {
+  const { toast } = useToast();
+  const { hasPermission } = useAuth();
+  const [deleteAsset, setDeleteAsset] = useState<AssetSummary | null>(null);
+  const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
+
   const { data: evaluations = [], isLoading } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],
   });
+
+  const deleteEvaluationMutation = useMutation({
+    mutationFn: async (evaluationId: string) => {
+      await apiRequest("DELETE", `/api/aev/evaluations/${evaluationId}`);
+    },
+  });
+
+  const handleDeleteAsset = async (asset: AssetSummary) => {
+    setDeletingAssetId(asset.assetId);
+    let successCount = 0;
+    let failCount = 0;
+    
+    try {
+      // Delete all evaluations for this asset
+      for (const evalId of asset.evaluationIds) {
+        try {
+          await deleteEvaluationMutation.mutateAsync(evalId);
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+      
+      // Invalidate all relevant caches
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/stats"] });
+      
+      if (failCount === 0) {
+        toast({
+          title: "Asset deleted",
+          description: `Successfully deleted ${successCount} evaluation(s) for "${asset.assetId}"`,
+        });
+      } else {
+        toast({
+          title: "Partial deletion",
+          description: `Deleted ${successCount} of ${asset.evaluationCount} evaluation(s). ${failCount} failed.`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Delete failed",
+        description: "Failed to delete asset evaluations. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingAssetId(null);
+      setDeleteAsset(null);
+    }
+  };
 
   const assetSummaries: AssetSummary[] = (() => {
     const assetMap = new Map<string, Evaluation[]>();
@@ -50,6 +127,7 @@ export default function Assets() {
       
       return {
         assetId,
+        evaluationIds: evals.map(e => e.id),
         evaluationCount: evals.length,
         exploitableCount: evals.filter(e => e.exploitable).length,
         highestPriority: sorted[0]?.priority || "low",
@@ -69,6 +147,8 @@ export default function Assets() {
     };
     return styles[priority] || styles.low;
   };
+
+  const canDelete = hasPermission("assets:delete");
 
   if (isLoading) {
     return (
@@ -143,7 +223,11 @@ export default function Assets() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {assetSummaries.map((asset) => (
-            <Card key={asset.assetId} className="hover-elevate" data-testid={`asset-card-${asset.assetId}`}>
+            <Card 
+              key={asset.assetId} 
+              className={`hover-elevate ${deletingAssetId === asset.assetId ? "opacity-50" : ""}`} 
+              data-testid={`asset-card-${asset.assetId}`}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -154,9 +238,30 @@ export default function Assets() {
                       {asset.assetId}
                     </CardTitle>
                   </div>
-                  <Badge className={getPriorityBadge(asset.highestPriority)}>
-                    {asset.highestPriority.toUpperCase()}
-                  </Badge>
+                  <div className="flex items-center gap-1">
+                    <Badge className={getPriorityBadge(asset.highestPriority)}>
+                      {asset.highestPriority.toUpperCase()}
+                    </Badge>
+                    {canDelete && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" data-testid={`asset-menu-${asset.assetId}`}>
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteAsset(asset)}
+                            data-testid={`delete-asset-${asset.assetId}`}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete Asset
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -202,6 +307,28 @@ export default function Assets() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={!!deleteAsset} onOpenChange={() => setDeleteAsset(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Asset?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all {deleteAsset?.evaluationCount} evaluation(s) 
+              for asset "{deleteAsset?.assetId}". This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="cancel-delete-asset">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteAsset && handleDeleteAsset(deleteAsset)}
+              data-testid="confirm-delete-asset"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

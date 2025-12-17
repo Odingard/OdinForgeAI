@@ -34,10 +34,10 @@ import { IntelligentScorePanel } from "./IntelligentScorePanel";
 import { TimeToCompromiseMeter } from "./TimeToCompromiseMeter";
 import { ConfidenceGauge } from "./ConfidenceGauge";
 import { RiskHeatmap } from "./RiskHeatmap";
-import { ViewModeToggle } from "./ViewModeToggle";
 import { RemediationPanel } from "./RemediationPanel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useViewMode } from "@/contexts/ViewModeContext";
 import type { BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, EvidenceArtifact, IntelligentScore, RemediationGuidance } from "@shared/schema";
 
 interface EvaluationDetailProps {
@@ -123,7 +123,7 @@ interface EvaluationDetailProps {
 }
 
 export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) {
-  const [viewMode, setViewMode] = useState<"executive" | "engineer">("executive");
+  const { viewMode } = useViewMode();
   const [showAnimatedGraph, setShowAnimatedGraph] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showArchiveDialog, setShowArchiveDialog] = useState(false);
@@ -233,7 +233,6 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
           </div>
         </div>
         <div className="flex items-center gap-4 flex-wrap">
-          <ViewModeToggle mode={viewMode} onChange={setViewMode} />
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4" />
