@@ -1,0 +1,19 @@
+[Unit]
+Description=OdinForge Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=odinforge
+Group=odinforge
+ExecStart=/usr/local/bin/odinforge-agent --config /etc/odinforge/agent.yaml
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/odinforge /var/log/odinforge
+
+[Install]
+WantedBy=multi-user.target
