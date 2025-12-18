@@ -1740,6 +1740,171 @@ export async function registerRoutes(
     }
   });
 
+  // Go Agent batched events endpoint
+  // Accepts batched events from the Go agent collector
+  app.post("/api/agents/events", agentTelemetryRateLimiter, authenticateAgent, async (req: any, res) => {
+    try {
+      const { events } = req.body;
+      // Note: tenant_id is ignored - we use req.agent.organizationId from authentication
+      
+      if (!Array.isArray(events)) {
+        return res.status(400).json({ error: "Events must be an array" });
+      }
+
+      if (events.length === 0) {
+        return res.json({ success: true, eventsProcessed: 0 });
+      }
+
+      let processedCount = 0;
+      let skippedCount = 0;
+      const validationErrors: string[] = [];
+      const createdFindings: string[] = [];
+      const triggeredEvaluations: string[] = [];
+      const telemetryIds: string[] = [];
+
+      // Get existing findings for deduplication (include severity for better deduplication)
+      const existingFindings = await storage.getAgentFindings(req.agent.id);
+      const existingFindingKeys = new Set(
+        existingFindings
+          .filter(f => f.status !== "resolved")
+          .map(f => `${f.findingType}|${f.severity}|${f.title}|${f.affectedComponent || ""}`)
+      );
+
+      for (let i = 0; i < events.length; i++) {
+        const rawEvent = events[i];
+        
+        // Parse event if it's a JSON string (Go agent may send stringified events)
+        let event: any;
+        if (typeof rawEvent === "string") {
+          try {
+            event = JSON.parse(rawEvent);
+          } catch {
+            validationErrors.push(`Event ${i}: invalid JSON string`);
+            skippedCount++;
+            continue;
+          }
+        } else {
+          event = rawEvent;
+        }
+        
+        // Validate event is an object
+        if (!event || typeof event !== "object") {
+          validationErrors.push(`Event ${i}: must be an object`);
+          skippedCount++;
+          continue;
+        }
+
+        // Validate with schema (strict validation - reject invalid events)
+        const parsed = agentTelemetrySchema.safeParse(event);
+        if (!parsed.success) {
+          validationErrors.push(`Event ${i}: ${parsed.error.errors.map(e => e.message).join(", ")}`);
+          skippedCount++;
+          continue;
+        }
+
+        // Use validated data
+        const validatedEvent = parsed.data;
+        processedCount++;
+        
+        // Always create telemetry record to ensure findings have linkage
+        const telemetry = await storage.createAgentTelemetry({
+          agentId: req.agent.id,
+          organizationId: req.agent.organizationId,
+          systemInfo: validatedEvent.systemInfo || null,
+          resourceMetrics: validatedEvent.resourceMetrics || null,
+          services: validatedEvent.services || null,
+          openPorts: validatedEvent.openPorts || null,
+          networkConnections: validatedEvent.networkConnections || null,
+          installedSoftware: validatedEvent.installedSoftware || null,
+          configData: validatedEvent.configData || null,
+          securityFindings: validatedEvent.securityFindings || null,
+          collectedAt: validatedEvent.collectedAt ? new Date(validatedEvent.collectedAt) : new Date(),
+        });
+        const telemetryId = telemetry.id;
+        telemetryIds.push(telemetry.id);
+
+        // Process security findings with deduplication
+        if (validatedEvent.securityFindings && Array.isArray(validatedEvent.securityFindings)) {
+          for (const finding of validatedEvent.securityFindings) {
+            // Skip findings without required title
+            if (!finding.title) continue;
+            
+            const severity = finding.severity || "medium";
+            const findingType = finding.type || "unknown";
+            const findingKey = `${findingType}|${severity}|${finding.title}|${finding.affectedComponent || ""}`;
+            
+            if (existingFindingKeys.has(findingKey)) {
+              continue;
+            }
+
+            const agentFinding = await storage.createAgentFinding({
+              agentId: req.agent.id,
+              organizationId: req.agent.organizationId,
+              telemetryId: telemetryId,
+              findingType: findingType,
+              severity: severity,
+              title: finding.title,
+              description: finding.description || "",
+              affectedComponent: finding.affectedComponent || null,
+              recommendation: finding.recommendation || null,
+              detectedAt: new Date(),
+            });
+            createdFindings.push(agentFinding.id);
+            existingFindingKeys.add(findingKey);
+
+            // Auto-trigger evaluation for critical/high severity
+            if (severity === "critical" || severity === "high") {
+              const evaluation = await storage.createEvaluation({
+                assetId: `${req.agent.hostname || req.agent.agentName}-${finding.affectedComponent || "unknown"}`,
+                exposureType: findingType,
+                priority: severity,
+                description: `Auto-triggered from agent finding:\n\nAgent: ${req.agent.agentName}\nHost: ${req.agent.hostname || "Unknown"}\n\n${finding.title}\n\n${finding.description || ""}`,
+                organizationId: req.agent.organizationId,
+              });
+
+              await storage.updateAgentFinding(agentFinding.id, {
+                aevEvaluationId: evaluation.id,
+                autoEvaluationTriggered: true,
+              });
+              
+              triggeredEvaluations.push(evaluation.id);
+
+              runEvaluation(evaluation.id, {
+                assetId: evaluation.assetId,
+                exposureType: evaluation.exposureType,
+                priority: evaluation.priority,
+                description: evaluation.description,
+              });
+            }
+          }
+        }
+      }
+
+      // Return failure if no events were processed successfully
+      if (processedCount === 0 && skippedCount > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "All events in batch were invalid",
+          eventsSkipped: skippedCount,
+          validationErrors: validationErrors.slice(0, 10),
+        });
+      }
+
+      res.json({ 
+        success: processedCount > 0, 
+        eventsProcessed: processedCount,
+        eventsSkipped: skippedCount,
+        telemetryRecords: telemetryIds.length,
+        findingsCreated: createdFindings.length,
+        evaluationsTriggered: triggeredEvaluations.length,
+        ...(validationErrors.length > 0 && { validationWarnings: validationErrors.slice(0, 5) }),
+      });
+    } catch (error) {
+      console.error("Error processing agent events:", error);
+      res.status(500).json({ error: "Failed to process events" });
+    }
+  });
+
   // Get all agents (for dashboard)
   app.get("/api/agents", async (req, res) => {
     try {
