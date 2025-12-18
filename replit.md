@@ -93,6 +93,36 @@ The platform includes a live agent deployment system for real-time security moni
 - Zod validation on all agent API endpoints
 - HTTPS enforcement in Python agent (blocks non-localhost HTTP connections)
 
+### Go Agent Deployment
+The platform includes a production-ready Go agent (`odinforge-agent/`) with comprehensive deployment options:
+
+**Agent Features**:
+- Collects system telemetry (CPU, memory, disk, network)
+- Offline resilience using BoltDB queue for buffering
+- Batched HTTPS transmission with optional mTLS and SPKI pinning
+- Stable agent ID based on hostname+OS+arch hash
+
+**Self-Install CLI**:
+```bash
+# Auto-detect environment and install
+sudo ./odinforge-agent install --server-url https://server.com --api-key KEY
+
+# Check installation status
+./odinforge-agent status
+
+# Uninstall
+sudo ./odinforge-agent uninstall
+```
+
+**Deployment Options** (`odinforge-agent/deploy/`):
+- **Docker**: `docker-compose.yml` with volume mounts and environment configuration
+- **Kubernetes**: DaemonSet/Deployment manifests with ConfigMap, Secret, and PVC
+- **Linux systemd**: Service unit with security hardening (ProtectSystem, NoNewPrivileges, etc.)
+- **macOS launchd**: Plist template for daemon installation
+
+**Environment Detection**:
+The installer auto-detects: Docker containers, Kubernetes pods, systemd (Linux), launchd (macOS), Windows services
+
 ### AI Integration
 - **Provider**: OpenAI API (configurable via environment variables)
 - **Purpose**: Analyzes security exposures to determine exploitability, construct attack paths, assess impact, and generate remediation steps
