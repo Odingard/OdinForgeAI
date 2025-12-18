@@ -13,8 +13,11 @@ declare module "http" {
   }
 }
 
+// JSON body parser with gzip/deflate support for Go agent telemetry
 app.use(
   express.json({
+    inflate: true,
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
