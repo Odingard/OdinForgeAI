@@ -176,240 +176,62 @@ export default function Agents() {
     }
   };
 
-  const pythonAgentScript = `#!/usr/bin/env python3
-"""
-OdinForge Endpoint Agent
-Collects system telemetry and sends to OdinForge for security analysis.
-"""
+  const goAgentInstructions = `# OdinForge Agent Installation
 
-import os
-import sys
-import json
-import socket
-import platform
-import subprocess
-import time
-import requests
-from datetime import datetime
+## Quick Install (Auto-detect environment)
+# Download the agent binary for your platform, then run:
 
-# Configuration
-ODINFORGE_URL = "${window.location.origin}"
-API_KEY = "YOUR_API_KEY_HERE"  # Replace with your agent API key
-TELEMETRY_INTERVAL = 300  # 5 minutes
+sudo ./odinforge-agent install \\
+  --server-url ${window.location.origin} \\
+  --api-key YOUR_API_KEY_HERE
 
-def get_system_info():
-    """Collect system information."""
-    return {
-        "hostname": socket.gethostname(),
-        "platform": platform.system().lower(),
-        "platformVersion": platform.release(),
-        "kernel": platform.version(),
-        "architecture": platform.machine(),
-        "uptime": get_uptime(),
-        "bootTime": datetime.now().isoformat(),
-    }
+# Check installation status
+./odinforge-agent status
 
-def get_uptime():
-    """Get system uptime in seconds."""
-    try:
-        with open('/proc/uptime', 'r') as f:
-            return int(float(f.read().split()[0]))
-    except:
-        return 0
+# Uninstall when needed
+sudo ./odinforge-agent uninstall
 
-def get_resource_metrics():
-    """Collect resource usage metrics."""
-    try:
-        import psutil
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        return {
-            "cpuUsage": psutil.cpu_percent(interval=1),
-            "memoryTotal": mem.total,
-            "memoryUsed": mem.used,
-            "memoryPercent": mem.percent,
-            "diskTotal": disk.total,
-            "diskUsed": disk.used,
-            "diskPercent": disk.percent,
-        }
-    except ImportError:
-        return {"error": "psutil not installed"}
+## Manual Configuration (agent.yaml)
+server_url: "${window.location.origin}"
+api_key: "YOUR_API_KEY_HERE"
+telemetry_interval: 60s
+batch_size: 100
+queue_path: /var/lib/odinforge/queue.db
 
-def get_open_ports():
-    """Get list of open ports."""
-    ports = []
-    try:
-        result = subprocess.run(
-            ["ss", "-tlnp"],
-            capture_output=True, text=True, timeout=10
-        )
-        for line in result.stdout.split('\\n')[1:]:
-            if line.strip():
-                parts = line.split()
-                if len(parts) >= 5:
-                    addr = parts[3]
-                    if ':' in addr:
-                        port = addr.split(':')[-1]
-                        ports.append({
-                            "port": int(port),
-                            "protocol": "tcp",
-                            "state": "listen",
-                            "localAddress": addr,
-                        })
-    except Exception as e:
-        print(f"Error getting ports: {e}")
-    return ports
+# Optional mTLS configuration
+mtls:
+  enabled: false
+  cert_path: /etc/odinforge/agent.crt
+  key_path: /etc/odinforge/agent.key
+  ca_path: /etc/odinforge/ca.crt
 
-def get_running_services():
-    """Get list of running services with versions."""
-    services = []
-    
-    # Check common services
-    service_checks = [
-        ("apache2", "apache2 -v"),
-        ("nginx", "nginx -v"),
-        ("mysql", "mysql --version"),
-        ("postgresql", "psql --version"),
-        ("redis", "redis-server --version"),
-        ("mongodb", "mongod --version"),
-        ("sshd", "ssh -V"),
-    ]
-    
-    for name, cmd in service_checks:
-        try:
-            result = subprocess.run(
-                cmd.split(), capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0 or result.stderr:
-                version = (result.stdout + result.stderr).strip().split('\\n')[0][:100]
-                services.append({
-                    "name": name,
-                    "version": version,
-                    "status": "running",
-                })
-        except:
-            pass
-    
-    return services
+## Docker Deployment
+docker run -d \\
+  --name odinforge-agent \\
+  -e ODINFORGE_SERVER_URL=${window.location.origin} \\
+  -e ODINFORGE_API_KEY=YOUR_API_KEY_HERE \\
+  -v /var/lib/odinforge:/data \\
+  odinforge/agent:latest
 
-def detect_security_issues():
-    """Detect potential security issues."""
-    findings = []
-    
-    # Check for root SSH login
-    try:
-        with open('/etc/ssh/sshd_config', 'r') as f:
-            config = f.read()
-            if 'PermitRootLogin yes' in config:
-                findings.append({
-                    "type": "weak_config",
-                    "severity": "high",
-                    "title": "SSH Root Login Enabled",
-                    "description": "SSH is configured to allow root login, which is a security risk.",
-                    "affectedComponent": "sshd",
-                    "recommendation": "Set 'PermitRootLogin no' in /etc/ssh/sshd_config",
-                })
-    except:
-        pass
-    
-    # Check for world-writable files in /etc
-    try:
-        result = subprocess.run(
-            ["find", "/etc", "-type", "f", "-perm", "-o+w"],
-            capture_output=True, text=True, timeout=30
-        )
-        if result.stdout.strip():
-            files = result.stdout.strip().split('\\n')[:5]
-            findings.append({
-                "type": "weak_config",
-                "severity": "medium",
-                "title": "World-Writable Config Files",
-                "description": f"Found {len(files)} world-writable files in /etc: {', '.join(files)}",
-                "affectedComponent": "filesystem",
-                "recommendation": "Remove world-write permissions from sensitive config files",
-            })
-    except:
-        pass
-    
-    # Check for outdated packages (Ubuntu/Debian)
-    try:
-        result = subprocess.run(
-            ["apt", "list", "--upgradable"],
-            capture_output=True, text=True, timeout=60
-        )
-        upgradable = [l for l in result.stdout.split('\\n') if 'security' in l.lower()]
-        if len(upgradable) > 5:
-            findings.append({
-                "type": "outdated_software",
-                "severity": "high",
-                "title": "Security Updates Available",
-                "description": f"{len(upgradable)} security updates are pending installation.",
-                "affectedComponent": "system-packages",
-                "recommendation": "Run 'apt upgrade' to install security updates",
-            })
-    except:
-        pass
-    
-    return findings
+## Kubernetes DaemonSet
+# Apply the manifests from odinforge-agent/deploy/kubernetes/
+kubectl create secret generic odinforge-agent \\
+  --from-literal=api-key=YOUR_API_KEY_HERE
+kubectl apply -f daemonset.yaml
 
-def send_telemetry():
-    """Send telemetry to OdinForge."""
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-    
-    payload = {
-        "systemInfo": get_system_info(),
-        "resourceMetrics": get_resource_metrics(),
-        "services": get_running_services(),
-        "openPorts": get_open_ports(),
-        "securityFindings": detect_security_issues(),
-        "collectedAt": datetime.now().isoformat(),
-    }
-    
-    try:
-        response = requests.post(
-            f"{ODINFORGE_URL}/api/agents/telemetry",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-        response.raise_for_status()
-        result = response.json()
-        print(f"[{datetime.now()}] Telemetry sent. Findings created: {result.get('findingsCreated', 0)}")
-        return True
-    except Exception as e:
-        print(f"[{datetime.now()}] Error sending telemetry: {e}")
-        return False
+## Supported Platforms
+- Linux (systemd service with security hardening)
+- macOS (launchd daemon)
+- Windows (Windows Service)
+- Docker (container with volume persistence)
+- Kubernetes (DaemonSet for cluster-wide deployment)
 
-def send_heartbeat():
-    """Send heartbeat to OdinForge."""
-    headers = {"Authorization": f"Bearer {API_KEY}"}
-    try:
-        requests.post(
-            f"{ODINFORGE_URL}/api/agents/heartbeat",
-            headers=headers,
-            timeout=10
-        )
-    except:
-        pass
-
-def main():
-    print(f"OdinForge Agent starting...")
-    print(f"Server: {ODINFORGE_URL}")
-    print(f"Telemetry interval: {TELEMETRY_INTERVAL}s")
-    
-    while True:
-        send_telemetry()
-        
-        # Send heartbeats between telemetry
-        for _ in range(TELEMETRY_INTERVAL // 60):
-            time.sleep(60)
-            send_heartbeat()
-
-if __name__ == "__main__":
-    main()
+## Features
+- Offline resilience with BoltDB queue
+- Batched HTTPS transmission
+- Optional mTLS and SPKI pinning
+- Auto-restart on failure
+- Stable agent ID across restarts
 `;
 
   return (
@@ -424,7 +246,7 @@ if __name__ == "__main__":
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setScriptDialogOpen(true)} data-testid="btn-view-script">
             <Terminal className="h-4 w-4 mr-2" />
-            View Agent Script
+            Installation Guide
           </Button>
           <Dialog open={registerDialogOpen} onOpenChange={(open) => {
             setRegisterDialogOpen(open);
@@ -754,9 +576,9 @@ if __name__ == "__main__":
       <Dialog open={scriptDialogOpen} onOpenChange={setScriptDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>OdinForge Agent Script</DialogTitle>
+            <DialogTitle>OdinForge Agent Installation</DialogTitle>
             <DialogDescription>
-              Python script to deploy on your endpoints for live security monitoring
+              Deploy the Go agent on your endpoints for live security monitoring
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-auto">
@@ -766,8 +588,8 @@ if __name__ == "__main__":
                 size="sm"
                 className="absolute right-2 top-2"
                 onClick={() => {
-                  navigator.clipboard.writeText(pythonAgentScript);
-                  toast({ title: "Copied", description: "Script copied to clipboard" });
+                  navigator.clipboard.writeText(goAgentInstructions);
+                  toast({ title: "Copied", description: "Instructions copied to clipboard" });
                 }}
                 data-testid="btn-copy-script"
               >
@@ -775,7 +597,7 @@ if __name__ == "__main__":
                 Copy
               </Button>
               <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs font-mono">
-                {pythonAgentScript}
+                {goAgentInstructions}
               </pre>
             </div>
           </div>
@@ -783,9 +605,9 @@ if __name__ == "__main__":
             <h4 className="font-medium mb-2">Quick Start:</h4>
             <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
               <li>Register an agent above to get an API key</li>
-              <li>Replace YOUR_API_KEY_HERE in the script</li>
-              <li>Install dependencies: pip install requests psutil</li>
-              <li>Run the script: python odinforge_agent.py</li>
+              <li>Download the agent binary for your platform</li>
+              <li>Run: sudo ./odinforge-agent install --server-url URL --api-key KEY</li>
+              <li>Check status: ./odinforge-agent status</li>
             </ol>
           </div>
         </DialogContent>

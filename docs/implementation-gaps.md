@@ -94,9 +94,14 @@ For production deployment with true mTLS:
 
 #### Sample Agent Language
 - **Claimed**: "OdinForge Collector Agent (Go or Node.js)"
-- **Reality**: Python agent at `scripts/odinforge_agent.py`
-- **Impact**: Documentation mismatch only
-- **Recommendation**: Update document to say "Python" or create Go/Node.js versions
+- **Reality**: Go agent at `odinforge-agent/` with full deployment system
+- **Status**: **FULLY IMPLEMENTED**
+- **Features**:
+  - Cross-platform support (Linux, macOS, Windows)
+  - Auto-install CLI with environment detection (Docker, Kubernetes, systemd, launchd)
+  - Deployment manifests for Docker Compose, Kubernetes DaemonSet, systemd, and launchd
+  - Offline resilience with BoltDB queue
+  - Optional mTLS and SPKI pinning
 
 ### 3. Scheduled Scans
 
@@ -198,7 +203,7 @@ For production deployment with true mTLS:
 8. **Production mTLS** - Would need reverse proxy configuration and CA infrastructure
 
 ### Documentation Updates (Low Priority)
-9. Update document to reflect Python agent (not Go/Node.js)
+9. ~~Update document to reflect agent language~~ - **DONE** - Go agent fully implemented
 
 ---
 
@@ -315,7 +320,7 @@ For production deployment with true mTLS:
 - Security findings ingestion
 - Automatic deduplication
 - Auto-evaluation triggers for critical findings
-- Sample Python agent with HTTPS enforcement
+- Go agent with cross-platform deployment (Docker, K8s, systemd, launchd, Windows)
 
 **Governance & Safety**
 - Execution modes (Safe/Live/Simulation)
@@ -351,7 +356,6 @@ For production deployment with true mTLS:
 - JWT tenant authentication
 
 **Agent Variations**
-- Go collector agent
-- Node.js collector agent
-- (Only Python agent exists)
+- Go collector agent - **IMPLEMENTED** with full deployment system
+- Node.js collector agent - Not needed (Go agent covers all platforms)
 

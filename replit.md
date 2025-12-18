@@ -86,12 +86,11 @@ The platform includes a live agent deployment system for real-time security moni
 - **Telemetry Ingestion**: Agents send system data and security findings via `/api/agents/telemetry`
 - **Auto-evaluation Triggers**: Critical/high severity findings automatically create AEV evaluations
 - **Deduplication**: Findings are deduplicated using composite keys (findingType|title|affectedComponent)
-- **Sample Agent**: Python agent script at `scripts/odinforge_agent.py` with HTTPS enforcement, exponential backoff, and secure credential handling
 
 **Security Features**:
 - API keys hashed with bcrypt before storage (plaintext only shown once at registration)
 - Zod validation on all agent API endpoints
-- HTTPS enforcement in Python agent (blocks non-localhost HTTP connections)
+- HTTPS enforcement with optional mTLS and SPKI pinning
 
 ### Go Agent Deployment
 The platform includes a production-ready Go agent (`odinforge-agent/`) with comprehensive deployment options:
