@@ -51,6 +51,7 @@ interface EvaluationDetailProps {
     priority: string;
     description: string;
     status: string;
+    executionMode?: string;
     exploitable?: boolean;
     score?: number;
     confidence?: number;
@@ -258,6 +259,17 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               {isArchived && (
                 <Badge className="bg-slate-500/10 text-slate-400 border-slate-500/30">
                   ARCHIVED
+                </Badge>
+              )}
+              {evaluation.executionMode && evaluation.executionMode !== "safe" && (
+                <Badge className={
+                  evaluation.executionMode === "simulation" 
+                    ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                    : evaluation.executionMode === "live"
+                    ? "bg-red-500/10 text-red-400 border-red-500/30"
+                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                } data-testid="badge-execution-mode">
+                  {evaluation.executionMode === "simulation" ? "AI SIMULATION" : evaluation.executionMode.toUpperCase()}
                 </Badge>
               )}
             </div>

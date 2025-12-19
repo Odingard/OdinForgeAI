@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertEvaluationSchema, insertReportSchema, insertBatchJobSchema, insertScheduledScanSchema, complianceFrameworks } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
+import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
 import { reportGenerator } from "./services/report-generator";
 import { unifiedAuthService } from "./services/unified-auth";
@@ -80,6 +81,7 @@ export async function registerRoutes(
         priority: parsed.data.priority || "medium",
         description: parsed.data.description,
         adversaryProfile: parsed.data.adversaryProfile || undefined,
+        organizationId: parsed.data.organizationId || "default",
       });
     } catch (error) {
       console.error("Error starting evaluation:", error);
@@ -2605,12 +2607,103 @@ async function runEvaluation(evaluationId: string, data: {
   priority: string;
   description: string;
   adversaryProfile?: string;
+  organizationId?: string;
 }) {
   const startTime = Date.now();
+  const orgId = data.organizationId || "default";
   
   try {
-    await storage.updateEvaluationStatus(evaluationId, "in_progress");
+    // Check governance execution mode
+    const governance = await storage.getOrganizationGovernance(orgId);
+    const executionMode = governance?.executionMode || "safe";
+    
+    // Check kill switch
+    if (governance?.killSwitchActive) {
+      console.log(`[GOVERNANCE] Evaluation ${evaluationId} blocked - kill switch active`);
+      await storage.updateEvaluationStatus(evaluationId, "failed");
+      wsService.sendComplete(evaluationId, false, "Kill switch is active - all evaluations are blocked");
+      return;
+    }
+    
+    await storage.updateEvaluationStatus(evaluationId, "in_progress", executionMode);
 
+    // If in simulation mode, run AI vs AI simulation instead
+    if (executionMode === "simulation") {
+      console.log(`[GOVERNANCE] Running AI vs AI simulation for evaluation ${evaluationId}`);
+      
+      const simulationResult = await runAISimulation(
+        data.assetId,
+        data.exposureType,
+        data.priority,
+        data.description,
+        evaluationId,
+        3, // 3 rounds by default
+        (phase, round, progress, message) => {
+          wsService.sendProgress(evaluationId, `Simulation ${phase}`, `round-${round}`, progress, message);
+        }
+      );
+
+      const duration = Date.now() - startTime;
+
+      // Store as AI simulation result
+      await storage.createAiSimulation({
+        id: `sim-${randomUUID().slice(0, 8)}`,
+        evaluationId,
+        assetId: data.assetId,
+        exposureType: data.exposureType,
+        status: "completed",
+        rounds: simulationResult.rounds.length,
+        attackerScore: simulationResult.finalAttackScore,
+        defenderScore: simulationResult.finalDefenseScore,
+        attackerResults: simulationResult.rounds.map(r => r.attackerFindings),
+        defenderResults: simulationResult.rounds.map(r => r.defenderFindings),
+        purpleTeamFindings: [simulationResult.purpleTeamFeedback],
+        recommendations: simulationResult.recommendations,
+        duration,
+      });
+
+      // Also create a standard result with simulation summary for UI compatibility
+      const attackerScore = simulationResult.finalAttackScore;
+      const defenderScore = simulationResult.finalDefenseScore;
+      const recsAsStrings = simulationResult.recommendations.map(r => r.title);
+      
+      await storage.createResult({
+        id: `res-${randomUUID().slice(0, 8)}`,
+        evaluationId,
+        exploitable: attackerScore > 50,
+        confidence: Math.round((attackerScore + defenderScore) / 2),
+        score: attackerScore,
+        attackPath: simulationResult.rounds[0]?.attackerFindings?.attackPath || [],
+        attackGraph: simulationResult.rounds[0]?.attackerFindings?.attackGraph,
+        businessLogicFindings: simulationResult.rounds[0]?.attackerFindings?.businessLogicFindings,
+        multiVectorFindings: simulationResult.rounds[0]?.attackerFindings?.multiVectorFindings,
+        workflowAnalysis: simulationResult.rounds[0]?.attackerFindings?.workflowAnalysis,
+        impact: simulationResult.rounds[0]?.attackerFindings?.impact,
+        recommendations: recsAsStrings,
+        evidenceArtifacts: [],
+        intelligentScore: {
+          overall: attackerScore,
+          exploitability: attackerScore,
+          impact: defenderScore > 70 ? 30 : 70,
+          defensibility: defenderScore,
+          confidence: 85,
+        },
+        remediationGuidance: {
+          immediate: recsAsStrings.slice(0, 2),
+          shortTerm: recsAsStrings.slice(2, 4),
+          longTerm: recsAsStrings.slice(4),
+          estimatedEffort: "medium",
+          priorityOrder: recsAsStrings,
+        },
+        duration,
+      });
+
+      await storage.updateEvaluationStatus(evaluationId, "completed");
+      wsService.sendComplete(evaluationId, true);
+      return;
+    }
+
+    // Standard evaluation (safe mode or live mode)
     const result = await runAgentOrchestrator(
       data.assetId,
       data.exposureType,
