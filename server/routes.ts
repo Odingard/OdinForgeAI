@@ -473,6 +473,55 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/reports/enhanced/:evaluationId", async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const includeKillChain = req.query.includeKillChain !== "false";
+      const includeRemediation = req.query.includeRemediation !== "false";
+      const includeVulnerabilityDetails = req.query.includeVulnerabilityDetails !== "false";
+      
+      const enhancedReport = await reportGenerator.generateEnhancedReport(evaluationId, {
+        includeKillChain,
+        includeRemediation,
+        includeVulnerabilityDetails,
+      });
+      
+      res.json(enhancedReport);
+    } catch (error: any) {
+      console.error("Error generating enhanced report:", error);
+      if (error.message?.includes("not found")) {
+        return res.status(404).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to generate enhanced report" });
+    }
+  });
+
+  app.post("/api/reports/enhanced/date-range", reportRateLimiter, async (req, res) => {
+    try {
+      const { from, to, organizationId = "default", includeKillChain = true, includeRemediation = true } = req.body;
+      
+      if (!from || !to) {
+        return res.status(400).json({ error: "Missing required fields: from, to" });
+      }
+      
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
+      
+      const enhancedReport = await reportGenerator.generateEnhancedDateRangeReport(
+        fromDate,
+        toDate,
+        organizationId,
+        { includeKillChain, includeRemediation }
+      );
+      
+      res.json(enhancedReport);
+    } catch (error) {
+      console.error("Error generating enhanced date range report:", error);
+      res.status(500).json({ error: "Failed to generate enhanced report" });
+    }
+  });
+
   // ========== EVIDENCE EXPORT ENDPOINT ==========
   
   app.post("/api/evidence/:evaluationId/export", async (req, res) => {

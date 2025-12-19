@@ -8,7 +8,33 @@ import type {
   AttackPathStep,
   ComplianceFramework,
   ReportType,
+  ExposureType,
 } from "@shared/schema";
+import {
+  getVulnerabilityInfo,
+  getRemediationGuidance,
+  formatVulnerabilityName,
+  formatVulnerabilityShortName,
+  type VulnerabilityInfo,
+  type RemediationGuidance,
+} from "@shared/vulnerability-catalog";
+import {
+  buildKillChainVisualization,
+  generateKillChainReportSection,
+  generateTextualKillChainDiagram,
+  generatePdfKillChainContent,
+  type KillChainReportSection,
+} from "./kill-chain-graph";
+import {
+  computeExecutiveSummary,
+  computeTechnicalReport,
+  computeComplianceReport,
+  formatRemediationSection,
+  type EvaluationData,
+  type ResultData,
+  type ComputedExecutiveSummary,
+  type ComputedTechnicalReport,
+} from "./report-logic";
 
 // Create OpenAI client lazily to handle missing API key gracefully
 let openaiClient: OpenAI | null = null;
@@ -1146,6 +1172,443 @@ Write in clear, professional language. Be specific about what the evidence demon
       complianceStatus: Object.fromEntries(
         controlStatus.map(c => [c.controlId, { status: c.status, coverage: c.status === "compliant" ? 100 : 0 }])
       ),
+    };
+  }
+
+  async generateEnhancedReport(
+    evaluationId: string,
+    options: {
+      includeKillChain?: boolean;
+      includeRemediation?: boolean;
+      includeVulnerabilityDetails?: boolean;
+    } = {}
+  ): Promise<{
+    reportMetadata: {
+      generatedAt: string;
+      reportType: "single_evaluation";
+      evaluationId: string;
+    };
+    evaluation: any;
+    result: any;
+    vulnerability: {
+      info: VulnerabilityInfo;
+      humanReadableName: string;
+      shortName: string;
+      cweId: string;
+      mitreTechniques: string[];
+      businessImpact: string;
+    };
+    remediationGuidance: {
+      structured: RemediationGuidance;
+      formatted: string;
+      steps: Array<{
+        order: number;
+        title: string;
+        description: string;
+        effort: string;
+        estimatedTime?: string;
+        requiredTools?: string[];
+        requiredSkills?: string[];
+        verificationSteps?: string[];
+      }>;
+    };
+    killChain: {
+      section: KillChainReportSection | null;
+      textualDiagram: string;
+      pdfContent: any[] | null;
+    };
+    executiveSummary: ComputedExecutiveSummary;
+    technicalReport: ComputedTechnicalReport;
+    dataStatus: {
+      hasEvaluation: boolean;
+      hasResult: boolean;
+      hasAttackPath: boolean;
+      message: string;
+    };
+  }> {
+    const evaluation = await storage.getEvaluation(evaluationId);
+    if (!evaluation) {
+      throw new Error(`Evaluation not found: ${evaluationId}`);
+    }
+    
+    const result = await storage.getResultByEvaluationId(evaluationId);
+    
+    const exposureType = evaluation.exposureType as ExposureType;
+    const vulnerabilityInfo = getVulnerabilityInfo(exposureType);
+    const remediationGuidance = getRemediationGuidance(exposureType);
+    
+    const evalData: EvaluationData = {
+      id: evaluation.id,
+      assetId: evaluation.assetId,
+      exposureType: exposureType,
+      priority: evaluation.priority as "critical" | "high" | "medium" | "low",
+      description: evaluation.description,
+      organizationId: evaluation.organizationId || undefined,
+      createdAt: evaluation.createdAt || undefined,
+    };
+    
+    const resultsMap = new Map<string, ResultData>();
+    if (result) {
+      resultsMap.set(evaluation.id, {
+        evaluationId: result.evaluationId,
+        exploitable: result.exploitable || false,
+        score: result.score || 0,
+        confidence: result.confidence || 0,
+        impact: result.impact || undefined,
+        attackPath: result.attackPath as AttackPathStep[] | undefined,
+        recommendations: result.recommendations as any[] | undefined,
+        attackGraph: result.attackGraph as any | undefined,
+        intelligentScore: result.intelligentScore as any | undefined,
+      });
+    }
+    
+    const computedSummary = computeExecutiveSummary([evalData], resultsMap);
+    const computedTechnical = computeTechnicalReport([evalData], resultsMap);
+    
+    let killChainSection: KillChainReportSection | null = null;
+    let killChainDiagram = "";
+    let killChainPdfContent: any[] | null = null;
+    
+    if (options.includeKillChain !== false && result?.attackPath) {
+      const attackPath = result.attackPath as AttackPathStep[];
+      const attackGraph = result.attackGraph as any;
+      const visualization = buildKillChainVisualization(attackPath, attackGraph);
+      killChainSection = generateKillChainReportSection(visualization);
+      killChainDiagram = generateTextualKillChainDiagram(visualization);
+      killChainPdfContent = generatePdfKillChainContent(visualization);
+    }
+    
+    let formattedRemediation = "";
+    if (options.includeRemediation !== false) {
+      formattedRemediation = formatRemediationSection({
+        exposureType,
+        vulnerabilityName: formatVulnerabilityName(exposureType),
+        priority: evaluation.priority as "critical" | "high" | "medium" | "low",
+        remediationSteps: remediationGuidance.steps,
+        compensatingControls: remediationGuidance.compensatingControls,
+      });
+    }
+    
+    const dataStatus = {
+      hasEvaluation: true,
+      hasResult: !!result,
+      hasAttackPath: !!(result?.attackPath && (result.attackPath as any[]).length > 0),
+      message: result 
+        ? "Complete evaluation data available" 
+        : "Evaluation exists but analysis results not yet available",
+    };
+    
+    const vulnerabilityData = options.includeVulnerabilityDetails !== false ? {
+      info: vulnerabilityInfo,
+      humanReadableName: formatVulnerabilityName(exposureType),
+      shortName: formatVulnerabilityShortName(exposureType),
+      cweId: vulnerabilityInfo.cweId,
+      mitreTechniques: vulnerabilityInfo.mitreTechniques,
+      businessImpact: vulnerabilityInfo.businessImpact,
+    } : {
+      info: { name: vulnerabilityInfo.name, description: "", cweId: vulnerabilityInfo.cweId, mitreTechniques: [], businessImpact: "" } as VulnerabilityInfo,
+      humanReadableName: formatVulnerabilityName(exposureType),
+      shortName: formatVulnerabilityShortName(exposureType),
+      cweId: vulnerabilityInfo.cweId,
+      mitreTechniques: [] as string[],
+      businessImpact: "",
+    };
+    
+    const remediationData = options.includeRemediation !== false ? {
+      structured: remediationGuidance,
+      formatted: formattedRemediation,
+      steps: remediationGuidance.steps.map((step) => ({
+        order: step.order,
+        title: step.title,
+        description: step.description,
+        effort: step.effort,
+        estimatedTime: step.estimatedTime,
+        requiredTools: step.requiredTools,
+        requiredSkills: step.requiredSkills,
+        verificationSteps: step.verificationSteps,
+      })),
+    } : {
+      structured: { steps: [], compensatingControls: [] } as RemediationGuidance,
+      formatted: "",
+      steps: [] as Array<{
+        order: number;
+        title: string;
+        description: string;
+        effort: string;
+        estimatedTime?: string;
+        requiredTools?: string[];
+        requiredSkills?: string[];
+        verificationSteps?: string[];
+      }>,
+    };
+    
+    return {
+      reportMetadata: {
+        generatedAt: new Date().toISOString(),
+        reportType: "single_evaluation",
+        evaluationId,
+      },
+      evaluation,
+      result,
+      vulnerability: vulnerabilityData,
+      remediationGuidance: remediationData,
+      killChain: {
+        section: killChainSection,
+        textualDiagram: killChainDiagram,
+        pdfContent: killChainPdfContent,
+      },
+      executiveSummary: computedSummary,
+      technicalReport: computedTechnical,
+      dataStatus,
+    };
+  }
+
+  async generateEnhancedDateRangeReport(
+    from: Date,
+    to: Date,
+    organizationId: string = "default",
+    options: {
+      includeKillChain?: boolean;
+      includeRemediation?: boolean;
+    } = {}
+  ): Promise<{
+    reportMetadata: {
+      generatedAt: string;
+      reportType: "date_range";
+      period: { from: string; to: string };
+      organizationId: string;
+    };
+    dataStatus: {
+      hasEvaluations: boolean;
+      hasResults: boolean;
+      evaluationCount: number;
+      resultCount: number;
+      message: string;
+    };
+    evaluations: any[];
+    results: any[];
+    executiveSummary: ComputedExecutiveSummary;
+    technicalReport: ComputedTechnicalReport;
+    killChain: {
+      section: KillChainReportSection | null;
+      textualDiagram: string;
+      pdfContent: any[] | null;
+    };
+    vulnerabilityBreakdown: Array<{
+      type: string;
+      humanReadableName: string;
+      shortName: string;
+      cweId: string;
+      mitreTechniques: string[];
+      businessImpact: string;
+      count: number;
+      exploitableCount: number;
+      remediationGuidance: {
+        steps: Array<{
+          order: number;
+          title: string;
+          description: string;
+          effort: string;
+          estimatedTime?: string;
+          requiredTools?: string[];
+          requiredSkills?: string[];
+          verificationSteps?: string[];
+        }>;
+        compensatingControls: string[];
+      };
+    }>;
+    aggregatedRemediation: {
+      totalVulnerabilityTypes: number;
+      byExposureType: Array<{
+        exposureType: string;
+        humanReadableName: string;
+        count: number;
+        priority: "critical" | "high" | "medium" | "low";
+        formattedPlan: string;
+      }>;
+      prioritizedPlan: string;
+      byPriority: {
+        critical: number;
+        high: number;
+        medium: number;
+        low: number;
+      };
+    };
+  }> {
+    const evaluations = await storage.getEvaluationsByDateRange(from, to, organizationId);
+    const evaluationIds = evaluations.map(e => e.id);
+    const results = await storage.getResultsByEvaluationIds(evaluationIds);
+    
+    const evalDataList: EvaluationData[] = evaluations.map(e => ({
+      id: e.id,
+      assetId: e.assetId,
+      exposureType: e.exposureType as ExposureType,
+      priority: e.priority as "critical" | "high" | "medium" | "low",
+      description: e.description,
+      organizationId: e.organizationId || undefined,
+      createdAt: e.createdAt || undefined,
+    }));
+    
+    const resultsMap = new Map<string, ResultData>();
+    results.forEach(r => {
+      resultsMap.set(r.evaluationId, {
+        evaluationId: r.evaluationId,
+        exploitable: r.exploitable || false,
+        score: r.score || 0,
+        confidence: r.confidence || 0,
+        impact: r.impact || undefined,
+        attackPath: r.attackPath as AttackPathStep[] | undefined,
+        recommendations: r.recommendations as any[] | undefined,
+        attackGraph: r.attackGraph as any | undefined,
+        intelligentScore: r.intelligentScore as any | undefined,
+      });
+    });
+    
+    const computedSummary = computeExecutiveSummary(evalDataList, resultsMap);
+    const computedTechnical = computeTechnicalReport(evalDataList, resultsMap);
+    
+    const allAttackSteps: AttackPathStep[] = [];
+    let aggregatedGraph: any | undefined;
+    results.forEach(r => {
+      if (r.attackPath) {
+        allAttackSteps.push(...(r.attackPath as AttackPathStep[]));
+      }
+      if (r.attackGraph && !aggregatedGraph) {
+        aggregatedGraph = r.attackGraph;
+      }
+    });
+    
+    let killChainSection: KillChainReportSection | null = null;
+    let killChainDiagram = "";
+    let killChainPdfContent: any[] | null = null;
+    
+    if (options.includeKillChain !== false && allAttackSteps.length > 0) {
+      const visualization = buildKillChainVisualization(allAttackSteps, aggregatedGraph);
+      killChainSection = generateKillChainReportSection(visualization);
+      killChainDiagram = generateTextualKillChainDiagram(visualization);
+      killChainPdfContent = generatePdfKillChainContent(visualization);
+    }
+    
+    const vulnTypeCount = new Map<ExposureType, { count: number; exploitableCount: number }>();
+    evaluations.forEach(e => {
+      const type = e.exposureType as ExposureType;
+      const entry = vulnTypeCount.get(type) || { count: 0, exploitableCount: 0 };
+      entry.count++;
+      const result = resultsMap.get(e.id);
+      if (result?.exploitable) entry.exploitableCount++;
+      vulnTypeCount.set(type, entry);
+    });
+    
+    const vulnerabilityBreakdown = Array.from(vulnTypeCount.entries()).map(([type, data]) => {
+      const info = getVulnerabilityInfo(type);
+      const guidance = getRemediationGuidance(type);
+      return {
+        type,
+        humanReadableName: formatVulnerabilityName(type),
+        shortName: formatVulnerabilityShortName(type),
+        cweId: info.cweId,
+        mitreTechniques: info.mitreTechniques,
+        businessImpact: info.businessImpact,
+        count: data.count,
+        exploitableCount: data.exploitableCount,
+        remediationGuidance: {
+          steps: guidance.steps.map(step => ({
+            order: step.order,
+            title: step.title,
+            description: step.description,
+            effort: step.effort,
+            estimatedTime: step.estimatedTime,
+            requiredTools: step.requiredTools,
+            requiredSkills: step.requiredSkills,
+            verificationSteps: step.verificationSteps,
+          })),
+          compensatingControls: guidance.compensatingControls,
+        },
+      };
+    });
+    
+    const remediationByExposureType: Array<{
+      exposureType: string;
+      humanReadableName: string;
+      count: number;
+      priority: "critical" | "high" | "medium" | "low";
+      formattedPlan: string;
+    }> = [];
+    
+    if (options.includeRemediation !== false) {
+      vulnerabilityBreakdown.forEach(vuln => {
+        const evalForType = evaluations.find(e => e.exposureType === vuln.type);
+        const priority = evalForType?.priority as "critical" | "high" | "medium" | "low" || "medium";
+        const guidance = getRemediationGuidance(vuln.type as ExposureType);
+        const formatted = formatRemediationSection({
+          exposureType: vuln.type as ExposureType,
+          vulnerabilityName: vuln.humanReadableName,
+          priority,
+          remediationSteps: guidance.steps,
+          compensatingControls: guidance.compensatingControls,
+        });
+        remediationByExposureType.push({
+          exposureType: vuln.type,
+          humanReadableName: vuln.humanReadableName,
+          count: vuln.count,
+          priority,
+          formattedPlan: formatted,
+        });
+      });
+    }
+    
+    const sortedRemediation = remediationByExposureType.sort((a, b) => {
+      const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      return priorityOrder[a.priority] - priorityOrder[b.priority];
+    });
+    
+    const formattedRemediation = sortedRemediation.length > 0
+      ? sortedRemediation.map(r => r.formattedPlan).join("\n\n---\n\n")
+      : "";
+    
+    const priorityCounts = {
+      critical: evaluations.filter(e => e.priority === "critical").length,
+      high: evaluations.filter(e => e.priority === "high").length,
+      medium: evaluations.filter(e => e.priority === "medium").length,
+      low: evaluations.filter(e => e.priority === "low").length,
+    };
+    
+    const dataStatus = {
+      hasEvaluations: evaluations.length > 0,
+      hasResults: results.length > 0,
+      evaluationCount: evaluations.length,
+      resultCount: results.length,
+      message: evaluations.length === 0 
+        ? "No evaluations found in the specified date range"
+        : results.length === 0
+          ? `${evaluations.length} evaluations found, but no analysis results yet`
+          : `${evaluations.length} evaluations with ${results.length} completed analyses`,
+    };
+    
+    return {
+      reportMetadata: {
+        generatedAt: new Date().toISOString(),
+        reportType: "date_range",
+        period: { from: from.toISOString(), to: to.toISOString() },
+        organizationId,
+      },
+      dataStatus,
+      evaluations,
+      results,
+      executiveSummary: computedSummary,
+      technicalReport: computedTechnical,
+      killChain: {
+        section: killChainSection,
+        textualDiagram: killChainDiagram,
+        pdfContent: killChainPdfContent,
+      },
+      vulnerabilityBreakdown,
+      aggregatedRemediation: {
+        totalVulnerabilityTypes: vulnerabilityBreakdown.length,
+        byExposureType: sortedRemediation,
+        prioritizedPlan: formattedRemediation || "No remediation plan available - no vulnerabilities found in the specified date range",
+        byPriority: priorityCounts,
+      },
     };
   }
 }
