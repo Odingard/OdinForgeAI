@@ -842,6 +842,312 @@ Write in clear, professional language. Be specific about what the evidence demon
       };
     }
   }
+
+  // Single Evaluation Reports
+  async generateSingleEvaluationExecutiveSummary(
+    evaluationId: string
+  ): Promise<ExecutiveSummary> {
+    const evaluation = await storage.getEvaluation(evaluationId);
+    if (!evaluation) {
+      throw new Error(`Evaluation not found: ${evaluationId}`);
+    }
+    
+    const result = await storage.getResultByEvaluationId(evaluationId);
+    
+    const criticalCount = evaluation.priority === "critical" ? 1 : 0;
+    const highCount = evaluation.priority === "high" ? 1 : 0;
+    const mediumCount = evaluation.priority === "medium" ? 1 : 0;
+    const lowCount = evaluation.priority === "low" ? 1 : 0;
+    const exploitableCount = result?.exploitable ? 1 : 0;
+    
+    const intelligentScore = result?.intelligentScore as any;
+    const financialExposure = intelligentScore?.businessImpact?.factors?.financialExposure;
+    
+    const topRisks: ExecutiveSummary["topRisks"] = result?.exploitable ? [{
+      assetId: evaluation.assetId,
+      riskDescription: evaluation.description,
+      severity: evaluation.priority as "critical" | "high" | "medium" | "low",
+      financialImpact: financialExposure ? 
+        `$${financialExposure.directLoss?.min?.toLocaleString() || 0} - $${financialExposure.directLoss?.max?.toLocaleString() || 0}` : 
+        undefined,
+    }] : [];
+    
+    const overallRiskLevel = evaluation.priority as "critical" | "high" | "medium" | "low";
+    
+    const recommendations: ExecutiveSummary["recommendations"] = [];
+    if (result?.recommendations) {
+      result.recommendations.forEach((rec: any, i: number) => {
+        recommendations.push({
+          priority: i + 1,
+          action: rec.description || rec.title || "Remediation required",
+          impact: rec.impact || "Improved security posture",
+          effort: rec.effort || "medium",
+        });
+      });
+    }
+    
+    const baseReport = {
+      reportDate: new Date().toISOString(),
+      reportPeriod: {
+        from: evaluation.createdAt?.toISOString() || new Date().toISOString(),
+        to: evaluation.createdAt?.toISOString() || new Date().toISOString(),
+      },
+      organizationId: evaluation.organizationId || "default",
+      overallRiskLevel,
+      keyMetrics: {
+        totalEvaluations: 1,
+        exploitableFindings: exploitableCount,
+        criticalFindings: criticalCount,
+        highFindings: highCount,
+        mediumFindings: mediumCount,
+        lowFindings: lowCount,
+        averageScore: result?.score || 0,
+        averageConfidence: result?.confidence || 0,
+      },
+      riskTrend: "stable" as const,
+      topRisks,
+      recommendations,
+      executiveNarrative: this.generateExecutiveNarrative(1, exploitableCount, criticalCount, overallRiskLevel),
+    };
+
+    const aiNarrative = await this.generateAINarrative("executive", {
+      metrics: baseReport.keyMetrics,
+      topRisks,
+      recommendations,
+      overallRiskLevel,
+      assetId: evaluation.assetId,
+      exposureType: evaluation.exposureType,
+      description: evaluation.description,
+      attackPath: result?.attackPath,
+      impact: result?.impact,
+    });
+
+    const defaultSeverity: "critical" | "high" | "medium" | "low" = "medium";
+    const enrichedFindings = aiNarrative.findings.length > 0 
+      ? aiNarrative.findings.map((f, i) => ({
+          ...f,
+          severity: topRisks[i]?.severity || defaultSeverity,
+        }))
+      : topRisks.map(r => ({
+          title: `Risk: ${r.assetId}`,
+          description: r.riskDescription,
+          recommendation: "Immediate remediation recommended",
+          severity: r.severity,
+        }));
+
+    return {
+      ...baseReport,
+      executiveSummary: aiNarrative.executiveSummary,
+      executiveNarrative: aiNarrative.executiveSummary || baseReport.executiveNarrative,
+      findings: enrichedFindings,
+      recommendations: aiNarrative.recommendations.length > 0 
+        ? aiNarrative.recommendations.map((r, i) => ({
+            priority: i + 1,
+            action: r,
+            impact: "Improved security posture",
+            effort: i === 0 ? "high" as const : i === 1 ? "medium" as const : "low" as const,
+          }))
+        : recommendations,
+    };
+  }
+
+  async generateSingleEvaluationTechnicalReport(
+    evaluationId: string
+  ): Promise<TechnicalReport> {
+    const evaluation = await storage.getEvaluation(evaluationId);
+    if (!evaluation) {
+      throw new Error(`Evaluation not found: ${evaluationId}`);
+    }
+    
+    const result = await storage.getResultByEvaluationId(evaluationId);
+    
+    const findings: ReportFinding[] = [{
+      id: evaluation.id,
+      evaluationId: evaluation.id,
+      assetId: evaluation.assetId,
+      title: `${evaluation.exposureType.replace(/_/g, " ")} - ${evaluation.assetId}`,
+      severity: evaluation.priority as "critical" | "high" | "medium" | "low",
+      exploitable: result?.exploitable || false,
+      score: result?.score || 0,
+      description: evaluation.description,
+      impact: result?.impact || undefined,
+      recommendation: result?.recommendations?.[0]?.description,
+    }];
+    
+    const attackPaths: TechnicalReport["attackPaths"] = [];
+    if (result?.attackPath) {
+      const attackGraph = result.attackGraph as any;
+      attackPaths.push({
+        evaluationId: evaluation.id,
+        assetId: evaluation.assetId,
+        steps: result.attackPath as AttackPathStep[],
+        complexity: attackGraph?.complexityScore || 50,
+        timeToCompromise: attackGraph?.timeToCompromise ? 
+          `${attackGraph.timeToCompromise.expected} ${attackGraph.timeToCompromise.unit}` : 
+          undefined,
+      });
+    }
+    
+    const technicalDetails: TechnicalReport["technicalDetails"] = [{
+      evaluationId: evaluation.id,
+      assetId: evaluation.assetId,
+      exposureType: evaluation.exposureType,
+      technicalAnalysis: result?.impact || evaluation.description,
+      mitigations: result?.recommendations?.map((r: any) => r.description) || [],
+    }];
+    
+    const baseReport = {
+      reportDate: new Date().toISOString(),
+      reportPeriod: {
+        from: evaluation.createdAt?.toISOString() || new Date().toISOString(),
+        to: evaluation.createdAt?.toISOString() || new Date().toISOString(),
+      },
+      organizationId: evaluation.organizationId || "default",
+      findings,
+      attackPaths,
+      vulnerabilityBreakdown: {
+        byType: { [evaluation.exposureType]: 1 },
+        bySeverity: { [evaluation.priority]: 1 },
+        byAsset: { [evaluation.assetId]: 1 },
+      },
+      technicalDetails,
+    };
+
+    const aiNarrative = await this.generateAINarrative("technical", {
+      findingsCount: 1,
+      vulnerabilityBreakdown: baseReport.vulnerabilityBreakdown,
+      attackPathsCount: attackPaths.length,
+      topFindings: findings,
+      assetId: evaluation.assetId,
+      exposureType: evaluation.exposureType,
+      description: evaluation.description,
+      attackPath: result?.attackPath,
+      impact: result?.impact,
+    });
+
+    const enhancedFindings = findings.map((f, i) => {
+      const aiF = aiNarrative.findings[i];
+      return {
+        ...f,
+        title: aiF?.title || f.title,
+        description: aiF?.description || f.description,
+        recommendation: aiF?.recommendation || f.recommendation,
+      };
+    });
+
+    return {
+      ...baseReport,
+      executiveSummary: aiNarrative.executiveSummary,
+      findings: enhancedFindings,
+      recommendations: aiNarrative.recommendations,
+    };
+  }
+
+  async generateSingleEvaluationComplianceReport(
+    evaluationId: string,
+    framework: ComplianceFramework
+  ): Promise<ComplianceReport> {
+    const evaluation = await storage.getEvaluation(evaluationId);
+    if (!evaluation) {
+      throw new Error(`Evaluation not found: ${evaluationId}`);
+    }
+    
+    const result = await storage.getResultByEvaluationId(evaluationId);
+    
+    const controlMappings = this.getFrameworkControls(framework);
+    const controlStatus: ComplianceReport["controlStatus"] = [];
+    const gaps: ComplianceReport["gaps"] = [];
+    
+    const intelligentScore = result?.intelligentScore as any;
+    const complianceImpact = intelligentScore?.businessImpact?.factors?.complianceImpact;
+    let compliantControls = 0;
+    
+    for (const control of controlMappings) {
+      let hasViolation = false;
+      let maxSeverity: "critical" | "high" | "medium" | "low" = "low";
+      
+      if (complianceImpact?.affectedFrameworks?.includes(framework.toLowerCase())) {
+        hasViolation = true;
+        const violations = complianceImpact.violations || [];
+        for (const v of violations) {
+          if (v.severity === "critical" && maxSeverity !== "critical") maxSeverity = "critical";
+          else if (v.severity === "major" && maxSeverity !== "critical") maxSeverity = "high";
+        }
+      }
+      
+      const status = hasViolation ? "non_compliant" : "compliant";
+      if (status === "compliant") compliantControls++;
+      
+      controlStatus.push({
+        controlId: control.id,
+        controlName: control.name,
+        status,
+        findings: hasViolation ? [evaluation.id] : [],
+        remediationRequired: hasViolation,
+      });
+      
+      if (hasViolation) {
+        gaps.push({
+          controlId: control.id,
+          gapDescription: `${control.name} has finding(s) that may impact compliance`,
+          severity: maxSeverity,
+          remediationGuidance: `Review and remediate finding: ${evaluation.id}`,
+        });
+      }
+    }
+    
+    const overallCompliance = Math.round((compliantControls / controlMappings.length) * 100);
+    
+    const baseReport = {
+      reportDate: new Date().toISOString(),
+      framework,
+      organizationId: evaluation.organizationId || "default",
+      overallCompliance,
+      controlStatus,
+      gaps,
+      auditReadiness: {
+        score: overallCompliance,
+        readyControls: compliantControls,
+        totalControls: controlMappings.length,
+        priorityActions: gaps.slice(0, 3).map(g => `Remediate ${g.controlId}: ${g.gapDescription}`),
+      },
+    };
+
+    const aiNarrative = await this.generateAINarrative("compliance", {
+      framework,
+      overallCompliance,
+      gaps: gaps.slice(0, 5),
+      controlStatus: controlStatus.slice(0, 10),
+      auditReadiness: baseReport.auditReadiness,
+      assetId: evaluation.assetId,
+      exposureType: evaluation.exposureType,
+      description: evaluation.description,
+    });
+
+    const complianceFindings = aiNarrative.findings.length > 0
+      ? aiNarrative.findings.map((f, i) => ({
+          ...f,
+          severity: gaps[i]?.severity || "medium" as const,
+          status: "open" as const,
+        }))
+      : gaps.map(g => ({
+          title: `Control Gap: ${g.controlId}`,
+          description: g.gapDescription,
+          recommendation: g.remediationGuidance,
+          severity: g.severity,
+          status: "open" as const,
+        }));
+
+    return {
+      ...baseReport,
+      executiveSummary: aiNarrative.executiveSummary,
+      findings: complianceFindings,
+      recommendations: aiNarrative.recommendations,
+      complianceStatus: Object.fromEntries(
+        controlStatus.map(c => [c.controlId, { status: c.status, coverage: c.status === "compliant" ? 100 : 0 }])
+      ),
+    };
+  }
 }
 
 export const reportGenerator = new ReportGenerator();

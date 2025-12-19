@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play, Trash2, Archive, ArchiveRestore, MoreVertical } from "lucide-react";
+import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play, Trash2, Archive, ArchiveRestore, MoreVertical, FileOutput } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -204,6 +204,31 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
     },
   });
 
+  const generateReportMutation = useMutation({
+    mutationFn: async (reportType: "executive_summary" | "technical_deep_dive") => {
+      const response = await apiRequest("POST", "/api/reports/generate", {
+        type: reportType,
+        format: "json",
+        evaluationId: evaluation.id,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reports"] });
+      toast({
+        title: "Report Generated",
+        description: `${data.title} has been created. View it in the Reports page.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to generate report. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const getSeverityBadge = (priority: string) => {
     const classes: Record<string, string> = {
       critical: "bg-red-500/10 text-red-400 border-red-500/30",
@@ -259,6 +284,23 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem 
+                onClick={() => generateReportMutation.mutate("executive_summary")}
+                disabled={generateReportMutation.isPending}
+                data-testid="btn-generate-executive-report"
+              >
+                <FileOutput className="h-4 w-4 mr-2" />
+                {generateReportMutation.isPending ? "Generating..." : "Executive Report"}
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => generateReportMutation.mutate("technical_deep_dive")}
+                disabled={generateReportMutation.isPending}
+                data-testid="btn-generate-technical-report"
+              >
+                <FileOutput className="h-4 w-4 mr-2" />
+                {generateReportMutation.isPending ? "Generating..." : "Technical Report"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {isArchived ? (
                 <DropdownMenuItem 
                   onClick={() => unarchiveMutation.mutate()}
