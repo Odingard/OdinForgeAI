@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -227,6 +228,8 @@ export default function Advanced() {
     );
   }
 
+  const isInitialData = simulations.length === 0 && purpleTeamFindings.length === 0 && predictions.length === 0;
+
   return (
     <div className="space-y-6" data-testid="advanced-page">
       <div>
@@ -238,6 +241,15 @@ export default function Advanced() {
           Next-generation threat intelligence and predictive security
         </p>
       </div>
+
+      {isInitialData && (
+        <Alert className="border-amber-500/30 bg-amber-500/10" data-testid="alert-sample-data">
+          <AlertTriangle className="h-4 w-4 text-amber-400" />
+          <AlertDescription className="text-amber-400">
+            Showing initial sample data. Run evaluations and simulations to generate real security metrics.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card data-testid="card-defensive-posture">
         <CardHeader className="pb-3">

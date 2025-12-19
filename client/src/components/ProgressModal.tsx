@@ -10,6 +10,7 @@ import {
   X,
   Target,
   Brain,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -73,6 +74,8 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
   const [currentAgentName, setCurrentAgentName] = useState("Recon Agent");
   const [stageMessage, setStageMessage] = useState("Initializing AI agents...");
   const [isComplete, setIsComplete] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(Date.now());
+  const [isStuck, setIsStuck] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -81,15 +84,32 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
       setCurrentAgentName("Recon Agent");
       setIsComplete(false);
       setStageMessage("Initializing AI agents...");
+      setLastUpdateTime(Date.now());
+      setIsStuck(false);
       return;
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || isComplete) return;
+    
+    const checkStuck = setInterval(() => {
+      const timeSinceUpdate = Date.now() - lastUpdateTime;
+      if (timeSinceUpdate > 60000) {
+        setIsStuck(true);
+      }
+    }, 5000);
+    
+    return () => clearInterval(checkStuck);
+  }, [isOpen, isComplete, lastUpdateTime]);
 
   useEffect(() => {
     if (progressData) {
       setProgress(progressData.progress);
       setStageMessage(progressData.message);
       setCurrentAgentKey(progressData.stage);
+      setLastUpdateTime(Date.now());
+      setIsStuck(false);
       if (progressData.agentName) {
         setCurrentAgentName(progressData.agentName);
       }
@@ -134,7 +154,7 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                 <p className="text-xs text-muted-foreground font-mono">{assetId}</p>
               </div>
             </div>
-            {isComplete && (
+            {(isComplete || isStuck) && (
               <Button variant="ghost" size="icon" onClick={onClose} data-testid="button-close-progress">
                 <X className="h-4 w-4" />
               </Button>
@@ -211,6 +231,15 @@ export function ProgressModal({ isOpen, onClose, assetId, evaluationId, progress
                   );
                 })}
               </div>
+
+              {isStuck && (
+                <div className="mt-4 p-3 bg-amber-500/10 rounded-lg border border-amber-500/30">
+                  <div className="flex items-center gap-2 text-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                    <span className="text-amber-400">Evaluation appears stuck. You can close this and check results later.</span>
+                  </div>
+                </div>
+              )}
 
               <div className="mt-4 p-3 bg-muted/30 rounded-lg border border-border">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
