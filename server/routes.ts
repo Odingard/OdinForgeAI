@@ -243,10 +243,82 @@ export async function registerRoutes(
   
   app.post("/api/reports/generate", reportRateLimiter, async (req, res) => {
     try {
-      const { type, format, from, to, framework, organizationId = "default" } = req.body;
+      const { type, format, from, to, framework, organizationId = "default", evaluationId } = req.body;
       
+      // If evaluationId is provided, generate single-evaluation report
+      if (evaluationId) {
+        if (!type || !format) {
+          return res.status(400).json({ error: "Missing required fields: type, format" });
+        }
+        
+        let reportData: any;
+        let title = "";
+        
+        switch (type) {
+          case "executive_summary":
+            reportData = await reportGenerator.generateSingleEvaluationExecutiveSummary(evaluationId);
+            title = `Executive Summary - Evaluation ${evaluationId}`;
+            break;
+          case "technical_deep_dive":
+            reportData = await reportGenerator.generateSingleEvaluationTechnicalReport(evaluationId);
+            title = `Technical Report - Evaluation ${evaluationId}`;
+            break;
+          case "compliance_mapping":
+            if (!framework) {
+              return res.status(400).json({ error: "Compliance reports require a framework parameter" });
+            }
+            if (!complianceFrameworks.includes(framework)) {
+              return res.status(400).json({ error: `Invalid framework. Valid options: ${complianceFrameworks.join(", ")}` });
+            }
+            reportData = await reportGenerator.generateSingleEvaluationComplianceReport(evaluationId, framework);
+            title = `Compliance Report (${framework.toUpperCase()}) - Evaluation ${evaluationId}`;
+            break;
+          default:
+            return res.status(400).json({ error: "Invalid report type" });
+        }
+        
+        let content: string;
+        let contentType: string;
+        
+        switch (format) {
+          case "json":
+            content = reportGenerator.exportToJSON(reportData);
+            contentType = "application/json";
+            break;
+          case "csv":
+            const flatData = type === "technical_deep_dive" ? reportData.findings : [reportData];
+            const headers = Object.keys(flatData[0] || {});
+            content = reportGenerator.exportToCSV(flatData, headers);
+            contentType = "text/csv";
+            break;
+          default:
+            content = reportGenerator.exportToJSON(reportData);
+            contentType = "application/json";
+        }
+        
+        const report = await storage.createReport({
+          reportType: type,
+          title,
+          organizationId: reportData.organizationId || organizationId,
+          status: "completed",
+          content: reportData,
+          dateRangeFrom: new Date(),
+          dateRangeTo: new Date(),
+          framework,
+        });
+        
+        return res.json({ 
+          reportId: report.id, 
+          title,
+          data: reportData,
+          content,
+          contentType,
+        });
+      }
+      
+      // Date range based reports
       if (!type || !format || !from || !to) {
-        return res.status(400).json({ error: "Missing required fields: type, format, from, to" });
+        return res.status(400).json({ error: "Missing required fields: type, format, from, to (or evaluationId for single evaluation reports)" });
       }
       
       const fromDate = new Date(from);
