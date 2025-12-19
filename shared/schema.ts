@@ -472,6 +472,7 @@ export const aevEvaluations = pgTable("aev_evaluations", {
   priority: varchar("priority").notNull().default("medium"), // critical, high, medium, low
   description: text("description").notNull(),
   adversaryProfile: varchar("adversary_profile"), // One of adversaryProfiles (optional)
+  executionMode: varchar("execution_mode").default("safe"), // safe, live, simulation - tracks which governance mode was used
   status: varchar("status").notNull().default("pending"), // pending, in_progress, completed, failed
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

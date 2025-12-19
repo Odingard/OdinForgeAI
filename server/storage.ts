@@ -81,7 +81,7 @@ export interface IStorage {
   getEvaluation(id: string): Promise<Evaluation | undefined>;
   getEvaluations(organizationId?: string): Promise<Evaluation[]>;
   getEvaluationsByDateRange(from: Date, to: Date, organizationId?: string): Promise<Evaluation[]>;
-  updateEvaluationStatus(id: string, status: string): Promise<void>;
+  updateEvaluationStatus(id: string, status: string, executionMode?: string): Promise<void>;
   
   // AEV Result operations
   createResult(data: InsertResult & { id: string }): Promise<Result>;
@@ -172,10 +172,14 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(aevEvaluations).orderBy(desc(aevEvaluations.createdAt));
   }
 
-  async updateEvaluationStatus(id: string, status: string): Promise<void> {
+  async updateEvaluationStatus(id: string, status: string, executionMode?: string): Promise<void> {
+    const updates: Record<string, any> = { status, updatedAt: new Date() };
+    if (executionMode) {
+      updates.executionMode = executionMode;
+    }
     await db
       .update(aevEvaluations)
-      .set({ status, updatedAt: new Date() })
+      .set(updates)
       .where(eq(aevEvaluations.id, id));
   }
 
