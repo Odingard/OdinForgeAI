@@ -25,29 +25,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p dist
 
-          # Build matrix
+          # Go module lives in odinforge-agent/
+          cd odinforge-agent
+
+          mkdir -p ../dist
+
           for OS in linux darwin windows; do
             for ARCH in amd64 arm64; do
               EXT=""
               if [ "$OS" = "windows" ]; then EXT=".exe"; fi
 
-              OUT="dist/odinforge-agent_${OS}_${ARCH}${EXT}"
+              OUT="../dist/odinforge-agent_${OS}_${ARCH}${EXT}"
               echo "Building ${OUT}"
 
               CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH \
                 go build -trimpath -ldflags="-s -w" \
                 -o "${OUT}" \
-                ./odinforge-agent/cmd/agent || true
+                ./cmd/agent || true
             done
           done
 
-          # Remove any failed builds (e.g. unsupported combos)
-          find dist -type f -size 0 -delete || true
+          # Remove failed builds (unsupported combos)
+          find ../dist -type f -size 0 -delete || true
 
           # Generate checksums
-          (cd dist && sha256sum * > SHA256SUMS)
+          (cd ../dist && sha256sum * > SHA256SUMS)
 
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2
