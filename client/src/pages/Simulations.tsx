@@ -283,7 +283,6 @@ export default function Simulations() {
                           variant="ghost"
                           size="sm"
                           onClick={() => deleteMutation.mutate(simulation.id)}
-                          disabled={simulation.simulationStatus === "running"}
                           data-testid={`button-delete-${simulation.id}`}
                         >
                           <Trash2 className="h-4 w-4" />
