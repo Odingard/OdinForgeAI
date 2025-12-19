@@ -127,6 +127,40 @@ The installer auto-detects: Docker containers, Kubernetes pods, systemd (Linux),
 - **Purpose**: Analyzes security exposures to determine exploitability, construct attack paths, assess impact, and generate remediation steps
 - **Configuration**: `AI_INTEGRATIONS_OPENAI_API_KEY` and `AI_INTEGRATIONS_OPENAI_BASE_URL` environment variables
 
+### Enhanced Reporting System
+The platform includes a comprehensive reporting system with logic-based computations (not AI-templated):
+
+**Key Components**:
+- **Vulnerability Catalog** (`shared/vulnerability-catalog.ts`): Maps all 15 exposure types to detailed metadata including:
+  - Human-readable names and descriptions
+  - Business impact explanations
+  - MITRE ATT&CK technique mappings
+  - CWE IDs for standardized vulnerability classification
+  - Step-by-step remediation guidance with effort estimates, tools, and verification steps
+
+- **Kill Chain Visualization** (`server/services/kill-chain-graph.ts`):
+  - Maps attack paths to MITRE ATT&CK phases (Initial Access through Impact)
+  - Generates textual ASCII diagrams for text-based reports
+  - Produces PDF-exportable visual content using pdfmake
+  - Provides phase-by-phase analysis with techniques and recommendations
+
+- **Report Logic Engine** (`server/services/report-logic.ts`):
+  - Computes executive summaries from actual evaluation data (not AI-generated templates)
+  - Generates technical reports with vulnerability breakdowns by type and severity
+  - Creates remediation plans with prioritized actions, effort estimates, and verification steps
+  - Calculates compliance assessments with control gap analysis
+
+**API Endpoints**:
+- `GET /api/reports/enhanced/:evaluationId` - Enhanced report for single evaluation
+- `POST /api/reports/enhanced/date-range` - Enhanced report for date range with aggregated analysis
+
+**Report Features**:
+- Vulnerability breakdown with human-readable names and CWE references
+- Kill chain diagrams showing attack progression through MITRE phases
+- Prioritized remediation guidance with step-by-step instructions
+- Effort estimates (low/medium/high) and required tools/skills
+- Compensating controls for when immediate remediation isn't possible
+
 ### Design System
 The platform follows custom design guidelines (`design_guidelines.md`) combining Material Design component structure with cyber-security aesthetics:
 - Typography: Inter for UI, JetBrains Mono for technical data
