@@ -250,7 +250,9 @@ export async function registerRoutes(
       }
       
       const fromDate = new Date(from);
+      // Set toDate to end of day (23:59:59.999) to include entire end date
       const toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999);
       
       let reportData: any;
       let title = "";
