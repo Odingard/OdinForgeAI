@@ -32,6 +32,8 @@ import {
   Clock,
   FileType,
   Lock,
+  Sparkles,
+  FileCode,
 } from "lucide-react";
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
@@ -76,15 +78,23 @@ export default function Reports() {
   const [selectedType, setSelectedType] = useState<string>("executive_summary");
   const [selectedFormat, setSelectedFormat] = useState<string>("pdf");
   const [selectedFramework, setSelectedFramework] = useState<string>("soc2");
+  const [reportVersion, setReportVersion] = useState<"v1_template" | "v2_narrative">("v1_template");
   const [dateFrom, setDateFrom] = useState<string>(
     format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd")
   );
   const [dateTo, setDateTo] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [previewData, setPreviewData] = useState<any>(null);
+  const [isV2Generating, setIsV2Generating] = useState(false);
 
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["/api/reports"],
   });
+
+  const { data: v2FeatureStatus } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/reports/v2/feature-status"],
+  });
+
+  const isV2Enabled = v2FeatureStatus?.enabled ?? false;
 
   const generateMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -108,6 +118,37 @@ export default function Reports() {
     },
   });
 
+  const generateV2Mutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/reports/v2/generate", data);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setPreviewData(data.report);
+      queryClient.invalidateQueries({ queryKey: ["/api/reports"] });
+      setIsGenerateOpen(false);
+      if (data.fallbackReason) {
+        toast({
+          title: "Report generated (V1 fallback)",
+          description: data.fallbackReason,
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "AI Narrative Report generated",
+          description: `Successfully generated ${data.sectionsGenerated?.join(", ")} sections`,
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "V2 Report generation failed",
+        description: String(error),
+        variant: "destructive",
+      });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("DELETE", `/api/reports/${id}`);
@@ -122,13 +163,37 @@ export default function Reports() {
   });
 
   const handleGenerate = () => {
-    generateMutation.mutate({
-      type: selectedType,
-      format: selectedFormat,
-      from: dateFrom,
-      to: dateTo,
-      framework: selectedType === "compliance_mapping" ? selectedFramework : undefined,
-    });
+    if (reportVersion === "v2_narrative") {
+      if (!isV2Enabled) {
+        toast({
+          title: "Feature not available",
+          description: "AI Narrative reports are not enabled for your organization",
+          variant: "destructive",
+        });
+        return;
+      }
+      const reportTypesMap: Record<string, string[]> = {
+        "executive_summary": ["executive"],
+        "technical_deep_dive": ["technical", "evidence"],
+        "compliance_mapping": ["compliance"],
+      };
+      generateV2Mutation.mutate({
+        dateRange: { from: dateFrom, to: dateTo },
+        reportTypes: reportTypesMap[selectedType] || ["executive"],
+        reportVersion: "v2_narrative",
+        customerContext: {
+          riskTolerance: "medium",
+        },
+      });
+    } else {
+      generateMutation.mutate({
+        type: selectedType,
+        format: selectedFormat,
+        from: dateFrom,
+        to: dateTo,
+        framework: selectedType === "compliance_mapping" ? selectedFramework : undefined,
+      });
+    }
   };
 
   const handleDownload = (report: Report, downloadFormat: "pdf" | "json" | "csv" = "pdf") => {
@@ -766,16 +831,70 @@ export default function Reports() {
                   ))}
                 </div>
               </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <Label>Report Generation Style</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Choose between structured templates or AI-generated narrative reports
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Card
+                    className={`cursor-pointer transition-colors hover-elevate ${
+                      reportVersion === "v1_template" ? "border-primary bg-primary/5" : ""
+                    }`}
+                    onClick={() => setReportVersion("v1_template")}
+                    data-testid="card-report-version-v1"
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex flex-col items-center text-center gap-2">
+                        <FileCode className="w-6 h-6 text-muted-foreground" />
+                        <span className="font-medium text-sm">Standard Template</span>
+                        <span className="text-xs text-muted-foreground">
+                          Logic-based structured reports with kill chain and remediation mapping
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card
+                    className={`cursor-pointer transition-colors hover-elevate ${
+                      reportVersion === "v2_narrative" ? "border-primary bg-primary/5" : ""
+                    } ${!isV2Enabled ? "opacity-50 pointer-events-none" : ""}`}
+                    onClick={() => isV2Enabled && setReportVersion("v2_narrative")}
+                    data-testid="card-report-version-v2"
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex flex-col items-center text-center gap-2">
+                        <Sparkles className={`w-6 h-6 ${isV2Enabled ? "text-cyan-400" : "text-muted-foreground"}`} />
+                        <span className="font-medium text-sm">AI Narrative</span>
+                        <div className="flex gap-1">
+                          <Badge variant="secondary" className="text-xs">Beta</Badge>
+                          {!isV2Enabled && <Badge variant="outline" className="text-xs">Disabled</Badge>}
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {isV2Enabled 
+                            ? "Human-grade pentest reports with evidence-anchored narratives"
+                            : "Contact admin to enable AI narrative reports"}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsGenerateOpen(false)}>Cancel</Button>
               <Button 
                 onClick={handleGenerate} 
-                disabled={generateMutation.isPending}
+                disabled={generateMutation.isPending || generateV2Mutation.isPending}
                 data-testid="btn-confirm-generate"
               >
-                {generateMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Generate Report
+                {(generateMutation.isPending || generateV2Mutation.isPending) && (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                )}
+                {reportVersion === "v2_narrative" && <Sparkles className="w-4 h-4 mr-2" />}
+                {reportVersion === "v2_narrative" ? "Generate AI Report" : "Generate Report"}
               </Button>
             </DialogFooter>
           </DialogContent>

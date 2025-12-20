@@ -21,6 +21,7 @@ import {
 import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
+import { registerReportV2Routes } from "./src/reportsV2/routes";
 
 // Agent API Validation Schemas
 const agentRegisterSchema = z.object({
@@ -521,6 +522,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to generate enhanced report" });
     }
   });
+
+  // ========== REPORT V2 NARRATIVE ENDPOINTS ==========
+  registerReportV2Routes(app);
 
   // ========== EVIDENCE EXPORT ENDPOINT ==========
   

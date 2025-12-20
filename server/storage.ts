@@ -7,6 +7,8 @@ import {
   type InsertResult,
   type Report,
   type InsertReport,
+  type ReportNarrative,
+  type InsertReportNarrative,
   type BatchJob,
   type InsertBatchJob,
   type ScheduledScan,
@@ -45,6 +47,7 @@ import {
   aevEvaluations,
   aevResults,
   reports,
+  reportNarratives,
   batchJobs,
   scheduledScans,
   evaluationHistory,
@@ -98,6 +101,12 @@ export interface IStorage {
   getReports(organizationId?: string): Promise<Report[]>;
   updateReport(id: string, updates: Partial<Report>): Promise<void>;
   deleteReport(id: string): Promise<void>;
+  
+  // Report Narrative operations (V2)
+  createReportNarrative(data: InsertReportNarrative & { id: string }): Promise<ReportNarrative>;
+  getReportNarrative(id: string): Promise<ReportNarrative | undefined>;
+  getReportNarrativeByEvaluationId(evaluationId: string): Promise<ReportNarrative | undefined>;
+  getReportNarratives(organizationId?: string): Promise<ReportNarrative[]>;
   
   // Batch Job operations
   createBatchJob(data: InsertBatchJob): Promise<BatchJob>;
@@ -279,6 +288,44 @@ export class DatabaseStorage implements IStorage {
 
   async deleteReport(id: string): Promise<void> {
     await db.delete(reports).where(eq(reports.id, id));
+  }
+
+  // Report Narrative operations (V2)
+  async createReportNarrative(data: InsertReportNarrative & { id: string }): Promise<ReportNarrative> {
+    const [narrative] = await db
+      .insert(reportNarratives)
+      .values(data as typeof reportNarratives.$inferInsert)
+      .returning();
+    return narrative;
+  }
+
+  async getReportNarrative(id: string): Promise<ReportNarrative | undefined> {
+    const [narrative] = await db
+      .select()
+      .from(reportNarratives)
+      .where(eq(reportNarratives.id, id));
+    return narrative;
+  }
+
+  async getReportNarrativeByEvaluationId(evaluationId: string): Promise<ReportNarrative | undefined> {
+    const [narrative] = await db
+      .select()
+      .from(reportNarratives)
+      .where(eq(reportNarratives.evaluationId, evaluationId))
+      .orderBy(desc(reportNarratives.createdAt))
+      .limit(1);
+    return narrative;
+  }
+
+  async getReportNarratives(organizationId?: string): Promise<ReportNarrative[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(reportNarratives)
+        .where(eq(reportNarratives.organizationId, organizationId))
+        .orderBy(desc(reportNarratives.createdAt));
+    }
+    return db.select().from(reportNarratives).orderBy(desc(reportNarratives.createdAt));
   }
 
   // Batch Job operations
