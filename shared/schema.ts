@@ -1088,6 +1088,14 @@ export const reportTypes = [
 
 export type ReportType = typeof reportTypes[number];
 
+// Report Version - V1 (template-based) vs V2 (AI narrative)
+export const reportVersions = [
+  "v1_template",    // Logic-based template reports with structured data
+  "v2_narrative",   // AI-generated narrative pentest reports (ENO-based)
+] as const;
+
+export type ReportVersion = typeof reportVersions[number];
+
 // Export Formats
 export const exportFormats = [
   "pdf",
@@ -1247,13 +1255,15 @@ export const reports = pgTable("reports", {
   id: varchar("id").primaryKey(),
   organizationId: varchar("organization_id").notNull().default("default"),
   reportType: varchar("report_type").notNull(), // executive_summary, technical_deepdive, compliance_mapping, evidence_bundle
+  reportVersion: varchar("report_version").notNull().default("v1_template"), // v1_template or v2_narrative
   title: text("title").notNull(),
   dateRangeFrom: timestamp("date_range_from").notNull(),
   dateRangeTo: timestamp("date_range_to").notNull(),
   framework: varchar("framework"), // For compliance reports
-  status: varchar("status").notNull().default("generating"), // generating, completed, failed
+  status: varchar("status").notNull().default("generating"), // generating, completed, failed, draft, final
   content: jsonb("content"), // The actual report content
   evaluationIds: jsonb("evaluation_ids").$type<string[]>(), // Evaluations included
+  generatedBy: varchar("generated_by"), // user/system identifier
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 });
@@ -1266,6 +1276,32 @@ export const insertReportSchema = createInsertSchema(reports).omit({
 
 export type InsertReport = z.infer<typeof insertReportSchema>;
 export type Report = typeof reports.$inferSelect;
+
+// Report Narratives Table (V2 - ENO persistence)
+export const reportNarratives = pgTable("report_narratives", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  evaluationId: varchar("evaluation_id"), // Single evaluation reference
+  reportScopeId: varchar("report_scope_id"), // For multi-evaluation reports
+  reportVersion: varchar("report_version").notNull().default("v2_narrative"),
+  enoJson: jsonb("eno_json"), // The full ENO object
+  modelMeta: jsonb("model_meta").$type<{
+    modelName: string;
+    promptHash: string;
+    temperature: number;
+    generationTimeMs: number;
+  }>(),
+  createdBy: varchar("created_by"), // user/system identifier
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertReportNarrativeSchema = createInsertSchema(reportNarratives).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertReportNarrative = z.infer<typeof insertReportNarrativeSchema>;
+export type ReportNarrative = typeof reportNarratives.$inferSelect;
 
 // ============================================================================
 // BATCH EVALUATION & SCHEDULING SCHEMAS
