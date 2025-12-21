@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -5,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "./components/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
+import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
 import { ViewModeProvider, useViewMode } from "./contexts/ViewModeContext";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/AppSidebar";
@@ -21,9 +23,10 @@ import Agents from "@/pages/Agents";
 import Simulations from "@/pages/Simulations";
 import UserManagement from "@/pages/UserManagement";
 import Settings from "@/pages/Settings";
+import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, Bell, User, ChevronDown } from "lucide-react";
+import { Moon, Sun, Bell, User, ChevronDown, LogOut } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,6 +61,12 @@ function AppHeader() {
   const { theme, toggleTheme } = useTheme();
   const { viewMode, setViewMode } = useViewMode();
   const { user, setUserRole, availableRoles } = useAuth();
+  const { user: uiUser, logout } = useUIAuth();
+
+  const handleLogout = async () => {
+    await logout();
+    window.location.reload();
+  };
 
   return (
     <header className="h-14 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-40">
@@ -93,11 +102,18 @@ function AppHeader() {
                 <div className="h-7 w-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
                   <User className="h-4 w-4 text-white" />
                 </div>
-                <span className="hidden sm:inline text-sm">{user?.displayName || user?.username || "User"}</span>
+                <span className="hidden sm:inline text-sm">{uiUser?.displayName || uiUser?.email || user?.displayName || "User"}</span>
                 <ChevronDown className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
+              {uiUser && (
+                <>
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground">{uiUser.email}</div>
+                  <div className="px-2 py-1 text-xs font-medium capitalize">{uiUser.role}</div>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem data-testid="menu-profile">Profile</DropdownMenuItem>
               <DropdownMenuItem data-testid="menu-settings">Settings</DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -114,7 +130,10 @@ function AppHeader() {
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
-              <DropdownMenuItem data-testid="menu-logout">Log out</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleLogout} data-testid="menu-logout">
+                <LogOut className="h-4 w-4 mr-2" />
+                Log out
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -144,18 +163,48 @@ function AppLayout() {
   );
 }
 
+function AuthenticatedApp() {
+  const { isAuthenticated, isLoading } = useUIAuth();
+  const [, forceUpdate] = useState(0);
+  
+  const handleLoginSuccess = useCallback(() => {
+    forceUpdate(x => x + 1);
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center">
+          <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  return (
+    <AuthProvider>
+      <ViewModeProvider>
+        <TooltipProvider>
+          <AppLayout />
+          <Toaster />
+        </TooltipProvider>
+      </ViewModeProvider>
+    </AuthProvider>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>
-          <ViewModeProvider>
-            <TooltipProvider>
-              <AppLayout />
-              <Toaster />
-            </TooltipProvider>
-          </ViewModeProvider>
-        </AuthProvider>
+        <UIAuthProvider>
+          <AuthenticatedApp />
+        </UIAuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );
