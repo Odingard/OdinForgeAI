@@ -118,6 +118,21 @@ export default function Governance() {
     queryKey: ["/api/authorization-logs", ORG_ID],
   });
 
+  interface RateLimitStatus {
+    name: string;
+    displayName: string;
+    windowMs: number;
+    maxRequests: number;
+    currentUsage: number;
+    remaining: number;
+    resetInSeconds: number;
+  }
+
+  const { data: rateLimits = [] } = useQuery<RateLimitStatus[]>({
+    queryKey: ["/api/governance/rate-limits"],
+    refetchInterval: 10000,
+  });
+
   const updateGovernanceMutation = useMutation({
     mutationFn: async (updates: Partial<OrganizationGovernance>) => {
       const response = await apiRequest("PATCH", `/api/governance/${ORG_ID}`, updates);
@@ -236,13 +251,6 @@ export default function Governance() {
   const currentMode = (governance?.executionMode as keyof typeof executionModeConfig) || "safe";
   const modeConfig = executionModeConfig[currentMode];
   const ModeIcon = modeConfig.icon;
-
-  const hourlyUsage = governance?.currentConcurrentEvaluations || 0;
-  const hourlyLimit = governance?.rateLimitPerHour || 100;
-  const dailyUsage = 0;
-  const dailyLimit = governance?.rateLimitPerDay || 1000;
-  const concurrentUsage = governance?.currentConcurrentEvaluations || 0;
-  const concurrentLimit = governance?.concurrentEvaluationsLimit || 5;
 
   const getRiskBadge = (riskLevel: string | null) => {
     const styles: Record<string, string> = {
@@ -430,48 +438,68 @@ export default function Governance() {
               <Gauge className="h-5 w-5 text-amber-400" />
               <CardTitle className="text-lg">Rate Limits</CardTitle>
             </div>
-            <CardDescription>Current usage and configured limits</CardDescription>
+            <CardDescription>Real-time API rate limit status</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-3">
-              <div>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Per Hour</span>
-                  <span className="font-mono" data-testid="text-hourly-limit">{hourlyUsage} / {hourlyLimit}</span>
+              {rateLimits.length > 0 ? (
+                rateLimits.slice(0, 5).map((limit) => {
+                  const usagePercent = limit.maxRequests > 0 
+                    ? (limit.currentUsage / limit.maxRequests) * 100 
+                    : 0;
+                  const isWarning = usagePercent > 75;
+                  const isCritical = usagePercent > 90;
+                  return (
+                    <div key={limit.name}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="text-muted-foreground">{limit.displayName}</span>
+                        <span className={`font-mono ${isCritical ? "text-red-400" : isWarning ? "text-amber-400" : ""}`} data-testid={`text-limit-${limit.name}`}>
+                          {limit.currentUsage} / {limit.maxRequests}
+                          {limit.resetInSeconds > 0 && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              (resets in {limit.resetInSeconds}s)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={usagePercent} 
+                        className={`h-2 ${isCritical ? "[&>div]:bg-red-500" : isWarning ? "[&>div]:bg-amber-500" : ""}`} 
+                      />
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <Activity className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No rate limit activity yet</p>
                 </div>
-                <Progress value={(hourlyUsage / hourlyLimit) * 100} className="h-2" />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Per Day</span>
-                  <span className="font-mono" data-testid="text-daily-limit">{dailyUsage} / {dailyLimit}</span>
-                </div>
-                <Progress value={(dailyUsage / dailyLimit) * 100} className="h-2" />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Concurrent Evaluations</span>
-                  <span className="font-mono" data-testid="text-concurrent-limit">{concurrentUsage} / {concurrentLimit}</span>
-                </div>
-                <Progress value={(concurrentUsage / concurrentLimit) * 100} className="h-2" />
-              </div>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-3 pt-2">
-              <div className="p-3 rounded-lg bg-muted/50 text-center">
-                <div className="text-xl font-bold text-foreground">{hourlyLimit}</div>
-                <div className="text-xs text-muted-foreground">Hourly Limit</div>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/50 text-center">
-                <div className="text-xl font-bold text-foreground">{dailyLimit}</div>
-                <div className="text-xs text-muted-foreground">Daily Limit</div>
-              </div>
-              <div className="p-3 rounded-lg bg-muted/50 text-center">
-                <div className="text-xl font-bold text-foreground">{concurrentLimit}</div>
-                <div className="text-xs text-muted-foreground">Concurrent</div>
-              </div>
+              {rateLimits.slice(0, 3).map((limit) => (
+                <div key={limit.name} className="p-3 rounded-lg bg-muted/50 text-center">
+                  <div className="text-xl font-bold text-foreground">{limit.remaining}</div>
+                  <div className="text-xs text-muted-foreground">{limit.displayName} Left</div>
+                </div>
+              ))}
+              {rateLimits.length === 0 && (
+                <>
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <div className="text-xl font-bold text-foreground">100</div>
+                    <div className="text-xs text-muted-foreground">API/min</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <div className="text-xl font-bold text-foreground">30</div>
+                    <div className="text-xs text-muted-foreground">Evaluations/min</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-muted/50 text-center">
+                    <div className="text-xl font-bold text-foreground">3</div>
+                    <div className="text-xs text-muted-foreground">Simulations/5min</div>
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

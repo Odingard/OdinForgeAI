@@ -182,3 +182,63 @@ export function getRateLimitStatus(key: string, configName: keyof typeof rateLim
 export function clearRateLimitStore(): void {
   rateLimitStore.clear();
 }
+
+export function getAllRateLimitStatuses(): Array<{
+  name: string;
+  displayName: string;
+  windowMs: number;
+  maxRequests: number;
+  currentUsage: number;
+  remaining: number;
+  resetInSeconds: number;
+}> {
+  const statuses: Array<{
+    name: string;
+    displayName: string;
+    windowMs: number;
+    maxRequests: number;
+    currentUsage: number;
+    remaining: number;
+    resetInSeconds: number;
+  }> = [];
+
+  const displayNames: Record<string, string> = {
+    auth: "Authentication",
+    agentTelemetry: "Agent Telemetry",
+    apiGeneral: "General API",
+    batchOperations: "Batch Operations",
+    evaluationCreate: "Evaluation Creation",
+    reportGenerate: "Report Generation",
+    simulation: "AI Simulations",
+  };
+
+  for (const [name, config] of Object.entries(rateLimitConfigs)) {
+    let totalCount = 0;
+    let oldestReset = 0;
+    const now = Date.now();
+
+    rateLimitStore.forEach((entry, key) => {
+      if (key.includes(name) || key.startsWith(`/api/${name}`)) {
+        if (now - entry.windowStart < config.windowMs) {
+          totalCount += entry.count;
+          const resetTime = entry.windowStart + config.windowMs - now;
+          if (resetTime > oldestReset) {
+            oldestReset = resetTime;
+          }
+        }
+      }
+    });
+
+    statuses.push({
+      name,
+      displayName: displayNames[name] || name,
+      windowMs: config.windowMs,
+      maxRequests: config.maxRequests,
+      currentUsage: totalCount,
+      remaining: Math.max(0, config.maxRequests - totalCount),
+      resetInSeconds: Math.ceil(oldestReset / 1000),
+    });
+  }
+
+  return statuses;
+}
