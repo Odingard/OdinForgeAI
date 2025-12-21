@@ -19,11 +19,42 @@ import {
   simulationRateLimiter,
   getAllRateLimitStatuses
 } from "./services/rate-limiter";
+import {
+  loginUser,
+  refreshUserTokens,
+  logoutUser,
+  logoutAllSessions,
+  createInitialAdminUser,
+  uiAuthMiddleware,
+  requireRole,
+  hashPassword,
+  type UIAuthenticatedRequest,
+} from "./services/ui-auth";
 import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { registerReportV2Routes } from "./src/reportsV2/routes";
 import { calculateDefensivePosture, calculateAttackPredictions } from "./services/metrics-calculator";
+
+// UI Auth Validation Schemas
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  tenantId: z.string().optional().default("default"),
+});
+
+const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  displayName: z.string().max(128).optional(),
+  tenantId: z.string().optional().default("default"),
+  organizationId: z.string().optional().default("default"),
+  role: z.enum(["admin", "analyst", "viewer"]).optional().default("viewer"),
+});
+
+const refreshTokenSchema = z.object({
+  refreshToken: z.string(),
+});
 
 // Agent API Validation Schemas
 const agentRegisterSchema = z.object({
@@ -63,6 +94,232 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   wsService.initialize(httpServer);
+  
+  // ========== UI AUTHENTICATION ENDPOINTS ==========
+  // These routes are for control plane UI authentication ONLY
+  // They do NOT affect /api/* service-to-service authentication
+  
+  app.post("/ui/api/auth/login", authRateLimiter, async (req, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { email, password, tenantId } = parsed.data;
+      const result = await loginUser(email, password, tenantId, req);
+
+      if (!result.success) {
+        return res.status(401).json({ error: result.error });
+      }
+
+      res.json({
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          displayName: result.user.displayName,
+          role: result.user.role,
+          tenantId: result.user.tenantId,
+          organizationId: result.user.organizationId,
+        },
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        accessTokenExpiresAt: result.tokens.accessTokenExpiresAt,
+        refreshTokenExpiresAt: result.tokens.refreshTokenExpiresAt,
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Authentication failed" });
+    }
+  });
+
+  app.post("/ui/api/auth/refresh", async (req, res) => {
+    try {
+      const parsed = refreshTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const result = await refreshUserTokens(parsed.data.refreshToken, req);
+
+      if (!result.success) {
+        return res.status(401).json({ error: result.error });
+      }
+
+      res.json({
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          displayName: result.user.displayName,
+          role: result.user.role,
+          tenantId: result.user.tenantId,
+          organizationId: result.user.organizationId,
+        },
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        accessTokenExpiresAt: result.tokens.accessTokenExpiresAt,
+        refreshTokenExpiresAt: result.tokens.refreshTokenExpiresAt,
+      });
+    } catch (error) {
+      console.error("Token refresh error:", error);
+      res.status(500).json({ error: "Token refresh failed" });
+    }
+  });
+
+  app.post("/ui/api/auth/logout", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const refreshToken = req.body.refreshToken;
+      if (req.uiUser) {
+        await logoutUser(refreshToken, req.uiUser.userId);
+      }
+      res.json({ success: true, message: "Logged out successfully" });
+    } catch (error) {
+      console.error("Logout error:", error);
+      res.status(500).json({ error: "Logout failed" });
+    }
+  });
+
+  app.post("/ui/api/auth/logout-all", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      if (req.uiUser) {
+        await logoutAllSessions(req.uiUser.userId);
+      }
+      res.json({ success: true, message: "All sessions logged out" });
+    } catch (error) {
+      console.error("Logout all error:", error);
+      res.status(500).json({ error: "Logout all sessions failed" });
+    }
+  });
+
+  app.get("/ui/api/auth/session", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      if (!req.uiUser) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await storage.getUIUser(req.uiUser.userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          role: user.role,
+          tenantId: user.tenantId,
+          organizationId: user.organizationId,
+          lastLoginAt: user.lastLoginAt,
+          lastActivityAt: user.lastActivityAt,
+        },
+      });
+    } catch (error) {
+      console.error("Session fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch session" });
+    }
+  });
+
+  // Admin-only: Register new users
+  app.post("/ui/api/auth/register", uiAuthMiddleware, requireRole("admin"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const parsed = registerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { email, password, displayName, tenantId, organizationId, role } = parsed.data;
+
+      const existing = await storage.getUIUserByEmail(email, tenantId);
+      if (existing) {
+        return res.status(409).json({ error: "User with this email already exists" });
+      }
+
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUIUser({
+        email,
+        passwordHash,
+        displayName,
+        tenantId,
+        organizationId,
+        role,
+        status: "active",
+      });
+
+      res.status(201).json({
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          role: user.role,
+          tenantId: user.tenantId,
+          organizationId: user.organizationId,
+        },
+      });
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({ error: "Failed to register user" });
+    }
+  });
+
+  // Admin-only: List users in tenant
+  app.get("/ui/api/users", uiAuthMiddleware, requireRole("admin"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const users = await storage.getUIUsers(tenantId);
+      
+      res.json({
+        users: users.map(u => ({
+          id: u.id,
+          email: u.email,
+          displayName: u.displayName,
+          role: u.role,
+          status: u.status,
+          lastLoginAt: u.lastLoginAt,
+          createdAt: u.createdAt,
+        })),
+      });
+    } catch (error) {
+      console.error("Fetch users error:", error);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  // Seed initial admin user if none exists (bootstrap endpoint)
+  app.post("/ui/api/auth/bootstrap", async (req, res) => {
+    try {
+      const users = await storage.getUIUsers("default");
+      if (users.length > 0) {
+        return res.status(403).json({ error: "Bootstrap already completed. Users exist." });
+      }
+
+      const parsed = registerSchema.safeParse({ ...req.body, role: "admin" });
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const user = await createInitialAdminUser(
+        parsed.data.email,
+        parsed.data.password,
+        parsed.data.tenantId,
+        parsed.data.organizationId
+      );
+
+      res.status(201).json({
+        message: "Initial admin user created successfully",
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+        },
+      });
+    } catch (error) {
+      console.error("Bootstrap error:", error);
+      res.status(500).json({ error: "Failed to bootstrap admin user" });
+    }
+  });
+
+  // ========== END UI AUTHENTICATION ==========
   
   // Apply API-wide rate limiting as a fallback for all endpoints
   app.use("/api", apiRateLimiter);
