@@ -16,7 +16,8 @@ import {
   batchRateLimiter, 
   evaluationRateLimiter,
   reportRateLimiter,
-  simulationRateLimiter
+  simulationRateLimiter,
+  getAllRateLimitStatuses
 } from "./services/rate-limiter";
 import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
@@ -71,6 +72,23 @@ export async function registerRoutes(
       const parsed = insertEvaluationSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request body", details: parsed.error });
+      }
+
+      // Check kill switch before starting evaluation
+      const orgId = parsed.data.organizationId || "default";
+      const governance = await storage.getOrganizationGovernance(orgId);
+      if (governance?.killSwitchActive) {
+        await storage.createAuthorizationLog({
+          organizationId: orgId,
+          action: "unauthorized_target_blocked",
+          details: { reason: "kill_switch_active", assetId: parsed.data.assetId },
+          authorized: false,
+          riskLevel: "high",
+        });
+        return res.status(403).json({ 
+          error: "Operations halted", 
+          message: "Kill switch is active. All evaluations are blocked until deactivated." 
+        });
       }
 
       const evaluation = await storage.createEvaluation(parsed.data);
@@ -721,6 +739,17 @@ export async function registerRoutes(
 
   // ========== GOVERNANCE ENDPOINTS ==========
   
+  // Rate Limit Status - MUST come before :organizationId route
+  app.get("/api/governance/rate-limits", async (req, res) => {
+    try {
+      const statuses = getAllRateLimitStatuses();
+      res.json(statuses);
+    } catch (error) {
+      console.error("Error fetching rate limit status:", error);
+      res.status(500).json({ error: "Failed to fetch rate limit status" });
+    }
+  });
+
   // Get or create organization governance settings
   app.get("/api/governance/:organizationId", async (req, res) => {
     try {
@@ -1464,6 +1493,22 @@ export async function registerRoutes(
         return res.status(400).json({ error: parseResult.error.errors[0].message });
       }
       const { assetId, exposureType, priority, description, rounds } = parseResult.data;
+
+      // Check kill switch before starting simulation
+      const governance = await storage.getOrganizationGovernance("default");
+      if (governance?.killSwitchActive) {
+        await storage.createAuthorizationLog({
+          organizationId: "default",
+          action: "unauthorized_target_blocked",
+          details: { reason: "kill_switch_active", type: "simulation", assetId },
+          authorized: false,
+          riskLevel: "high",
+        });
+        return res.status(403).json({ 
+          error: "Operations halted", 
+          message: "Kill switch is active. All simulations are blocked until deactivated." 
+        });
+      }
 
       // Create simulation record in database
       const simulation = await storage.createAiSimulation({
