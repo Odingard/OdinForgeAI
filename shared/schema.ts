@@ -2257,3 +2257,91 @@ export const insertAgentFindingSchema = createInsertSchema(agentFindings).omit({
 
 export type InsertAgentFinding = z.infer<typeof insertAgentFindingSchema>;
 export type AgentFinding = typeof agentFindings.$inferSelect;
+
+// ============================================================================
+// UI Authentication - Control Plane Users
+// Separate from API key authentication for service-to-service communication
+// ============================================================================
+
+// UI user roles for control plane access
+export const uiUserRoles = ["admin", "analyst", "viewer"] as const;
+export type UIUserRole = typeof uiUserRoles[number];
+
+// UI user statuses
+export const uiUserStatuses = ["active", "inactive", "locked", "pending"] as const;
+export type UIUserStatus = typeof uiUserStatuses[number];
+
+// UI Users table - control plane authentication
+export const uiUsers = pgTable("ui_users", {
+  id: varchar("id").primaryKey(),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Authentication
+  email: varchar("email").notNull(),
+  passwordHash: varchar("password_hash").notNull(),
+  
+  // Profile
+  displayName: varchar("display_name"),
+  
+  // Role and permissions
+  role: varchar("role").notNull().default("viewer"), // One of uiUserRoles
+  
+  // Status and security
+  status: varchar("status").notNull().default("active"), // One of uiUserStatuses
+  tokenVersion: integer("token_version").notNull().default(0), // Increment to invalidate all tokens
+  failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+  
+  // Timestamps
+  lastLoginAt: timestamp("last_login_at"),
+  lastActivityAt: timestamp("last_activity_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertUIUserSchema = createInsertSchema(uiUsers).omit({
+  id: true,
+  tokenVersion: true,
+  failedLoginAttempts: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertUIUser = z.infer<typeof insertUIUserSchema>;
+export type UIUser = typeof uiUsers.$inferSelect;
+
+// UI Refresh Tokens - for token rotation and revocation
+export const uiRefreshTokens = pgTable("ui_refresh_tokens", {
+  id: varchar("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  
+  // Token data
+  tokenHash: varchar("token_hash").notNull(), // Hashed refresh token
+  tokenVersion: integer("token_version").notNull(), // Must match user's tokenVersion
+  
+  // Device/session fingerprint
+  userAgent: varchar("user_agent"),
+  ipAddress: varchar("ip_address"),
+  sessionId: varchar("session_id"),
+  
+  // Expiration
+  expiresAt: timestamp("expires_at").notNull(),
+  
+  // Revocation
+  revokedAt: timestamp("revoked_at"),
+  revokedReason: varchar("revoked_reason"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+export const insertUIRefreshTokenSchema = createInsertSchema(uiRefreshTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertUIRefreshToken = z.infer<typeof insertUIRefreshTokenSchema>;
+export type UIRefreshToken = typeof uiRefreshTokens.$inferSelect;
