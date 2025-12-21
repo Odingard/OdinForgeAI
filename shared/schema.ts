@@ -306,6 +306,7 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     "findings:read",
     "simulations:read",
     "simulations:run",
+    "simulations:delete",
     "governance:read",
     "api:read",
   ],
