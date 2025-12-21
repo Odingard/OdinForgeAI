@@ -106,10 +106,12 @@ function checkRateLimit(key: string, config: RateLimitConfig): { allowed: boolea
   };
 }
 
-export function createRateLimiter(config: RateLimitConfig) {
+export function createRateLimiter(config: RateLimitConfig, configName?: string) {
   return (req: Request, res: Response, next: NextFunction) => {
     const keyGenerator = config.keyGenerator || getDefaultKey;
-    const key = `${req.path}:${keyGenerator(req)}`;
+    // Use configName prefix for proper aggregation by getAllRateLimitStatuses
+    const prefix = configName || req.path;
+    const key = `[${prefix}]:${keyGenerator(req)}`;
     
     const result = checkRateLimit(key, config);
     
@@ -147,13 +149,13 @@ async function logRateLimitEvent(req: Request, key: string, config: RateLimitCon
   }
 }
 
-export const authRateLimiter = createRateLimiter(rateLimitConfigs.auth);
-export const agentTelemetryRateLimiter = createRateLimiter(rateLimitConfigs.agentTelemetry);
-export const apiRateLimiter = createRateLimiter(rateLimitConfigs.apiGeneral);
-export const batchRateLimiter = createRateLimiter(rateLimitConfigs.batchOperations);
-export const evaluationRateLimiter = createRateLimiter(rateLimitConfigs.evaluationCreate);
-export const reportRateLimiter = createRateLimiter(rateLimitConfigs.reportGenerate);
-export const simulationRateLimiter = createRateLimiter(rateLimitConfigs.simulation);
+export const authRateLimiter = createRateLimiter(rateLimitConfigs.auth, "auth");
+export const agentTelemetryRateLimiter = createRateLimiter(rateLimitConfigs.agentTelemetry, "agentTelemetry");
+export const apiRateLimiter = createRateLimiter(rateLimitConfigs.apiGeneral, "apiGeneral");
+export const batchRateLimiter = createRateLimiter(rateLimitConfigs.batchOperations, "batchOperations");
+export const evaluationRateLimiter = createRateLimiter(rateLimitConfigs.evaluationCreate, "evaluationCreate");
+export const reportRateLimiter = createRateLimiter(rateLimitConfigs.reportGenerate, "reportGenerate");
+export const simulationRateLimiter = createRateLimiter(rateLimitConfigs.simulation, "simulation");
 
 export function getRateLimitStatus(key: string, configName: keyof typeof rateLimitConfigs): { 
   count: number; 
@@ -218,7 +220,8 @@ export function getAllRateLimitStatuses(): Array<{
     const now = Date.now();
 
     rateLimitStore.forEach((entry, key) => {
-      if (key.includes(name) || key.startsWith(`/api/${name}`)) {
+      // Keys are formatted as [configName]:ip
+      if (key.startsWith(`[${name}]:`)) {
         if (now - entry.windowStart < config.windowMs) {
           totalCount += entry.count;
           const resetTime = entry.windowStart + config.windowMs - now;
