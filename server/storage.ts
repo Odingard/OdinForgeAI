@@ -43,6 +43,10 @@ import {
   type InsertAgentTelemetry,
   type AgentFinding,
   type InsertAgentFinding,
+  type UIUser,
+  type InsertUIUser,
+  type UIRefreshToken,
+  type InsertUIRefreshToken,
   users,
   aevEvaluations,
   aevResults,
@@ -66,6 +70,8 @@ import {
   endpointAgents,
   agentTelemetry,
   agentFindings,
+  uiUsers,
+  uiRefreshTokens,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -1046,6 +1052,125 @@ export class DatabaseStorage implements IStorage {
       highFindings: highFindings?.count || 0,
       newFindings: newFindings?.count || 0,
     };
+  }
+
+  // ========== UI User Operations ==========
+  
+  async createUIUser(data: InsertUIUser): Promise<UIUser> {
+    const id = `uiuser-${randomUUID().slice(0, 8)}`;
+    const [user] = await db.insert(uiUsers).values({ ...data, id }).returning();
+    return user;
+  }
+
+  async getUIUser(id: string): Promise<UIUser | undefined> {
+    const [user] = await db.select().from(uiUsers).where(eq(uiUsers.id, id));
+    return user;
+  }
+
+  async getUIUserByEmail(email: string, tenantId: string): Promise<UIUser | undefined> {
+    const [user] = await db
+      .select()
+      .from(uiUsers)
+      .where(and(eq(uiUsers.email, email), eq(uiUsers.tenantId, tenantId)));
+    return user;
+  }
+
+  async getUIUsers(tenantId?: string): Promise<UIUser[]> {
+    if (tenantId) {
+      return db.select().from(uiUsers).where(eq(uiUsers.tenantId, tenantId)).orderBy(desc(uiUsers.createdAt));
+    }
+    return db.select().from(uiUsers).orderBy(desc(uiUsers.createdAt));
+  }
+
+  async updateUIUser(id: string, updates: Partial<UIUser>): Promise<void> {
+    await db.update(uiUsers).set({ ...updates, updatedAt: new Date() }).where(eq(uiUsers.id, id));
+  }
+
+  async deleteUIUser(id: string): Promise<void> {
+    await db.delete(uiUsers).where(eq(uiUsers.id, id));
+  }
+
+  async incrementUIUserTokenVersion(id: string): Promise<number> {
+    const [result] = await db
+      .update(uiUsers)
+      .set({ 
+        tokenVersion: sql`${uiUsers.tokenVersion} + 1`,
+        updatedAt: new Date() 
+      })
+      .where(eq(uiUsers.id, id))
+      .returning({ tokenVersion: uiUsers.tokenVersion });
+    return result?.tokenVersion || 0;
+  }
+
+  async recordLoginAttempt(id: string, success: boolean): Promise<void> {
+    if (success) {
+      await db.update(uiUsers).set({
+        failedLoginAttempts: 0,
+        lastLoginAt: new Date(),
+        lockedUntil: null,
+        updatedAt: new Date(),
+      }).where(eq(uiUsers.id, id));
+    } else {
+      const [user] = await db.select().from(uiUsers).where(eq(uiUsers.id, id));
+      if (user) {
+        const newAttempts = (user.failedLoginAttempts || 0) + 1;
+        const updates: Partial<UIUser> = {
+          failedLoginAttempts: newAttempts,
+          updatedAt: new Date(),
+        };
+        if (newAttempts >= 5) {
+          updates.status = "locked";
+          updates.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 min lockout
+        }
+        await db.update(uiUsers).set(updates).where(eq(uiUsers.id, id));
+      }
+    }
+  }
+
+  // ========== UI Refresh Token Operations ==========
+
+  async createUIRefreshToken(data: InsertUIRefreshToken): Promise<UIRefreshToken> {
+    const id = `rt-${randomUUID().slice(0, 8)}`;
+    const [token] = await db.insert(uiRefreshTokens).values({ ...data, id }).returning();
+    return token;
+  }
+
+  async getUIRefreshToken(id: string): Promise<UIRefreshToken | undefined> {
+    const [token] = await db.select().from(uiRefreshTokens).where(eq(uiRefreshTokens.id, id));
+    return token;
+  }
+
+  async getUIRefreshTokenByHash(tokenHash: string): Promise<UIRefreshToken | undefined> {
+    const [token] = await db
+      .select()
+      .from(uiRefreshTokens)
+      .where(eq(uiRefreshTokens.tokenHash, tokenHash));
+    return token;
+  }
+
+  async updateUIRefreshTokenLastUsed(id: string): Promise<void> {
+    await db.update(uiRefreshTokens).set({ lastUsedAt: new Date() }).where(eq(uiRefreshTokens.id, id));
+  }
+
+  async revokeUIRefreshToken(id: string, reason: string): Promise<void> {
+    await db.update(uiRefreshTokens).set({
+      revokedAt: new Date(),
+      revokedReason: reason,
+    }).where(eq(uiRefreshTokens.id, id));
+  }
+
+  async revokeAllUIRefreshTokensForUser(userId: string): Promise<void> {
+    await db.update(uiRefreshTokens).set({
+      revokedAt: new Date(),
+      revokedReason: "logout_all",
+    }).where(eq(uiRefreshTokens.userId, userId));
+  }
+
+  async cleanupExpiredUIRefreshTokens(): Promise<number> {
+    const result = await db.delete(uiRefreshTokens).where(
+      lte(uiRefreshTokens.expiresAt, new Date())
+    );
+    return result.rowCount || 0;
   }
 }
 
