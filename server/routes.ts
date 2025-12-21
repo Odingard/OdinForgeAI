@@ -22,6 +22,7 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { registerReportV2Routes } from "./src/reportsV2/routes";
+import { calculateDefensivePosture, calculateAttackPredictions } from "./services/metrics-calculator";
 
 // Agent API Validation Schemas
 const agentRegisterSchema = z.object({
@@ -993,115 +994,37 @@ export async function registerRoutes(
     }
   });
 
-  // Attack Predictions
+  // Attack Predictions - computed from real evaluation data
   app.get("/api/attack-predictions/:organizationId", async (req, res) => {
     try {
-      const predictions = await storage.getAttackPredictions(req.params.organizationId);
+      const timeHorizon = req.query.timeHorizon as string || "30d";
+      const predictions = await calculateAttackPredictions(req.params.organizationId, timeHorizon);
       res.json(predictions);
     } catch (error) {
-      console.error("Error fetching attack predictions:", error);
-      res.status(500).json({ error: "Failed to fetch attack predictions" });
+      console.error("Error calculating attack predictions:", error);
+      res.status(500).json({ error: "Failed to calculate attack predictions" });
     }
   });
 
   app.post("/api/attack-predictions/generate", async (req, res) => {
     try {
-      const { organizationId, assetId, timeHorizon } = req.body;
-      
-      // Generate AI-powered attack prediction
-      const prediction = await storage.createAttackPrediction({
-        organizationId,
-        assetId,
-        timeHorizon: timeHorizon || "30d",
-        predictedAttackVectors: [
-          {
-            vector: "Credential Stuffing",
-            likelihood: 75,
-            confidence: 82,
-            adversaryProfile: "opportunistic_criminal",
-            estimatedImpact: "High - Account takeover risk",
-            mitreAttackId: "T1110.004",
-          },
-          {
-            vector: "SQL Injection",
-            likelihood: 45,
-            confidence: 68,
-            adversaryProfile: "script_kiddie",
-            estimatedImpact: "Critical - Data exfiltration",
-            mitreAttackId: "T1190",
-          },
-          {
-            vector: "Phishing Campaign",
-            likelihood: 60,
-            confidence: 75,
-            adversaryProfile: "organized_crime",
-            estimatedImpact: "High - Initial access vector",
-            mitreAttackId: "T1566",
-          },
-        ],
-        overallBreachLikelihood: 65,
-        riskFactors: [
-          { factor: "Exposed admin panels", contribution: 25, trend: "stable" },
-          { factor: "Outdated dependencies", contribution: 20, trend: "increasing" },
-          { factor: "Weak authentication", contribution: 30, trend: "stable" },
-          { factor: "Missing WAF rules", contribution: 25, trend: "decreasing" },
-        ],
-        recommendedActions: [
-          "Implement MFA for all admin accounts",
-          "Update vulnerable dependencies",
-          "Deploy WAF with OWASP ruleset",
-          "Enable rate limiting on authentication endpoints",
-        ],
-        modelVersion: "v1.0.0",
-      });
-      
-      res.json(prediction);
+      const { organizationId, timeHorizon } = req.body;
+      const predictions = await calculateAttackPredictions(organizationId, timeHorizon || "30d");
+      res.json(predictions);
     } catch (error) {
       console.error("Error generating attack prediction:", error);
       res.status(500).json({ error: "Failed to generate attack prediction" });
     }
   });
 
-  // Defensive Posture
+  // Defensive Posture - computed from real evaluation data
   app.get("/api/defensive-posture/:organizationId", async (req, res) => {
     try {
-      let posture = await storage.getLatestDefensivePosture(req.params.organizationId);
-      if (!posture) {
-        // Generate initial posture score
-        posture = await storage.createDefensivePostureScore({
-          organizationId: req.params.organizationId,
-          overallScore: 72,
-          categoryScores: {
-            networkSecurity: 75,
-            applicationSecurity: 68,
-            identityManagement: 80,
-            dataProtection: 70,
-            incidentResponse: 65,
-            securityAwareness: 72,
-            compliancePosture: 78,
-          },
-          breachLikelihood: 28,
-          meanTimeToDetect: 4,
-          meanTimeToRespond: 12,
-          vulnerabilityExposure: {
-            critical: 2,
-            high: 8,
-            medium: 24,
-            low: 45,
-          },
-          trendDirection: "stable",
-          benchmarkPercentile: 65,
-          recommendations: [
-            "Reduce critical vulnerabilities to zero",
-            "Improve incident response time",
-            "Increase security training frequency",
-          ],
-        });
-      }
+      const posture = await calculateDefensivePosture(req.params.organizationId);
       res.json(posture);
     } catch (error) {
-      console.error("Error fetching defensive posture:", error);
-      res.status(500).json({ error: "Failed to fetch defensive posture" });
+      console.error("Error calculating defensive posture:", error);
+      res.status(500).json({ error: "Failed to calculate defensive posture" });
     }
   });
 
