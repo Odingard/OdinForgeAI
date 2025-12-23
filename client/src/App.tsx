@@ -110,7 +110,7 @@ function AppHeader() {
               {uiUser && (
                 <>
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">{uiUser.email}</div>
-                  <div className="px-2 py-1 text-xs font-medium capitalize">{uiUser.role}</div>
+                  <div className="px-2 py-1 text-xs font-medium capitalize">{uiUser.role?.name || "User"}</div>
                   <DropdownMenuSeparator />
                 </>
               )}
