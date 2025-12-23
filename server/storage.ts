@@ -43,10 +43,15 @@ import {
   type InsertAgentTelemetry,
   type AgentFinding,
   type InsertAgentFinding,
+  type UIRole,
+  type InsertUIRole,
   type UIUser,
   type InsertUIUser,
   type UIRefreshToken,
   type InsertUIRefreshToken,
+  type SystemRoleId,
+  systemRoleIds,
+  uiRoles,
   users,
   aevEvaluations,
   aevResults,
@@ -1052,6 +1057,64 @@ export class DatabaseStorage implements IStorage {
       highFindings: highFindings?.count || 0,
       newFindings: newFindings?.count || 0,
     };
+  }
+
+  // ========== UI Role Operations ==========
+
+  async createUIRole(data: InsertUIRole): Promise<UIRole> {
+    const [role] = await db.insert(uiRoles).values(data).returning();
+    return role;
+  }
+
+  async upsertUIRole(data: InsertUIRole): Promise<UIRole> {
+    const existing = await this.getUIRole(data.id);
+    if (existing) {
+      if (existing.isSystemRole) {
+        // System roles can only be seeded/refreshed by internal seedSystemRoles function
+        // which always passes the same immutable config. External callers cannot modify.
+        // Only update if this is the initial seed (internal call with isSystemRole: true)
+        if (data.isSystemRole === true) {
+          await db.update(uiRoles)
+            .set({ ...data, updatedAt: new Date() })
+            .where(eq(uiRoles.id, data.id));
+          const [updated] = await db.select().from(uiRoles).where(eq(uiRoles.id, data.id));
+          return updated;
+        }
+        // Reject external attempts to modify system roles
+        return existing;
+      }
+      await db.update(uiRoles)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(uiRoles.id, data.id));
+      const [updated] = await db.select().from(uiRoles).where(eq(uiRoles.id, data.id));
+      return updated;
+    }
+    return this.createUIRole(data);
+  }
+
+  async getUIRole(id: string): Promise<UIRole | undefined> {
+    const [role] = await db.select().from(uiRoles).where(eq(uiRoles.id, id));
+    return role;
+  }
+
+  async getUIRoles(): Promise<UIRole[]> {
+    return db.select().from(uiRoles).orderBy(uiRoles.hierarchyLevel);
+  }
+
+  async deleteUIRole(id: string): Promise<{ success: boolean; error?: string }> {
+    const role = await this.getUIRole(id);
+    if (!role) {
+      return { success: false, error: "Role not found" };
+    }
+    if (role.isSystemRole) {
+      return { success: false, error: "Cannot delete system roles" };
+    }
+    await db.delete(uiRoles).where(eq(uiRoles.id, id));
+    return { success: true };
+  }
+
+  isSystemRoleId(id: string): boolean {
+    return systemRoleIds.includes(id as SystemRoleId);
   }
 
   // ========== UI User Operations ==========
