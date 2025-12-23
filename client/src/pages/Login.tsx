@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Shield, Lock, Mail, AlertCircle } from "lucide-react";
-import { login } from "@/lib/uiAuth";
+import { useUIAuth } from "@/contexts/UIAuthContext";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -23,9 +22,9 @@ interface LoginProps {
 }
 
 export default function Login({ onLoginSuccess }: LoginProps) {
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const { login } = useUIAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const form = useForm<LoginFormData>({
@@ -37,7 +36,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   });
 
   async function onSubmit(data: LoginFormData) {
-    setIsLoading(true);
+    setIsSubmitting(true);
     setError(null);
 
     try {
@@ -46,7 +45,6 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         title: "Welcome back",
         description: "You have successfully signed in.",
       });
-      onLoginSuccess();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Login failed";
       setError(message);
@@ -56,7 +54,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   }
 
@@ -139,10 +137,10 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={isLoading}
+                  disabled={isSubmitting}
                   data-testid="button-login"
                 >
-                  {isLoading ? "Signing in..." : "Sign in"}
+                  {isSubmitting ? "Signing in..." : "Sign in"}
                 </Button>
               </form>
             </Form>
