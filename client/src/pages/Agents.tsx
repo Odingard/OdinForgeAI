@@ -29,8 +29,14 @@ import {
   Terminal,
   Eye,
   Lock,
-  Shield
+  Shield,
+  Cpu,
+  HardDrive,
+  MemoryStick,
+  RefreshCw,
+  Monitor
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 interface EndpointAgent {
   id: string;
@@ -72,6 +78,36 @@ interface AgentStats {
   newFindings: number;
 }
 
+interface ResourceMetrics {
+  cpuPercent?: number;
+  memoryPercent?: number;
+  memoryUsedMB?: number;
+  memoryTotalMB?: number;
+  diskPercent?: number;
+  diskUsedGB?: number;
+  diskTotalGB?: number;
+}
+
+interface SystemInfo {
+  hostname?: string;
+  os?: string;
+  osVersion?: string;
+  arch?: string;
+  kernelVersion?: string;
+  uptime?: number;
+}
+
+interface AgentTelemetry {
+  id: string;
+  agentId: string;
+  systemInfo: SystemInfo | null;
+  resourceMetrics: ResourceMetrics | null;
+  services: any[] | null;
+  openPorts: any[] | null;
+  networkConnections: any[] | null;
+  collectedAt: string;
+}
+
 export default function Agents() {
   const { toast } = useToast();
   const { hasPermission } = useAuth();
@@ -87,6 +123,7 @@ export default function Agents() {
   const [registeredApiKey, setRegisteredApiKey] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<EndpointAgent | null>(null);
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false);
+  const [telemetryAgentId, setTelemetryAgentId] = useState<string | null>(null);
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<EndpointAgent[]>({
     queryKey: ["/api/agents"],
@@ -99,6 +136,17 @@ export default function Agents() {
   const { data: findings = [] } = useQuery<AgentFinding[]>({
     queryKey: ["/api/agent-findings"],
   });
+
+  // Query telemetry for a specific agent when selected, auto-refresh every 30s
+  const { data: agentTelemetry, isLoading: telemetryLoading, refetch: refetchTelemetry } = useQuery<AgentTelemetry[]>({
+    queryKey: [`/api/agents/${telemetryAgentId}/telemetry`],
+    enabled: !!telemetryAgentId,
+    refetchInterval: 30000,
+  });
+
+  // Get the latest telemetry entry
+  const latestTelemetry = agentTelemetry?.[0] || null;
+  const selectedTelemetryAgent = agents.find(a => a.id === telemetryAgentId);
 
   const registerAgentMutation = useMutation({
     mutationFn: async (data: { agentName: string; platform: string; environment: string }) => {
@@ -414,6 +462,7 @@ kubectl apply -f daemonset.yaml
         <TabsList>
           <TabsTrigger value="agents" data-testid="tab-agents">Agents</TabsTrigger>
           <TabsTrigger value="findings" data-testid="tab-findings">Findings</TabsTrigger>
+          <TabsTrigger value="system" data-testid="tab-system">System</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agents" className="space-y-4">
@@ -567,6 +616,242 @@ kubectl apply -f daemonset.yaml
                     ))}
                   </TableBody>
                 </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="system" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle>Live System Telemetry</CardTitle>
+                <CardDescription>
+                  Real-time resource metrics from endpoint agents
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={telemetryAgentId || ""}
+                  onValueChange={(value) => setTelemetryAgentId(value || null)}
+                >
+                  <SelectTrigger className="w-[200px]" data-testid="select-telemetry-agent">
+                    <SelectValue placeholder="Select an agent" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {agents.filter(a => a.status === "online").map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.agentName}
+                      </SelectItem>
+                    ))}
+                    {agents.filter(a => a.status !== "online").map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.agentName} (offline)
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {telemetryAgentId && (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => refetchTelemetry()}
+                    data-testid="btn-refresh-telemetry"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!telemetryAgentId ? (
+                <div className="text-center py-8">
+                  <Monitor className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="font-medium mb-2">Select an Agent</h3>
+                  <p className="text-muted-foreground text-sm">
+                    Choose an agent from the dropdown to view live telemetry data
+                  </p>
+                </div>
+              ) : telemetryLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading telemetry...</div>
+              ) : !latestTelemetry ? (
+                <div className="text-center py-8">
+                  <Activity className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="font-medium mb-2">No Telemetry Data</h3>
+                  <p className="text-muted-foreground text-sm">
+                    This agent hasn't reported any telemetry yet
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Agent Info Header */}
+                  <div className="flex items-center justify-between border-b pb-4">
+                    <div className="flex items-center gap-3">
+                      <Server className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium">{selectedTelemetryAgent?.agentName}</p>
+                        <p className="text-sm text-muted-foreground font-mono">
+                          {latestTelemetry.systemInfo?.hostname || selectedTelemetryAgent?.hostname || "Unknown host"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Last Updated</p>
+                      <p className="text-sm">
+                        {formatDistanceToNow(new Date(latestTelemetry.collectedAt), { addSuffix: true })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* System Info */}
+                  {latestTelemetry.systemInfo && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <p className="text-xs text-muted-foreground">OS</p>
+                        <p className="font-mono">{latestTelemetry.systemInfo.os || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Version</p>
+                        <p className="font-mono">{latestTelemetry.systemInfo.osVersion || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Architecture</p>
+                        <p className="font-mono">{latestTelemetry.systemInfo.arch || "-"}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Kernel</p>
+                        <p className="font-mono">{latestTelemetry.systemInfo.kernelVersion || "-"}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Resource Metrics */}
+                  {latestTelemetry.resourceMetrics && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* CPU */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Cpu className="h-4 w-4 text-blue-500" />
+                            <span className="text-sm font-medium">CPU Usage</span>
+                          </div>
+                          <span className="text-sm font-mono">
+                            {latestTelemetry.resourceMetrics.cpuPercent?.toFixed(1) ?? "0"}%
+                          </span>
+                        </div>
+                        <Progress 
+                          value={latestTelemetry.resourceMetrics.cpuPercent ?? 0} 
+                          className="h-2"
+                          data-testid="progress-cpu"
+                        />
+                      </div>
+
+                      {/* Memory */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <MemoryStick className="h-4 w-4 text-green-500" />
+                            <span className="text-sm font-medium">Memory Usage</span>
+                          </div>
+                          <span className="text-sm font-mono">
+                            {latestTelemetry.resourceMetrics.memoryPercent?.toFixed(1) ?? "0"}%
+                          </span>
+                        </div>
+                        <Progress 
+                          value={latestTelemetry.resourceMetrics.memoryPercent ?? 0} 
+                          className="h-2"
+                          data-testid="progress-memory"
+                        />
+                        {latestTelemetry.resourceMetrics.memoryUsedMB != null && latestTelemetry.resourceMetrics.memoryTotalMB != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {(latestTelemetry.resourceMetrics.memoryUsedMB / 1024).toFixed(1)} GB / {(latestTelemetry.resourceMetrics.memoryTotalMB / 1024).toFixed(1)} GB
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Disk */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <HardDrive className="h-4 w-4 text-amber-500" />
+                            <span className="text-sm font-medium">Disk Usage</span>
+                          </div>
+                          <span className="text-sm font-mono">
+                            {latestTelemetry.resourceMetrics.diskPercent?.toFixed(1) ?? "0"}%
+                          </span>
+                        </div>
+                        <Progress 
+                          value={latestTelemetry.resourceMetrics.diskPercent ?? 0} 
+                          className="h-2"
+                          data-testid="progress-disk"
+                        />
+                        {latestTelemetry.resourceMetrics.diskUsedGB != null && latestTelemetry.resourceMetrics.diskTotalGB != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {latestTelemetry.resourceMetrics.diskUsedGB.toFixed(1)} GB / {latestTelemetry.resourceMetrics.diskTotalGB.toFixed(1)} GB
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Services and Ports Summary */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t">
+                    <div>
+                      <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <Activity className="h-4 w-4" />
+                        Running Services
+                      </h4>
+                      {latestTelemetry.services && latestTelemetry.services.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {latestTelemetry.services.slice(0, 10).map((service: any, i: number) => (
+                            <Badge key={i} variant="secondary" className="text-xs">
+                              {typeof service === "string" ? service : service.name || "Unknown"}
+                            </Badge>
+                          ))}
+                          {latestTelemetry.services.length > 10 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{latestTelemetry.services.length - 10} more
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No services reported</p>
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <Shield className="h-4 w-4" />
+                        Open Ports
+                      </h4>
+                      {latestTelemetry.openPorts && latestTelemetry.openPorts.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {latestTelemetry.openPorts.slice(0, 12).map((port: any, i: number) => (
+                            <Badge key={i} variant="outline" className="text-xs font-mono">
+                              {typeof port === "number" ? port : port.port || port}
+                            </Badge>
+                          ))}
+                          {latestTelemetry.openPorts.length > 12 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{latestTelemetry.openPorts.length - 12} more
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No open ports reported</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Network Connections */}
+                  {latestTelemetry.networkConnections && latestTelemetry.networkConnections.length > 0 && (
+                    <div className="pt-4 border-t">
+                      <h4 className="text-sm font-medium mb-2">Active Network Connections</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {latestTelemetry.networkConnections.length} active connections detected
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
