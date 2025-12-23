@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { createDatabaseIndexes } from "./db-indexes";
-import { seedDefaultUIUsers } from "./services/ui-auth";
+import { seedSystemRoles, seedDefaultUIUsers } from "./services/ui-auth";
 
 const app = express();
 const httpServer = createServer(app);
@@ -69,6 +69,13 @@ app.use((req, res, next) => {
     await createDatabaseIndexes();
   } catch (error) {
     console.warn("Database indexing skipped:", error instanceof Error ? error.message : error);
+  }
+  
+  // Seed system roles first (must exist before creating users)
+  try {
+    await seedSystemRoles();
+  } catch (error) {
+    console.warn("Role seeding skipped:", error instanceof Error ? error.message : error);
   }
   
   // Seed default UI admin user (for development/demo only)

@@ -2263,13 +2263,61 @@ export type AgentFinding = typeof agentFindings.$inferSelect;
 // Separate from API key authentication for service-to-service communication
 // ============================================================================
 
-// UI user roles for control plane access
-export const uiUserRoles = ["admin", "analyst", "viewer"] as const;
-export type UIUserRole = typeof uiUserRoles[number];
+// System role identifiers - these 6 roles are immutable and cannot be deleted
+export const systemRoleIds = [
+  "org_owner",
+  "security_admin", 
+  "security_engineer",
+  "security_analyst",
+  "executive_viewer",
+  "compliance_officer"
+] as const;
+export type SystemRoleId = typeof systemRoleIds[number];
 
 // UI user statuses
 export const uiUserStatuses = ["active", "inactive", "locked", "pending"] as const;
 export type UIUserStatus = typeof uiUserStatuses[number];
+
+// UI Roles table - immutable system roles
+export const uiRoles = pgTable("ui_roles", {
+  id: varchar("id").primaryKey(), // e.g., "org_owner", "security_admin"
+  
+  // Role metadata
+  name: varchar("name").notNull(), // Human-readable name
+  description: text("description"),
+  
+  // Permission flags - what this role can do
+  canManageUsers: boolean("can_manage_users").notNull().default(false),
+  canManageRoles: boolean("can_manage_roles").notNull().default(false),
+  canManageSettings: boolean("can_manage_settings").notNull().default(false),
+  canManageAgents: boolean("can_manage_agents").notNull().default(false),
+  canCreateEvaluations: boolean("can_create_evaluations").notNull().default(false),
+  canRunSimulations: boolean("can_run_simulations").notNull().default(false),
+  canViewEvaluations: boolean("can_view_evaluations").notNull().default(true),
+  canViewReports: boolean("can_view_reports").notNull().default(true),
+  canExportData: boolean("can_export_data").notNull().default(false),
+  canAccessAuditLogs: boolean("can_access_audit_logs").notNull().default(false),
+  canManageCompliance: boolean("can_manage_compliance").notNull().default(false),
+  canUseKillSwitch: boolean("can_use_kill_switch").notNull().default(false),
+  
+  // System role flag - prevents deletion/modification
+  isSystemRole: boolean("is_system_role").notNull().default(false),
+  
+  // Hierarchy level (lower = more permissions, used for permission inheritance)
+  hierarchyLevel: integer("hierarchy_level").notNull().default(100),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertUIRoleSchema = createInsertSchema(uiRoles).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertUIRole = z.infer<typeof insertUIRoleSchema>;
+export type UIRole = typeof uiRoles.$inferSelect;
 
 // UI Users table - control plane authentication
 export const uiUsers = pgTable("ui_users", {
@@ -2284,8 +2332,8 @@ export const uiUsers = pgTable("ui_users", {
   // Profile
   displayName: varchar("display_name"),
   
-  // Role and permissions
-  role: varchar("role").notNull().default("viewer"), // One of uiUserRoles
+  // Role reference - points to ui_roles.id
+  roleId: varchar("role_id").notNull().default("executive_viewer"),
   
   // Status and security
   status: varchar("status").notNull().default("active"), // One of uiUserStatuses

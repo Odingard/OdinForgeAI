@@ -1,10 +1,31 @@
 import { apiRequest } from "./queryClient";
 
+export interface UIRole {
+  id: string;
+  name: string;
+  description: string | null;
+  canManageUsers: boolean;
+  canManageRoles: boolean;
+  canManageSettings: boolean;
+  canManageAgents: boolean;
+  canCreateEvaluations: boolean;
+  canRunSimulations: boolean;
+  canViewEvaluations: boolean;
+  canViewReports: boolean;
+  canExportData: boolean;
+  canAccessAuditLogs: boolean;
+  canManageCompliance: boolean;
+  canUseKillSwitch: boolean;
+  isSystemRole: boolean;
+  hierarchyLevel: number;
+}
+
 export interface UIUser {
   id: string;
   email: string;
   displayName: string | null;
-  role: "admin" | "analyst" | "viewer";
+  roleId: string;
+  role?: UIRole;
   tenantId: string;
   organizationId: string;
   lastLoginAt?: string;

@@ -49,7 +49,7 @@ const registerSchema = z.object({
   displayName: z.string().max(128).optional(),
   tenantId: z.string().optional().default("default"),
   organizationId: z.string().optional().default("default"),
-  role: z.enum(["admin", "analyst", "viewer"]).optional().default("viewer"),
+  roleId: z.string().optional().default("executive_viewer"),
 });
 
 const refreshTokenSchema = z.object({
@@ -113,12 +113,14 @@ export async function registerRoutes(
         return res.status(401).json({ error: result.error });
       }
 
+      const role = await storage.getUIRole(result.user.roleId);
       res.json({
         user: {
           id: result.user.id,
           email: result.user.email,
           displayName: result.user.displayName,
-          role: result.user.role,
+          roleId: result.user.roleId,
+          role: role || undefined,
           tenantId: result.user.tenantId,
           organizationId: result.user.organizationId,
         },
@@ -146,12 +148,14 @@ export async function registerRoutes(
         return res.status(401).json({ error: result.error });
       }
 
+      const role = await storage.getUIRole(result.user.roleId);
       res.json({
         user: {
           id: result.user.id,
           email: result.user.email,
           displayName: result.user.displayName,
-          role: result.user.role,
+          roleId: result.user.roleId,
+          role: role || undefined,
           tenantId: result.user.tenantId,
           organizationId: result.user.organizationId,
         },
@@ -202,12 +206,14 @@ export async function registerRoutes(
         return res.status(404).json({ error: "User not found" });
       }
 
+      const role = await storage.getUIRole(user.roleId);
       res.json({
         user: {
           id: user.id,
           email: user.email,
           displayName: user.displayName,
-          role: user.role,
+          roleId: user.roleId,
+          role: role || undefined,
           tenantId: user.tenantId,
           organizationId: user.organizationId,
           lastLoginAt: user.lastLoginAt,
@@ -221,14 +227,20 @@ export async function registerRoutes(
   });
 
   // Admin-only: Register new users
-  app.post("/ui/api/auth/register", uiAuthMiddleware, requireRole("admin"), async (req: UIAuthenticatedRequest, res) => {
+  app.post("/ui/api/auth/register", uiAuthMiddleware, requireRole("org_owner", "security_admin"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
 
-      const { email, password, displayName, tenantId, organizationId, role } = parsed.data;
+      const { email, password, displayName, tenantId, organizationId, roleId } = parsed.data;
+
+      // Validate roleId exists
+      const targetRole = await storage.getUIRole(roleId);
+      if (!targetRole) {
+        return res.status(400).json({ error: "Invalid role ID" });
+      }
 
       const existing = await storage.getUIUserByEmail(email, tenantId);
       if (existing) {
@@ -242,16 +254,18 @@ export async function registerRoutes(
         displayName,
         tenantId,
         organizationId,
-        role,
+        roleId,
         status: "active",
       });
 
+      const role = await storage.getUIRole(user.roleId);
       res.status(201).json({
         user: {
           id: user.id,
           email: user.email,
           displayName: user.displayName,
-          role: user.role,
+          roleId: user.roleId,
+          role: role || undefined,
           tenantId: user.tenantId,
           organizationId: user.organizationId,
         },
@@ -263,17 +277,20 @@ export async function registerRoutes(
   });
 
   // Admin-only: List users in tenant
-  app.get("/ui/api/users", uiAuthMiddleware, requireRole("admin"), async (req: UIAuthenticatedRequest, res) => {
+  app.get("/ui/api/users", uiAuthMiddleware, requireRole("org_owner", "security_admin"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const tenantId = req.uiUser?.tenantId || "default";
       const users = await storage.getUIUsers(tenantId);
+      const roles = await storage.getUIRoles();
+      const roleMap = new Map(roles.map(r => [r.id, r]));
       
       res.json({
         users: users.map(u => ({
           id: u.id,
           email: u.email,
           displayName: u.displayName,
-          role: u.role,
+          roleId: u.roleId,
+          role: roleMap.get(u.roleId) || undefined,
           status: u.status,
           lastLoginAt: u.lastLoginAt,
           createdAt: u.createdAt,
@@ -293,7 +310,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Bootstrap already completed. Users exist." });
       }
 
-      const parsed = registerSchema.safeParse({ ...req.body, role: "admin" });
+      const parsed = registerSchema.safeParse({ ...req.body, roleId: "org_owner" });
       if (!parsed.success) {
         return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
       }
@@ -310,12 +327,23 @@ export async function registerRoutes(
         user: {
           id: user.id,
           email: user.email,
-          role: user.role,
+          roleId: user.roleId,
         },
       });
     } catch (error) {
       console.error("Bootstrap error:", error);
       res.status(500).json({ error: "Failed to bootstrap admin user" });
+    }
+  });
+
+  // Get available roles
+  app.get("/ui/api/roles", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const roles = await storage.getUIRoles();
+      res.json({ roles });
+    } catch (error) {
+      console.error("Fetch roles error:", error);
+      res.status(500).json({ error: "Failed to fetch roles" });
     }
   });
 

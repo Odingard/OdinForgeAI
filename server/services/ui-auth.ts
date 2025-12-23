@@ -3,7 +3,7 @@ import * as crypto from "crypto";
 import * as bcrypt from "bcrypt";
 import { SignJWT, jwtVerify, JWTPayload as JoseJWTPayload } from "jose";
 import { storage } from "../storage";
-import type { UIUser, UIUserRole } from "@shared/schema";
+import type { UIUser, InsertUIRole } from "@shared/schema";
 
 const UI_JWT_SECRET = new TextEncoder().encode(
   process.env.SESSION_SECRET || "odinforge-ui-jwt-secret-dev"
@@ -19,7 +19,7 @@ export interface UIJWTPayload extends JoseJWTPayload {
   tenantId: string;
   organizationId: string;
   email: string;
-  role: string;
+  roleId: string;
   tokenVersion: number;
   type: "access" | "refresh";
 }
@@ -37,7 +37,7 @@ export interface UIAuthenticatedRequest extends Request {
     tenantId: string;
     organizationId: string;
     email: string;
-    role: UIUserRole;
+    roleId: string;
     tokenVersion: number;
   };
 }
@@ -65,7 +65,7 @@ export async function generateUITokens(user: UIUser): Promise<UIAuthTokens> {
     tenantId: user.tenantId,
     organizationId: user.organizationId,
     email: user.email,
-    role: user.role,
+    roleId: user.roleId,
     tokenVersion: user.tokenVersion,
     type: "access",
   };
@@ -84,7 +84,7 @@ export async function generateUITokens(user: UIUser): Promise<UIAuthTokens> {
     tenantId: user.tenantId,
     organizationId: user.organizationId,
     email: user.email,
-    role: user.role,
+    roleId: user.roleId,
     tokenVersion: user.tokenVersion,
     type: "refresh",
   };
@@ -222,7 +222,7 @@ export function uiAuthMiddleware(
         tenantId: payload.tenantId,
         organizationId: payload.organizationId,
         email: payload.email,
-        role: payload.role as UIUserRole,
+        roleId: payload.roleId,
         tokenVersion: payload.tokenVersion,
       };
 
@@ -236,16 +236,16 @@ export function uiAuthMiddleware(
     });
 }
 
-export function requireRole(...roles: UIUserRole[]) {
+export function requireRole(...roleIds: string[]) {
   return (req: UIAuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.uiUser) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    if (!roles.includes(req.uiUser.role)) {
+    if (!roleIds.includes(req.uiUser.roleId)) {
       return res.status(403).json({ 
         error: "Forbidden", 
-        message: `This action requires one of the following roles: ${roles.join(", ")}` 
+        message: `This action requires one of the following roles: ${roleIds.join(", ")}` 
       });
     }
 
@@ -341,7 +341,7 @@ export async function createInitialAdminUser(
     email,
     passwordHash,
     displayName: "Admin",
-    role: "admin",
+    roleId: "org_owner",
     status: "active",
   });
 }
@@ -351,6 +351,136 @@ const DEFAULT_ADMIN_EMAIL = "admin@odinforge.local";
 const DEFAULT_ADMIN_PASSWORD = "SecureAdmin123!";
 const DEFAULT_TENANT_ID = "default";
 const DEFAULT_ORG_ID = "default";
+
+// The 6 immutable system roles with their permissions
+const SYSTEM_ROLES: InsertUIRole[] = [
+  {
+    id: "org_owner",
+    name: "Organization Owner",
+    description: "Full access to all features including billing and user management",
+    canManageUsers: true,
+    canManageRoles: true,
+    canManageSettings: true,
+    canManageAgents: true,
+    canCreateEvaluations: true,
+    canRunSimulations: true,
+    canViewEvaluations: true,
+    canViewReports: true,
+    canExportData: true,
+    canAccessAuditLogs: true,
+    canManageCompliance: true,
+    canUseKillSwitch: true,
+    isSystemRole: true,
+    hierarchyLevel: 10,
+  },
+  {
+    id: "security_admin",
+    name: "Security Administrator",
+    description: "Manage security settings, agents, and configurations",
+    canManageUsers: true,
+    canManageRoles: false,
+    canManageSettings: true,
+    canManageAgents: true,
+    canCreateEvaluations: true,
+    canRunSimulations: true,
+    canViewEvaluations: true,
+    canViewReports: true,
+    canExportData: true,
+    canAccessAuditLogs: true,
+    canManageCompliance: true,
+    canUseKillSwitch: true,
+    isSystemRole: true,
+    hierarchyLevel: 20,
+  },
+  {
+    id: "security_engineer",
+    name: "Security Engineer",
+    description: "Create and run evaluations, simulations, and technical operations",
+    canManageUsers: false,
+    canManageRoles: false,
+    canManageSettings: false,
+    canManageAgents: true,
+    canCreateEvaluations: true,
+    canRunSimulations: true,
+    canViewEvaluations: true,
+    canViewReports: true,
+    canExportData: true,
+    canAccessAuditLogs: false,
+    canManageCompliance: false,
+    canUseKillSwitch: false,
+    isSystemRole: true,
+    hierarchyLevel: 30,
+  },
+  {
+    id: "security_analyst",
+    name: "Security Analyst",
+    description: "View and analyze evaluation results, create reports",
+    canManageUsers: false,
+    canManageRoles: false,
+    canManageSettings: false,
+    canManageAgents: false,
+    canCreateEvaluations: true,
+    canRunSimulations: false,
+    canViewEvaluations: true,
+    canViewReports: true,
+    canExportData: true,
+    canAccessAuditLogs: false,
+    canManageCompliance: false,
+    canUseKillSwitch: false,
+    isSystemRole: true,
+    hierarchyLevel: 40,
+  },
+  {
+    id: "executive_viewer",
+    name: "Executive Viewer",
+    description: "Read-only access to dashboards and executive reports",
+    canManageUsers: false,
+    canManageRoles: false,
+    canManageSettings: false,
+    canManageAgents: false,
+    canCreateEvaluations: false,
+    canRunSimulations: false,
+    canViewEvaluations: true,
+    canViewReports: true,
+    canExportData: false,
+    canAccessAuditLogs: false,
+    canManageCompliance: false,
+    canUseKillSwitch: false,
+    isSystemRole: true,
+    hierarchyLevel: 50,
+  },
+  {
+    id: "compliance_officer",
+    name: "Compliance Officer",
+    description: "Access compliance reports, audit trails, and governance controls",
+    canManageUsers: false,
+    canManageRoles: false,
+    canManageSettings: false,
+    canManageAgents: false,
+    canCreateEvaluations: false,
+    canRunSimulations: false,
+    canViewEvaluations: true,
+    canViewReports: true,
+    canExportData: true,
+    canAccessAuditLogs: true,
+    canManageCompliance: true,
+    canUseKillSwitch: false,
+    isSystemRole: true,
+    hierarchyLevel: 35,
+  },
+];
+
+export async function seedSystemRoles(): Promise<void> {
+  console.log("[UI Auth] Seeding system roles...");
+  try {
+    for (const role of SYSTEM_ROLES) {
+      await storage.upsertUIRole(role);
+    }
+    console.log(`[UI Auth] ${SYSTEM_ROLES.length} system roles seeded successfully`);
+  } catch (error) {
+    console.error("[UI Auth] Failed to seed system roles:", error);
+  }
+}
 
 export async function seedDefaultUIUsers(): Promise<void> {
   try {
@@ -366,7 +496,7 @@ export async function seedDefaultUIUsers(): Promise<void> {
         email: DEFAULT_ADMIN_EMAIL,
         passwordHash,
         displayName: "Admin",
-        role: "admin",
+        roleId: "org_owner",
         status: "active",
       });
       console.log(`[UI Auth] Default admin created: ${DEFAULT_ADMIN_EMAIL} / ${DEFAULT_ADMIN_PASSWORD}`);
@@ -389,4 +519,8 @@ export function getDefaultCredentials() {
     email: DEFAULT_ADMIN_EMAIL,
     password: DEFAULT_ADMIN_PASSWORD,
   };
+}
+
+export function getSystemRoles() {
+  return SYSTEM_ROLES;
 }
