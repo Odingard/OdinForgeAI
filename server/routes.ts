@@ -2008,6 +2008,90 @@ export async function registerRoutes(
     }
   });
 
+  // Auto-register a new agent using registration token (no pre-registration required)
+  app.post("/api/agents/auto-register", authRateLimiter, async (req, res) => {
+    try {
+      const registrationToken = process.env.AGENT_REGISTRATION_TOKEN;
+      
+      if (!registrationToken) {
+        return res.status(503).json({ 
+          error: "Auto-registration not enabled", 
+          message: "AGENT_REGISTRATION_TOKEN environment variable not set" 
+        });
+      }
+
+      const { token, agentName, hostname, platform, platformVersion, architecture, capabilities, environment, tags } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: "Registration token required" });
+      }
+
+      // Validate the registration token (constant-time comparison to prevent timing attacks)
+      const tokenBuffer = Buffer.from(token);
+      const expectedBuffer = Buffer.from(registrationToken);
+      
+      if (tokenBuffer.length !== expectedBuffer.length || !require("crypto").timingSafeEqual(tokenBuffer, expectedBuffer)) {
+        return res.status(401).json({ error: "Invalid registration token" });
+      }
+
+      // Check if agent with same hostname already exists (prevent duplicate registrations)
+      if (hostname) {
+        const existingAgents = await storage.getEndpointAgents();
+        const existingAgent = existingAgents.find(a => a.hostname === hostname);
+        if (existingAgent) {
+          // Return existing agent's info but generate a new API key
+          const apiKey = generateApiKey();
+          const apiKeyHash = await hashApiKey(apiKey);
+          
+          await storage.updateEndpointAgent(existingAgent.id, { 
+            apiKeyHash,
+            status: "online",
+            lastHeartbeat: new Date()
+          });
+          
+          return res.json({
+            id: existingAgent.id,
+            apiKey,
+            agentName: existingAgent.agentName,
+            message: "Agent re-registered successfully. API key has been rotated.",
+            existingAgent: true
+          });
+        }
+      }
+
+      // Create a new agent
+      const generatedName = agentName || hostname || `agent-${Date.now()}`;
+      const apiKey = generateApiKey();
+      const apiKeyHash = await hashApiKey(apiKey);
+      
+      const agent = await storage.createEndpointAgent({
+        agentName: generatedName,
+        apiKey: "",
+        apiKeyHash,
+        hostname,
+        platform,
+        platformVersion,
+        architecture,
+        capabilities: capabilities || [],
+        environment: environment || "production",
+        tags: tags || [],
+        organizationId: "default",
+        status: "online",
+      });
+
+      res.json({
+        id: agent.id,
+        apiKey,
+        agentName: agent.agentName,
+        message: "Agent auto-registered successfully. Store the API key securely.",
+        existingAgent: false
+      });
+    } catch (error) {
+      console.error("Error auto-registering agent:", error);
+      res.status(500).json({ error: "Failed to auto-register agent" });
+    }
+  });
+
   // Agent heartbeat
   app.post("/api/agents/heartbeat", authenticateAgent, async (req: any, res) => {
     try {

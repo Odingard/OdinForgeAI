@@ -83,12 +83,14 @@ The platform includes an AI vs AI simulation capability for purple team exercise
 ### Endpoint Agent System
 The platform includes a live agent deployment system for real-time security monitoring:
 - **Agent Registration**: Agents register via `/api/agents/register` and receive a one-time API key (bcrypt hashed for storage)
+- **Auto-Registration**: Agents can auto-register via `/api/agents/auto-register` using a shared registration token (no pre-registration needed)
 - **Telemetry Ingestion**: Agents send system data and security findings via `/api/agents/telemetry`
 - **Auto-evaluation Triggers**: Critical/high severity findings automatically create AEV evaluations
 - **Deduplication**: Findings are deduplicated using composite keys (findingType|title|affectedComponent)
 
 **Security Features**:
 - API keys hashed with bcrypt before storage (plaintext only shown once at registration)
+- Registration token validated using timing-safe comparison to prevent timing attacks
 - Zod validation on all agent API endpoints
 - HTTPS enforcement with optional mTLS and SPKI pinning
 
@@ -100,11 +102,22 @@ The platform includes a production-ready Go agent (`odinforge-agent/`) with comp
 - Offline resilience using BoltDB queue for buffering
 - Batched HTTPS transmission with optional mTLS and SPKI pinning
 - Stable agent ID based on hostname+OS+arch hash
+- **Auto-registration**: Automatically registers with server on first start using registration token
+
+**Auto-Registration Flow**:
+1. Agent starts without API key but has `ODINFORGE_REGISTRATION_TOKEN` configured
+2. Agent calls `/api/agents/auto-register` with token and system info
+3. Server validates token, creates agent record, returns one-time API key
+4. Agent persists API key to `ODINFORGE_API_KEY_STORE_PATH` (default: `/var/lib/odinforge-agent/api_key`)
+5. Subsequent starts load the persisted key automatically
 
 **Self-Install CLI**:
 ```bash
-# Auto-detect environment and install
+# Install with API key (traditional method)
 sudo ./odinforge-agent install --server-url https://server.com --api-key KEY
+
+# Install with auto-registration (no pre-registration needed)
+sudo ./odinforge-agent install --server-url https://server.com --registration-token TOKEN
 
 # Check installation status
 ./odinforge-agent status
