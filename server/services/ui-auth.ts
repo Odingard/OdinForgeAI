@@ -345,3 +345,48 @@ export async function createInitialAdminUser(
     status: "active",
   });
 }
+
+// Default admin credentials - hardcoded for development/demo
+const DEFAULT_ADMIN_EMAIL = "admin@odinforge.local";
+const DEFAULT_ADMIN_PASSWORD = "SecureAdmin123!";
+const DEFAULT_TENANT_ID = "default";
+const DEFAULT_ORG_ID = "default";
+
+export async function seedDefaultUIUsers(): Promise<void> {
+  try {
+    const existingUsers = await storage.getUIUsers(DEFAULT_TENANT_ID);
+    
+    if (existingUsers.length === 0) {
+      // No users exist - create default admin
+      console.log("[UI Auth] Seeding default admin user...");
+      const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+      await storage.createUIUser({
+        tenantId: DEFAULT_TENANT_ID,
+        organizationId: DEFAULT_ORG_ID,
+        email: DEFAULT_ADMIN_EMAIL,
+        passwordHash,
+        displayName: "Admin",
+        role: "admin",
+        status: "active",
+      });
+      console.log(`[UI Auth] Default admin created: ${DEFAULT_ADMIN_EMAIL} / ${DEFAULT_ADMIN_PASSWORD}`);
+    } else {
+      // Check if admin user exists and reset password to known value
+      const adminUser = await storage.getUIUserByEmail(DEFAULT_ADMIN_EMAIL, DEFAULT_TENANT_ID);
+      if (adminUser) {
+        const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+        await storage.updateUIUser(adminUser.id, { passwordHash });
+        console.log(`[UI Auth] Admin password reset: ${DEFAULT_ADMIN_EMAIL} / ${DEFAULT_ADMIN_PASSWORD}`);
+      }
+    }
+  } catch (error) {
+    console.error("[UI Auth] Failed to seed default users:", error);
+  }
+}
+
+export function getDefaultCredentials() {
+  return {
+    email: DEFAULT_ADMIN_EMAIL,
+    password: DEFAULT_ADMIN_PASSWORD,
+  };
+}
