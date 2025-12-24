@@ -35,6 +35,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { registerReportV2Routes } from "./src/reportsV2/routes";
 import { calculateDefensivePosture, calculateAttackPredictions } from "./services/metrics-calculator";
+import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases";
 
 // UI Auth Validation Schemas
 const loginSchema = z.object({
@@ -2368,6 +2369,19 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error processing agent events:", error);
       res.status(500).json({ error: "Failed to process events" });
+    }
+  });
+
+  // Get agent release information for download center
+  app.get("/api/agent-releases/latest", async (req, res) => {
+    try {
+      res.json({
+        release: AGENT_RELEASE,
+        instructions: INSTALLATION_INSTRUCTIONS
+      });
+    } catch (error) {
+      console.error("Error fetching agent releases:", error);
+      res.status(500).json({ error: "Failed to fetch agent releases" });
     }
   });
 
