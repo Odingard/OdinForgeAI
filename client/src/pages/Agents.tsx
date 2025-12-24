@@ -35,9 +35,9 @@ import {
   MemoryStick,
   RefreshCw,
   Monitor,
-  Download,
-  ExternalLink
+  Download
 } from "lucide-react";
+import { DownloadCenter } from "@/components/DownloadCenter";
 import { Progress } from "@/components/ui/progress";
 
 interface EndpointAgent {
@@ -126,6 +126,7 @@ export default function Agents() {
   const [selectedAgent, setSelectedAgent] = useState<EndpointAgent | null>(null);
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false);
   const [telemetryAgentId, setTelemetryAgentId] = useState<string | null>(null);
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<EndpointAgent[]>({
     queryKey: ["/api/agents"],
@@ -294,21 +295,20 @@ kubectl apply -f daemonset.yaml
           </p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            asChild
-            data-testid="btn-download-agent"
-          >
-            <a 
-              href="https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.2" 
-              target="_blank" 
-              rel="noopener noreferrer"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download Agent
-              <ExternalLink className="h-3 w-3 ml-1" />
-            </a>
-          </Button>
+          <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
+            <DialogTrigger asChild>
+              <Button 
+                variant="default"
+                data-testid="btn-download-agent"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download Agent
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DownloadCenter serverUrl={window.location.origin} />
+            </DialogContent>
+          </Dialog>
           <Button variant="outline" onClick={() => setScriptDialogOpen(true)} data-testid="btn-view-script">
             <Terminal className="h-4 w-4 mr-2" />
             Installation Guide
