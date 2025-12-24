@@ -2385,6 +2385,27 @@ export async function registerRoutes(
     }
   });
 
+  // Serve install.sh script for curl-based installation
+  app.get("/api/install.sh", async (req, res) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const scriptPath = path.join(process.cwd(), "odinforge-installer", "install.sh");
+      
+      if (fs.existsSync(scriptPath)) {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Content-Disposition", "inline; filename=install.sh");
+        const script = fs.readFileSync(scriptPath, "utf-8");
+        res.send(script);
+      } else {
+        res.status(404).json({ error: "Install script not found" });
+      }
+    } catch (error) {
+      console.error("Error serving install script:", error);
+      res.status(500).json({ error: "Failed to serve install script" });
+    }
+  });
+
   // Get all agents (for dashboard)
   app.get("/api/agents", async (req, res) => {
     try {

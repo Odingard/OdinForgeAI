@@ -317,6 +317,37 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
           </div>
         )}
 
+        {/* CLI Installer Option */}
+        <div className="border rounded-lg p-4 bg-muted/30">
+          <div className="flex items-start gap-3">
+            <Terminal className="h-5 w-5 text-muted-foreground mt-0.5" />
+            <div className="flex-1">
+              <h4 className="font-medium mb-1">One-Line Installer</h4>
+              <p className="text-sm text-muted-foreground mb-3">
+                For automated deployments, use our CLI installer that auto-detects your platform:
+              </p>
+              <div className="bg-background border rounded-md p-3 font-mono text-sm overflow-x-auto">
+                <code>
+                  curl -fsSL {window.location.origin}/api/install.sh | sudo bash -s -- \<br />
+                  &nbsp;&nbsp;--server-url {serverUrl || window.location.origin} \<br />
+                  &nbsp;&nbsp;--registration-token {registrationToken || "YOUR_TOKEN"}
+                </code>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Or download the standalone installer from our{" "}
+                <a 
+                  href="https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.2"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline"
+                >
+                  GitHub releases
+                </a>.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* All Platforms Section */}
         <div>
           <Button
