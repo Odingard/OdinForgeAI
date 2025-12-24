@@ -34,7 +34,9 @@ import {
   HardDrive,
   MemoryStick,
   RefreshCw,
-  Monitor
+  Monitor,
+  Download,
+  ExternalLink
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
@@ -292,6 +294,21 @@ kubectl apply -f daemonset.yaml
           </p>
         </div>
         <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            asChild
+            data-testid="btn-download-agent"
+          >
+            <a 
+              href="https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.2" 
+              target="_blank" 
+              rel="noopener noreferrer"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Agent
+              <ExternalLink className="h-3 w-3 ml-1" />
+            </a>
+          </Button>
           <Button variant="outline" onClick={() => setScriptDialogOpen(true)} data-testid="btn-view-script">
             <Terminal className="h-4 w-4 mr-2" />
             Installation Guide
