@@ -111,6 +111,9 @@ The platform includes a production-ready Go agent (`odinforge-agent/`) with comp
 4. Agent persists API key to `ODINFORGE_API_KEY_STORE_PATH` (default: `/var/lib/odinforge-agent/api_key`)
 5. Subsequent starts load the persisted key automatically
 
+**Download**:
+Pre-built binaries available at: https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.2
+
 **Self-Install CLI**:
 ```bash
 # Install with API key (traditional method)
