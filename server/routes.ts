@@ -2081,7 +2081,7 @@ export async function registerRoutes(
       
       const agent = await storage.createEndpointAgent({
         agentName: generatedName,
-        apiKey: "",
+        apiKey: `placeholder-${randomUUID()}`,
         apiKeyHash,
         hostname,
         platform,
