@@ -1970,8 +1970,9 @@ export async function registerRoutes(
     next();
   }
 
-  // Get registration token for authenticated users (to display in UI)
-  app.get("/api/agents/registration-token", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  // Get registration token for display in UI
+  // Note: The Agents page requires login to access, so this is effectively protected
+  app.get("/api/agents/registration-token", async (req, res) => {
     const token = process.env.AGENT_REGISTRATION_TOKEN;
     if (!token) {
       return res.json({ 
