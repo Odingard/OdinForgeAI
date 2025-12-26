@@ -2420,37 +2420,48 @@ export async function registerRoutes(
     }
   });
 
-  // Download agent binary by platform - proxies from GitHub or serves local files
+  // Agent build status endpoint
+  app.get("/api/agents/build-status", async (req, res) => {
+    try {
+      const { getAgentBuildStatus } = await import("./services/agent-builder");
+      const status = getAgentBuildStatus();
+      res.json({
+        ...status,
+        allAvailable: status.missing.length === 0,
+        version: AGENT_RELEASE.version,
+      });
+    } catch (error) {
+      console.error("Error getting agent build status:", error);
+      res.status(500).json({ error: "Failed to get agent build status" });
+    }
+  });
+
+  // Download agent binary by platform - serves locally built binaries
   app.get("/api/agents/download/:platform", async (req, res) => {
     try {
       const { platform } = req.params;
-      const validPlatforms = ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"];
+      const { getAgentBinaryPath } = await import("./services/agent-builder");
       
-      if (!validPlatforms.includes(platform)) {
-        return res.status(400).json({ error: `Invalid platform: ${platform}. Valid: ${validPlatforms.join(", ")}` });
+      const binaryPath = getAgentBinaryPath(platform);
+      
+      if (!binaryPath) {
+        const validPlatforms = ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"];
+        return res.status(404).json({ 
+          error: `Agent binary not available for platform: ${platform}`,
+          validPlatforms,
+          message: "Binary may still be building. Check /api/agents/build-status for details."
+        });
       }
 
       const fs = await import("fs");
-      const path = await import("path");
-      
-      // First check for local binary
       const filename = platform === "windows-amd64" 
         ? `odinforge-agent-${platform}.exe` 
         : `odinforge-agent-${platform}`;
-      const localPath = path.join(process.cwd(), "public", "agents", filename);
       
-      if (fs.existsSync(localPath)) {
-        // Serve local binary
-        res.setHeader("Content-Type", "application/octet-stream");
-        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-        const fileStream = fs.createReadStream(localPath);
-        fileStream.pipe(res);
-        return;
-      }
-
-      // Fallback: redirect to GitHub release
-      const githubUrl = `https://github.com/Odingard/OdinForgeAI/releases/download/agent-v${AGENT_RELEASE.version}/${filename}`;
-      res.redirect(302, githubUrl);
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+      const fileStream = fs.createReadStream(binaryPath);
+      fileStream.pipe(res);
     } catch (error) {
       console.error("Error serving agent binary:", error);
       res.status(500).json({ error: "Failed to serve agent binary" });

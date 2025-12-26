@@ -98,10 +98,42 @@ export async function ensureAgentBinaries(): Promise<void> {
   console.log(`[AgentBuilder] Built ${successCount}/${missing.length} binaries.`);
 }
 
+const VALID_PLATFORMS = new Set([
+  "linux-amd64",
+  "linux-arm64",
+  "darwin-amd64",
+  "darwin-arm64",
+  "windows-amd64",
+]);
+
 export function getAgentBinaryPath(platform: string): string | null {
+  if (!VALID_PLATFORMS.has(platform)) {
+    return null;
+  }
+  
   const binaryPath = path.join(OUTPUT_DIR, platform.startsWith("windows") 
     ? `odinforge-agent-${platform}.exe` 
     : `odinforge-agent-${platform}`);
   
   return existsSync(binaryPath) ? binaryPath : null;
+}
+
+export function getAgentBuildStatus(): { available: string[]; missing: string[] } {
+  const available: string[] = [];
+  const missing: string[] = [];
+  
+  const platforms = Array.from(VALID_PLATFORMS);
+  for (const platform of platforms) {
+    const binaryPath = path.join(OUTPUT_DIR, platform.startsWith("windows") 
+      ? `odinforge-agent-${platform}.exe` 
+      : `odinforge-agent-${platform}`);
+    
+    if (existsSync(binaryPath)) {
+      available.push(platform);
+    } else {
+      missing.push(platform);
+    }
+  }
+  
+  return { available, missing };
 }
