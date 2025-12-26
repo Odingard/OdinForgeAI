@@ -2393,3 +2393,105 @@ export const insertUIRefreshTokenSchema = createInsertSchema(uiRefreshTokens).om
 
 export type InsertUIRefreshToken = z.infer<typeof insertUIRefreshTokenSchema>;
 export type UIRefreshToken = typeof uiRefreshTokens.$inferSelect;
+
+// ============================================================================
+// FULL ASSESSMENT (Multi-System Pentest)
+// Comprehensive security assessments across all systems
+// ============================================================================
+
+export const fullAssessmentStatuses = [
+  "pending",
+  "reconnaissance",
+  "vulnerability_analysis",
+  "attack_synthesis",
+  "lateral_analysis",
+  "impact_assessment",
+  "completed",
+  "failed",
+] as const;
+export type FullAssessmentStatus = typeof fullAssessmentStatuses[number];
+
+export const fullAssessments = pgTable("full_assessments", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Assessment metadata
+  name: varchar("name").notNull(),
+  description: text("description"),
+  
+  // Scope
+  agentIds: jsonb("agent_ids").$type<string[]>(), // Which agents to include (null = all)
+  findingIds: jsonb("finding_ids").$type<string[]>(), // Findings included in assessment
+  
+  // Status tracking
+  status: varchar("status").notNull().default("pending"),
+  progress: integer("progress").notNull().default(0), // 0-100
+  currentPhase: varchar("current_phase"),
+  
+  // Results (populated on completion)
+  overallRiskScore: integer("overall_risk_score"), // 0-100
+  criticalPathCount: integer("critical_path_count"),
+  systemsAnalyzed: integer("systems_analyzed"),
+  findingsAnalyzed: integer("findings_analyzed"),
+  
+  // Attack graph across all systems
+  unifiedAttackGraph: jsonb("unified_attack_graph").$type<{
+    nodes: Array<{
+      id: string;
+      type: "system" | "vulnerability" | "technique" | "impact";
+      label: string;
+      severity?: string;
+      systemId?: string;
+    }>;
+    edges: Array<{
+      source: string;
+      target: string;
+      label?: string;
+      technique?: string;
+    }>;
+    criticalPaths: Array<{
+      pathId: string;
+      nodes: string[];
+      riskScore: number;
+      description: string;
+    }>;
+  }>(),
+  
+  // Executive summary
+  executiveSummary: text("executive_summary"),
+  
+  // Detailed findings by phase
+  reconFindings: jsonb("recon_findings"),
+  vulnerabilityFindings: jsonb("vulnerability_findings"),
+  lateralMovementPaths: jsonb("lateral_movement_paths"),
+  businessImpactAnalysis: jsonb("business_impact_analysis"),
+  
+  // Prioritized recommendations across all systems
+  recommendations: jsonb("recommendations").$type<Array<{
+    id: string;
+    priority: string;
+    title: string;
+    description: string;
+    affectedSystems: string[];
+    effort: string;
+    impact: string;
+  }>>(),
+  
+  // Timing
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  durationMs: integer("duration_ms"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertFullAssessmentSchema = createInsertSchema(fullAssessments).omit({
+  id: true,
+  progress: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertFullAssessment = z.infer<typeof insertFullAssessmentSchema>;
+export type FullAssessment = typeof fullAssessments.$inferSelect;
