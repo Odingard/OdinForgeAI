@@ -1971,12 +1971,7 @@ export async function registerRoutes(
   }
 
   // Get registration token for authenticated users (to display in UI)
-  app.get("/api/agents/registration-token", async (req: any, res) => {
-    // Require authentication - only logged-in users can view the token
-    if (!req.isAuthenticated || !req.isAuthenticated()) {
-      return res.status(401).json({ error: "Authentication required" });
-    }
-    
+  app.get("/api/agents/registration-token", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     const token = process.env.AGENT_REGISTRATION_TOKEN;
     if (!token) {
       return res.json({ 
