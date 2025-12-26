@@ -30,7 +30,7 @@ import {
   hashPassword,
   type UIAuthenticatedRequest,
 } from "./services/ui-auth";
-import { randomUUID } from "crypto";
+import { randomUUID, timingSafeEqual } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { registerReportV2Routes } from "./src/reportsV2/routes";
@@ -2045,7 +2045,7 @@ export async function registerRoutes(
       const tokenBuffer = Buffer.from(token);
       const expectedBuffer = Buffer.from(registrationToken);
       
-      if (tokenBuffer.length !== expectedBuffer.length || !require("crypto").timingSafeEqual(tokenBuffer, expectedBuffer)) {
+      if (tokenBuffer.length !== expectedBuffer.length || !timingSafeEqual(tokenBuffer, expectedBuffer)) {
         return res.status(401).json({ error: "Invalid registration token" });
       }
 
