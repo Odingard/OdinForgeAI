@@ -36,6 +36,7 @@ import { z } from "zod";
 import { registerReportV2Routes } from "./src/reportsV2/routes";
 import { calculateDefensivePosture, calculateAttackPredictions } from "./services/metrics-calculator";
 import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases";
+import { fullRecon, reconToExposures, type ReconResult } from "./services/external-recon";
 
 // UI Auth Validation Schemas
 const loginSchema = z.object({
@@ -3020,6 +3021,174 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
+  // ========== EXTERNAL RECONNAISSANCE ENDPOINTS ==========
+  // These routes perform external scanning of internet-facing assets
+  // without requiring agent installation
+
+  const reconScanSchema = z.object({
+    target: z.string().min(1).max(256),
+    scanTypes: z.object({
+      portScan: z.boolean().default(true),
+      sslCheck: z.boolean().default(true),
+      httpFingerprint: z.boolean().default(true),
+      dnsEnum: z.boolean().default(true),
+    }).optional(),
+  });
+
+  // In-memory store for recon results (per-session)
+  const reconResults: Map<string, ReconResult> = new Map();
+
+  app.post("/api/recon/scan", evaluationRateLimiter, async (req, res) => {
+    try {
+      const parsed = reconScanSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { target, scanTypes } = parsed.data;
+      const scanId = `recon-${randomUUID().slice(0, 8)}`;
+
+      // Validate target - only allow domain names and IPs, no internal ranges
+      const hostname = target.startsWith('http') 
+        ? new URL(target).hostname 
+        : target.split('/')[0].split(':')[0];
+      
+      // Block internal/private IPs
+      const privatePatterns = [
+        /^10\./,
+        /^172\.(1[6-9]|2[0-9]|3[01])\./,
+        /^192\.168\./,
+        /^127\./,
+        /^localhost$/i,
+        /^0\./,
+      ];
+      
+      if (privatePatterns.some(p => p.test(hostname))) {
+        return res.status(400).json({ 
+          error: "Cannot scan private/internal addresses",
+          message: "External reconnaissance is only available for public internet-facing targets"
+        });
+      }
+
+      // Start scan asynchronously
+      res.json({ 
+        scanId,
+        message: "Scan started",
+        target: hostname
+      });
+
+      // Run the scan in background
+      fullRecon(target, {
+        portScan: scanTypes?.portScan ?? true,
+        sslCheck: scanTypes?.sslCheck ?? true,
+        httpFingerprint: scanTypes?.httpFingerprint ?? true,
+        dnsEnum: scanTypes?.dnsEnum ?? true,
+      }).then(result => {
+        reconResults.set(scanId, result);
+        // Notify via WebSocket
+        wsService.broadcast({
+          type: 'recon_complete',
+          scanId,
+          target: hostname,
+          timestamp: new Date().toISOString(),
+        });
+      }).catch(err => {
+        console.error("Recon scan error:", err);
+        reconResults.set(scanId, {
+          target,
+          scanTime: new Date(),
+          errors: [err.message],
+        });
+      });
+    } catch (error) {
+      console.error("Recon scan error:", error);
+      res.status(500).json({ error: "Scan initiation failed" });
+    }
+  });
+
+  app.get("/api/recon/results/:scanId", async (req, res) => {
+    try {
+      const { scanId } = req.params;
+      const result = reconResults.get(scanId);
+      
+      if (!result) {
+        return res.status(404).json({ 
+          error: "Scan not found or still in progress",
+          message: "The scan may still be running. Try again in a few seconds."
+        });
+      }
+
+      // Convert to exposures for evaluation integration
+      const exposures = reconToExposures(result);
+
+      res.json({
+        scanId,
+        result,
+        exposures,
+        canCreateEvaluation: exposures.length > 0,
+      });
+    } catch (error) {
+      console.error("Get recon results error:", error);
+      res.status(500).json({ error: "Failed to retrieve results" });
+    }
+  });
+
+  // Create evaluation from recon findings
+  app.post("/api/recon/create-evaluation", evaluationRateLimiter, async (req, res) => {
+    try {
+      const { scanId, selectedExposures } = req.body;
+      
+      if (!scanId || !Array.isArray(selectedExposures) || selectedExposures.length === 0) {
+        return res.status(400).json({ error: "scanId and selectedExposures are required" });
+      }
+
+      const result = reconResults.get(scanId);
+      if (!result) {
+        return res.status(404).json({ error: "Scan results not found" });
+      }
+
+      // Create evaluation from findings
+      const exposures = reconToExposures(result);
+      const selected = exposures.filter((_, i: number) => selectedExposures.includes(i));
+      
+      if (selected.length === 0) {
+        return res.status(400).json({ error: "No valid exposures selected" });
+      }
+
+      // Determine priority based on highest severity
+      const severityOrder = ['critical', 'high', 'medium', 'low', 'info'];
+      const highestSeverity = selected.reduce((highest, exp) => {
+        return severityOrder.indexOf(exp.severity) < severityOrder.indexOf(highest) 
+          ? exp.severity 
+          : highest;
+      }, 'info' as 'critical' | 'high' | 'medium' | 'low' | 'info');
+      
+      const priorityMap: Record<string, string> = {
+        critical: 'critical',
+        high: 'high',
+        medium: 'medium',
+        low: 'low',
+        info: 'low',
+      };
+
+      const evaluation = await storage.createEvaluation({
+        assetId: result.target,
+        exposureType: selected[0].type,
+        priority: priorityMap[highestSeverity] || 'medium',
+        description: `External reconnaissance findings:\n${selected.map(e => `- ${e.description}`).join('\n')}\n\nEvidence:\n${selected.map(e => e.evidence).join('\n')}`,
+        organizationId: "default",
+      });
+
+      res.json({ 
+        evaluationId: evaluation.id,
+        message: "Evaluation created from reconnaissance findings"
+      });
+    } catch (error) {
+      console.error("Create evaluation from recon error:", error);
+      res.status(500).json({ error: "Failed to create evaluation" });
     }
   });
 

@@ -38,6 +38,7 @@ import {
   Download
 } from "lucide-react";
 import { DownloadCenter } from "@/components/DownloadCenter";
+import { ExternalRecon } from "@/components/ExternalRecon";
 import { Progress } from "@/components/ui/progress";
 
 interface EndpointAgent {
@@ -478,6 +479,7 @@ kubectl apply -f daemonset.yaml
       <Tabs defaultValue="agents" className="space-y-4">
         <TabsList>
           <TabsTrigger value="agents" data-testid="tab-agents">Agents</TabsTrigger>
+          <TabsTrigger value="recon" data-testid="tab-recon">External Recon</TabsTrigger>
           <TabsTrigger value="findings" data-testid="tab-findings">Findings</TabsTrigger>
           <TabsTrigger value="system" data-testid="tab-system">System</TabsTrigger>
         </TabsList>
@@ -571,6 +573,10 @@ kubectl apply -f daemonset.yaml
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="recon" className="space-y-4">
+          <ExternalRecon />
         </TabsContent>
 
         <TabsContent value="findings" className="space-y-4">
