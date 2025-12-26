@@ -141,6 +141,11 @@ export default function Agents() {
     queryKey: ["/api/agent-findings"],
   });
 
+  // Fetch registration token for download center
+  const { data: tokenData } = useQuery<{ token: string | null }>({
+    queryKey: ["/api/agents/registration-token"],
+  });
+
   // Query telemetry for a specific agent when selected, auto-refresh every 30s
   const { data: agentTelemetry, isLoading: telemetryLoading, refetch: refetchTelemetry } = useQuery<AgentTelemetry[]>({
     queryKey: [`/api/agents/${telemetryAgentId}/telemetry`],
@@ -307,7 +312,7 @@ kubectl apply -f daemonset.yaml
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DownloadCenter serverUrl={window.location.origin} />
+              <DownloadCenter serverUrl={window.location.origin} registrationToken={tokenData?.token || undefined} />
             </DialogContent>
           </Dialog>
           <Button variant="outline" onClick={() => setScriptDialogOpen(true)} data-testid="btn-view-script">
