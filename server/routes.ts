@@ -1970,6 +1970,23 @@ export async function registerRoutes(
     next();
   }
 
+  // Get registration token for authenticated users (to display in UI)
+  app.get("/api/agents/registration-token", async (req: any, res) => {
+    // Require authentication - only logged-in users can view the token
+    if (!req.isAuthenticated || !req.isAuthenticated()) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+    
+    const token = process.env.AGENT_REGISTRATION_TOKEN;
+    if (!token) {
+      return res.json({ 
+        token: null, 
+        message: "Auto-registration not configured. Set AGENT_REGISTRATION_TOKEN environment variable." 
+      });
+    }
+    res.json({ token });
+  });
+
   // Register a new agent
   app.post("/api/agents/register", authRateLimiter, async (req, res) => {
     try {
