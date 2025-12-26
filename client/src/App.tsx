@@ -24,6 +24,7 @@ import Simulations from "@/pages/Simulations";
 import UserManagement from "@/pages/UserManagement";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
+import FullAssessment from "@/pages/FullAssessment";
 import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, Bell, User, ChevronDown, LogOut } from "lucide-react";
@@ -49,6 +50,7 @@ function Router() {
       <Route path="/governance" component={Governance} />
       <Route path="/agents" component={Agents} />
       <Route path="/simulations" component={Simulations} />
+      <Route path="/full-assessment" component={FullAssessment} />
       <Route path="/advanced" component={Advanced} />
       <Route path="/admin/users" component={UserManagement} />
       <Route path="/admin/settings" component={Settings} />

@@ -37,6 +37,7 @@ import { registerReportV2Routes } from "./src/reportsV2/routes";
 import { calculateDefensivePosture, calculateAttackPredictions } from "./services/metrics-calculator";
 import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases";
 import { fullRecon, reconToExposures, type ReconResult } from "./services/external-recon";
+import { runFullAssessment } from "./services/full-assessment";
 
 // UI Auth Validation Schemas
 const loginSchema = z.object({
@@ -3250,6 +3251,79 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Create evaluation from recon error:", error);
       res.status(500).json({ error: "Failed to create evaluation" });
+    }
+  });
+
+  // ============================================================================
+  // Full Assessment (Multi-System Pentest) Endpoints
+  // ============================================================================
+
+  // Create and start a full assessment
+  app.post("/api/full-assessments", evaluationRateLimiter, async (req, res) => {
+    try {
+      const { name, description, agentIds, organizationId } = req.body;
+      
+      if (!name) {
+        return res.status(400).json({ error: "Assessment name is required" });
+      }
+
+      const assessment = await storage.createFullAssessment({
+        name,
+        description,
+        agentIds: agentIds || null,
+        organizationId: organizationId || "default",
+        status: "pending",
+        currentPhase: "Initializing...",
+      });
+
+      runFullAssessment(assessment.id).catch(error => {
+        console.error("Full assessment failed:", error);
+      });
+
+      res.json({ 
+        assessmentId: assessment.id,
+        message: "Full assessment started"
+      });
+    } catch (error) {
+      console.error("Create full assessment error:", error);
+      res.status(500).json({ error: "Failed to create assessment" });
+    }
+  });
+
+  // Get all full assessments
+  app.get("/api/full-assessments", async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+      const assessments = await storage.getFullAssessments(organizationId);
+      res.json(assessments);
+    } catch (error) {
+      console.error("Get full assessments error:", error);
+      res.status(500).json({ error: "Failed to fetch assessments" });
+    }
+  });
+
+  // Get a specific full assessment
+  app.get("/api/full-assessments/:id", async (req, res) => {
+    try {
+      const assessment = await storage.getFullAssessment(req.params.id);
+      if (!assessment) {
+        return res.status(404).json({ error: "Assessment not found" });
+      }
+      res.json(assessment);
+    } catch (error) {
+      console.error("Get full assessment error:", error);
+      res.status(500).json({ error: "Failed to fetch assessment" });
+    }
+  });
+
+  // Delete a full assessment
+  app.delete("/api/full-assessments/:id", async (req, res) => {
+    try {
+      await storage.deleteFullAssessment(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete full assessment error:", error);
+      res.status(500).json({ error: "Failed to delete assessment" });
     }
   });
 

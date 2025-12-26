@@ -49,6 +49,8 @@ import {
   type InsertUIUser,
   type UIRefreshToken,
   type InsertUIRefreshToken,
+  type FullAssessment,
+  type InsertFullAssessment,
   type SystemRoleId,
   systemRoleIds,
   uiRoles,
@@ -77,6 +79,7 @@ import {
   agentFindings,
   uiUsers,
   uiRefreshTokens,
+  fullAssessments,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -132,6 +135,13 @@ export interface IStorage {
   getScheduledScans(organizationId?: string): Promise<ScheduledScan[]>;
   updateScheduledScan(id: string, updates: Partial<ScheduledScan>): Promise<void>;
   deleteScheduledScan(id: string): Promise<void>;
+  
+  // Full Assessment operations
+  createFullAssessment(data: InsertFullAssessment): Promise<FullAssessment>;
+  getFullAssessment(id: string): Promise<FullAssessment | undefined>;
+  getFullAssessments(organizationId?: string): Promise<FullAssessment[]>;
+  updateFullAssessment(id: string, updates: Partial<FullAssessment>): Promise<void>;
+  deleteFullAssessment(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1234,6 +1244,47 @@ export class DatabaseStorage implements IStorage {
       lte(uiRefreshTokens.expiresAt, new Date())
     );
     return result.rowCount || 0;
+  }
+
+  // ========== Full Assessment Operations ==========
+
+  async createFullAssessment(data: InsertFullAssessment): Promise<FullAssessment> {
+    const id = `fa-${randomUUID().slice(0, 8)}`;
+    const [assessment] = await db
+      .insert(fullAssessments)
+      .values({ ...data, id, startedAt: new Date() })
+      .returning();
+    return assessment;
+  }
+
+  async getFullAssessment(id: string): Promise<FullAssessment | undefined> {
+    const [assessment] = await db
+      .select()
+      .from(fullAssessments)
+      .where(eq(fullAssessments.id, id));
+    return assessment;
+  }
+
+  async getFullAssessments(organizationId?: string): Promise<FullAssessment[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(fullAssessments)
+        .where(eq(fullAssessments.organizationId, organizationId))
+        .orderBy(desc(fullAssessments.createdAt));
+    }
+    return db.select().from(fullAssessments).orderBy(desc(fullAssessments.createdAt));
+  }
+
+  async updateFullAssessment(id: string, updates: Partial<FullAssessment>): Promise<void> {
+    await db
+      .update(fullAssessments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(fullAssessments.id, id));
+  }
+
+  async deleteFullAssessment(id: string): Promise<void> {
+    await db.delete(fullAssessments).where(eq(fullAssessments.id, id));
   }
 }
 
