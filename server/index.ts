@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { createDatabaseIndexes } from "./db-indexes";
 import { seedSystemRoles, seedDefaultUIUsers } from "./services/ui-auth";
+import { ensureAgentBinaries } from "./services/agent-builder";
 
 const app = express();
 const httpServer = createServer(app);
@@ -83,6 +84,13 @@ app.use((req, res, next) => {
     await seedDefaultUIUsers();
   } catch (error) {
     console.warn("UI user seeding skipped:", error instanceof Error ? error.message : error);
+  }
+  
+  // Build agent binaries if not present
+  try {
+    await ensureAgentBinaries();
+  } catch (error) {
+    console.warn("Agent binary build skipped:", error instanceof Error ? error.message : error);
   }
   
   await registerRoutes(httpServer, app);
