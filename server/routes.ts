@@ -2407,6 +2407,43 @@ export async function registerRoutes(
     }
   });
 
+  // Download agent binary by platform - proxies from GitHub or serves local files
+  app.get("/api/agents/download/:platform", async (req, res) => {
+    try {
+      const { platform } = req.params;
+      const validPlatforms = ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"];
+      
+      if (!validPlatforms.includes(platform)) {
+        return res.status(400).json({ error: `Invalid platform: ${platform}. Valid: ${validPlatforms.join(", ")}` });
+      }
+
+      const fs = await import("fs");
+      const path = await import("path");
+      
+      // First check for local binary
+      const filename = platform === "windows-amd64" 
+        ? `odinforge-agent-${platform}.exe` 
+        : `odinforge-agent-${platform}`;
+      const localPath = path.join(process.cwd(), "public", "agents", filename);
+      
+      if (fs.existsSync(localPath)) {
+        // Serve local binary
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+        const fileStream = fs.createReadStream(localPath);
+        fileStream.pipe(res);
+        return;
+      }
+
+      // Fallback: redirect to GitHub release
+      const githubUrl = `https://github.com/Odingard/OdinForgeAI/releases/download/agent-v${AGENT_RELEASE.version}/${filename}`;
+      res.redirect(302, githubUrl);
+    } catch (error) {
+      console.error("Error serving agent binary:", error);
+      res.status(500).json({ error: "Failed to serve agent binary" });
+    }
+  });
+
   // Get all agents (for dashboard)
   app.get("/api/agents", async (req, res) => {
     try {

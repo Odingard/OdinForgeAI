@@ -255,29 +255,74 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Platform Selection */}
+        {/* One-Line Auto-Installer - Primary Action */}
+        <div className="bg-primary/5 border-2 border-primary/30 rounded-lg p-6">
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Terminal className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="font-semibold text-lg">Automatic Installation</h3>
+                <Badge variant="secondary" className="text-xs">Recommended</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mb-4">
+                Run this single command to auto-detect your platform and install the agent:
+              </p>
+              <div className="relative bg-background border rounded-md p-4 font-mono text-sm overflow-x-auto">
+                <pre className="whitespace-pre-wrap break-all" data-testid="text-install-command">
+{`curl -fsSL ${window.location.origin}/api/install.sh | sudo bash -s -- \\
+  --server-url ${serverUrl || window.location.origin} \\
+  --registration-token ${registrationToken || "YOUR_TOKEN"}`}
+                </pre>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="absolute top-2 right-2"
+                  onClick={() => copyToClipboard(
+                    `curl -fsSL ${window.location.origin}/api/install.sh | sudo bash -s -- --server-url ${serverUrl || window.location.origin} --registration-token ${registrationToken || "YOUR_TOKEN"}`,
+                    "install-cmd"
+                  )}
+                  data-testid="btn-copy-install-cmd"
+                >
+                  {copiedId === "install-cmd" ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 mt-3 text-sm text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <span>Auto-detects Linux, macOS (Intel & Apple Silicon)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Manual Download Option */}
         {currentPlatform && (
-          <div className="bg-primary/5 border border-primary/20 rounded-lg p-6">
+          <div className="border rounded-lg p-4 bg-muted/30">
             <div className="flex items-start gap-4">
-              <div className="p-3 bg-primary/10 rounded-lg">
-                {getPlatformIcon(currentPlatform.os, "h-8 w-8 text-primary")}
+              <div className="p-2 bg-muted rounded-lg">
+                {getPlatformIcon(currentPlatform.os, "h-6 w-6")}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-2">
-                  <h3 className="font-semibold text-lg">
-                    {currentPlatform.displayName}
-                  </h3>
+                  <h4 className="font-medium">
+                    Manual Download: {currentPlatform.displayName}
+                  </h4>
                   {currentPlatform.platform === detectedOS.platform && (
-                    <Badge variant="secondary" className="text-xs">
+                    <Badge variant="outline" className="text-xs">
                       <Monitor className="h-3 w-3 mr-1" />
-                      Auto-detected
+                      Detected
                     </Badge>
                   )}
                 </div>
                 
                 {/* Quick Platform Selector */}
-                <div className="flex items-center gap-2 mb-4 flex-wrap">
-                  <span className="text-sm text-muted-foreground">Select your platform:</span>
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
+                  <span className="text-sm text-muted-foreground">Platform:</span>
                   {release.platforms.map((p) => (
                     <Button
                       key={p.platform}
@@ -297,11 +342,11 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
                 <div className="flex items-center gap-3 flex-wrap">
                   <Button 
                     asChild 
-                    size="lg"
+                    variant="outline"
                     data-testid="btn-download-selected"
                   >
                     <a 
-                      href={currentPlatform.downloadUrl} 
+                      href={`${window.location.origin}/api/agents/download/${currentPlatform.platform}`} 
                       download={currentPlatform.filename}
                     >
                       <Download className="h-4 w-4 mr-2" />
@@ -316,37 +361,6 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
             </div>
           </div>
         )}
-
-        {/* CLI Installer Option */}
-        <div className="border rounded-lg p-4 bg-muted/30">
-          <div className="flex items-start gap-3">
-            <Terminal className="h-5 w-5 text-muted-foreground mt-0.5" />
-            <div className="flex-1">
-              <h4 className="font-medium mb-1">One-Line Installer</h4>
-              <p className="text-sm text-muted-foreground mb-3">
-                For automated deployments, use our CLI installer that auto-detects your platform:
-              </p>
-              <div className="bg-background border rounded-md p-3 font-mono text-sm overflow-x-auto">
-                <code>
-                  curl -fsSL {window.location.origin}/api/install.sh | sudo bash -s -- \<br />
-                  &nbsp;&nbsp;--server-url {serverUrl || window.location.origin} \<br />
-                  &nbsp;&nbsp;--registration-token {registrationToken || "YOUR_TOKEN"}
-                </code>
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                Or download the standalone installer from our{" "}
-                <a 
-                  href="https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.2"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary underline"
-                >
-                  GitHub releases
-                </a>.
-              </p>
-            </div>
-          </div>
-        </div>
 
         {/* All Platforms Section */}
         <div>
@@ -436,7 +450,7 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
                           asChild
                           data-testid={`btn-download-${platform.platform}`}
                         >
-                          <a href={platform.downloadUrl} download={platform.filename}>
+                          <a href={`${window.location.origin}/api/agents/download/${platform.platform}`} download={platform.filename}>
                             <Download className="h-3 w-3" />
                           </a>
                         </Button>
