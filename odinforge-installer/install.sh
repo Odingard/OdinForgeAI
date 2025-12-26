@@ -1,17 +1,18 @@
 #!/bin/bash
 #
 # OdinForge Agent Installer Script
-# Usage: curl -fsSL https://your-server/api/install.sh | sudo bash -s -- --server-url URL --registration-token TOKEN
+# Auto-detects platform and installs the agent with zero manual steps.
 #
-# NOTE: This script downloads from GitHub releases. SHA256 verification is not
-# performed in this script version. For checksum verification, use the standalone
-# CLI installer with --skip-checksum=false (default).
+# Usage:
+#   curl -fsSL https://your-server/api/install.sh | sudo bash -s -- \
+#     --server-url https://your-server --registration-token TOKEN
+#
+# The script downloads binaries from your OdinForge server, not GitHub.
 #
 
 set -e
 
 VERSION="1.0.2"
-GITHUB_BASE_URL="https://github.com/Odingard/OdinForgeAI/releases/download/agent-v${VERSION}"
 
 # Colors
 RED='\033[0;31m'
@@ -114,13 +115,8 @@ detect_platform() {
 
 get_download_url() {
     local platform="$1"
-    case "$platform" in
-        linux-amd64)  echo "${GITHUB_BASE_URL}/odinforge-agent-linux-amd64" ;;
-        linux-arm64)  echo "${GITHUB_BASE_URL}/odinforge-agent-linux-arm64" ;;
-        darwin-amd64) echo "${GITHUB_BASE_URL}/odinforge-agent-darwin-amd64" ;;
-        darwin-arm64) echo "${GITHUB_BASE_URL}/odinforge-agent-darwin-arm64" ;;
-        *)            log_error "Unknown platform: $platform"; exit 1 ;;
-    esac
+    # Download from OdinForge server instead of GitHub
+    echo "${SERVER_URL}/api/agents/download/${platform}"
 }
 
 get_filename() {

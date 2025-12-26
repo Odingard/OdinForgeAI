@@ -243,10 +243,10 @@ export default function Advanced() {
       </div>
 
       {isInitialData && (
-        <Alert className="border-amber-500/30 bg-amber-500/10" data-testid="alert-sample-data">
+        <Alert className="border-amber-500/30 bg-amber-500/10" data-testid="alert-no-data">
           <AlertTriangle className="h-4 w-4 text-amber-400" />
           <AlertDescription className="text-amber-400">
-            Showing initial sample data. Run evaluations and simulations to generate real security metrics.
+            No security data yet. Run evaluations, deploy agents, or use External Recon to gather live findings.
           </AlertDescription>
         </Alert>
       )}
