@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { 
   Zap, 
   Target, 
@@ -7,19 +8,10 @@ import {
   AlertTriangle, 
   Activity, 
   RefreshCw,
-  Plus,
+  ScanSearch,
   Loader2,
-  Wand2,
-  FileText,
-  ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { StatCard } from "./StatCard";
 import { FilterBar } from "./FilterBar";
 import { EvaluationTable, Evaluation } from "./EvaluationTable";
@@ -69,6 +61,7 @@ interface ProgressEvent {
 }
 
 export function Dashboard() {
+  const [, navigate] = useLocation();
   const [filter, setFilter] = useState("all");
   const [showNewModal, setShowNewModal] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
@@ -224,35 +217,15 @@ export function Dashboard() {
             <RefreshCw className={`h-3.5 w-3.5 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                size="sm"
-                className="bg-gradient-to-r from-cyan-600 to-blue-600"
-                data-testid="button-new-evaluation"
-              >
-                <Plus className="h-3.5 w-3.5 mr-2" />
-                New Evaluation
-                <ChevronDown className="h-3.5 w-3.5 ml-2" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem onClick={() => setShowWizard(true)} data-testid="menu-guided-wizard">
-                <Wand2 className="h-4 w-4 mr-2" />
-                <div>
-                  <div className="font-medium">Guided Wizard</div>
-                  <div className="text-xs text-muted-foreground">Step-by-step templates</div>
-                </div>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowNewModal(true)} data-testid="menu-quick-evaluation">
-                <FileText className="h-4 w-4 mr-2" />
-                <div>
-                  <div className="font-medium">Quick Evaluation</div>
-                  <div className="text-xs text-muted-foreground">Manual description input</div>
-                </div>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button 
+            size="sm"
+            className="bg-gradient-to-r from-cyan-600 to-blue-600"
+            data-testid="button-full-assessment"
+            onClick={() => navigate("/full-assessment")}
+          >
+            <ScanSearch className="h-3.5 w-3.5 mr-2" />
+            Full Assessment
+          </Button>
         </div>
       </div>
 
