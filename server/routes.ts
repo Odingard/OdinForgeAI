@@ -81,15 +81,15 @@ const securityFindingSchema = z.object({
 });
 
 const agentTelemetrySchema = z.object({
-  systemInfo: z.record(z.unknown()).optional(),
-  resourceMetrics: z.record(z.unknown()).optional(),
-  services: z.array(z.record(z.unknown())).optional(),
-  openPorts: z.array(z.record(z.unknown())).optional(),
-  networkConnections: z.array(z.record(z.unknown())).optional(),
-  installedSoftware: z.array(z.record(z.unknown())).optional(),
-  configData: z.record(z.unknown()).optional(),
-  securityFindings: z.array(securityFindingSchema).max(100).optional(),
-  collectedAt: z.string().datetime().optional(),
+  systemInfo: z.record(z.unknown()).optional().nullable(),
+  resourceMetrics: z.record(z.unknown()).optional().nullable(),
+  services: z.array(z.record(z.unknown())).optional().nullable(),
+  openPorts: z.array(z.record(z.unknown())).optional().nullable(),
+  networkConnections: z.array(z.record(z.unknown())).optional().nullable(),
+  installedSoftware: z.array(z.record(z.unknown())).optional().nullable(),
+  configData: z.record(z.unknown()).optional().nullable(),
+  securityFindings: z.array(securityFindingSchema).max(100).optional().nullable(),
+  collectedAt: z.string().datetime().optional().nullable(),
 });
 
 export async function registerRoutes(
@@ -2290,8 +2290,35 @@ export async function registerRoutes(
           continue;
         }
 
+        // Transform Go agent event format to expected schema
+        // Go agent sends: { type, payload: { system, metrics } }
+        // Server expects: { systemInfo, resourceMetrics }
+        let transformedEvent: any = { ...event };
+        
+        if (event.type === "heartbeat") {
+          // Update agent heartbeat timestamp
+          await storage.updateAgentHeartbeat(req.agent.id);
+          processedCount++;
+          continue; // Heartbeat doesn't need telemetry record
+        }
+        
+        if (event.type === "telemetry" && event.payload) {
+          // Transform Go agent payload to expected schema
+          transformedEvent = {
+            systemInfo: event.payload.system || event.payload.systemInfo || null,
+            resourceMetrics: event.payload.metrics || event.payload.resourceMetrics || null,
+            services: event.payload.services || null,
+            openPorts: event.payload.openPorts || event.payload.open_ports || null,
+            networkConnections: event.payload.networkConnections || event.payload.network_connections || null,
+            installedSoftware: event.payload.installedSoftware || event.payload.installed_software || null,
+            configData: event.payload.configData || event.payload.config_data || null,
+            securityFindings: event.payload.securityFindings || event.payload.security_findings || null,
+            collectedAt: event.timestamp_utc || event.collectedAt,
+          };
+        }
+
         // Validate with schema (strict validation - reject invalid events)
-        const parsed = agentTelemetrySchema.safeParse(event);
+        const parsed = agentTelemetrySchema.safeParse(transformedEvent);
         if (!parsed.success) {
           validationErrors.push(`Event ${i}: ${parsed.error.errors.map(e => e.message).join(", ")}`);
           skippedCount++;
