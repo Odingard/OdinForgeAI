@@ -2246,8 +2246,9 @@ export async function registerRoutes(
       }
       // Note: tenant_id is ignored - we use req.agent.organizationId from authentication
 
-      if (events.length === 0) {
-        return res.json({ success: true, eventsProcessed: 0 });
+      // Handle empty events array gracefully (agent may flush with no events)
+      if (!events || events.length === 0) {
+        return res.json({ success: true, eventsProcessed: 0, message: "No events to process" });
       }
 
       let processedCount = 0;

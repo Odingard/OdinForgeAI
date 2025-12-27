@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { createDatabaseIndexes } from "./db-indexes";
 import { seedSystemRoles, seedDefaultUIUsers } from "./services/ui-auth";
 import { ensureAgentBinaries } from "./services/agent-builder";
+import { gunzipSync, inflateSync } from "zlib";
 
 const app = express();
 const httpServer = createServer(app);
@@ -15,10 +16,89 @@ declare module "http" {
   }
 }
 
-// JSON body parser with gzip/deflate support for Go agent telemetry
+// Middleware to decompress gzip/deflate request bodies from Go agent
+// Must be placed BEFORE express.json() parser
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const contentEncoding = req.headers["content-encoding"];
+  
+  if (!contentEncoding) {
+    return next();
+  }
+  
+  const chunks: Buffer[] = [];
+  
+  req.on("data", (chunk: Buffer) => {
+    chunks.push(chunk);
+  });
+  
+  req.on("end", () => {
+    if (chunks.length === 0) {
+      // Empty compressed body - set empty object and continue
+      (req as any).body = {};
+      (req as any)._body = true;
+      delete req.headers["content-encoding"];
+      return next();
+    }
+    
+    const compressed = Buffer.concat(chunks);
+    
+    try {
+      let decompressed: Buffer;
+      
+      if (contentEncoding === "gzip") {
+        decompressed = gunzipSync(compressed);
+      } else if (contentEncoding === "deflate") {
+        decompressed = inflateSync(compressed);
+      } else {
+        // Unknown encoding, pass through
+        return next();
+      }
+      
+      const decompressedStr = decompressed.toString("utf-8").trim();
+      
+      // Log what we received for debugging agent communication
+      if (req.path.includes("/agents/events")) {
+        console.log(`[Decompress] Agent events - compressed size: ${compressed.length}, decompressed size: ${decompressed.length}`);
+        console.log(`[Decompress] Compressed hex: ${compressed.toString("hex").substring(0, 100)}`);
+        console.log(`[Decompress] Decompressed content preview: ${decompressedStr.substring(0, 200)}`);
+      }
+      
+      // Handle empty decompressed content (agent sending empty gzip)
+      if (!decompressedStr || decompressedStr === "") {
+        // Set a default empty events structure for agent events endpoint
+        if (req.path.includes("/agents/events")) {
+          (req as any).body = { events: [] };
+        } else {
+          (req as any).body = {};
+        }
+        (req as any)._body = true;
+        delete req.headers["content-encoding"];
+        return next();
+      }
+      
+      // Replace request body with decompressed data
+      (req as any).body = JSON.parse(decompressedStr);
+      // Remove content-encoding header so downstream parsers don't try to decompress again
+      delete req.headers["content-encoding"];
+      // Mark as already parsed
+      (req as any)._body = true;
+      
+      next();
+    } catch (err) {
+      console.error("[Decompress] Error decompressing request:", err);
+      res.status(400).json({ error: "Failed to decompress request body" });
+    }
+  });
+  
+  req.on("error", (err) => {
+    console.error("[Decompress] Stream error:", err);
+    res.status(400).json({ error: "Request stream error" });
+  });
+});
+
+// JSON body parser for non-compressed requests
 app.use(
   express.json({
-    inflate: true,
     limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
