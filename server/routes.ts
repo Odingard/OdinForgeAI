@@ -2304,8 +2304,19 @@ export async function registerRoutes(
         
         if (event.type === "telemetry" && event.payload) {
           // Transform Go agent payload to expected schema
+          // Include network info in systemInfo for display
+          const systemInfo = event.payload.system || event.payload.systemInfo || {};
+          const networkInfo = event.payload.network || null;
+          
+          // Merge network info into systemInfo for easy display
+          if (networkInfo) {
+            systemInfo.network = networkInfo;
+            systemInfo.primaryIP = networkInfo.primary_ip || networkInfo.primaryIP;
+            systemInfo.interfaces = networkInfo.interfaces;
+          }
+          
           transformedEvent = {
-            systemInfo: event.payload.system || event.payload.systemInfo || null,
+            systemInfo: systemInfo,
             resourceMetrics: event.payload.metrics || event.payload.resourceMetrics || null,
             services: event.payload.services || null,
             openPorts: event.payload.openPorts || event.payload.open_ports || null,
