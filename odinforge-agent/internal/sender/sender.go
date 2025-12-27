@@ -84,7 +84,8 @@ func (s *Sender) postBatch(ctx context.Context, events []json.RawMessage) error 
         }
         raw, _ := json.Marshal(bodyObj)
 
-        var body io.Reader
+        // Prepare compressed body bytes once (if compression enabled)
+        var bodyBytes []byte
         var contentEncoding string
 
         if s.cfg.Transport.Compress {
@@ -92,27 +93,32 @@ func (s *Sender) postBatch(ctx context.Context, events []json.RawMessage) error 
                 gz := gzip.NewWriter(&buf)
                 _, _ = gz.Write(raw)
                 _ = gz.Close()
-                body = bytes.NewReader(buf.Bytes())
+                bodyBytes = buf.Bytes()
                 contentEncoding = "gzip"
         } else {
-                body = bytes.NewReader(raw)
-        }
-
-        req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
-        if contentEncoding != "" {
-                req.Header.Set("Content-Encoding", contentEncoding)
-        }
-
-        req.Header.Set("Content-Type", "application/json")
-
-        // Auth: API key (fallback) or mTLS-only (recommended)
-        if strings.EqualFold(s.cfg.Auth.Mode, "api_key") && s.cfg.Auth.APIKey != "" {
-                req.Header.Set("Authorization", "Bearer "+s.cfg.Auth.APIKey)
+                bodyBytes = raw
         }
 
         // Simple retry with backoff + jitter-ish
+        // NOTE: Create a fresh request on each attempt to avoid consumed body reader issue
         backoff := 1 * time.Second
         for attempt := 0; attempt < 5; attempt++ {
+                // Create a new request with fresh body reader on each attempt
+                req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+                if err != nil {
+                        return err
+                }
+
+                if contentEncoding != "" {
+                        req.Header.Set("Content-Encoding", contentEncoding)
+                }
+                req.Header.Set("Content-Type", "application/json")
+
+                // Auth: API key (fallback) or mTLS-only (recommended)
+                if strings.EqualFold(s.cfg.Auth.Mode, "api_key") && s.cfg.Auth.APIKey != "" {
+                        req.Header.Set("Authorization", "Bearer "+s.cfg.Auth.APIKey)
+                }
+
                 resp, err := s.client.Do(req)
                 if err == nil && resp != nil {
                         _, _ = io.Copy(io.Discard, resp.Body)
