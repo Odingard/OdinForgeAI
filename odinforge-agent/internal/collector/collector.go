@@ -35,11 +35,12 @@ func (c *Collector) CollectTelemetry(ctx context.Context) (Event, error) {
                 return Event{}, err
         }
         met := GetMetrics()
+        net := GetNetworkInfo()
 
         payload := map[string]interface{}{
                 "system":  sys,
                 "metrics": met,
-                // v1 keeps it minimal; add modules later: ports/services/security findings
+                "network": net,
         }
 
         return Event{
