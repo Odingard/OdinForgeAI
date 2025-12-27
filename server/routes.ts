@@ -2293,6 +2293,11 @@ export async function registerRoutes(
           .map(f => `${f.findingType}|${f.severity}|${f.title}|${f.affectedComponent || ""}`)
       );
 
+      // Track if we need to update the authenticated agent with Go agent metadata
+      let goAgentId: string | null = null;
+      let goAgentHostname: string | null = null;
+      let goAgentPrimaryIP: string | null = null;
+      
       for (let i = 0; i < events.length; i++) {
         const rawEvent = events[i];
         
@@ -2315,6 +2320,11 @@ export async function registerRoutes(
           validationErrors.push(`Event ${i}: must be an object`);
           skippedCount++;
           continue;
+        }
+        
+        // Extract Go agent ID if present (for syncing agent identity)
+        if (event.agent_id && !goAgentId) {
+          goAgentId = event.agent_id;
         }
 
         // Transform Go agent event format to expected schema
@@ -2340,6 +2350,16 @@ export async function registerRoutes(
             systemInfo.network = networkInfo;
             systemInfo.primaryIP = networkInfo.primary_ip || networkInfo.primaryIP;
             systemInfo.interfaces = networkInfo.interfaces;
+            
+            // Track primary IP for agent update
+            if (!goAgentPrimaryIP && (networkInfo.primary_ip || networkInfo.primaryIP)) {
+              goAgentPrimaryIP = networkInfo.primary_ip || networkInfo.primaryIP;
+            }
+          }
+          
+          // Extract hostname for agent update
+          if (!goAgentHostname && systemInfo.hostname) {
+            goAgentHostname = systemInfo.hostname;
           }
           
           transformedEvent = {
@@ -2441,6 +2461,19 @@ export async function registerRoutes(
         }
       }
 
+      // Update agent record with Go agent metadata (hostname, IP) if we found it
+      if (goAgentHostname || goAgentPrimaryIP || goAgentId) {
+        try {
+          const updateData: any = {};
+          if (goAgentHostname) updateData.hostname = goAgentHostname;
+          if (goAgentPrimaryIP) updateData.ipAddresses = [goAgentPrimaryIP];
+          
+          await storage.updateEndpointAgent(req.agent.id, updateData);
+        } catch (err) {
+          console.warn("[Agent Events] Failed to update agent metadata:", err);
+        }
+      }
+      
       // Return failure if no events were processed successfully
       if (processedCount === 0 && skippedCount > 0) {
         return res.status(400).json({ 
