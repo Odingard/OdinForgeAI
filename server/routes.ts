@@ -98,6 +98,33 @@ export async function registerRoutes(
 ): Promise<Server> {
   wsService.initialize(httpServer);
   
+  // ========== AGENT BINARY DOWNLOADS ==========
+  // Serve agent binaries from public/agents directory (no auth required for download)
+  app.get("/agents/:filename", (req, res) => {
+    const filename = req.params.filename;
+    // Only allow specific binary filenames
+    const validBinaries = [
+      "odinforge-agent-linux-amd64",
+      "odinforge-agent-linux-arm64",
+      "odinforge-agent-darwin-amd64",
+      "odinforge-agent-darwin-arm64",
+      "odinforge-agent-windows-amd64.exe"
+    ];
+    
+    if (!validBinaries.includes(filename)) {
+      return res.status(404).json({ error: "Binary not found" });
+    }
+    
+    const binaryPath = path.join(process.cwd(), "public", "agents", filename);
+    if (!fs.existsSync(binaryPath)) {
+      return res.status(404).json({ error: "Binary not yet built" });
+    }
+    
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.sendFile(binaryPath);
+  });
+  
   // ========== UI AUTHENTICATION ENDPOINTS ==========
   // These routes are for control plane UI authentication ONLY
   // They do NOT affect /api/* service-to-service authentication
