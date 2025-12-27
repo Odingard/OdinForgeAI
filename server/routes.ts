@@ -2626,7 +2626,39 @@ export async function registerRoutes(
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const telemetry = await storage.getAgentTelemetry(req.params.id, limit);
-      res.json(telemetry);
+      
+      // Transform telemetry data to match frontend expected format
+      const transformedTelemetry = telemetry.map(t => {
+        // Transform resourceMetrics from Go agent format to frontend format
+        let resourceMetrics = t.resourceMetrics as any;
+        if (resourceMetrics) {
+          resourceMetrics = {
+            cpuPercent: resourceMetrics.cpu_percent ?? resourceMetrics.cpuPercent,
+            memoryPercent: resourceMetrics.mem_used_pct ?? resourceMetrics.memoryPercent,
+            diskPercent: resourceMetrics.disk_used_pct ?? resourceMetrics.diskPercent,
+            // Preserve any additional fields
+            ...resourceMetrics,
+          };
+        }
+        
+        // Transform systemInfo to include kernelVersion, osVersion
+        let systemInfo = t.systemInfo as any;
+        if (systemInfo) {
+          systemInfo = {
+            ...systemInfo,
+            kernelVersion: systemInfo.kernel_version ?? systemInfo.kernelVersion,
+            osVersion: systemInfo.platform_version ?? systemInfo.osVersion,
+          };
+        }
+        
+        return {
+          ...t,
+          resourceMetrics,
+          systemInfo,
+        };
+      });
+      
+      res.json(transformedTelemetry);
     } catch (error) {
       console.error("Error fetching agent telemetry:", error);
       res.status(500).json({ error: "Failed to fetch agent telemetry" });
