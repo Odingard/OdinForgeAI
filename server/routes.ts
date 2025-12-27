@@ -2231,12 +2231,20 @@ export async function registerRoutes(
   // Accepts batched events from the Go agent collector
   app.post("/api/agents/events", agentTelemetryRateLimiter, authenticateAgent, async (req: any, res) => {
     try {
-      const { events } = req.body;
-      // Note: tenant_id is ignored - we use req.agent.organizationId from authentication
-      
-      if (!Array.isArray(events)) {
-        return res.status(400).json({ error: "Events must be an array" });
+      // Support both formats:
+      // 1. { events: [...] } - wrapped format
+      // 2. [...] - direct array format
+      let events: any[];
+      if (Array.isArray(req.body)) {
+        events = req.body;
+      } else if (req.body && Array.isArray(req.body.events)) {
+        events = req.body.events;
+      } else {
+        // Log what we received for debugging
+        console.log("[Agent Events] Received body type:", typeof req.body, "keys:", req.body ? Object.keys(req.body) : "null");
+        return res.status(400).json({ error: "Events must be an array or object with events array" });
       }
+      // Note: tenant_id is ignored - we use req.agent.organizationId from authentication
 
       if (events.length === 0) {
         return res.json({ success: true, eventsProcessed: 0 });
