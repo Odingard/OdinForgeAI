@@ -23,7 +23,7 @@ type BoltQueue struct {
 }
 
 func NewBoltQueue(path string, maxEvents int) (*BoltQueue, error) {
-        db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 1 * time.Second})
+        db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: 10 * time.Second})
         if err != nil {
                 return nil, err
         }
