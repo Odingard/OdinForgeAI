@@ -108,6 +108,14 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Serve agent binaries directly - must be before Vite middleware
+import path from "path";
+app.use("/agents", express.static(path.join(process.cwd(), "public", "agents"), {
+  setHeaders: (res) => {
+    res.setHeader("Content-Type", "application/octet-stream");
+  }
+}));
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
