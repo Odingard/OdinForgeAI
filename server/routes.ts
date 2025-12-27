@@ -2366,7 +2366,7 @@ export async function registerRoutes(
             systemInfo: systemInfo,
             resourceMetrics: event.payload.metrics || event.payload.resourceMetrics || null,
             services: event.payload.services || null,
-            openPorts: event.payload.openPorts || event.payload.open_ports || null,
+            openPorts: event.payload.ports || event.payload.openPorts || event.payload.open_ports || null,
             networkConnections: event.payload.networkConnections || event.payload.network_connections || null,
             installedSoftware: event.payload.installedSoftware || event.payload.installed_software || null,
             configData: event.payload.configData || event.payload.config_data || null,
