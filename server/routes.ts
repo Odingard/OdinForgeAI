@@ -2042,11 +2042,16 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Registration token required" });
       }
 
+      // Debug: Log token lengths to diagnose shell escaping issues
+      console.log(`[Agent Registration] Received token length: ${token.length}, Expected length: ${registrationToken.length}`);
+      console.log(`[Agent Registration] Token match: ${token === registrationToken}`);
+
       // Validate the registration token (constant-time comparison to prevent timing attacks)
       const tokenBuffer = Buffer.from(token);
       const expectedBuffer = Buffer.from(registrationToken);
       
       if (tokenBuffer.length !== expectedBuffer.length || !timingSafeEqual(tokenBuffer, expectedBuffer)) {
+        console.log(`[Agent Registration] Token mismatch - received: "${token.substring(0, 3)}..." vs expected: "${registrationToken.substring(0, 3)}..."`);
         return res.status(401).json({ error: "Invalid registration token" });
       }
 
