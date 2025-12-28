@@ -233,9 +233,24 @@ func (l *LaunchdInstaller) Install(cfg InstallConfig) error {
                 return fmt.Errorf("failed to create plist: %w", err)
         }
 
-        // Load the service
-        if err := exec.Command("launchctl", "load", plistPath).Run(); err != nil {
-                return fmt.Errorf("failed to load service: %w", err)
+        // Stop and unload any existing service first (ignore errors if not loaded)
+        exec.Command("launchctl", "bootout", "system/com.odinforge.agent").Run()
+
+        // Bootstrap the service using modern launchctl (launchctl load is deprecated)
+        if err := exec.Command("launchctl", "bootstrap", "system", plistPath).Run(); err != nil {
+                // Fallback to legacy load for older macOS versions
+                if err := exec.Command("launchctl", "load", plistPath).Run(); err != nil {
+                        return fmt.Errorf("failed to load service: %w", err)
+                }
+        }
+
+        // Enable the service to ensure it starts on boot
+        exec.Command("launchctl", "enable", "system/com.odinforge.agent").Run()
+
+        // Verify the service is running
+        if err := exec.Command("launchctl", "kickstart", "-k", "system/com.odinforge.agent").Run(); err != nil {
+                // Not fatal, service might already be running from bootstrap
+                fmt.Printf("Note: kickstart returned: %v (service may already be running)\n", err)
         }
 
         return nil
@@ -244,8 +259,14 @@ func (l *LaunchdInstaller) Install(cfg InstallConfig) error {
 func (l *LaunchdInstaller) Uninstall(cfg InstallConfig) error {
         plistPath := "/Library/LaunchDaemons/com.odinforge.agent.plist"
 
-        // Unload the service
-        exec.Command("launchctl", "unload", plistPath).Run()
+        // Disable the service
+        exec.Command("launchctl", "disable", "system/com.odinforge.agent").Run()
+
+        // Bootout the service using modern launchctl (unload is deprecated)
+        if err := exec.Command("launchctl", "bootout", "system/com.odinforge.agent").Run(); err != nil {
+                // Fallback to legacy unload for older macOS versions
+                exec.Command("launchctl", "unload", plistPath).Run()
+        }
 
         // Remove plist
         os.Remove(plistPath)
@@ -261,11 +282,23 @@ func (l *LaunchdInstaller) Status(cfg InstallConfig) (ServiceStatus, error) {
                 status.Installed = true
         }
 
-        // Check if running using launchctl
-        out, err := exec.Command("launchctl", "list", "com.odinforge.agent").Output()
+        // Check if running using modern launchctl print
+        out, err := exec.Command("launchctl", "print", "system/com.odinforge.agent").Output()
         if err == nil && len(out) > 0 {
                 status.Running = true
                 status.Enabled = true
+                // Try to extract PID from output
+                outStr := string(out)
+                if idx := containsIndex(outStr, "pid = "); idx != -1 {
+                        fmt.Sscanf(outStr[idx+6:], "%d", &status.PID)
+                }
+        } else {
+                // Fallback to legacy list command
+                out, err = exec.Command("launchctl", "list", "com.odinforge.agent").Output()
+                if err == nil && len(out) > 0 {
+                        status.Running = true
+                        status.Enabled = true
+                }
         }
 
         return status, nil
@@ -584,4 +617,13 @@ func containsHelper(s, substr string) bool {
                 }
         }
         return false
+}
+
+func containsIndex(s, substr string) int {
+        for i := 0; i <= len(s)-len(substr); i++ {
+                if s[i:i+len(substr)] == substr {
+                        return i
+                }
+        }
+        return -1
 }
