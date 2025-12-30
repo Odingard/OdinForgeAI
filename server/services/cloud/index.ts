@@ -250,6 +250,67 @@ export class CloudIntegrationService {
       lastAgentDeploymentAttempt: new Date(),
     });
 
+    // Pre-register the agent in the database immediately
+    // This ensures the agent shows up in the Agents list right away
+    const apiKey = `ak-${randomUUID()}`;
+    const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
+    
+    // Determine platform from asset type/metadata
+    let platform = "linux";
+    if (asset.rawMetadata?.platform === "windows" || asset.rawMetadata?.osType === "Windows") {
+      platform = "windows";
+    } else if (connection.provider === "azure" && asset.rawMetadata?.osType === "Linux") {
+      platform = "linux";
+    } else if (connection.provider === "gcp" || connection.provider === "aws") {
+      platform = "linux";
+    }
+
+    // Create the agent record with pending status
+    let agentId = "";
+    try {
+      const newAgent = await storage.createEndpointAgent({
+        organizationId: asset.organizationId,
+        agentName: `${assetName} (${connection.provider.toUpperCase()})`,
+        apiKey,
+        hostname: asset.assetName || asset.providerResourceId,
+        platform,
+        architecture: "x86_64",
+        ipAddresses: asset.privateIpAddresses || asset.publicIpAddresses || [],
+        capabilities: ["telemetry", "vulnerability_scan"],
+        status: "pending",
+        tags: [
+          `cloud:${connection.provider}`,
+          `asset:${asset.id}`,
+          `auto-deployed`,
+          `region:${asset.region || "unknown"}`,
+        ],
+        environment: "production",
+      });
+      agentId = newAgent.id;
+
+      console.log(`[CloudDeploy] Pre-registered agent ${agentId} for asset ${assetName}`);
+    } catch (error: any) {
+      console.error(`[CloudDeploy] Failed to pre-register agent:`, error.message);
+      // Abort deployment if we can't create the agent record
+      await storage.updateAgentDeploymentJob(jobId, {
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: `Failed to pre-register agent: ${error.message}`,
+      });
+      await storage.updateCloudAsset(asset.id, {
+        agentDeploymentStatus: "failed",
+        agentDeploymentError: `Failed to pre-register agent: ${error.message}`,
+      });
+      return;
+    }
+
+    // Link the cloud asset to the pre-registered agent immediately (if created)
+    if (agentId) {
+      await storage.updateCloudAsset(asset.id, {
+        agentId,
+      });
+    }
+
     const registrationToken = process.env.AGENT_REGISTRATION_TOKEN || "auto-deploy-token";
     const serverUrl = process.env.REPLIT_DEV_DOMAIN 
       ? `https://${process.env.REPLIT_DEV_DOMAIN}`
@@ -269,13 +330,18 @@ export class CloudIntegrationService {
       await storage.updateAgentDeploymentJob(jobId, {
         status: "success",
         completedAt: new Date(),
-        resultAgentId: result.agentId,
+        resultAgentId: agentId,
       });
 
       await storage.updateCloudAsset(asset.id, {
         agentInstalled: true,
-        agentId: result.agentId,
+        agentId,
         agentDeploymentStatus: "success",
+      });
+
+      // Update agent status to offline (waiting for connection)
+      await storage.updateEndpointAgent(agentId, {
+        status: "offline",
       });
     } else {
       const job = await storage.getAgentDeploymentJob(jobId);
@@ -305,6 +371,17 @@ export class CloudIntegrationService {
         await storage.updateCloudAsset(asset.id, {
           agentDeploymentStatus: "failed",
           agentDeploymentError: result.errorMessage,
+        });
+
+        // Update agent status to show deployment failed
+        await storage.updateEndpointAgent(agentId, {
+          status: "offline",
+          tags: [
+            `cloud:${connection.provider}`,
+            `asset:${asset.id}`,
+            `auto-deployed`,
+            `deployment-failed`,
+          ],
         });
       }
     }
