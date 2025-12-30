@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: odinforge
-  labels:
-    app.kubernetes.io/name: odinforge
-    app.kubernetes.io/component: security-monitoring

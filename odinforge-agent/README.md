@@ -1,146 +1,136 @@
-# OdinForge Agent (Go)
+# OdinForge Security Agent
 
-A lightweight, cross-platform telemetry agent that collects system metrics and sends them to the OdinForge API.
+A lightweight, cross-platform security agent for the OdinForge Adversarial Exposure Validation (AEV) platform. The agent collects system telemetry, security findings, and enables real-time endpoint monitoring.
 
 ## Features
 
-- **System Metrics**: CPU, memory, and disk usage collection
-- **Durable Queue**: BoltDB-backed queue for offline resilience
-- **Secure Transport**: HTTPS with optional mTLS and SPKI pinning
-- **Flexible Config**: YAML file + environment variable override
-- **Graceful Shutdown**: Proper signal handling (SIGINT, SIGTERM)
-- **Batch Delivery**: Gzip-compressed batch uploads with retry logic
+- **Cross-Platform**: Supports Linux, macOS, Windows, Docker, and Kubernetes
+- **Container-Aware**: Automatic detection of Docker, Kubernetes, containerd, podman, and LXC
+- **Lightweight**: Minimal resource footprint with configurable collection intervals
+- **Offline Resilient**: Queues telemetry locally when disconnected, syncs when restored
+- **Secure**: TLS encryption, token-based authentication
 
-## Run Locally
+## Quick Start
 
+### One-Line Installation
+
+**macOS/Linux:**
 ```bash
-export ODINFORGE_SERVER_URL="https://your-odinforge-api"
-export ODINFORGE_TENANT_ID="org_123"
-export ODINFORGE_AUTH_MODE="api_key"
-export ODINFORGE_API_KEY="odin_..."
-go run ./cmd/agent
+# Interactive (prompts for server URL and token)
+curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash
+
+# Non-interactive (provide values via environment)
+curl -sSL https://YOUR_SERVER/api/agents/install.sh | SERVER_URL=https://YOUR_SERVER TOKEN=YOUR_TOKEN sudo -E bash
 ```
 
-## Build
+**Windows (PowerShell as Administrator):**
+```powershell
+# Interactive
+irm https://YOUR_SERVER/api/agents/install.ps1 | iex
+
+# Non-interactive
+$env:SERVER_URL="https://YOUR_SERVER"; $env:TOKEN="YOUR_TOKEN"; irm https://YOUR_SERVER/api/agents/install.ps1 | iex
+```
+
+For complete installation instructions including manual installation, Docker, and Kubernetes deployment, see **[INSTALL.md](INSTALL.md)**.
+
+## Supported Platforms
+
+| Platform | Architecture | Binary |
+|----------|--------------|--------|
+| Linux | x86_64 | `odinforge-agent-linux-amd64` |
+| Linux | ARM64 | `odinforge-agent-linux-arm64` |
+| macOS | Intel | `odinforge-agent-darwin-amd64` |
+| macOS | Apple Silicon | `odinforge-agent-darwin-arm64` |
+| Windows | x64 | `odinforge-agent-windows-amd64.exe` |
+
+## Telemetry Collected
+
+- **System Info**: Hostname, OS, architecture, kernel version
+- **Resource Metrics**: CPU, memory, and disk usage
+- **Network**: Open ports and listening services
+- **Services**: Running system services and their status
+- **Container Info**: Runtime, container ID, pod metadata (Kubernetes)
+
+## Configuration
+
+The agent is configured via environment variables:
+
+| Variable | Alternative | Description | Default |
+|----------|-------------|-------------|---------|
+| `ODINFORGE_SERVER_URL` | `SERVER_URL` | OdinForge server URL | Required |
+| `ODINFORGE_TOKEN` | `TOKEN` | Registration token | Required |
+| `ODINFORGE_INTERVAL` | `INTERVAL` | Collection interval (seconds) | `60` |
+| `STATELESS` | - | Use ephemeral paths (for containers) | `false` |
+
+### File-Based Token Storage
+
+On persistent systems, the token can be stored in a file:
+- **Linux/macOS**: `/etc/odinforge/api_key`
+- **Windows**: `C:\ProgramData\OdinForge\api_key`
+
+## Building from Source
 
 ```bash
-go build -o odinforge-agent ./cmd/agent
+cd odinforge-agent
+
+# Build for current platform
+go build -o odinforge-agent ./cmd/agent/
+
+# Build static binary for containers (Alpine/musl compatible)
+CGO_ENABLED=0 go build -ldflags="-s -w" -o odinforge-agent ./cmd/agent/
+
+# Cross-compile for all platforms
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o odinforge-agent-linux-amd64 ./cmd/agent/
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o odinforge-agent-linux-arm64 ./cmd/agent/
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o odinforge-agent-darwin-amd64 ./cmd/agent/
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o odinforge-agent-darwin-arm64 ./cmd/agent/
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o odinforge-agent-windows-amd64.exe ./cmd/agent/
 ```
 
 ## Docker
 
 ```bash
-docker build -t odinforge-agent .
-docker run -e ODINFORGE_SERVER_URL="https://api.example.com" \
-           -e ODINFORGE_TENANT_ID="org_123" \
-           -e ODINFORGE_API_KEY="odin_..." \
-           odinforge-agent
-```
+# Build the container image
+docker build -t odinforge/agent:latest .
 
-## Configuration
-
-Configuration is loaded in order (each layer overrides the previous):
-1. Built-in defaults
-2. YAML config file (optional, via `--config` flag)
-3. Environment variables
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ODINFORGE_SERVER_URL` | API server URL | `http://localhost:8080` |
-| `ODINFORGE_TENANT_ID` | Tenant identifier | `default` |
-| `ODINFORGE_AUTH_MODE` | Auth mode: `api_key` or `mtls` | `api_key` |
-| `ODINFORGE_API_KEY` | API key for authentication | |
-| `ODINFORGE_VERIFY_TLS` | Enable TLS verification | `true` |
-| `ODINFORGE_PINNED_SPKI` | Base64-encoded SPKI pin | |
-| `ODINFORGE_MTLS_CERT` | Path to mTLS client certificate | |
-| `ODINFORGE_MTLS_KEY` | Path to mTLS client key | |
-| `ODINFORGE_CA_CERT` | Path to custom CA certificate | |
-| `ODINFORGE_TELEMETRY_INTERVAL` | Telemetry collection interval | `300s` |
-| `ODINFORGE_HEARTBEAT_INTERVAL` | Heartbeat interval | `60s` |
-| `ODINFORGE_QUEUE_PATH` | BoltDB queue file path | `./odinforge-agent.queue.db` |
-| `ODINFORGE_BATCH_SIZE` | Events per batch | `50` |
-| `ODINFORGE_TIMEOUT` | HTTP request timeout | `15s` |
-| `ODINFORGE_COMPRESS` | Enable gzip compression | `true` |
-| `ODINFORGE_REQUIRE_HTTPS` | Require HTTPS (except localhost) | `true` |
-
-### YAML Config Example
-
-```yaml
-server:
-  url: "https://api.odinforge.com"
-  verify_tls: true
-  pinned_spki: ""
-
-auth:
-  tenant_id: "org_123"
-  mode: "api_key"
-  api_key: "odin_..."
-
-collection:
-  telemetry_interval: 5m
-  heartbeat_interval: 1m
-
-buffer:
-  path: "/var/lib/odinforge/agent.queue.db"
-  max_events: 50000
-
-transport:
-  timeout: 15s
-  batch_size: 50
-  compress: true
-
-safety:
-  require_https: true
-```
-
-## Deployment
-
-### Linux (systemd)
-
-```bash
-sudo cp odinforge-agent /usr/local/bin/
-sudo cp deployments/systemd/odinforge-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now odinforge-agent
-```
-
-### macOS (launchd)
-
-```bash
-sudo cp odinforge-agent /usr/local/bin/
-sudo cp deployments/launchd/com.odinforge.agent.plist /Library/LaunchDaemons/
-sudo launchctl load /Library/LaunchDaemons/com.odinforge.agent.plist
-```
-
-## One-Time Run
-
-For testing or CI pipelines:
-
-```bash
-./odinforge-agent --once
+# Run the agent
+docker run -d \
+  --name odinforge-agent \
+  --privileged \
+  --pid=host \
+  --network=host \
+  -e SERVER_URL=https://YOUR_SERVER \
+  -e TOKEN=YOUR_TOKEN \
+  -e STATELESS=true \
+  -v /proc:/host/proc:ro \
+  odinforge/agent:latest
 ```
 
 ## Project Structure
 
 ```
 odinforge-agent/
-├── cmd/agent/main.go           # Entry point
+├── cmd/agent/          # Main entry point
 ├── internal/
-│   ├── config/config.go        # Configuration loading
-│   ├── collector/
-│   │   ├── collector.go        # Event collection
-│   │   ├── system.go           # System info
-│   │   └── metrics.go          # CPU/mem/disk metrics
-│   ├── queue/queue.go          # BoltDB durable queue
-│   ├── sender/
-│   │   ├── sender.go           # HTTP batch sender
-│   │   └── tls.go              # TLS/mTLS configuration
-│   └── util/util.go            # Utilities
-├── deployments/
-│   ├── systemd/                # Linux service
-│   └── launchd/                # macOS service
-├── Dockerfile
-└── README.md
+│   ├── collector/      # System telemetry collectors
+│   │   ├── system.go       # System info collection
+│   │   ├── metrics_linux.go    # Linux CPU/memory/disk
+│   │   ├── metrics_darwin.go   # macOS CPU/memory/disk
+│   │   ├── metrics_windows.go  # Windows CPU/memory/disk
+│   │   ├── ports.go        # Open ports detection
+│   │   ├── services.go     # Running services
+│   │   └── container.go    # Container runtime detection
+│   ├── config/         # Configuration handling
+│   ├── queue/          # Offline queue storage
+│   └── sender/         # Server communication
+├── kubernetes/         # Kubernetes DaemonSet manifest
+├── Dockerfile          # Container image build
+├── docker-compose.yml  # Docker Compose deployment
+├── INSTALL.md          # Comprehensive installation guide
+└── README.md           # This file
 ```
+
+## License
+
+Proprietary - OdinForge Security Platform
