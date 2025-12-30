@@ -6,12 +6,10 @@
  */
 
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const PROMPTS_DIR = join(__dirname, "prompts");
+// Use process.cwd() for CJS compatibility in production builds
+const PROMPTS_DIR = join(process.cwd(), "server", "src", "reportsV2", "prompts");
 
 // Cache for loaded prompts
 const promptCache: Map<string, string> = new Map();
