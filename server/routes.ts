@@ -2709,7 +2709,7 @@ export async function registerRoutes(
     }
   });
 
-  // Force agent check-in - request immediate data refresh from agent
+  // Force agent check-in - queue command for agent to execute on next heartbeat
   app.post("/api/agents/:id/force-checkin", async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
@@ -2717,25 +2717,81 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Agent not found" });
       }
       
-      // Broadcast a force check-in request via WebSocket to the agent
-      const wsMessage = {
-        type: "force_checkin",
+      // Queue a force_checkin command in the database
+      const command = await storage.createAgentCommand({
         agentId: agent.id,
-        timestamp: new Date().toISOString(),
-      };
-      
-      // Broadcast to all connected WebSocket clients - the agent will respond if connected
-      wsService.broadcast(wsMessage as any);
+        organizationId: agent.organizationId,
+        commandType: "force_checkin",
+        payload: { requestedAt: new Date().toISOString() },
+        status: "pending",
+      });
       
       res.json({ 
         success: true, 
-        message: "Check-in request broadcast to connected agents",
+        message: "Check-in command queued. Agent will execute on next heartbeat (within 2 minutes).",
+        commandId: command.id,
         agentId: agent.id,
-        timestamp: new Date().toISOString()
+        queuedAt: command.createdAt,
+        expiresAt: command.expiresAt,
       });
     } catch (error) {
       console.error("Error forcing agent check-in:", error);
-      res.status(500).json({ error: "Failed to request agent check-in" });
+      res.status(500).json({ error: "Failed to queue agent check-in command" });
+    }
+  });
+
+  // Get pending commands for an agent (called by agent during heartbeat)
+  app.get("/api/agents/:id/commands", async (req, res) => {
+    try {
+      const apiKey = req.headers["x-api-key"] as string;
+      if (!apiKey) {
+        return res.status(401).json({ error: "API key required" });
+      }
+      
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent || agent.apiKey !== apiKey) {
+        return res.status(401).json({ error: "Invalid agent or API key" });
+      }
+      
+      // Expire old commands first
+      await storage.expireOldCommands();
+      
+      // Get pending commands
+      const commands = await storage.getPendingAgentCommands(agent.id);
+      
+      // Mark commands as acknowledged
+      for (const cmd of commands) {
+        await storage.acknowledgeAgentCommand(cmd.id);
+      }
+      
+      res.json({ commands });
+    } catch (error) {
+      console.error("Error fetching agent commands:", error);
+      res.status(500).json({ error: "Failed to fetch commands" });
+    }
+  });
+
+  // Complete a command (called by agent after executing)
+  app.post("/api/agents/:id/commands/:commandId/complete", async (req, res) => {
+    try {
+      const apiKey = req.headers["x-api-key"] as string;
+      if (!apiKey) {
+        return res.status(401).json({ error: "API key required" });
+      }
+      
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent || agent.apiKey !== apiKey) {
+        return res.status(401).json({ error: "Invalid agent or API key" });
+      }
+      
+      const { result, errorMessage } = req.body;
+      
+      await storage.completeAgentCommand(req.params.commandId, result, errorMessage);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error completing agent command:", error);
+      res.status(500).json({ error: "Failed to complete command" });
     }
   });
 

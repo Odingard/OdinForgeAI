@@ -43,6 +43,8 @@ import {
   type InsertAgentTelemetry,
   type AgentFinding,
   type InsertAgentFinding,
+  type AgentCommand,
+  type InsertAgentCommand,
   type UIRole,
   type InsertUIRole,
   type UIUser,
@@ -77,6 +79,7 @@ import {
   endpointAgents,
   agentTelemetry,
   agentFindings,
+  agentCommands,
   uiUsers,
   uiRefreshTokens,
   fullAssessments,
@@ -1067,6 +1070,67 @@ export class DatabaseStorage implements IStorage {
       highFindings: highFindings?.count || 0,
       newFindings: newFindings?.count || 0,
     };
+  }
+
+  // Agent Command operations
+  async createAgentCommand(data: InsertAgentCommand): Promise<AgentCommand> {
+    const id = `cmd-${randomUUID().slice(0, 8)}`;
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // Expires in 10 minutes
+    const [command] = await db
+      .insert(agentCommands)
+      .values({ ...data, id, expiresAt } as typeof agentCommands.$inferInsert)
+      .returning();
+    return command;
+  }
+
+  async getAgentCommand(id: string): Promise<AgentCommand | undefined> {
+    const [command] = await db
+      .select()
+      .from(agentCommands)
+      .where(eq(agentCommands.id, id));
+    return command;
+  }
+
+  async getPendingAgentCommands(agentId: string): Promise<AgentCommand[]> {
+    return db
+      .select()
+      .from(agentCommands)
+      .where(and(
+        eq(agentCommands.agentId, agentId),
+        eq(agentCommands.status, "pending")
+      ))
+      .orderBy(desc(agentCommands.createdAt));
+  }
+
+  async updateAgentCommand(id: string, updates: Partial<AgentCommand>): Promise<void> {
+    await db.update(agentCommands).set(updates).where(eq(agentCommands.id, id));
+  }
+
+  async acknowledgeAgentCommand(id: string): Promise<void> {
+    await db.update(agentCommands).set({ 
+      status: "acknowledged", 
+      acknowledgedAt: new Date() 
+    }).where(eq(agentCommands.id, id));
+  }
+
+  async completeAgentCommand(id: string, result?: Record<string, any>, errorMessage?: string): Promise<void> {
+    await db.update(agentCommands).set({ 
+      status: errorMessage ? "failed" : "executed", 
+      executedAt: new Date(),
+      result: result || null,
+      errorMessage: errorMessage || null
+    }).where(eq(agentCommands.id, id));
+  }
+
+  async expireOldCommands(): Promise<number> {
+    const result = await db.update(agentCommands)
+      .set({ status: "expired" })
+      .where(and(
+        eq(agentCommands.status, "pending"),
+        lte(agentCommands.expiresAt, new Date())
+      ))
+      .returning();
+    return result.length;
   }
 
   // ========== UI Role Operations ==========
