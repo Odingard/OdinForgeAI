@@ -1,3 +1,4 @@
+import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const AWS_REGIONS = [
@@ -20,27 +21,40 @@ export class AWSAdapter implements ProviderAdapter {
       return { valid: false, error: "AWS Access Key ID and Secret Access Key are required" };
     }
 
-    // Validate format of access key (should start with AKIA, ASIA, or AIDA)
-    if (!awsCreds.accessKeyId.match(/^(AKIA|ASIA|AIDA)[A-Z0-9]{16}$/)) {
-      return { valid: false, error: "Invalid AWS Access Key ID format. Should be 20 characters starting with AKIA, ASIA, or AIDA" };
-    }
+    try {
+      const stsClient = new STSClient({
+        region: "us-east-1",
+        credentials: {
+          accessKeyId: awsCreds.accessKeyId,
+          secretAccessKey: awsCreds.secretAccessKey,
+          sessionToken: awsCreds.sessionToken,
+        },
+      });
 
-    // Secret key should be 40 characters
-    if (awsCreds.secretAccessKey.length < 30) {
-      return { valid: false, error: "AWS Secret Access Key appears too short" };
-    }
+      const command = new GetCallerIdentityCommand({});
+      const response = await stsClient.send(command);
 
-    // For now, accept credentials based on format validation
-    // Full AWS SigV4 validation requires aws-sdk or complex crypto implementation
-    // In production, you would use: aws-sdk's STS.getCallerIdentity()
-    return {
-      valid: true,
-      accountInfo: {
-        accessKeyId: awsCreds.accessKeyId.substring(0, 8) + "...",
-        validated: "format-only",
-        note: "Credentials stored. Full validation occurs on first API call.",
-      },
-    };
+      return {
+        valid: true,
+        accountInfo: {
+          accountId: response.Account,
+          arn: response.Arn,
+          userId: response.UserId,
+        },
+      };
+    } catch (error: any) {
+      const errorMessage = error.message || "Unknown error";
+      if (errorMessage.includes("InvalidClientTokenId")) {
+        return { valid: false, error: "Invalid AWS Access Key ID" };
+      }
+      if (errorMessage.includes("SignatureDoesNotMatch")) {
+        return { valid: false, error: "Invalid AWS Secret Access Key" };
+      }
+      if (errorMessage.includes("ExpiredToken")) {
+        return { valid: false, error: "AWS session token has expired" };
+      }
+      return { valid: false, error: `AWS credential validation failed: ${errorMessage}` };
+    }
   }
 
   async listRegions(_credentials: CloudCredentials): Promise<string[]> {
