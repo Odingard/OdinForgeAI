@@ -1,3 +1,5 @@
+import { ClientSecretCredential, ManagedIdentityCredential } from "@azure/identity";
+import { SubscriptionClient } from "@azure/arm-subscriptions";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const AZURE_REGIONS = [
@@ -20,47 +22,57 @@ export class AzureAdapter implements ProviderAdapter {
       return { valid: false, error: "Azure credentials not provided" };
     }
 
-    if (!azureCreds.tenantId || !azureCreds.clientId) {
-      return { valid: false, error: "Azure Tenant ID and Client ID are required" };
-    }
-
-    if (!azureCreds.clientSecret && !azureCreds.useManagedIdentity) {
-      return { valid: false, error: "Azure Client Secret or Managed Identity must be configured" };
-    }
-
     try {
-      const tokenUrl = `https://login.microsoftonline.com/${azureCreds.tenantId}/oauth2/v2.0/token`;
+      let credential;
       
-      const params = new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: azureCreds.clientId,
-        client_secret: azureCreds.clientSecret || "",
-        scope: "https://management.azure.com/.default",
-      });
-
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: params.toString(),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        return { valid: false, error: `Azure authentication failed: ${error.error_description || error.error}` };
+      if (azureCreds.useManagedIdentity) {
+        credential = azureCreds.clientId 
+          ? new ManagedIdentityCredential(azureCreds.clientId)
+          : new ManagedIdentityCredential();
+      } else {
+        if (!azureCreds.tenantId || !azureCreds.clientId) {
+          return { valid: false, error: "Azure Tenant ID and Client ID are required for service principal authentication" };
+        }
+        if (!azureCreds.clientSecret) {
+          return { valid: false, error: "Azure Client Secret is required for service principal authentication" };
+        }
+        credential = new ClientSecretCredential(
+          azureCreds.tenantId,
+          azureCreds.clientId,
+          azureCreds.clientSecret
+        );
       }
 
-      const tokenData = await response.json();
+      const subscriptionClient = new SubscriptionClient(credential);
+      const subscriptions: Array<{ subscriptionId?: string; displayName?: string }> = [];
       
+      for await (const subscription of subscriptionClient.subscriptions.list()) {
+        subscriptions.push({
+          subscriptionId: subscription.subscriptionId,
+          displayName: subscription.displayName,
+        });
+      }
+
       return {
         valid: true,
         accountInfo: {
           tenantId: azureCreds.tenantId,
-          tokenType: tokenData.token_type,
-          expiresIn: tokenData.expires_in,
+          subscriptionCount: subscriptions.length,
+          subscriptions: subscriptions.slice(0, 5),
         },
       };
     } catch (error: any) {
-      return { valid: false, error: `Azure connection error: ${error.message}` };
+      const errorMessage = error.message || "Unknown error";
+      if (errorMessage.includes("AADSTS700016")) {
+        return { valid: false, error: "Invalid Azure Application (Client) ID" };
+      }
+      if (errorMessage.includes("AADSTS7000215")) {
+        return { valid: false, error: "Invalid Azure Client Secret" };
+      }
+      if (errorMessage.includes("AADSTS90002")) {
+        return { valid: false, error: "Invalid Azure Tenant ID" };
+      }
+      return { valid: false, error: `Azure credential validation failed: ${errorMessage}` };
     }
   }
 

@@ -1,3 +1,4 @@
+import { ProjectsClient } from "@google-cloud/resource-manager";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const GCP_REGIONS = [
@@ -23,32 +24,62 @@ export class GCPAdapter implements ProviderAdapter {
     }
 
     try {
+      let serviceAccount: any = null;
+      let projectId: string | undefined;
+
       if (gcpCreds.serviceAccountJson) {
-        const serviceAccount = JSON.parse(gcpCreds.serviceAccountJson);
+        try {
+          serviceAccount = JSON.parse(gcpCreds.serviceAccountJson);
+        } catch {
+          return { valid: false, error: "Invalid JSON format in service account key" };
+        }
         
         if (!serviceAccount.client_email || !serviceAccount.private_key || !serviceAccount.project_id) {
-          return { valid: false, error: "Invalid service account JSON format" };
+          return { valid: false, error: "Service account JSON missing required fields (client_email, private_key, project_id)" };
         }
-
-        return {
-          valid: true,
-          accountInfo: {
-            projectId: serviceAccount.project_id,
-            clientEmail: serviceAccount.client_email,
-            type: serviceAccount.type,
-          },
-        };
+        
+        projectId = serviceAccount.project_id;
+      } else {
+        projectId = gcpCreds.projectId;
       }
+
+      const clientOptions: any = {};
+      
+      if (serviceAccount) {
+        clientOptions.credentials = {
+          client_email: serviceAccount.client_email,
+          private_key: serviceAccount.private_key,
+        };
+        clientOptions.projectId = projectId;
+      }
+
+      const projectsClient = new ProjectsClient(clientOptions);
+      
+      const [project] = await projectsClient.getProject({
+        name: `projects/${projectId}`,
+      });
 
       return {
         valid: true,
         accountInfo: {
-          workloadIdentity: true,
-          projectId: gcpCreds.projectId,
+          projectId: project.projectId,
+          displayName: project.displayName,
+          state: project.state,
+          createTime: project.createTime,
         },
       };
     } catch (error: any) {
-      return { valid: false, error: `GCP validation error: ${error.message}` };
+      const errorMessage = error.message || "Unknown error";
+      if (errorMessage.includes("PERMISSION_DENIED")) {
+        return { valid: false, error: "Service account lacks required permissions" };
+      }
+      if (errorMessage.includes("UNAUTHENTICATED")) {
+        return { valid: false, error: "Invalid GCP service account credentials" };
+      }
+      if (errorMessage.includes("NOT_FOUND")) {
+        return { valid: false, error: "GCP project not found" };
+      }
+      return { valid: false, error: `GCP credential validation failed: ${errorMessage}` };
     }
   }
 
