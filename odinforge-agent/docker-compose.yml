@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  odinforge-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: odinforge/agent:latest
+    container_name: odinforge-agent
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    network_mode: host
+    environment:
+      - SERVER_URL=${ODINFORGE_SERVER_URL:-https://localhost:5000}
+      - TOKEN=${ODINFORGE_TOKEN}
+      - INTERVAL=${ODINFORGE_INTERVAL:-60}
+      - STATELESS=true
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "odinforge-agent"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
