@@ -50,6 +50,8 @@ All documentation is consolidated under the `docs/` directory:
 - Multi-phase penetration testing (reconnaissance, vulnerability analysis, attack synthesis, lateral movement, impact assessment).
 - Generates cross-system attack graphs and AI-powered analysis for unified attack paths.
 - Provides real-time progress updates and prioritized remediation.
+- **Business Impact Analysis**: Formatted display showing risk levels, data at risk, operational/financial impact, and regulatory implications.
+- **Lateral Movement Analysis**: Visual display of movement paths with source/target systems, likelihood ratings, and prerequisites.
 
 ### Data Storage
 - **Database**: PostgreSQL with Drizzle ORM.
@@ -59,6 +61,8 @@ All documentation is consolidated under the `docs/` directory:
 - Live agent deployment for real-time monitoring.
 - Features agent registration, telemetry ingestion, auto-evaluation triggers for critical findings, and deduplication.
 - **Go Agent**: `odinforge-agent/` for system telemetry, offline resilience, secure transmission (mTLS, SPKI pinning), and auto-registration.
+- **Real-time Status**: Agent status calculated dynamically based on heartbeat age (online <2min, stale 2-10min, offline >10min).
+- **Force Check-in**: On-demand refresh of agent data via WebSocket broadcast.
 
 ### AI Integration
 - Uses OpenAI API for analyzing security exposures, determining exploitability, and generating attack paths and remediation.

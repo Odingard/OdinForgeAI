@@ -2623,12 +2623,36 @@ export async function registerRoutes(
     }
   });
 
+  // Helper function to calculate real-time agent status based on last heartbeat
+  function calculateAgentStatus(lastHeartbeat: Date | null, storedStatus: string): string {
+    if (!lastHeartbeat) {
+      return "offline";
+    }
+    const now = new Date();
+    const diffMs = now.getTime() - new Date(lastHeartbeat).getTime();
+    const diffMinutes = diffMs / (1000 * 60);
+    
+    // Online: heartbeat within last 2 minutes
+    if (diffMinutes <= 2) {
+      return "online";
+    }
+    // Stale: heartbeat between 2-10 minutes ago
+    if (diffMinutes <= 10) {
+      return "stale";
+    }
+    // Offline: no heartbeat for more than 10 minutes
+    return "offline";
+  }
+
   // Get all agents (for dashboard)
   app.get("/api/agents", async (req, res) => {
     try {
       const agents = await storage.getEndpointAgents();
-      // Don't expose API keys in list view
-      const safeAgents = agents.map(({ apiKey, apiKeyHash, ...agent }) => agent);
+      // Don't expose API keys in list view, calculate real-time status
+      const safeAgents = agents.map(({ apiKey, apiKeyHash, ...agent }) => ({
+        ...agent,
+        status: calculateAgentStatus(agent.lastHeartbeat, agent.status),
+      }));
       res.json(safeAgents);
     } catch (error) {
       console.error("Error fetching agents:", error);
@@ -2639,7 +2663,26 @@ export async function registerRoutes(
   // Agent stats for dashboard (must be before :id route)
   app.get("/api/agents/stats/summary", async (req, res) => {
     try {
-      const stats = await storage.getAgentStats();
+      // Get agents and calculate real-time status for accurate counts
+      const agents = await storage.getEndpointAgents();
+      const agentsWithRealStatus = agents.map(agent => ({
+        ...agent,
+        status: calculateAgentStatus(agent.lastHeartbeat, agent.status),
+      }));
+      
+      const findings = await storage.getAgentFindings();
+      
+      const stats = {
+        totalAgents: agents.length,
+        onlineAgents: agentsWithRealStatus.filter(a => a.status === "online").length,
+        offlineAgents: agentsWithRealStatus.filter(a => a.status === "offline").length,
+        staleAgents: agentsWithRealStatus.filter(a => a.status === "stale").length,
+        totalFindings: findings.length,
+        criticalFindings: findings.filter(f => f.severity === "critical").length,
+        highFindings: findings.filter(f => f.severity === "high").length,
+        newFindings: findings.filter(f => f.status === "new").length,
+      };
+      
       res.json(stats);
     } catch (error) {
       console.error("Error fetching agent stats:", error);
@@ -2654,12 +2697,45 @@ export async function registerRoutes(
       if (!agent) {
         return res.status(404).json({ error: "Agent not found" });
       }
-      // Don't expose API key
+      // Don't expose API key, calculate real-time status
       const { apiKey, apiKeyHash, ...safeAgent } = agent;
-      res.json(safeAgent);
+      res.json({
+        ...safeAgent,
+        status: calculateAgentStatus(agent.lastHeartbeat, agent.status),
+      });
     } catch (error) {
       console.error("Error fetching agent:", error);
       res.status(500).json({ error: "Failed to fetch agent" });
+    }
+  });
+
+  // Force agent check-in - request immediate data refresh from agent
+  app.post("/api/agents/:id/force-checkin", async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+      
+      // Broadcast a force check-in request via WebSocket to the agent
+      const wsMessage = {
+        type: "force_checkin",
+        agentId: agent.id,
+        timestamp: new Date().toISOString(),
+      };
+      
+      // Broadcast to all connected WebSocket clients - the agent will respond if connected
+      wsService.broadcast(wsMessage as any);
+      
+      res.json({ 
+        success: true, 
+        message: "Check-in request broadcast to connected agents",
+        agentId: agent.id,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Error forcing agent check-in:", error);
+      res.status(500).json({ error: "Failed to request agent check-in" });
     }
   });
 

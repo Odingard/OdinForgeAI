@@ -190,6 +190,31 @@ export default function Agents() {
     },
   });
 
+  const forceCheckinMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await apiRequest("POST", `/api/agents/${id}/force-checkin`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Check-in Requested",
+        description: "Agent has been requested to send updated data.",
+      });
+      // Refresh agent data after a brief delay
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
+      }, 2000);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Check-in Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleRegister = () => {
     if (!newAgentName.trim()) {
       toast({
@@ -551,6 +576,16 @@ kubectl apply -f daemonset.yaml
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => forceCheckinMutation.mutate(agent.id)}
+                              disabled={forceCheckinMutation.isPending}
+                              title="Force agent to check in with latest data"
+                              data-testid={`btn-force-checkin-${agent.id}`}
+                            >
+                              <RefreshCw className={`h-4 w-4 ${forceCheckinMutation.isPending ? 'animate-spin' : ''}`} />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"

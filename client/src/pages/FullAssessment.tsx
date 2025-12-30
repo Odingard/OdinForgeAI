@@ -71,6 +71,212 @@ function RiskGauge({ score }: { score: number }) {
   );
 }
 
+interface LateralPath {
+  id: string;
+  source: string;
+  target: string;
+  technique: string;
+  method: string;
+  likelihood: string;
+  prerequisites?: string[];
+}
+
+function LateralMovementDisplay({ data }: { data: { paths?: LateralPath[]; highRiskPivots?: string[] } }) {
+  const paths = data.paths || [];
+  const highRiskPivots = data.highRiskPivots || [];
+  
+  const getLikelihoodColor = (likelihood: string) => {
+    switch (likelihood?.toLowerCase()) {
+      case "high": return "bg-destructive/20 text-destructive";
+      case "medium": return "bg-amber-500/20 text-amber-400";
+      case "low": return "bg-emerald-500/20 text-emerald-400";
+      default: return "bg-muted";
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {highRiskPivots.length > 0 && (
+        <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20">
+          <h4 className="text-sm font-medium text-destructive mb-2">High-Risk Pivot Points</h4>
+          <div className="flex gap-2 flex-wrap">
+            {highRiskPivots.map((pivot, idx) => (
+              <Badge key={idx} variant="outline" className="border-destructive/50 text-destructive">
+                {pivot}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {paths.length > 0 ? (
+        <div className="space-y-3">
+          {paths.map((path, idx) => (
+            <div key={path.id || idx} className="p-3 rounded-md border">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <Badge variant="outline">{path.source}</Badge>
+                <span className="text-muted-foreground">to</span>
+                <Badge variant="outline">{path.target}</Badge>
+                <Badge className={getLikelihoodColor(path.likelihood)}>
+                  {path.likelihood} likelihood
+                </Badge>
+              </div>
+              <p className="text-sm mb-1">{path.method}</p>
+              <div className="text-xs text-muted-foreground">
+                <span className="font-medium">Technique:</span> {path.technique}
+              </div>
+              {path.prerequisites && path.prerequisites.length > 0 && (
+                <div className="mt-2 text-xs">
+                  <span className="text-muted-foreground">Prerequisites:</span>
+                  <ul className="list-disc list-inside text-muted-foreground">
+                    {path.prerequisites.map((prereq, pIdx) => (
+                      <li key={pIdx}>{prereq}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">No lateral movement paths identified</p>
+      )}
+    </div>
+  );
+}
+
+interface BusinessImpact {
+  overallRisk?: string;
+  dataAtRisk?: {
+    types?: string[];
+    estimatedRecords?: string;
+    regulatoryImplications?: string[];
+  };
+  operationalImpact?: {
+    systemsAffected?: number;
+    potentialDowntime?: string;
+    businessProcesses?: string[];
+  };
+  financialImpact?: {
+    estimatedRange?: string;
+    factors?: string[];
+  };
+  reputationalImpact?: string;
+}
+
+function BusinessImpactDisplay({ data }: { data: BusinessImpact }) {
+  const getRiskColor = (risk: string) => {
+    switch (risk?.toLowerCase()) {
+      case "critical": return "bg-destructive/20 text-destructive border-destructive/30";
+      case "high": return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+      case "medium": return "bg-amber-500/20 text-amber-400 border-amber-500/30";
+      case "low": return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+      default: return "bg-muted border-muted";
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {data.overallRisk && (
+        <div className={`p-4 rounded-md border ${getRiskColor(data.overallRisk)}`}>
+          <div className="text-center">
+            <span className="text-sm text-muted-foreground">Overall Risk Level</span>
+            <div className="text-2xl font-bold uppercase">{data.overallRisk}</div>
+          </div>
+        </div>
+      )}
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {data.dataAtRisk && (
+          <div className="p-3 rounded-md border">
+            <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-destructive" />
+              Data at Risk
+            </h4>
+            {data.dataAtRisk.types && data.dataAtRisk.types.length > 0 && (
+              <div className="mb-2">
+                <span className="text-xs text-muted-foreground">Types:</span>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  {data.dataAtRisk.types.map((type, idx) => (
+                    <Badge key={idx} variant="outline" className="text-xs">{type}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.dataAtRisk.estimatedRecords && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Est. Records:</span> {data.dataAtRisk.estimatedRecords}
+              </p>
+            )}
+            {data.dataAtRisk.regulatoryImplications && data.dataAtRisk.regulatoryImplications.length > 0 && (
+              <div className="mt-2">
+                <span className="text-xs text-muted-foreground">Regulatory:</span>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  {data.dataAtRisk.regulatoryImplications.map((reg, idx) => (
+                    <Badge key={idx} variant="secondary" className="text-xs">{reg}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {data.operationalImpact && (
+          <div className="p-3 rounded-md border">
+            <h4 className="text-sm font-medium mb-2">Operational Impact</h4>
+            {data.operationalImpact.systemsAffected !== undefined && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Systems Affected:</span> {data.operationalImpact.systemsAffected}
+              </p>
+            )}
+            {data.operationalImpact.potentialDowntime && (
+              <p className="text-sm">
+                <span className="text-muted-foreground">Potential Downtime:</span> {data.operationalImpact.potentialDowntime}
+              </p>
+            )}
+            {data.operationalImpact.businessProcesses && data.operationalImpact.businessProcesses.length > 0 && (
+              <div className="mt-2">
+                <span className="text-xs text-muted-foreground">Affected Processes:</span>
+                <ul className="list-disc list-inside text-sm text-muted-foreground">
+                  {data.operationalImpact.businessProcesses.map((proc, idx) => (
+                    <li key={idx}>{proc}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {data.financialImpact && (
+          <div className="p-3 rounded-md border">
+            <h4 className="text-sm font-medium mb-2">Financial Impact</h4>
+            {data.financialImpact.estimatedRange && (
+              <p className="text-lg font-bold text-destructive">{data.financialImpact.estimatedRange}</p>
+            )}
+            {data.financialImpact.factors && data.financialImpact.factors.length > 0 && (
+              <div className="mt-2">
+                <span className="text-xs text-muted-foreground">Contributing Factors:</span>
+                <ul className="list-disc list-inside text-sm text-muted-foreground">
+                  {data.financialImpact.factors.map((factor, idx) => (
+                    <li key={idx}>{factor}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {data.reputationalImpact && (
+        <div className="p-3 rounded-md border">
+          <h4 className="text-sm font-medium mb-2">Reputational Impact</h4>
+          <p className="text-sm text-muted-foreground">{data.reputationalImpact}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssessmentCard({ assessment, onView, onDelete }: { 
   assessment: FullAssessment; 
   onView: () => void;
@@ -353,9 +559,7 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
           </CardHeader>
           <CardContent>
             {assessment.lateralMovementPaths ? (
-              <pre className="text-xs bg-muted/50 p-3 rounded-md overflow-auto max-h-96">
-                {JSON.stringify(assessment.lateralMovementPaths, null, 2)}
-              </pre>
+              <LateralMovementDisplay data={assessment.lateralMovementPaths as any} />
             ) : (
               <p className="text-sm text-muted-foreground">No lateral movement data available</p>
             )}
@@ -373,9 +577,7 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
           </CardHeader>
           <CardContent>
             {assessment.businessImpactAnalysis ? (
-              <pre className="text-xs bg-muted/50 p-3 rounded-md overflow-auto max-h-96">
-                {JSON.stringify(assessment.businessImpactAnalysis, null, 2)}
-              </pre>
+              <BusinessImpactDisplay data={assessment.businessImpactAnalysis as any} />
             ) : (
               <p className="text-sm text-muted-foreground">No business impact data available</p>
             )}
