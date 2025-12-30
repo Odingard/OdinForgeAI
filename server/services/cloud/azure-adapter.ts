@@ -1,5 +1,8 @@
-import { ClientSecretCredential, ManagedIdentityCredential } from "@azure/identity";
+import { ClientSecretCredential, ManagedIdentityCredential, TokenCredential } from "@azure/identity";
 import { SubscriptionClient } from "@azure/arm-subscriptions";
+import { ComputeManagementClient } from "@azure/arm-compute";
+import { ResourceManagementClient } from "@azure/arm-resources";
+import { SqlManagementClient } from "@azure/arm-sql";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const AZURE_REGIONS = [
@@ -46,7 +49,8 @@ export class AzureAdapter implements ProviderAdapter {
       const subscriptionClient = new SubscriptionClient(credential);
       const subscriptions: Array<{ subscriptionId?: string; displayName?: string }> = [];
       
-      for await (const subscription of subscriptionClient.subscriptions.list()) {
+      const subscriptionsList = (subscriptionClient as any).subscriptions.list();
+      for await (const subscription of subscriptionsList) {
         subscriptions.push({
           subscriptionId: subscription.subscriptionId,
           displayName: subscription.displayName,
@@ -98,45 +102,202 @@ export class AzureAdapter implements ProviderAdapter {
       errors: [],
     };
 
-    for (const region of regions) {
-      progress.currentRegion = region;
+    try {
+      progress.currentRegion = "global";
       onProgress?.(progress);
 
-      try {
-        const vmAssets = await this.discoverVMs(azureCreds, region);
-        allAssets.push(...vmAssets);
-
-        const aksAssets = await this.discoverAKSClusters(azureCreds, region);
-        allAssets.push(...aksAssets);
-
-        const sqlAssets = await this.discoverSQLDatabases(azureCreds, region);
-        allAssets.push(...sqlAssets);
-
-        progress.totalAssets = allAssets.length;
-      } catch (error: any) {
-        progress.errors.push({ region, error: error.message });
-      }
-
-      progress.completedRegions++;
+      const vmAssets = await this.discoverAllVMs(azureCreds);
+      allAssets.push(...vmAssets);
+      progress.totalAssets = allAssets.length;
       onProgress?.(progress);
+
+      const sqlAssets = await this.discoverSQLServers(azureCreds);
+      allAssets.push(...sqlAssets);
+      progress.totalAssets = allAssets.length;
+      onProgress?.(progress);
+
+      const rgAssets = await this.discoverResourceGroups(azureCreds);
+      allAssets.push(...rgAssets);
+      progress.totalAssets = allAssets.length;
+
+      progress.completedRegions = regions.length;
+      onProgress?.(progress);
+    } catch (error: any) {
+      progress.errors.push({ region: "global", error: error.message });
     }
 
     return allAssets;
   }
 
+  private getCredential(creds: NonNullable<CloudCredentials["azure"]>): TokenCredential {
+    if (creds.useManagedIdentity) {
+      return creds.clientId 
+        ? new ManagedIdentityCredential(creds.clientId)
+        : new ManagedIdentityCredential();
+    }
+    return new ClientSecretCredential(
+      creds.tenantId!,
+      creds.clientId!,
+      creds.clientSecret!
+    );
+  }
+
+  private async getSubscriptions(creds: NonNullable<CloudCredentials["azure"]>): Promise<string[]> {
+    const credential = this.getCredential(creds);
+    const subscriptionClient = new SubscriptionClient(credential);
+    const subscriptions: string[] = [];
+    
+    const subscriptionsList = (subscriptionClient as any).subscriptions.list();
+    for await (const sub of subscriptionsList) {
+      if (sub.subscriptionId) {
+        subscriptions.push(sub.subscriptionId);
+      }
+    }
+    return subscriptions;
+  }
+
   private async discoverVMs(creds: NonNullable<CloudCredentials["azure"]>, region: string): Promise<CloudAssetInfo[]> {
     console.log(`[Azure] Discovering VMs in ${region}...`);
-    return [];
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const credential = this.getCredential(creds);
+      const subscriptions = await this.getSubscriptions(creds);
+
+      for (const subscriptionId of subscriptions) {
+        const computeClient = new ComputeManagementClient(credential, subscriptionId);
+        
+        for await (const vm of computeClient.virtualMachines.listAll()) {
+          if (vm.location?.toLowerCase() !== region.toLowerCase()) continue;
+          
+          assets.push({
+            provider: "azure",
+            providerResourceId: vm.id || "",
+            assetType: "virtual_machine",
+            assetName: vm.name || "Unnamed VM",
+            region: vm.location || region,
+            instanceType: vm.hardwareProfile?.vmSize,
+            healthStatus: vm.provisioningState,
+            rawMetadata: {
+              osType: vm.storageProfile?.osDisk?.osType,
+              subscriptionId,
+              resourceGroup: vm.id?.split("/")[4],
+            },
+            agentDeployable: vm.provisioningState === "Succeeded",
+            agentDeploymentMethod: "vm_extension",
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Azure] VM discovery error in ${region}:`, error.message);
+    }
+
+    return assets;
   }
 
-  private async discoverAKSClusters(creds: NonNullable<CloudCredentials["azure"]>, region: string): Promise<CloudAssetInfo[]> {
-    console.log(`[Azure] Discovering AKS clusters in ${region}...`);
-    return [];
+  private async discoverAllVMs(creds: NonNullable<CloudCredentials["azure"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[Azure] Discovering all VMs across subscriptions...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const credential = this.getCredential(creds);
+      const subscriptions = await this.getSubscriptions(creds);
+
+      for (const subscriptionId of subscriptions) {
+        const computeClient = new ComputeManagementClient(credential, subscriptionId);
+        
+        for await (const vm of computeClient.virtualMachines.listAll()) {
+          assets.push({
+            provider: "azure",
+            providerResourceId: vm.id || "",
+            assetType: "virtual_machine",
+            assetName: vm.name || "Unnamed VM",
+            region: vm.location || "unknown",
+            instanceType: vm.hardwareProfile?.vmSize,
+            healthStatus: vm.provisioningState,
+            rawMetadata: {
+              osType: vm.storageProfile?.osDisk?.osType,
+              subscriptionId,
+              resourceGroup: vm.id?.split("/")[4],
+            },
+            agentDeployable: vm.provisioningState === "Succeeded",
+            agentDeploymentMethod: "vm_extension",
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Azure] VM discovery error:`, error.message);
+    }
+
+    return assets;
   }
 
-  private async discoverSQLDatabases(creds: NonNullable<CloudCredentials["azure"]>, region: string): Promise<CloudAssetInfo[]> {
-    console.log(`[Azure] Discovering SQL databases in ${region}...`);
-    return [];
+  private async discoverSQLServers(creds: NonNullable<CloudCredentials["azure"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[Azure] Discovering SQL servers...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const credential = this.getCredential(creds);
+      const subscriptions = await this.getSubscriptions(creds);
+
+      for (const subscriptionId of subscriptions) {
+        const sqlClient = new SqlManagementClient(credential, subscriptionId);
+        
+        for await (const server of sqlClient.servers.list()) {
+          assets.push({
+            provider: "azure",
+            providerResourceId: server.id || "",
+            assetType: "sql_server",
+            assetName: server.name || "Unnamed SQL Server",
+            region: server.location || "unknown",
+            healthStatus: server.state,
+            rawMetadata: {
+              fullyQualifiedDomainName: server.fullyQualifiedDomainName,
+              version: server.version,
+              subscriptionId,
+            },
+            agentDeployable: false,
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Azure] SQL discovery error:`, error.message);
+    }
+
+    return assets;
+  }
+
+  private async discoverResourceGroups(creds: NonNullable<CloudCredentials["azure"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[Azure] Discovering resource groups...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const credential = this.getCredential(creds);
+      const subscriptions = await this.getSubscriptions(creds);
+
+      for (const subscriptionId of subscriptions) {
+        const resourceClient = new ResourceManagementClient(credential, subscriptionId);
+        
+        for await (const rg of resourceClient.resourceGroups.list()) {
+          assets.push({
+            provider: "azure",
+            providerResourceId: rg.id || "",
+            assetType: "resource_group",
+            assetName: rg.name || "Unnamed Resource Group",
+            region: rg.location || "unknown",
+            healthStatus: rg.properties?.provisioningState,
+            rawMetadata: {
+              subscriptionId,
+            },
+            agentDeployable: false,
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[Azure] Resource group discovery error:`, error.message);
+    }
+
+    return assets;
   }
 
   async deployAgent(

@@ -1,4 +1,8 @@
 import { STSClient, GetCallerIdentityCommand } from "@aws-sdk/client-sts";
+import { EC2Client, DescribeInstancesCommand, DescribeVpcsCommand, DescribeSecurityGroupsCommand } from "@aws-sdk/client-ec2";
+import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
+import { LambdaClient, ListFunctionsCommand } from "@aws-sdk/client-lambda";
+import { S3Client, ListBucketsCommand } from "@aws-sdk/client-s3";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const AWS_REGIONS = [
@@ -79,6 +83,11 @@ export class AWSAdapter implements ProviderAdapter {
       errors: [],
     };
 
+    const s3Assets = await this.discoverS3Buckets(awsCreds);
+    allAssets.push(...s3Assets);
+    progress.totalAssets = allAssets.length;
+    onProgress?.(progress);
+
     for (const region of regions) {
       progress.currentRegion = region;
       onProgress?.(progress);
@@ -90,8 +99,8 @@ export class AWSAdapter implements ProviderAdapter {
         const rdsAssets = await this.discoverRDSInstances(awsCreds, region);
         allAssets.push(...rdsAssets);
 
-        const eksAssets = await this.discoverEKSClusters(awsCreds, region);
-        allAssets.push(...eksAssets);
+        const lambdaAssets = await this.discoverLambdaFunctions(awsCreds, region);
+        allAssets.push(...lambdaAssets);
 
         progress.totalAssets = allAssets.length;
       } catch (error: any) {
@@ -105,22 +114,168 @@ export class AWSAdapter implements ProviderAdapter {
     return allAssets;
   }
 
+  private getCredentialsConfig(creds: NonNullable<CloudCredentials["aws"]>) {
+    return {
+      accessKeyId: creds.accessKeyId,
+      secretAccessKey: creds.secretAccessKey,
+      sessionToken: creds.sessionToken,
+    };
+  }
+
   private async discoverEC2Instances(creds: NonNullable<CloudCredentials["aws"]>, region: string): Promise<CloudAssetInfo[]> {
     console.log(`[AWS] Discovering EC2 instances in ${region}...`);
+    const assets: CloudAssetInfo[] = [];
     
-    return [];
+    try {
+      const ec2Client = new EC2Client({
+        region,
+        credentials: this.getCredentialsConfig(creds),
+      });
+
+      const command = new DescribeInstancesCommand({});
+      const response = await ec2Client.send(command);
+
+      for (const reservation of response.Reservations || []) {
+        for (const instance of reservation.Instances || []) {
+          const nameTag = instance.Tags?.find(t => t.Key === "Name");
+          assets.push({
+            provider: "aws",
+            providerResourceId: instance.InstanceId || "",
+            assetType: "ec2_instance",
+            assetName: nameTag?.Value || instance.InstanceId || "Unnamed Instance",
+            region,
+            instanceType: instance.InstanceType,
+            powerState: instance.State?.Name,
+            privateIpAddresses: instance.PrivateIpAddress ? [instance.PrivateIpAddress] : [],
+            publicIpAddresses: instance.PublicIpAddress ? [instance.PublicIpAddress] : [],
+            rawMetadata: {
+              vpcId: instance.VpcId,
+              subnetId: instance.SubnetId,
+              platform: instance.Platform || "linux",
+              launchTime: instance.LaunchTime?.toISOString(),
+            },
+            agentDeployable: instance.State?.Name === "running",
+            agentDeploymentMethod: "ssm",
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[AWS] EC2 discovery error in ${region}:`, error.message);
+    }
+
+    return assets;
   }
 
   private async discoverRDSInstances(creds: NonNullable<CloudCredentials["aws"]>, region: string): Promise<CloudAssetInfo[]> {
     console.log(`[AWS] Discovering RDS instances in ${region}...`);
-    
-    return [];
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const rdsClient = new RDSClient({
+        region,
+        credentials: this.getCredentialsConfig(creds),
+      });
+
+      const command = new DescribeDBInstancesCommand({});
+      const response = await rdsClient.send(command);
+
+      for (const db of response.DBInstances || []) {
+        assets.push({
+          provider: "aws",
+          providerResourceId: db.DBInstanceArn || db.DBInstanceIdentifier || "",
+          assetType: "rds_instance",
+          assetName: db.DBInstanceIdentifier || "Unnamed RDS",
+          region,
+          instanceType: db.DBInstanceClass,
+          healthStatus: db.DBInstanceStatus,
+          rawMetadata: {
+            engine: db.Engine,
+            engineVersion: db.EngineVersion,
+            endpoint: db.Endpoint?.Address,
+            port: db.Endpoint?.Port,
+            multiAZ: db.MultiAZ,
+            storageEncrypted: db.StorageEncrypted,
+            publiclyAccessible: db.PubliclyAccessible,
+          },
+          agentDeployable: false,
+        });
+      }
+    } catch (error: any) {
+      console.error(`[AWS] RDS discovery error in ${region}:`, error.message);
+    }
+
+    return assets;
   }
 
-  private async discoverEKSClusters(creds: NonNullable<CloudCredentials["aws"]>, region: string): Promise<CloudAssetInfo[]> {
-    console.log(`[AWS] Discovering EKS clusters in ${region}...`);
-    
-    return [];
+  private async discoverLambdaFunctions(creds: NonNullable<CloudCredentials["aws"]>, region: string): Promise<CloudAssetInfo[]> {
+    console.log(`[AWS] Discovering Lambda functions in ${region}...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const lambdaClient = new LambdaClient({
+        region,
+        credentials: this.getCredentialsConfig(creds),
+      });
+
+      const command = new ListFunctionsCommand({});
+      const response = await lambdaClient.send(command);
+
+      for (const fn of response.Functions || []) {
+        assets.push({
+          provider: "aws",
+          providerResourceId: fn.FunctionArn || fn.FunctionName || "",
+          assetType: "lambda_function",
+          assetName: fn.FunctionName || "Unnamed Lambda",
+          region,
+          memoryMb: fn.MemorySize,
+          rawMetadata: {
+            runtime: fn.Runtime,
+            handler: fn.Handler,
+            timeout: fn.Timeout,
+            lastModified: fn.LastModified,
+            codeSize: fn.CodeSize,
+          },
+          agentDeployable: false,
+        });
+      }
+    } catch (error: any) {
+      console.error(`[AWS] Lambda discovery error in ${region}:`, error.message);
+    }
+
+    return assets;
+  }
+
+  private async discoverS3Buckets(creds: NonNullable<CloudCredentials["aws"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[AWS] Discovering S3 buckets...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const s3Client = new S3Client({
+        region: "us-east-1",
+        credentials: this.getCredentialsConfig(creds),
+      });
+
+      const command = new ListBucketsCommand({});
+      const response = await s3Client.send(command);
+
+      for (const bucket of response.Buckets || []) {
+        assets.push({
+          provider: "aws",
+          providerResourceId: bucket.Name || "",
+          assetType: "s3_bucket",
+          assetName: bucket.Name || "Unnamed Bucket",
+          region: "global",
+          rawMetadata: {
+            creationDate: bucket.CreationDate?.toISOString(),
+          },
+          agentDeployable: false,
+        });
+      }
+    } catch (error: any) {
+      console.error(`[AWS] S3 discovery error:`, error.message);
+    }
+
+    return assets;
   }
 
   async deployAgent(

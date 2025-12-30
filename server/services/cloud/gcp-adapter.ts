@@ -1,4 +1,5 @@
 import { ProjectsClient } from "@google-cloud/resource-manager";
+import compute from "@google-cloud/compute";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const GCP_REGIONS = [
@@ -105,45 +106,96 @@ export class GCPAdapter implements ProviderAdapter {
       errors: [],
     };
 
-    for (const region of regions) {
-      progress.currentRegion = region;
+    try {
+      progress.currentRegion = "global";
       onProgress?.(progress);
 
-      try {
-        const gceAssets = await this.discoverComputeInstances(gcpCreds, region);
-        allAssets.push(...gceAssets);
-
-        const gkeAssets = await this.discoverGKEClusters(gcpCreds, region);
-        allAssets.push(...gkeAssets);
-
-        const sqlAssets = await this.discoverCloudSQL(gcpCreds, region);
-        allAssets.push(...sqlAssets);
-
-        progress.totalAssets = allAssets.length;
-      } catch (error: any) {
-        progress.errors.push({ region, error: error.message });
-      }
-
-      progress.completedRegions++;
+      const gceAssets = await this.discoverAllComputeInstances(gcpCreds);
+      allAssets.push(...gceAssets);
+      progress.totalAssets = allAssets.length;
+      progress.completedRegions = regions.length;
       onProgress?.(progress);
+    } catch (error: any) {
+      progress.errors.push({ region: "global", error: error.message });
     }
 
     return allAssets;
   }
 
-  private async discoverComputeInstances(creds: NonNullable<CloudCredentials["gcp"]>, region: string): Promise<CloudAssetInfo[]> {
-    console.log(`[GCP] Discovering Compute Engine instances in ${region}...`);
-    return [];
+  private getClientOptions(creds: NonNullable<CloudCredentials["gcp"]>): any {
+    if (creds.serviceAccountJson) {
+      const serviceAccount = JSON.parse(creds.serviceAccountJson);
+      return {
+        credentials: {
+          client_email: serviceAccount.client_email,
+          private_key: serviceAccount.private_key,
+        },
+        projectId: serviceAccount.project_id,
+      };
+    }
+    return { projectId: creds.projectId };
   }
 
-  private async discoverGKEClusters(creds: NonNullable<CloudCredentials["gcp"]>, region: string): Promise<CloudAssetInfo[]> {
-    console.log(`[GCP] Discovering GKE clusters in ${region}...`);
-    return [];
+  private getProjectId(creds: NonNullable<CloudCredentials["gcp"]>): string {
+    if (creds.serviceAccountJson) {
+      const serviceAccount = JSON.parse(creds.serviceAccountJson);
+      return serviceAccount.project_id;
+    }
+    return creds.projectId || "";
   }
 
-  private async discoverCloudSQL(creds: NonNullable<CloudCredentials["gcp"]>, region: string): Promise<CloudAssetInfo[]> {
-    console.log(`[GCP] Discovering Cloud SQL instances in ${region}...`);
-    return [];
+  private async discoverAllComputeInstances(creds: NonNullable<CloudCredentials["gcp"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[GCP] Discovering all Compute Engine instances...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const clientOptions = this.getClientOptions(creds);
+      const projectId = this.getProjectId(creds);
+      const instancesClient = new compute.InstancesClient(clientOptions);
+
+      const aggListRequest = instancesClient.aggregatedListAsync({
+        project: projectId,
+      });
+
+      for await (const [zone, scopedList] of aggListRequest) {
+        if (!scopedList.instances) continue;
+        
+        for (const instance of scopedList.instances) {
+          const zoneName = zone.replace("zones/", "");
+          const privateIps: string[] = [];
+          const publicIps: string[] = [];
+          
+          for (const ni of instance.networkInterfaces || []) {
+            if (ni.networkIP) privateIps.push(ni.networkIP);
+            for (const ac of ni.accessConfigs || []) {
+              if (ac.natIP) publicIps.push(ac.natIP);
+            }
+          }
+
+          assets.push({
+            provider: "gcp",
+            providerResourceId: `projects/${projectId}/zones/${zoneName}/instances/${instance.name}`,
+            assetType: "compute_instance",
+            assetName: instance.name || "Unnamed Instance",
+            region: zoneName.replace(/-[a-z]$/, ""),
+            instanceType: instance.machineType?.split("/").pop() || undefined,
+            powerState: instance.status || undefined,
+            privateIpAddresses: privateIps,
+            publicIpAddresses: publicIps,
+            rawMetadata: {
+              zone: zoneName,
+              creationTimestamp: instance.creationTimestamp,
+            },
+            agentDeployable: instance.status === "RUNNING",
+            agentDeploymentMethod: "os_config",
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error(`[GCP] Compute discovery error:`, error.message);
+    }
+
+    return assets;
   }
 
   async deployAgent(
