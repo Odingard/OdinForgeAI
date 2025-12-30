@@ -3,10 +3,8 @@ import { secretsService } from "../secrets";
 import { awsAdapter } from "./aws-adapter";
 import { azureAdapter } from "./azure-adapter";
 import { gcpAdapter } from "./gcp-adapter";
-import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, CloudProvider } from "./types";
+import type { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, CloudProvider } from "./types";
 import { randomUUID } from "crypto";
-
-export { CloudCredentials, CloudAssetInfo, DiscoveryProgress, CloudProvider } from "./types";
 
 const adapters: Record<CloudProvider, ProviderAdapter> = {
   aws: awsAdapter,
