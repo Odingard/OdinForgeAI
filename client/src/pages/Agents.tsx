@@ -35,7 +35,8 @@ import {
   MemoryStick,
   RefreshCw,
   Monitor,
-  Download
+  Download,
+  Clock
 } from "lucide-react";
 import { DownloadCenter } from "@/components/DownloadCenter";
 import { Progress } from "@/components/ui/progress";
@@ -248,13 +249,25 @@ export default function Agents() {
     }
   };
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = (status: string, lastHeartbeat: string | null) => {
+    // Pending = pre-registered but never checked in
+    if (status === "pending" || (status !== "online" && !lastHeartbeat)) {
+      return <Clock className="h-4 w-4 text-blue-400" />;
+    }
     switch (status) {
       case "online": return <Wifi className="h-4 w-4 text-green-500" />;
       case "offline": return <WifiOff className="h-4 w-4 text-muted-foreground" />;
       case "stale": return <WifiOff className="h-4 w-4 text-yellow-500" />;
       default: return <WifiOff className="h-4 w-4 text-muted-foreground" />;
     }
+  };
+
+  const getStatusLabel = (status: string, lastHeartbeat: string | null) => {
+    // Pending = pre-registered but never checked in
+    if (status === "pending" || (status !== "online" && !lastHeartbeat)) {
+      return "Awaiting Check-in";
+    }
+    return status;
   };
 
   const goAgentInstructions = `# OdinForge Agent Installation
@@ -553,8 +566,8 @@ kubectl apply -f daemonset.yaml
                       <TableRow key={agent.id} data-testid={`row-agent-${agent.id}`}>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {getStatusIcon(agent.status)}
-                            <span className="capitalize text-sm">{agent.status}</span>
+                            {getStatusIcon(agent.status, agent.lastHeartbeat)}
+                            <span className="capitalize text-sm">{getStatusLabel(agent.status, agent.lastHeartbeat)}</span>
                           </div>
                         </TableCell>
                         <TableCell className="font-medium">{agent.agentName}</TableCell>
@@ -973,8 +986,8 @@ kubectl apply -f daemonset.yaml
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Status</Label>
                   <div className="flex items-center gap-2">
-                    {getStatusIcon(selectedAgent.status)}
-                    <span className="capitalize font-medium">{selectedAgent.status}</span>
+                    {getStatusIcon(selectedAgent.status, selectedAgent.lastHeartbeat)}
+                    <span className="capitalize font-medium">{getStatusLabel(selectedAgent.status, selectedAgent.lastHeartbeat)}</span>
                   </div>
                 </div>
                 <div className="space-y-1">
