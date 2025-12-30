@@ -231,11 +231,16 @@ function CloudConnectionCard({
   const handleCredentialsSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const creds: Record<string, string> = {};
+    const flatCreds: Record<string, string> = {};
     formData.forEach((value, key) => {
-      creds[key] = value as string;
+      if (value) flatCreds[key] = value as string;
     });
-    storeCredentialsMutation.mutate(creds);
+    
+    // Wrap credentials under the provider key as expected by the backend
+    const wrappedCreds: Record<string, Record<string, string>> = {
+      [connection.provider]: flatCreds
+    };
+    storeCredentialsMutation.mutate(wrappedCreds as any);
   };
 
   const getProviderFields = () => {
