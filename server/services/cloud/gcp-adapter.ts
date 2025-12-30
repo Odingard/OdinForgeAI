@@ -233,12 +233,8 @@ export class GCPAdapter implements ProviderAdapter {
     asset: CloudAssetInfo,
     config: { serverUrl: string; registrationToken: string; organizationId: string }
   ): Promise<DeploymentResult> {
-    console.log(`[GCP OS Config] Would deploy to ${asset.providerResourceId}`);
-
-    return {
-      success: false,
-      errorMessage: "OS Config deployment requires GCP SDK - install @google-cloud/os-config for full functionality",
-    };
+    // Use metadata-based startup script approach
+    return this.deployViaStartupScript(creds, asset, config);
   }
 
   private async deployViaStartupScript(
@@ -246,20 +242,149 @@ export class GCPAdapter implements ProviderAdapter {
     asset: CloudAssetInfo,
     config: { serverUrl: string; registrationToken: string; organizationId: string }
   ): Promise<DeploymentResult> {
-    console.log(`[GCP Startup Script] Would deploy to ${asset.providerResourceId}`);
+    console.log(`[GCP Startup Script] Deploying to ${asset.providerResourceId}`);
 
-    return {
-      success: false,
-      errorMessage: "Startup script deployment not yet implemented",
-    };
+    try {
+      const clientOptions = this.getClientOptions(creds);
+      
+      // Parse resource ID: projects/{project}/zones/{zone}/instances/{instance}
+      const parts = asset.providerResourceId.split("/");
+      const projectIndex = parts.indexOf("projects");
+      const zoneIndex = parts.indexOf("zones");
+      const instanceIndex = parts.indexOf("instances");
+      
+      if (projectIndex === -1 || zoneIndex === -1 || instanceIndex === -1) {
+        return { success: false, errorMessage: "Invalid GCP resource ID format" };
+      }
+      
+      const project = parts[projectIndex + 1];
+      const zone = parts[zoneIndex + 1];
+      const instanceName = parts[instanceIndex + 1];
+
+      const instancesClient = new compute.InstancesClient(clientOptions);
+      
+      // Create a startup script that installs the agent
+      // This uses a one-time marker file to prevent re-running on every boot
+      const startupScript = `#!/bin/bash
+# OdinForge Agent Installation Script
+MARKER_FILE="/var/run/odinforge-agent-installed"
+if [ -f "$MARKER_FILE" ]; then
+  echo "OdinForge agent already installed, skipping..."
+  exit 0
+fi
+
+set -e
+echo "Installing OdinForge agent..."
+curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent
+chmod +x /tmp/odinforge-agent
+/tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force
+
+# Create marker file to prevent re-running
+touch "$MARKER_FILE"
+echo "OdinForge agent installed successfully"
+`;
+
+      // Get current instance to retrieve existing metadata
+      const [instance] = await instancesClient.get({
+        project,
+        zone,
+        instance: instanceName,
+      });
+
+      // Build new metadata with our startup script
+      const existingItems = instance.metadata?.items || [];
+      const newItems = existingItems.filter(item => item.key !== "startup-script");
+      newItems.push({
+        key: "startup-script",
+        value: startupScript,
+      });
+
+      console.log(`[GCP] Setting startup script metadata on ${instanceName}`);
+      
+      // Set the metadata
+      const [operation] = await instancesClient.setMetadata({
+        project,
+        zone,
+        instance: instanceName,
+        metadataResource: {
+          fingerprint: instance.metadata?.fingerprint,
+          items: newItems,
+        },
+      });
+
+      // Wait for the operation to complete
+      const operationsClient = new compute.ZoneOperationsClient(clientOptions);
+      
+      // Poll for operation completion (up to 2 minutes)
+      let completed = false;
+      const startTime = Date.now();
+      while (!completed && Date.now() - startTime < 120000) {
+        const [opStatus] = await operationsClient.get({
+          project,
+          zone,
+          operation: operation.name!,
+        });
+        
+        if (opStatus.status === "DONE") {
+          completed = true;
+          if (opStatus.error) {
+            return {
+              success: false,
+              errorMessage: `Metadata update failed: ${JSON.stringify(opStatus.error)}`,
+              deploymentId: operation.name,
+            };
+          }
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+
+      if (!completed) {
+        return {
+          success: false,
+          errorMessage: "Metadata update operation timed out",
+          deploymentId: operation.name,
+        };
+      }
+
+      // Startup script is now set - agent will install on next boot
+      // We don't auto-reset to avoid disrupting running workloads
+      console.log(`[GCP] Startup script configured on ${instanceName} - agent will install on next boot`);
+
+      return {
+        success: true,
+        deploymentId: operation.name,
+        message: `Startup script configured on ${instanceName}. The agent will install automatically when the instance next reboots. For immediate installation, manually restart the instance from the GCP Console.`,
+      };
+    } catch (error: any) {
+      console.error(`[GCP Startup Script] Deployment error:`, error.message);
+      
+      let errorMessage = error.message;
+      if (error.code === 403) {
+        errorMessage = "Permission denied. Ensure the service account has compute.instances.setMetadata permission.";
+      } else if (error.code === 404) {
+        errorMessage = "Instance not found. It may have been deleted or moved.";
+      }
+      
+      return {
+        success: false,
+        errorMessage,
+      };
+    }
   }
 
   async checkAgentDeploymentStatus(
-    _credentials: CloudCredentials,
-    _asset: CloudAssetInfo,
-    _deploymentId: string
+    credentials: CloudCredentials,
+    asset: CloudAssetInfo,
+    deploymentId: string
   ): Promise<{ status: string; error?: string }> {
-    return { status: "unknown", error: "Status check not implemented" };
+    // GCP uses startup script approach - the script is configured but won't run
+    // until the instance is rebooted. We return a pending status to indicate
+    // the agent will install on next boot.
+    return { 
+      status: "pending_reboot",
+      error: "Agent will install when instance is rebooted. Restart the instance from GCP Console for immediate installation."
+    };
   }
 }
 

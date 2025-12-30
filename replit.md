@@ -60,9 +60,16 @@ All documentation is consolidated under the `docs/` directory:
 ### Endpoint Agent System
 - Live agent deployment for real-time monitoring.
 - Features agent registration, telemetry ingestion, auto-evaluation triggers for critical findings, and deduplication.
-- **Go Agent**: `odinforge-agent/` for system telemetry, offline resilience, secure transmission (mTLS, SPKI pinning), and auto-registration.
+- **Go Agent**: Pre-compiled binaries in `public/agents/` for Linux, Windows, macOS (amd64/arm64).
 - **Real-time Status**: Agent status calculated dynamically based on heartbeat age (online <2min, stale 2-10min, offline >10min).
 - **Force Check-in**: On-demand refresh of agent data via WebSocket broadcast.
+
+### Cloud Agent Deployment
+- **AWS**: Uses SSM Run Command to install agents on EC2 instances. Requires `ssm:SendCommand` permission and SSM Agent on instances.
+- **Azure**: Uses VM Run Command to install agents on Azure VMs. Requires `Microsoft.Compute/virtualMachines/runCommand/action` permission.
+- **GCP**: Uses startup script metadata to install agents on next instance reboot. Requires `compute.instances.setMetadata` permission.
+- **Pre-registration**: Agents are pre-registered in pending state before cloud deployment, appearing immediately in the Agents list.
+- **Status Tracking**: Deployment status tracked per cloud asset (pending, deploying, success, failed).
 
 ### AI Integration
 - Uses OpenAI API for analyzing security exposures, determining exploitability, and generating attack paths and remediation.

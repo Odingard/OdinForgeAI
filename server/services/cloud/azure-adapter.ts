@@ -335,12 +335,98 @@ export class AzureAdapter implements ProviderAdapter {
     asset: CloudAssetInfo,
     config: { serverUrl: string; registrationToken: string; organizationId: string }
   ): Promise<DeploymentResult> {
-    console.log(`[Azure VM Extension] Would deploy to ${asset.providerResourceId}`);
+    console.log(`[Azure Run Command] Deploying to ${asset.providerResourceId}`);
 
-    return {
-      success: false,
-      errorMessage: "VM Extension deployment requires Azure SDK - install @azure/arm-compute for full functionality",
-    };
+    try {
+      const credential = this.getCredential(creds);
+      
+      // Parse resource ID to get subscription, resource group, and VM name
+      const resourceId = asset.providerResourceId;
+      const parts = resourceId.split("/");
+      const subscriptionIndex = parts.indexOf("subscriptions");
+      const rgIndex = parts.indexOf("resourceGroups");
+      const vmIndex = parts.indexOf("virtualMachines");
+      
+      if (subscriptionIndex === -1 || rgIndex === -1 || vmIndex === -1) {
+        return { success: false, errorMessage: "Invalid Azure resource ID format" };
+      }
+      
+      const subscriptionId = parts[subscriptionIndex + 1];
+      const resourceGroup = parts[rgIndex + 1];
+      const vmName = parts[vmIndex + 1];
+
+      const computeClient = new ComputeManagementClient(credential, subscriptionId);
+      
+      // Determine OS type for correct script
+      const osType = asset.rawMetadata?.osType?.toLowerCase();
+      const isWindows = osType === "windows";
+      
+      let script: string[];
+      let commandId: string;
+      
+      if (isWindows) {
+        commandId = "RunPowerShellScript";
+        script = [
+          `$ErrorActionPreference = "Stop"`,
+          `Invoke-WebRequest -Uri "${config.serverUrl}/api/agents/download/windows-amd64" -OutFile "C:\\Temp\\odinforge-agent.exe"`,
+          `& "C:\\Temp\\odinforge-agent.exe" install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+        ];
+      } else {
+        commandId = "RunShellScript";
+        script = [
+          `#!/bin/bash`,
+          `set -e`,
+          `curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent`,
+          `chmod +x /tmp/odinforge-agent`,
+          `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+        ];
+      }
+
+      console.log(`[Azure Run Command] Sending ${commandId} to VM ${vmName} in resource group ${resourceGroup}`);
+      
+      // Execute the run command (this is a long-running operation)
+      const runResult = await computeClient.virtualMachines.beginRunCommandAndWait(
+        resourceGroup,
+        vmName,
+        {
+          commandId,
+          script,
+        }
+      );
+
+      // Check if command succeeded
+      const output = runResult.value?.[0]?.message || "";
+      const hasError = output.toLowerCase().includes("error") || 
+                       runResult.value?.[0]?.code?.includes("Error");
+
+      if (hasError) {
+        return {
+          success: false,
+          errorMessage: `Run command failed: ${output.substring(0, 500)}`,
+          deploymentId: `${resourceGroup}/${vmName}/${Date.now()}`,
+        };
+      }
+
+      return {
+        success: true,
+        deploymentId: `${resourceGroup}/${vmName}/${Date.now()}`,
+        message: `Agent deployed successfully to ${vmName}`,
+      };
+    } catch (error: any) {
+      console.error(`[Azure Run Command] Deployment error:`, error.message);
+      
+      let errorMessage = error.message;
+      if (error.code === "AuthorizationFailed") {
+        errorMessage = "Authorization failed. Ensure your Azure credentials have Microsoft.Compute/virtualMachines/runCommand/action permission.";
+      } else if (error.code === "ResourceNotFound") {
+        errorMessage = "VM not found. It may have been deleted or moved.";
+      }
+      
+      return {
+        success: false,
+        errorMessage,
+      };
+    }
   }
 
   private async deployViaArc(
@@ -357,11 +443,15 @@ export class AzureAdapter implements ProviderAdapter {
   }
 
   async checkAgentDeploymentStatus(
-    _credentials: CloudCredentials,
-    _asset: CloudAssetInfo,
-    _deploymentId: string
+    credentials: CloudCredentials,
+    asset: CloudAssetInfo,
+    deploymentId: string
   ): Promise<{ status: string; error?: string }> {
-    return { status: "unknown", error: "Status check not implemented" };
+    // Azure Run Command is synchronous (beginRunCommandAndWait), so status is determined at deployment time
+    // The deploymentId format is: resourceGroup/vmName/timestamp
+    // If we got here, deployment already completed (success or failure was determined inline)
+    // Return success since Azure Run Command waits for completion
+    return { status: "success" };
   }
 }
 

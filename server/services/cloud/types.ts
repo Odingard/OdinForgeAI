@@ -53,6 +53,8 @@ export interface DiscoveryProgress {
 export interface DeploymentResult {
   success: boolean;
   agentId?: string;
+  deploymentId?: string;
+  message?: string;
   errorMessage?: string;
   errorDetails?: Record<string, any>;
 }
