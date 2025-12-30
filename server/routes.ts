@@ -1786,6 +1786,170 @@ export async function registerRoutes(
     }
   });
 
+  // Store credentials for cloud connection (encrypted)
+  app.post("/api/cloud-connections/:id/credentials", async (req, res) => {
+    try {
+      const { cloudIntegrationService } = await import("./services/cloud/index");
+      
+      const connection = await storage.getCloudConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: "Cloud connection not found" });
+      }
+
+      const result = await cloudIntegrationService.validateAndStoreCredentials(
+        req.params.id,
+        connection.provider,
+        req.body
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      await storage.updateCloudConnection(req.params.id, {
+        status: "connected",
+        lastSyncAt: new Date(),
+        lastSyncStatus: "success",
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Credentials validated and stored securely",
+        accountInfo: result.accountInfo 
+      });
+    } catch (error) {
+      console.error("Error storing credentials:", error);
+      res.status(500).json({ error: "Failed to store credentials" });
+    }
+  });
+
+  // Start asset discovery for a cloud connection
+  app.post("/api/cloud-connections/:id/discover", async (req, res) => {
+    try {
+      const { cloudIntegrationService } = await import("./services/cloud/index");
+      
+      const connection = await storage.getCloudConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: "Cloud connection not found" });
+      }
+
+      const result = await cloudIntegrationService.startDiscoveryJob(
+        req.params.id,
+        connection.organizationId,
+        { regions: req.body.regions, triggeredBy: req.body.userId }
+      );
+
+      if (result.error) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ 
+        success: true, 
+        jobId: result.jobId,
+        message: "Asset discovery started" 
+      });
+    } catch (error) {
+      console.error("Error starting discovery:", error);
+      res.status(500).json({ error: "Failed to start asset discovery" });
+    }
+  });
+
+  // Get discovered cloud assets for a connection
+  app.get("/api/cloud-connections/:id/assets", async (req, res) => {
+    try {
+      const assets = await storage.getCloudAssetsByConnection(req.params.id);
+      res.json(assets);
+    } catch (error) {
+      console.error("Error fetching cloud assets:", error);
+      res.status(500).json({ error: "Failed to fetch cloud assets" });
+    }
+  });
+
+  // Get discovery jobs for a connection
+  app.get("/api/cloud-connections/:id/discovery-jobs", async (req, res) => {
+    try {
+      const jobs = await storage.getCloudDiscoveryJobs(req.params.id);
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching discovery jobs:", error);
+      res.status(500).json({ error: "Failed to fetch discovery jobs" });
+    }
+  });
+
+  // Deploy agent to a specific cloud asset
+  app.post("/api/cloud-assets/:id/deploy-agent", async (req, res) => {
+    try {
+      const { cloudIntegrationService } = await import("./services/cloud/index");
+      
+      const result = await cloudIntegrationService.deployAgentToAsset(
+        req.params.id,
+        { initiatedBy: req.body.userId }
+      );
+
+      if (result.error) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ 
+        success: true, 
+        jobId: result.jobId,
+        message: "Agent deployment started" 
+      });
+    } catch (error) {
+      console.error("Error deploying agent:", error);
+      res.status(500).json({ error: "Failed to deploy agent" });
+    }
+  });
+
+  // Deploy agents to all assets in a connection
+  app.post("/api/cloud-connections/:id/deploy-all-agents", async (req, res) => {
+    try {
+      const { cloudIntegrationService } = await import("./services/cloud/index");
+      
+      const connection = await storage.getCloudConnection(req.params.id);
+      if (!connection) {
+        return res.status(404).json({ error: "Cloud connection not found" });
+      }
+
+      const result = await cloudIntegrationService.deployAgentsToAllAssets(
+        req.params.id,
+        { assetTypes: req.body.assetTypes, initiatedBy: req.body.userId }
+      );
+
+      res.json({ 
+        success: true, 
+        jobIds: result.jobIds,
+        errors: result.errors,
+        message: `Started ${result.jobIds.length} agent deployments` 
+      });
+    } catch (error) {
+      console.error("Error deploying agents:", error);
+      res.status(500).json({ error: "Failed to deploy agents" });
+    }
+  });
+
+  // Get all cloud assets
+  app.get("/api/cloud-assets", async (req, res) => {
+    try {
+      const assets = await storage.getCloudAssets();
+      res.json(assets);
+    } catch (error) {
+      console.error("Error fetching cloud assets:", error);
+      res.status(500).json({ error: "Failed to fetch cloud assets" });
+    }
+  });
+
+  // Get deployment jobs for a connection
+  app.get("/api/cloud-connections/:id/deployment-jobs", async (req, res) => {
+    try {
+      const jobs = await storage.getAgentDeploymentJobs(req.params.id);
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching deployment jobs:", error);
+      res.status(500).json({ error: "Failed to fetch deployment jobs" });
+    }
+  });
+
   // ========== AI VS AI SIMULATION API ==========
 
   // Import the AI simulation runner

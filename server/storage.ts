@@ -76,11 +76,23 @@ import {
   vulnerabilityImports,
   importJobs,
   cloudConnections,
+  cloudCredentials,
+  cloudDiscoveryJobs,
+  cloudAssets,
+  agentDeploymentJobs,
   endpointAgents,
   agentTelemetry,
   agentFindings,
   agentCommands,
   uiUsers,
+  type CloudCredential,
+  type InsertCloudCredential,
+  type CloudDiscoveryJob,
+  type InsertCloudDiscoveryJob,
+  type CloudAsset,
+  type InsertCloudAsset,
+  type AgentDeploymentJob,
+  type InsertAgentDeploymentJob,
   uiRefreshTokens,
   fullAssessments,
 } from "@shared/schema";
@@ -859,7 +871,145 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteCloudConnection(id: string): Promise<void> {
+    await db.delete(agentDeploymentJobs).where(eq(agentDeploymentJobs.connectionId, id));
+    await db.delete(cloudAssets).where(eq(cloudAssets.connectionId, id));
+    await db.delete(cloudDiscoveryJobs).where(eq(cloudDiscoveryJobs.connectionId, id));
+    await db.delete(cloudCredentials).where(eq(cloudCredentials.connectionId, id));
     await db.delete(cloudConnections).where(eq(cloudConnections.id, id));
+  }
+
+  // Cloud Credential operations
+  async createCloudCredential(data: InsertCloudCredential): Promise<CloudCredential> {
+    const id = `cred-${randomUUID().slice(0, 8)}`;
+    const [credential] = await db
+      .insert(cloudCredentials)
+      .values({ ...data, id } as typeof cloudCredentials.$inferInsert)
+      .returning();
+    return credential;
+  }
+
+  async getCloudCredentialByConnectionId(connectionId: string): Promise<CloudCredential | undefined> {
+    const [credential] = await db
+      .select()
+      .from(cloudCredentials)
+      .where(eq(cloudCredentials.connectionId, connectionId));
+    return credential;
+  }
+
+  async updateCloudCredential(id: string, updates: Partial<CloudCredential>): Promise<void> {
+    await db.update(cloudCredentials).set({ ...updates, updatedAt: new Date() }).where(eq(cloudCredentials.id, id));
+  }
+
+  // Cloud Discovery Job operations
+  async createCloudDiscoveryJob(data: InsertCloudDiscoveryJob): Promise<CloudDiscoveryJob> {
+    const id = `disc-${randomUUID().slice(0, 8)}`;
+    const [job] = await db
+      .insert(cloudDiscoveryJobs)
+      .values({ ...data, id } as typeof cloudDiscoveryJobs.$inferInsert)
+      .returning();
+    return job;
+  }
+
+  async getCloudDiscoveryJob(id: string): Promise<CloudDiscoveryJob | undefined> {
+    const [job] = await db
+      .select()
+      .from(cloudDiscoveryJobs)
+      .where(eq(cloudDiscoveryJobs.id, id));
+    return job;
+  }
+
+  async getCloudDiscoveryJobs(connectionId: string): Promise<CloudDiscoveryJob[]> {
+    return db
+      .select()
+      .from(cloudDiscoveryJobs)
+      .where(eq(cloudDiscoveryJobs.connectionId, connectionId))
+      .orderBy(desc(cloudDiscoveryJobs.createdAt));
+  }
+
+  async updateCloudDiscoveryJob(id: string, updates: Partial<CloudDiscoveryJob>): Promise<void> {
+    await db.update(cloudDiscoveryJobs).set(updates).where(eq(cloudDiscoveryJobs.id, id));
+  }
+
+  // Cloud Asset operations
+  async createCloudAsset(data: InsertCloudAsset): Promise<CloudAsset> {
+    const id = `casset-${randomUUID().slice(0, 8)}`;
+    const [asset] = await db
+      .insert(cloudAssets)
+      .values({ ...data, id } as typeof cloudAssets.$inferInsert)
+      .returning();
+    return asset;
+  }
+
+  async getCloudAsset(id: string): Promise<CloudAsset | undefined> {
+    const [asset] = await db
+      .select()
+      .from(cloudAssets)
+      .where(eq(cloudAssets.id, id));
+    return asset;
+  }
+
+  async getCloudAssetByProviderId(connectionId: string, providerResourceId: string): Promise<CloudAsset | undefined> {
+    const [asset] = await db
+      .select()
+      .from(cloudAssets)
+      .where(and(
+        eq(cloudAssets.connectionId, connectionId),
+        eq(cloudAssets.providerResourceId, providerResourceId)
+      ));
+    return asset;
+  }
+
+  async getCloudAssetsByConnection(connectionId: string): Promise<CloudAsset[]> {
+    return db
+      .select()
+      .from(cloudAssets)
+      .where(eq(cloudAssets.connectionId, connectionId))
+      .orderBy(desc(cloudAssets.lastSeenAt));
+  }
+
+  async getCloudAssets(organizationId?: string): Promise<CloudAsset[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(cloudAssets)
+        .where(eq(cloudAssets.organizationId, organizationId))
+        .orderBy(desc(cloudAssets.lastSeenAt));
+    }
+    return db.select().from(cloudAssets).orderBy(desc(cloudAssets.lastSeenAt));
+  }
+
+  async updateCloudAsset(id: string, updates: Partial<CloudAsset>): Promise<void> {
+    await db.update(cloudAssets).set({ ...updates, updatedAt: new Date() }).where(eq(cloudAssets.id, id));
+  }
+
+  // Agent Deployment Job operations
+  async createAgentDeploymentJob(data: InsertAgentDeploymentJob): Promise<AgentDeploymentJob> {
+    const id = `deploy-${randomUUID().slice(0, 8)}`;
+    const [job] = await db
+      .insert(agentDeploymentJobs)
+      .values({ ...data, id } as typeof agentDeploymentJobs.$inferInsert)
+      .returning();
+    return job;
+  }
+
+  async getAgentDeploymentJob(id: string): Promise<AgentDeploymentJob | undefined> {
+    const [job] = await db
+      .select()
+      .from(agentDeploymentJobs)
+      .where(eq(agentDeploymentJobs.id, id));
+    return job;
+  }
+
+  async getAgentDeploymentJobs(connectionId: string): Promise<AgentDeploymentJob[]> {
+    return db
+      .select()
+      .from(agentDeploymentJobs)
+      .where(eq(agentDeploymentJobs.connectionId, connectionId))
+      .orderBy(desc(agentDeploymentJobs.createdAt));
+  }
+
+  async updateAgentDeploymentJob(id: string, updates: Partial<AgentDeploymentJob>): Promise<void> {
+    await db.update(agentDeploymentJobs).set({ ...updates, updatedAt: new Date() }).where(eq(agentDeploymentJobs.id, id));
   }
 
   // Get asset and vulnerability counts for dashboard
