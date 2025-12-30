@@ -75,6 +75,87 @@ func (s *Sender) Flush(ctx context.Context, q *queue.BoltQueue) error {
         return q.Ack(keys)
 }
 
+// Command represents a queued command from the server
+type Command struct {
+        ID          string                 `json:"id"`
+        CommandType string                 `json:"commandType"`
+        Payload     map[string]interface{} `json:"payload,omitempty"`
+        Status      string                 `json:"status"`
+        CreatedAt   string                 `json:"createdAt"`
+        ExpiresAt   string                 `json:"expiresAt,omitempty"`
+}
+
+// CommandsResponse is the response from the commands endpoint
+type CommandsResponse struct {
+        Commands []Command `json:"commands"`
+}
+
+// PollCommands fetches pending commands from the server
+func (s *Sender) PollCommands(ctx context.Context, agentID string) ([]Command, error) {
+        url := strings.TrimRight(s.cfg.Server.URL, "/") + "/api/agents/" + agentID + "/commands"
+
+        req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+        if err != nil {
+                return nil, err
+        }
+
+        req.Header.Set("X-API-Key", s.cfg.Auth.APIKey)
+        req.Header.Set("Content-Type", "application/json")
+
+        resp, err := s.client.Do(req)
+        if err != nil {
+                return nil, err
+        }
+        defer resp.Body.Close()
+
+        if resp.StatusCode != http.StatusOK {
+                body, _ := io.ReadAll(resp.Body)
+                return nil, errors.New("command poll failed: " + string(body))
+        }
+
+        var cmdResp CommandsResponse
+        if err := json.NewDecoder(resp.Body).Decode(&cmdResp); err != nil {
+                return nil, err
+        }
+
+        return cmdResp.Commands, nil
+}
+
+// CompleteCommand reports command completion to the server
+func (s *Sender) CompleteCommand(ctx context.Context, agentID, commandID string, result map[string]interface{}, errorMsg string) error {
+        url := strings.TrimRight(s.cfg.Server.URL, "/") + "/api/agents/" + agentID + "/commands/" + commandID + "/complete"
+
+        body := map[string]interface{}{
+                "result": result,
+        }
+        if errorMsg != "" {
+                body["errorMessage"] = errorMsg
+        }
+
+        raw, _ := json.Marshal(body)
+
+        req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
+        if err != nil {
+                return err
+        }
+
+        req.Header.Set("X-API-Key", s.cfg.Auth.APIKey)
+        req.Header.Set("Content-Type", "application/json")
+
+        resp, err := s.client.Do(req)
+        if err != nil {
+                return err
+        }
+        defer resp.Body.Close()
+
+        if resp.StatusCode != http.StatusOK {
+                respBody, _ := io.ReadAll(resp.Body)
+                return errors.New("command complete failed: " + string(respBody))
+        }
+
+        return nil
+}
+
 func (s *Sender) postBatch(ctx context.Context, events []json.RawMessage) error {
         url := strings.TrimRight(s.cfg.Server.URL, "/") + "/api/agents/events"
 

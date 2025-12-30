@@ -196,14 +196,14 @@ export default function Agents() {
     },
     onSuccess: (data) => {
       toast({
-        title: "Check-in Requested",
-        description: "Agent has been requested to send updated data.",
+        title: "Command Queued",
+        description: "Check-in command queued. Agent will respond within 30 seconds.",
       });
-      // Refresh agent data after a brief delay
+      // Refresh agent data after the agent should have responded
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
         queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
-      }, 2000);
+      }, 35000); // Slightly longer than command poll interval
     },
     onError: (error: Error) => {
       toast({

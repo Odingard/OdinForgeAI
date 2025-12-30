@@ -205,9 +205,11 @@ func runAgent() {
         // Schedulers (with jitter)
         telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
         heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
+        commandPollTicker := time.NewTicker(30 * time.Second) // Poll for commands every 30 seconds
         flushTicker := time.NewTicker(5 * time.Second)
         defer telemetryTicker.Stop()
         defer heartbeatTicker.Stop()
+        defer commandPollTicker.Stop()
         defer flushTicker.Stop()
 
         log.Printf("odinforge-agent started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
@@ -224,6 +226,9 @@ func runAgent() {
                         enqueueHeartbeat(c, q)
                 case <-telemetryTicker.C:
                         enqueueTelemetry(ctx, c, q)
+                case <-commandPollTicker.C:
+                        // Poll for and execute pending commands
+                        pollAndExecuteCommands(ctx, cfg, c, q, s)
                 case <-flushTicker.C:
                         // drain queue in the background cadence
                         if err := s.Flush(ctx, q); err != nil {
@@ -258,5 +263,78 @@ func enqueueHeartbeat(c *collector.Collector, q *queue.BoltQueue) {
         ev := c.HeartbeatEvent()
         if err := q.Enqueue(ev); err != nil {
                 log.Printf("heartbeat enqueue failed: %v", err)
+        }
+}
+
+func pollAndExecuteCommands(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender) {
+        // Get agent ID from config (derived from API key or stored during registration)
+        agentID := cfg.Auth.TenantID // Use tenant ID as fallback
+        if cfg.Auth.APIKey != "" {
+                // Agent ID is typically stored alongside the API key during registration
+                // For now, we use the API key prefix as agent identifier
+                if len(cfg.Auth.APIKey) >= 8 {
+                        agentID = "agent-" + cfg.Auth.APIKey[:8]
+                }
+        }
+
+        // Poll for pending commands
+        commands, err := s.PollCommands(ctx, agentID)
+        if err != nil {
+                log.Printf("command poll error: %v", err)
+                return
+        }
+
+        if len(commands) == 0 {
+                return
+        }
+
+        log.Printf("received %d commands from server", len(commands))
+
+        // Execute each command
+        for _, cmd := range commands {
+                executeCommand(ctx, cfg, c, q, s, agentID, cmd)
+        }
+}
+
+func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, agentID string, cmd sender.Command) {
+        log.Printf("executing command: %s (type: %s)", cmd.ID, cmd.CommandType)
+
+        var result map[string]interface{}
+        var errorMsg string
+
+        switch cmd.CommandType {
+        case "force_checkin":
+                // Immediately collect and queue telemetry
+                enqueueTelemetry(ctx, c, q)
+                enqueueHeartbeat(c, q)
+                // Flush immediately to send data
+                if err := s.Flush(ctx, q); err != nil {
+                        errorMsg = err.Error()
+                } else {
+                        result = map[string]interface{}{
+                                "status":      "completed",
+                                "executedAt":  time.Now().Format(time.RFC3339),
+                                "telemetrySent": true,
+                        }
+                }
+
+        case "run_scan":
+                // Trigger a full scan
+                enqueueTelemetry(ctx, c, q)
+                result = map[string]interface{}{
+                        "status":     "completed",
+                        "executedAt": time.Now().Format(time.RFC3339),
+                        "scanType":   "full",
+                }
+
+        default:
+                errorMsg = "unknown command type: " + cmd.CommandType
+        }
+
+        // Report completion to server
+        if err := s.CompleteCommand(ctx, agentID, cmd.ID, result, errorMsg); err != nil {
+                log.Printf("failed to report command completion: %v", err)
+        } else {
+                log.Printf("command %s completed successfully", cmd.ID)
         }
 }

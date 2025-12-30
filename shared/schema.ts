@@ -2109,6 +2109,46 @@ export const insertEndpointAgentSchema = createInsertSchema(endpointAgents).omit
 export type InsertEndpointAgent = z.infer<typeof insertEndpointAgentSchema>;
 export type EndpointAgent = typeof endpointAgents.$inferSelect;
 
+// Agent Commands - Queued commands for agents to execute
+export const agentCommandStatuses = ["pending", "acknowledged", "executed", "failed", "expired"] as const;
+export type AgentCommandStatus = typeof agentCommandStatuses[number];
+
+export const agentCommandTypes = ["force_checkin", "run_scan", "config_update", "restart", "shutdown"] as const;
+export type AgentCommandType = typeof agentCommandTypes[number];
+
+export const agentCommands = pgTable("agent_commands", {
+  id: varchar("id").primaryKey(),
+  agentId: varchar("agent_id").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Command details
+  commandType: varchar("command_type").notNull(), // One of agentCommandTypes
+  payload: jsonb("payload").$type<Record<string, any>>(), // Optional command parameters
+  
+  // Status tracking
+  status: varchar("status").default("pending"), // One of agentCommandStatuses
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  executedAt: timestamp("executed_at"),
+  expiresAt: timestamp("expires_at"), // Command expires if not executed by this time
+  
+  // Results
+  result: jsonb("result").$type<Record<string, any>>(),
+  errorMessage: text("error_message"),
+});
+
+export const insertAgentCommandSchema = createInsertSchema(agentCommands).omit({
+  id: true,
+  createdAt: true,
+  acknowledgedAt: true,
+  executedAt: true,
+});
+
+export type InsertAgentCommand = z.infer<typeof insertAgentCommandSchema>;
+export type AgentCommand = typeof agentCommands.$inferSelect;
+
 // Agent Telemetry - Live data from agents
 export const agentTelemetry = pgTable("agent_telemetry", {
   id: varchar("id").primaryKey(),
