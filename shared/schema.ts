@@ -2044,6 +2044,205 @@ export const insertCloudConnectionSchema = createInsertSchema(cloudConnections).
 export type InsertCloudConnection = z.infer<typeof insertCloudConnectionSchema>;
 export type CloudConnection = typeof cloudConnections.$inferSelect;
 
+// Cloud Connection Credentials - Encrypted secrets storage
+export const cloudCredentials = pgTable("cloud_credentials", {
+  id: varchar("id").primaryKey(),
+  connectionId: varchar("connection_id").notNull().references(() => cloudConnections.id),
+  
+  // Encrypted credential data (envelope encryption with KMS)
+  encryptedData: text("encrypted_data").notNull(), // AES-256 encrypted JSON
+  encryptionKeyId: varchar("encryption_key_id").notNull(), // Reference to KMS key
+  
+  // Credential type
+  credentialType: varchar("credential_type").notNull(), // aws_access_key, aws_role, azure_sp, azure_certificate, gcp_service_account, gcp_workload_identity
+  
+  // Metadata (non-sensitive)
+  lastRotatedAt: timestamp("last_rotated_at"),
+  expiresAt: timestamp("expires_at"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCloudCredentialSchema = createInsertSchema(cloudCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertCloudCredential = z.infer<typeof insertCloudCredentialSchema>;
+export type CloudCredential = typeof cloudCredentials.$inferSelect;
+
+// Cloud Discovery Jobs - Track asset discovery runs
+export const cloudDiscoveryJobStatuses = ["pending", "running", "completed", "failed", "cancelled"] as const;
+export type CloudDiscoveryJobStatus = typeof cloudDiscoveryJobStatuses[number];
+
+export const cloudDiscoveryJobs = pgTable("cloud_discovery_jobs", {
+  id: varchar("id").primaryKey(),
+  connectionId: varchar("connection_id").notNull().references(() => cloudConnections.id),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Job status
+  status: varchar("status").default("pending"), // One of cloudDiscoveryJobStatuses
+  jobType: varchar("job_type").default("full"), // full, incremental, targeted
+  
+  // Progress tracking
+  totalRegions: integer("total_regions").default(0),
+  completedRegions: integer("completed_regions").default(0),
+  totalAssets: integer("total_assets").default(0),
+  newAssets: integer("new_assets").default(0),
+  updatedAssets: integer("updated_assets").default(0),
+  removedAssets: integer("removed_assets").default(0),
+  
+  // Timing
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  estimatedDuration: integer("estimated_duration"), // seconds
+  
+  // Error handling
+  errors: jsonb("errors").$type<Array<{
+    resource?: string;
+    region?: string;
+    error: string;
+    timestamp: string;
+  }>>(),
+  
+  // Trigger info
+  triggeredBy: varchar("triggered_by"), // user_id, scheduler, webhook
+  triggerType: varchar("trigger_type").default("manual"), // manual, scheduled, event
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCloudDiscoveryJobSchema = createInsertSchema(cloudDiscoveryJobs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCloudDiscoveryJob = z.infer<typeof insertCloudDiscoveryJobSchema>;
+export type CloudDiscoveryJob = typeof cloudDiscoveryJobs.$inferSelect;
+
+// Cloud Assets - Discovered cloud resources
+export const cloudAssetTypes = [
+  "vm", "container", "kubernetes_node", "kubernetes_cluster", "database", 
+  "storage", "network", "load_balancer", "serverless", "managed_service"
+] as const;
+export type CloudAssetType = typeof cloudAssetTypes[number];
+
+export const cloudAssets = pgTable("cloud_assets", {
+  id: varchar("id").primaryKey(),
+  connectionId: varchar("connection_id").notNull().references(() => cloudConnections.id),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Provider-assigned identifiers
+  providerResourceId: varchar("provider_resource_id").notNull(), // AWS ARN, Azure Resource ID, GCP Resource Name
+  provider: varchar("provider").notNull(), // aws, azure, gcp
+  
+  // Asset classification
+  assetType: varchar("asset_type").notNull(), // One of cloudAssetTypes
+  assetName: text("asset_name").notNull(),
+  
+  // Location
+  region: varchar("region"),
+  availabilityZone: varchar("availability_zone"),
+  
+  // Compute details (for VMs, containers)
+  instanceType: varchar("instance_type"),
+  cpuCount: integer("cpu_count"),
+  memoryMb: integer("memory_mb"),
+  
+  // Network
+  publicIpAddresses: jsonb("public_ip_addresses").$type<string[]>(),
+  privateIpAddresses: jsonb("private_ip_addresses").$type<string[]>(),
+  
+  // State
+  powerState: varchar("power_state"), // running, stopped, terminated
+  healthStatus: varchar("health_status"),
+  
+  // Agent deployment
+  agentInstalled: boolean("agent_installed").default(false),
+  agentId: varchar("agent_id"), // Reference to endpointAgents.id if installed
+  agentDeployable: boolean("agent_deployable").default(true), // Can we deploy an agent?
+  agentDeploymentMethod: varchar("agent_deployment_method"), // ssm, vm_extension, os_config, manual
+  lastAgentDeploymentAttempt: timestamp("last_agent_deployment_attempt"),
+  agentDeploymentStatus: varchar("agent_deployment_status"), // pending, deploying, success, failed
+  agentDeploymentError: text("agent_deployment_error"),
+  
+  // Tags from provider
+  providerTags: jsonb("provider_tags").$type<Record<string, string>>(),
+  
+  // Metadata
+  rawMetadata: jsonb("raw_metadata").$type<Record<string, any>>(),
+  
+  // Discovery tracking
+  firstDiscoveredAt: timestamp("first_discovered_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  discoveryJobId: varchar("discovery_job_id"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCloudAssetSchema = createInsertSchema(cloudAssets).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  firstDiscoveredAt: true,
+});
+
+export type InsertCloudAsset = z.infer<typeof insertCloudAssetSchema>;
+export type CloudAsset = typeof cloudAssets.$inferSelect;
+
+// Agent Deployment Jobs - Track agent installation attempts
+export const agentDeploymentStatuses = ["pending", "queued", "deploying", "verifying", "success", "failed", "cancelled"] as const;
+export type AgentDeploymentStatus = typeof agentDeploymentStatuses[number];
+
+export const agentDeploymentJobs = pgTable("agent_deployment_jobs", {
+  id: varchar("id").primaryKey(),
+  cloudAssetId: varchar("cloud_asset_id").notNull().references(() => cloudAssets.id),
+  connectionId: varchar("connection_id").notNull().references(() => cloudConnections.id),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Deployment method
+  deploymentMethod: varchar("deployment_method").notNull(), // ssm, vm_extension, os_config, daemonset, manual
+  
+  // Status
+  status: varchar("status").default("pending"), // One of agentDeploymentStatuses
+  
+  // Deployment details
+  deploymentCommand: text("deployment_command"), // The actual command/script
+  deploymentConfig: jsonb("deployment_config").$type<Record<string, any>>(),
+  
+  // Progress
+  attempts: integer("attempts").default(0),
+  maxAttempts: integer("max_attempts").default(3),
+  
+  // Timing
+  scheduledAt: timestamp("scheduled_at"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  
+  // Result
+  resultAgentId: varchar("result_agent_id"), // ID of the registered agent if successful
+  errorMessage: text("error_message"),
+  errorDetails: jsonb("error_details").$type<Record<string, any>>(),
+  
+  // Audit
+  initiatedBy: varchar("initiated_by"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAgentDeploymentJobSchema = createInsertSchema(agentDeploymentJobs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAgentDeploymentJob = z.infer<typeof insertAgentDeploymentJobSchema>;
+export type AgentDeploymentJob = typeof agentDeploymentJobs.$inferSelect;
+
 // ============================================
 // ENDPOINT AGENT SYSTEM
 // ============================================
