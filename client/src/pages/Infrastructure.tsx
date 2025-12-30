@@ -221,7 +221,8 @@ function CloudConnectionCard({
 
   const deployAllAgentsMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/deploy-all-agents`, { assetTypes: ["vm", "container"] });
+      // Deploy to all deployable assets - don't filter by asset type
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/deploy-all-agents`, {});
       return res.json();
     },
     onSuccess: (data) => {
@@ -313,7 +314,14 @@ function CloudConnectionCard({
   };
 
   const activeDiscovery = discoveryJobs.find(j => j.status === "running" || j.status === "pending");
-  const deployableAssets = cloudAssets.filter(a => a.agentDeployable && a.agentDeploymentStatus !== "success");
+  // Assets that can be deployed: deployable and either no status, failed, or stuck pending with no agent
+  const deployableAssets = cloudAssets.filter(a => 
+    a.agentDeployable && 
+    a.agentDeploymentStatus !== "success" &&
+    a.agentDeploymentStatus !== "deploying" &&
+    // Allow retry for pending only if no agent was linked
+    (a.agentDeploymentStatus !== "pending" || !a.agentId)
+  );
 
   return (
     <>
@@ -496,7 +504,8 @@ function CloudConnectionCard({
                         {asset.agentDeployable && 
                          asset.agentDeploymentStatus !== "success" && 
                          asset.agentDeploymentStatus !== "deploying" && 
-                         asset.agentDeploymentStatus !== "pending" && (
+                         // Allow retry for pending only if no agent was linked (stuck deployment)
+                         (asset.agentDeploymentStatus !== "pending" || !asset.agentId) && (
                           <Button
                             size="sm"
                             variant="ghost"

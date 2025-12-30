@@ -393,10 +393,19 @@ export class CloudIntegrationService {
   ): Promise<{ jobIds: string[]; errors: string[] }> {
     const assets = await storage.getCloudAssetsByConnection(connectionId);
     
+    // Filter for assets that:
+    // 1. Are deployable
+    // 2. Don't already have an agent installed
+    // 3. Either have no deployment status, or are stuck in pending/failed without an agent linked
+    // 4. Match optional asset type filter
     const deployableAssets = assets.filter(a => 
       a.agentDeployable && 
       !a.agentInstalled &&
-      (!options?.assetTypes || options.assetTypes.includes(a.assetType))
+      (!options?.assetTypes?.length || options.assetTypes.includes(a.assetType)) &&
+      // Allow deployment if: no status, status is null, stuck in pending/failed with no agent
+      (!a.agentDeploymentStatus || 
+       a.agentDeploymentStatus === "failed" || 
+       (a.agentDeploymentStatus === "pending" && !a.agentId))
     );
 
     const jobIds: string[] = [];
