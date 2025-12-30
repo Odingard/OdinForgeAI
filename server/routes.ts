@@ -2513,11 +2513,11 @@ export async function registerRoutes(
   });
 
   // Serve install.sh script for curl-based installation
-  app.get("/api/install.sh", async (req, res) => {
+  app.get("/api/agents/install.sh", async (req, res) => {
     try {
       const fs = await import("fs");
       const path = await import("path");
-      const scriptPath = path.join(process.cwd(), "odinforge-installer", "install.sh");
+      const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.sh");
       
       if (fs.existsSync(scriptPath)) {
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -2530,6 +2530,48 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error serving install script:", error);
       res.status(500).json({ error: "Failed to serve install script" });
+    }
+  });
+
+  // Serve install.ps1 script for PowerShell-based installation (Windows)
+  app.get("/api/agents/install.ps1", async (req, res) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.ps1");
+      
+      if (fs.existsSync(scriptPath)) {
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.setHeader("Content-Disposition", "inline; filename=install.ps1");
+        const script = fs.readFileSync(scriptPath, "utf-8");
+        res.send(script);
+      } else {
+        res.status(404).json({ error: "Install script not found" });
+      }
+    } catch (error) {
+      console.error("Error serving install script:", error);
+      res.status(500).json({ error: "Failed to serve install script" });
+    }
+  });
+
+  // Serve Kubernetes DaemonSet manifest
+  app.get("/api/agents/kubernetes/daemonset.yaml", async (req, res) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const manifestPath = path.join(process.cwd(), "odinforge-agent", "kubernetes", "daemonset.yaml");
+      
+      if (fs.existsSync(manifestPath)) {
+        res.setHeader("Content-Type", "text/yaml; charset=utf-8");
+        res.setHeader("Content-Disposition", "inline; filename=daemonset.yaml");
+        const manifest = fs.readFileSync(manifestPath, "utf-8");
+        res.send(manifest);
+      } else {
+        res.status(404).json({ error: "Kubernetes manifest not found" });
+      }
+    } catch (error) {
+      console.error("Error serving Kubernetes manifest:", error);
+      res.status(500).json({ error: "Failed to serve Kubernetes manifest" });
     }
   });
 

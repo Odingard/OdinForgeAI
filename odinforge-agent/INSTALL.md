@@ -33,13 +33,15 @@ Before installing the agent, ensure you have:
 
 **macOS/Linux:**
 ```bash
-curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash
+curl -sSL https://YOUR_SERVER/api/agents/install.sh | SERVER_URL=https://YOUR_SERVER TOKEN=YOUR_TOKEN sudo -E bash
 ```
 
 **Windows (PowerShell as Administrator):**
 ```powershell
-irm https://YOUR_SERVER/api/agents/install.ps1 | iex
+$env:SERVER_URL="https://YOUR_SERVER"; $env:TOKEN="YOUR_TOKEN"; irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 ```
+
+If you omit the environment variables, the installer will prompt for them interactively.
 
 ---
 
