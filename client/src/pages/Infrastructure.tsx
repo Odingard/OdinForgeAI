@@ -132,7 +132,7 @@ interface CloudAsset {
   status: string;
   platform: string | null;
   agentDeployable: boolean;
-  agentStatus: string | null;
+  agentDeploymentStatus: string | null;
   agentId: string | null;
   metadata: Record<string, unknown> | null;
   lastSeenAt: string;
@@ -213,7 +213,9 @@ function CloudConnectionCard({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
-      toast({ title: "Agent Deployment Started" });
+      // Also invalidate agents cache so new pre-registered agents show up
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      toast({ title: "Agent Deployment Started", description: "Agent registered and will appear in Agents list" });
     },
   });
 
@@ -224,7 +226,9 @@ function CloudConnectionCard({
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
-      toast({ title: "Bulk Deployment Started", description: `Deploying agents to ${data.jobIds?.length || 0} assets` });
+      // Also invalidate agents cache so new pre-registered agents show up
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      toast({ title: "Bulk Deployment Started", description: `Deploying agents to ${data.jobIds?.length || 0} assets - check Agents page` });
     },
   });
 
@@ -309,7 +313,7 @@ function CloudConnectionCard({
   };
 
   const activeDiscovery = discoveryJobs.find(j => j.status === "running" || j.status === "pending");
-  const deployableAssets = cloudAssets.filter(a => a.agentDeployable && a.agentStatus !== "installed");
+  const deployableAssets = cloudAssets.filter(a => a.agentDeployable && a.agentDeploymentStatus !== "success");
 
   return (
     <>
@@ -476,18 +480,23 @@ function CloudConnectionCard({
                       <TableCell>
                         {asset.agentDeployable ? (
                           <Badge className={
-                            asset.agentStatus === "installed" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                            asset.agentStatus === "deploying" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
+                            asset.agentDeploymentStatus === "success" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                            asset.agentDeploymentStatus === "deploying" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
+                            asset.agentDeploymentStatus === "pending" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
+                            asset.agentDeploymentStatus === "failed" ? "bg-red-500/10 text-red-400 border-red-500/30" :
                             "bg-gray-500/10 text-gray-400 border-gray-500/30"
                           }>
-                            {asset.agentStatus || "Not Deployed"}
+                            {asset.agentDeploymentStatus === "success" ? "Installed" : asset.agentDeploymentStatus || "Not Deployed"}
                           </Badge>
                         ) : (
                           <span className="text-xs text-muted-foreground">N/A</span>
                         )}
                       </TableCell>
                       <TableCell>
-                        {asset.agentDeployable && asset.agentStatus !== "installed" && asset.agentStatus !== "deploying" && (
+                        {asset.agentDeployable && 
+                         asset.agentDeploymentStatus !== "success" && 
+                         asset.agentDeploymentStatus !== "deploying" && 
+                         asset.agentDeploymentStatus !== "pending" && (
                           <Button
                             size="sm"
                             variant="ghost"
