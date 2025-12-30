@@ -2,10 +2,6 @@ package collector
 
 import (
 	"time"
-
-	"github.com/shirou/gopsutil/v4/cpu"
-	"github.com/shirou/gopsutil/v4/disk"
-	"github.com/shirou/gopsutil/v4/mem"
 )
 
 type Metrics struct {
@@ -16,25 +12,22 @@ type Metrics struct {
 }
 
 func GetMetrics() Metrics {
-	cpuPct := 0.0
-	if p, err := cpu.Percent(500*time.Millisecond, false); err == nil && len(p) > 0 {
-		cpuPct = p[0]
-	}
-
-	memPct := 0.0
-	if v, err := mem.VirtualMemory(); err == nil {
-		memPct = v.UsedPercent
-	}
-
-	diskPct := 0.0
-	if u, err := disk.Usage("/"); err == nil {
-		diskPct = u.UsedPercent
-	}
-
 	return Metrics{
-		CPUPercent:   cpuPct,
-		MemUsedPct:   memPct,
-		DiskUsedPct:  diskPct,
+		CPUPercent:   getCPUPercent(),
+		MemUsedPct:   getMemoryPercent(),
+		DiskUsedPct:  getDiskPercent(),
 		CollectedUTC: time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func parseUint64(s string) uint64 {
+	var result uint64
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			result = result*10 + uint64(c-'0')
+		} else {
+			break
+		}
+	}
+	return result
 }

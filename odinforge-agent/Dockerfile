@@ -1,17 +1,22 @@
-# Build
-FROM golang:1.22 AS build
-WORKDIR /src
-COPY . .
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/odinforge-agent ./cmd/agent
+FROM golang:1.22-alpine AS builder
 
-# Run
-FROM gcr.io/distroless/base-debian12
-WORKDIR /app
-COPY --from=build /out/odinforge-agent /app/odinforge-agent
-ENV ODINFORGE_SERVER_URL=""
-ENV ODINFORGE_AUTH_MODE="api_key"
-ENV ODINFORGE_API_KEY=""
-ENV ODINFORGE_TENANT_ID="default"
-ENV ODINFORGE_QUEUE_PATH="/app/agent.queue.db"
-ENTRYPOINT ["/app/odinforge-agent"]
+WORKDIR /build
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o odinforge-agent ./cmd/agent/
+
+FROM alpine:3.19
+
+RUN apk --no-cache add ca-certificates
+
+COPY --from=builder /build/odinforge-agent /usr/local/bin/odinforge-agent
+
+RUN chmod +x /usr/local/bin/odinforge-agent
+
+ENV STATELESS=1
+
+ENTRYPOINT ["/usr/local/bin/odinforge-agent"]

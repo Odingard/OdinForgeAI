@@ -122,25 +122,25 @@ func Load(path string) (Config, error) {
 }
 
 func applyEnv(cfg *Config) {
-        // Server
-        if v := os.Getenv("ODINFORGE_SERVER_URL"); v != "" {
+        // Server - check both namespaced and simple env vars
+        if v := getEnvAny("ODINFORGE_SERVER_URL", "SERVER_URL", "ODINFORGE_SERVER"); v != "" {
                 cfg.Server.URL = v
         }
-        if v := os.Getenv("ODINFORGE_VERIFY_TLS"); v != "" {
+        if v := getEnvAny("ODINFORGE_VERIFY_TLS", "VERIFY_TLS"); v != "" {
                 cfg.Server.VerifyTLS = (v == "1" || strings.EqualFold(v, "true"))
         }
-        if v := os.Getenv("ODINFORGE_PINNED_SPKI"); v != "" {
+        if v := getEnvAny("ODINFORGE_PINNED_SPKI", "PINNED_SPKI"); v != "" {
                 cfg.Server.PinnedSPKI = v
         }
 
-        // Auth
-        if v := os.Getenv("ODINFORGE_TENANT_ID"); v != "" {
+        // Auth - check both namespaced and simple env vars
+        if v := getEnvAny("ODINFORGE_TENANT_ID", "TENANT_ID"); v != "" {
                 cfg.Auth.TenantID = v
         }
-        if v := os.Getenv("ODINFORGE_AUTH_MODE"); v != "" {
+        if v := getEnvAny("ODINFORGE_AUTH_MODE", "AUTH_MODE"); v != "" {
                 cfg.Auth.Mode = v
         }
-        if v := os.Getenv("ODINFORGE_API_KEY"); v != "" {
+        if v := getEnvAny("ODINFORGE_API_KEY", "API_KEY"); v != "" {
                 cfg.Auth.APIKey = v
         }
         if v := os.Getenv("ODINFORGE_MTLS_CERT"); v != "" {
@@ -152,46 +152,70 @@ func applyEnv(cfg *Config) {
         if v := os.Getenv("ODINFORGE_CA_CERT"); v != "" {
                 cfg.Auth.CAPath = v
         }
-        if v := os.Getenv("ODINFORGE_REGISTRATION_TOKEN"); v != "" {
+        if v := getEnvAny("ODINFORGE_REGISTRATION_TOKEN", "REGISTRATION_TOKEN", "TOKEN"); v != "" {
                 cfg.Auth.RegistrationToken = v
         }
-        if v := os.Getenv("ODINFORGE_API_KEY_STORE_PATH"); v != "" {
+        if v := getEnvAny("ODINFORGE_API_KEY_STORE_PATH", "API_KEY_STORE_PATH"); v != "" {
                 cfg.Auth.APIKeyStorePath = v
         }
 
-        // Intervals
-        if v := os.Getenv("ODINFORGE_TELEMETRY_INTERVAL"); v != "" {
-                if d, err := time.ParseDuration(v); err == nil {
-                        cfg.Collection.TelemetryInterval = d
-                }
+        // Intervals - support both duration strings and simple seconds
+        if v := getEnvAny("ODINFORGE_TELEMETRY_INTERVAL", "TELEMETRY_INTERVAL", "INTERVAL"); v != "" {
+                cfg.Collection.TelemetryInterval = parseDurationOrSeconds(v, cfg.Collection.TelemetryInterval)
         }
-        if v := os.Getenv("ODINFORGE_HEARTBEAT_INTERVAL"); v != "" {
-                if d, err := time.ParseDuration(v); err == nil {
-                        cfg.Collection.HeartbeatInterval = d
-                }
+        if v := getEnvAny("ODINFORGE_HEARTBEAT_INTERVAL", "HEARTBEAT_INTERVAL"); v != "" {
+                cfg.Collection.HeartbeatInterval = parseDurationOrSeconds(v, cfg.Collection.HeartbeatInterval)
         }
 
         // Buffer/Transport
-        if v := os.Getenv("ODINFORGE_QUEUE_PATH"); v != "" {
+        if v := getEnvAny("ODINFORGE_QUEUE_PATH", "QUEUE_PATH"); v != "" {
                 cfg.Buffer.Path = v
         }
-        if v := os.Getenv("ODINFORGE_BATCH_SIZE"); v != "" {
-                // quick parse
+        if v := getEnvAny("ODINFORGE_BATCH_SIZE", "BATCH_SIZE"); v != "" {
                 if n, err := atoi(v); err == nil && n > 0 {
                         cfg.Transport.BatchSize = n
                 }
         }
-        if v := os.Getenv("ODINFORGE_TIMEOUT"); v != "" {
-                if d, err := time.ParseDuration(v); err == nil {
-                        cfg.Transport.Timeout = d
-                }
+        if v := getEnvAny("ODINFORGE_TIMEOUT", "TIMEOUT"); v != "" {
+                cfg.Transport.Timeout = parseDurationOrSeconds(v, cfg.Transport.Timeout)
         }
-        if v := os.Getenv("ODINFORGE_COMPRESS"); v != "" {
+        if v := getEnvAny("ODINFORGE_COMPRESS", "COMPRESS"); v != "" {
                 cfg.Transport.Compress = (v == "1" || strings.EqualFold(v, "true"))
         }
-        if v := os.Getenv("ODINFORGE_REQUIRE_HTTPS"); v != "" {
+        if v := getEnvAny("ODINFORGE_REQUIRE_HTTPS", "REQUIRE_HTTPS"); v != "" {
                 cfg.Safety.RequireHTTPS = (v == "1" || strings.EqualFold(v, "true"))
         }
+
+        // Container-friendly: disable persistent queue if running stateless
+        if v := getEnvAny("ODINFORGE_STATELESS", "STATELESS"); v != "" {
+                if v == "1" || strings.EqualFold(v, "true") {
+                        cfg.Buffer.Path = "/tmp/odinforge-agent.queue.db"
+                        cfg.Auth.APIKeyStorePath = "/tmp/odinforge-api-key"
+                }
+        }
+}
+
+// getEnvAny returns the first non-empty environment variable from the list
+func getEnvAny(keys ...string) string {
+        for _, key := range keys {
+                if v := os.Getenv(key); v != "" {
+                        return v
+                }
+        }
+        return ""
+}
+
+// parseDurationOrSeconds parses a duration string or plain number as seconds
+func parseDurationOrSeconds(v string, fallback time.Duration) time.Duration {
+        // Try parsing as duration first (e.g., "5m", "300s", "1h")
+        if d, err := time.ParseDuration(v); err == nil {
+                return d
+        }
+        // Try parsing as plain number (seconds)
+        if n, err := atoi(v); err == nil && n > 0 {
+                return time.Duration(n) * time.Second
+        }
+        return fallback
 }
 
 func IsHTTPS(raw string) bool {
