@@ -265,6 +265,11 @@ function CloudConnectionCard({
               <Label htmlFor="roleArn">Role ARN (optional)</Label>
               <Input id="roleArn" name="roleArn" placeholder="arn:aws:iam::123456789:role/OdinForgeRole" data-testid="input-aws-role" />
             </div>
+            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              <p className="font-medium mb-1">Required IAM Permissions for Agent Deployment:</p>
+              <code className="block">ssm:SendCommand, ssm:GetCommandInvocation</code>
+              <p className="mt-1">EC2 instances must have SSM Agent installed and the <code>AmazonSSMManagedInstanceCore</code> policy attached.</p>
+            </div>
           </>
         );
       case "azure":
@@ -286,6 +291,11 @@ function CloudConnectionCard({
               <Label htmlFor="subscriptionId">Subscription ID</Label>
               <Input id="subscriptionId" name="subscriptionId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-subscription" />
             </div>
+            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              <p className="font-medium mb-1">Required Permissions for Agent Deployment:</p>
+              <code className="block">Microsoft.Compute/virtualMachines/runCommand/action</code>
+              <p className="mt-1">The service principal needs the Virtual Machine Contributor role or custom role with Run Command permissions.</p>
+            </div>
           </>
         );
       case "gcp":
@@ -305,6 +315,11 @@ function CloudConnectionCard({
                 required
                 data-testid="input-gcp-key"
               />
+            </div>
+            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              <p className="font-medium mb-1">Required Permissions for Agent Deployment:</p>
+              <code className="block">compute.instances.get, compute.instances.setMetadata</code>
+              <p className="mt-1">Agent installs via startup script on next instance reboot. For immediate installation, manually restart the instance from GCP Console after deployment.</p>
             </div>
           </>
         );

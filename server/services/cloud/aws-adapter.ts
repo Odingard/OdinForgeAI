@@ -3,6 +3,7 @@ import { EC2Client, DescribeInstancesCommand, DescribeVpcsCommand, DescribeSecur
 import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
 import { LambdaClient, ListFunctionsCommand } from "@aws-sdk/client-lambda";
 import { S3Client, ListBucketsCommand } from "@aws-sdk/client-s3";
+import { SSMClient, SendCommandCommand, GetCommandInvocationCommand } from "@aws-sdk/client-ssm";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
 
 const AWS_REGIONS = [
@@ -323,21 +324,140 @@ sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registrat
     asset: CloudAssetInfo,
     script: string
   ): Promise<DeploymentResult> {
-    console.log(`[AWS SSM] Would send command to ${asset.providerResourceId}`);
-    console.log(`[AWS SSM] Script: ${script.substring(0, 100)}...`);
+    const instanceId = asset.providerResourceId;
+    const region = asset.region || "us-east-1";
+    
+    console.log(`[AWS SSM] Sending command to instance ${instanceId} in ${region}`);
 
-    return {
-      success: false,
-      errorMessage: "SSM deployment requires AWS SDK - install aws-sdk package for full functionality",
-    };
+    try {
+      const ssmClient = new SSMClient({
+        region,
+        credentials: this.getCredentialsConfig(creds),
+      });
+
+      // Determine if Windows or Linux based on platform metadata
+      // AWS EC2 sets 'Platform' to 'Windows' for Windows instances, undefined/null for Linux
+      const platform = asset.rawMetadata?.platform?.toLowerCase() || 
+                       asset.rawMetadata?.Platform?.toLowerCase() || 
+                       asset.rawMetadata?.PlatformDetails?.toLowerCase() || "";
+      const isWindows = platform.includes("windows");
+      
+      const documentName = isWindows ? "AWS-RunPowerShellScript" : "AWS-RunShellScript";
+      
+      // Send the command via SSM
+      const sendCommand = new SendCommandCommand({
+        InstanceIds: [instanceId],
+        DocumentName: documentName,
+        Parameters: {
+          commands: [script],
+        },
+        TimeoutSeconds: 600, // 10 minute timeout
+        Comment: "OdinForge Agent Deployment",
+      });
+
+      const sendResponse = await ssmClient.send(sendCommand);
+      const commandId = sendResponse.Command?.CommandId;
+
+      if (!commandId) {
+        return {
+          success: false,
+          errorMessage: "Failed to get command ID from SSM response",
+        };
+      }
+
+      console.log(`[AWS SSM] Command sent successfully, CommandId: ${commandId}`);
+      
+      return {
+        success: true,
+        deploymentId: commandId,
+        message: `SSM command ${commandId} sent to instance ${instanceId}`,
+      };
+    } catch (error: any) {
+      console.error(`[AWS SSM] Deployment error:`, error.message);
+      
+      // Provide helpful error messages for common SSM issues
+      let errorMessage = error.message;
+      if (error.name === "InvalidInstanceId") {
+        errorMessage = `Instance ${instanceId} is not registered with SSM. Ensure the SSM Agent is installed and running, and the instance has the required IAM role (AmazonSSMManagedInstanceCore policy).`;
+      } else if (error.name === "AccessDeniedException") {
+        errorMessage = "Access denied. Ensure your AWS credentials have ssm:SendCommand permission.";
+      } else if (error.name === "InvalidDocument") {
+        errorMessage = "SSM document not found. This may be a region-specific issue.";
+      }
+      
+      return {
+        success: false,
+        errorMessage,
+      };
+    }
   }
 
   async checkAgentDeploymentStatus(
-    _credentials: CloudCredentials,
-    _asset: CloudAssetInfo,
-    _deploymentId: string
-  ): Promise<{ status: string; error?: string }> {
-    return { status: "unknown", error: "Status check not implemented" };
+    credentials: CloudCredentials,
+    asset: CloudAssetInfo,
+    deploymentId: string
+  ): Promise<{ status: string; error?: string; output?: string }> {
+    const awsCreds = credentials.aws;
+    if (!awsCreds) {
+      return { status: "error", error: "AWS credentials not provided" };
+    }
+
+    const instanceId = asset.providerResourceId;
+    const region = asset.region || "us-east-1";
+
+    try {
+      const ssmClient = new SSMClient({
+        region,
+        credentials: this.getCredentialsConfig(awsCreds),
+      });
+
+      const getInvocation = new GetCommandInvocationCommand({
+        CommandId: deploymentId,
+        InstanceId: instanceId,
+      });
+
+      const response = await ssmClient.send(getInvocation);
+      
+      // Map SSM status to our status
+      const ssmStatus = response.Status;
+      let status: string;
+      let error: string | undefined;
+      
+      switch (ssmStatus) {
+        case "Success":
+          status = "success";
+          break;
+        case "Failed":
+        case "Cancelled":
+        case "TimedOut":
+          status = "failed";
+          error = response.StandardErrorContent || `Command ${ssmStatus.toLowerCase()}`;
+          break;
+        case "InProgress":
+        case "Pending":
+        case "Delayed":
+          status = "in_progress";
+          break;
+        default:
+          status = "unknown";
+      }
+
+      return {
+        status,
+        error,
+        output: response.StandardOutputContent,
+      };
+    } catch (error: any) {
+      // InvocationDoesNotExist means the command hasn't reached the instance yet
+      if (error.name === "InvocationDoesNotExist") {
+        return { status: "pending" };
+      }
+      
+      return {
+        status: "error",
+        error: error.message,
+      };
+    }
   }
 }
 
