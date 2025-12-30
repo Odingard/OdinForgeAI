@@ -6,6 +6,20 @@ OdinForge AI (Adversarial Exposure Validation) is a next-generation AI-powered s
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## Documentation Structure
+All documentation is consolidated under the `docs/` directory:
+
+| Document | Description |
+|----------|-------------|
+| [README.md](README.md) | Platform overview and quick start |
+| [docs/README.md](docs/README.md) | Documentation hub and navigation |
+| [docs/server/installation.md](docs/server/installation.md) | Server deployment (local, Docker, K8s) |
+| [docs/server/configuration.md](docs/server/configuration.md) | Environment variables and settings |
+| [docs/server/production.md](docs/server/production.md) | Production deployment and cloud platforms |
+| [docs/agent/README.md](docs/agent/README.md) | Endpoint agent overview |
+| [docs/agent/INSTALL.md](docs/agent/INSTALL.md) | Agent installation for all platforms |
+| [docs/api/reference.md](docs/api/reference.md) | REST API documentation |
+
 ## System Architecture
 ### Frontend
 - **Framework**: React 18 with TypeScript, Wouter for routing.

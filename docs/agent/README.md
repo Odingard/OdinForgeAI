@@ -2,35 +2,37 @@
 
 A lightweight, cross-platform security agent for the OdinForge Adversarial Exposure Validation (AEV) platform. The agent collects system telemetry, security findings, and enables real-time endpoint monitoring.
 
-> **Documentation**: For complete documentation including installation, configuration, and troubleshooting, see the [main documentation](../docs/README.md).
+## Features
+
+- **Cross-Platform**: Supports Linux, macOS, Windows, Docker, and Kubernetes
+- **Container-Aware**: Automatic detection of Docker, Kubernetes, containerd, podman, and LXC
+- **Lightweight**: Minimal resource footprint with configurable collection intervals
+- **Offline Resilient**: Queues telemetry locally when disconnected, syncs when restored
+- **Secure**: TLS encryption, token-based authentication
 
 ## Quick Start
 
+### One-Line Installation
+
 **macOS/Linux:**
 ```bash
+# Interactive (prompts for server URL and token)
 curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash
+
+# Non-interactive (provide values via environment)
+curl -sSL https://YOUR_SERVER/api/agents/install.sh | SERVER_URL=https://YOUR_SERVER TOKEN=YOUR_TOKEN sudo -E bash
 ```
 
 **Windows (PowerShell as Administrator):**
 ```powershell
+# Interactive
 irm https://YOUR_SERVER/api/agents/install.ps1 | iex
+
+# Non-interactive
+$env:SERVER_URL="https://YOUR_SERVER"; $env:TOKEN="YOUR_TOKEN"; irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 ```
 
-## Full Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Agent Overview](../docs/agent/README.md) | Features, platforms, and architecture |
-| [Installation Guide](../docs/agent/INSTALL.md) | Complete installation for all platforms |
-| [Server Deployment](../docs/server/installation.md) | Deploy the OdinForge server |
-
-## Features
-
-- **Cross-Platform**: Linux, macOS, Windows, Docker, Kubernetes
-- **Container-Aware**: Docker, Kubernetes, containerd, podman, LXC detection
-- **Lightweight**: Minimal resource footprint
-- **Offline Resilient**: Queues telemetry when disconnected
-- **Secure**: TLS encryption, token-based authentication
+For complete installation instructions including manual installation, Docker, and Kubernetes deployment, see **[INSTALL.md](INSTALL.md)**.
 
 ## Supported Platforms
 
