@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: odinforge-agent
+  namespace: odinforge
+  labels:
+    app: odinforge-agent
+    app.kubernetes.io/name: odinforge-agent
+    app.kubernetes.io/component: security-agent
+spec:
+  selector:
+    matchLabels:
+      app: odinforge-agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: odinforge-agent
+        app.kubernetes.io/name: odinforge-agent
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: odinforge-agent
+      containers:
+      - name: agent
+        image: odinforge/agent:latest
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        env:
+        - name: SERVER_URL
+          valueFrom:
+            configMapKeyRef:
+              name: odinforge-agent-config
+              key: server-url
+        - name: TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: odinforge-agent
+              key: token
+        - name: INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: odinforge-agent-config
+              key: interval
+              optional: true
+        - name: STATELESS
+          value: "true"
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+          readOnly: true
+        - name: containerd-sock
+          mountPath: /run/containerd/containerd.sock
+          readOnly: true
+        resources:
+          limits:
+            memory: 128Mi
+            cpu: 100m
+          requests:
+            memory: 64Mi
+            cpu: 50m
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "pgrep -x odinforge-agent"
+          initialDelaySeconds: 30
+          periodSeconds: 60
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+          type: Directory
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      - name: containerd-sock
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      - key: node-role.kubernetes.io/master
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        effect: NoSchedule
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: odinforge-agent
+  namespace: odinforge
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odinforge-agent-config
+  namespace: odinforge
+data:
+  server-url: "https://YOUR_ODINFORGE_SERVER"
+  interval: "60"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odinforge
+  labels:
+    name: odinforge
