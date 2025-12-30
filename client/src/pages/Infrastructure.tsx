@@ -121,6 +121,391 @@ interface InfraStats {
   cloudConnections: number;
 }
 
+interface CloudAsset {
+  id: string;
+  connectionId: string;
+  providerResourceId: string;
+  name: string;
+  assetType: string;
+  region: string | null;
+  zone: string | null;
+  status: string;
+  platform: string | null;
+  agentDeployable: boolean;
+  agentStatus: string | null;
+  agentId: string | null;
+  metadata: Record<string, unknown> | null;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
+interface CloudDiscoveryJob {
+  id: string;
+  connectionId: string;
+  status: string;
+  progress: number;
+  assetsFound: number;
+  regionsScanned: number;
+  totalRegions: number;
+  currentPhase: string | null;
+  errorMessage: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+function CloudConnectionCard({
+  connection,
+  onTest,
+  onDelete,
+  getStatusBadge,
+  testPending,
+}: {
+  connection: CloudConnection;
+  onTest: () => void;
+  onDelete: () => void;
+  getStatusBadge: (status: string) => string;
+  testPending: boolean;
+}) {
+  const { toast } = useToast();
+  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
+  const [assetsDialogOpen, setAssetsDialogOpen] = useState(false);
+
+  const { data: cloudAssets = [], isLoading: assetsLoading } = useQuery<CloudAsset[]>({
+    queryKey: ["/api/cloud-connections", connection.id, "assets"],
+    enabled: assetsDialogOpen,
+  });
+
+  const { data: discoveryJobs = [] } = useQuery<CloudDiscoveryJob[]>({
+    queryKey: ["/api/cloud-connections", connection.id, "discovery-jobs"],
+    enabled: assetsDialogOpen,
+  });
+
+  const storeCredentialsMutation = useMutation({
+    mutationFn: async (creds: Record<string, string>) => {
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/credentials`, creds);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections"] });
+      setCredentialsDialogOpen(false);
+      toast({ title: "Credentials Stored", description: "Cloud credentials validated and stored securely" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to Store Credentials", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const discoverAssetsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/discover`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "discovery-jobs"] });
+      toast({ title: "Discovery Started", description: "Asset discovery is running in the background" });
+    },
+  });
+
+  const deployAgentMutation = useMutation({
+    mutationFn: async (assetId: string) => {
+      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/deploy-agent`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
+      toast({ title: "Agent Deployment Started" });
+    },
+  });
+
+  const deployAllAgentsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/deploy-all-agents`, { assetTypes: ["vm", "container"] });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
+      toast({ title: "Bulk Deployment Started", description: `Deploying agents to ${data.jobIds?.length || 0} assets` });
+    },
+  });
+
+  const handleCredentialsSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const creds: Record<string, string> = {};
+    formData.forEach((value, key) => {
+      creds[key] = value as string;
+    });
+    storeCredentialsMutation.mutate(creds);
+  };
+
+  const getProviderFields = () => {
+    switch (connection.provider) {
+      case "aws":
+        return (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="accessKeyId">Access Key ID</Label>
+              <Input id="accessKeyId" name="accessKeyId" placeholder="AKIA..." required data-testid="input-aws-access-key" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="secretAccessKey">Secret Access Key</Label>
+              <Input id="secretAccessKey" name="secretAccessKey" type="password" placeholder="Secret key" required data-testid="input-aws-secret-key" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="roleArn">Role ARN (optional)</Label>
+              <Input id="roleArn" name="roleArn" placeholder="arn:aws:iam::123456789:role/OdinForgeRole" data-testid="input-aws-role" />
+            </div>
+          </>
+        );
+      case "azure":
+        return (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="tenantId">Tenant ID</Label>
+              <Input id="tenantId" name="tenantId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-tenant" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="clientId">Client ID (App ID)</Label>
+              <Input id="clientId" name="clientId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-client" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="clientSecret">Client Secret</Label>
+              <Input id="clientSecret" name="clientSecret" type="password" required data-testid="input-azure-secret" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="subscriptionId">Subscription ID</Label>
+              <Input id="subscriptionId" name="subscriptionId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-subscription" />
+            </div>
+          </>
+        );
+      case "gcp":
+        return (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="projectId">Project ID</Label>
+              <Input id="projectId" name="projectId" placeholder="my-project-123456" required data-testid="input-gcp-project" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="serviceAccountKey">Service Account Key (JSON)</Label>
+              <textarea
+                id="serviceAccountKey"
+                name="serviceAccountKey"
+                className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                placeholder='{"type": "service_account", ...}'
+                required
+                data-testid="input-gcp-key"
+              />
+            </div>
+          </>
+        );
+      default:
+        return null;
+    }
+  };
+
+  const activeDiscovery = discoveryJobs.find(j => j.status === "running" || j.status === "pending");
+  const deployableAssets = cloudAssets.filter(a => a.agentDeployable && a.agentStatus !== "installed");
+
+  return (
+    <>
+      <Card data-testid={`card-cloud-${connection.id}`}>
+        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-muted">
+              <Cloud className="h-5 w-5 text-cyan-400" />
+            </div>
+            <div>
+              <CardTitle className="text-base">{connection.name}</CardTitle>
+              <CardDescription>{connection.provider.toUpperCase()}</CardDescription>
+            </div>
+          </div>
+          <Badge className={getStatusBadge(connection.status)}>
+            {connection.status}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Assets Discovered</span>
+              <span className="font-mono">{connection.assetsDiscovered || 0}</span>
+            </div>
+            {connection.lastSyncAt && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Last Sync</span>
+                <span>{new Date(connection.lastSyncAt).toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 pt-2">
+              {connection.status === "pending" ? (
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="flex-1"
+                  onClick={() => setCredentialsDialogOpen(true)}
+                  data-testid={`button-configure-cloud-${connection.id}`}
+                >
+                  <Shield className="h-3 w-3 mr-1" />
+                  Configure
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAssetsDialogOpen(true)}
+                    data-testid={`button-view-assets-${connection.id}`}
+                  >
+                    <Eye className="h-3 w-3 mr-1" />
+                    Assets
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => discoverAssetsMutation.mutate()}
+                    disabled={discoverAssetsMutation.isPending}
+                    data-testid={`button-discover-${connection.id}`}
+                  >
+                    <RefreshCw className={`h-3 w-3 mr-1 ${discoverAssetsMutation.isPending ? "animate-spin" : ""}`} />
+                    Discover
+                  </Button>
+                </>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" data-testid={`button-cloud-menu-${connection.id}`}>
+                    <MoreVertical className="h-3 w-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setCredentialsDialogOpen(true)}>
+                    Update Credentials
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onTest} disabled={testPending}>
+                    Test Connection
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={onDelete} className="text-destructive">
+                    Delete Connection
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={credentialsDialogOpen} onOpenChange={setCredentialsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Configure {connection.provider.toUpperCase()} Credentials</DialogTitle>
+            <DialogDescription>
+              Enter your cloud provider credentials. They will be encrypted and stored securely.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCredentialsSubmit}>
+            <div className="space-y-4 py-4">
+              {getProviderFields()}
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={storeCredentialsMutation.isPending} data-testid="button-save-credentials">
+                {storeCredentialsMutation.isPending ? "Validating..." : "Save Credentials"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={assetsDialogOpen} onOpenChange={setAssetsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between gap-4">
+              <span>{connection.name} - Cloud Assets</span>
+              {deployableAssets.length > 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => deployAllAgentsMutation.mutate()}
+                  disabled={deployAllAgentsMutation.isPending}
+                  data-testid="button-deploy-all-agents"
+                >
+                  <Play className="h-3 w-3 mr-1" />
+                  Deploy Agents ({deployableAssets.length})
+                </Button>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              Discovered assets from {connection.provider.toUpperCase()} account
+              {activeDiscovery && (
+                <span className="ml-2 text-amber-400">
+                  (Discovery in progress: {activeDiscovery.progress}%)
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto">
+            {assetsLoading ? (
+              <div className="text-center py-8 text-muted-foreground">Loading assets...</div>
+            ) : cloudAssets.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                No assets discovered yet. Click "Discover" to scan your cloud account.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Region</TableHead>
+                    <TableHead>Platform</TableHead>
+                    <TableHead>Agent Status</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {cloudAssets.map((asset) => (
+                    <TableRow key={asset.id} data-testid={`row-cloud-asset-${asset.id}`}>
+                      <TableCell className="font-medium">{asset.name}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{asset.assetType}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{asset.region || "-"}</TableCell>
+                      <TableCell className="text-sm">{asset.platform || "-"}</TableCell>
+                      <TableCell>
+                        {asset.agentDeployable ? (
+                          <Badge className={
+                            asset.agentStatus === "installed" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                            asset.agentStatus === "deploying" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
+                            "bg-gray-500/10 text-gray-400 border-gray-500/30"
+                          }>
+                            {asset.agentStatus || "Not Deployed"}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">N/A</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {asset.agentDeployable && asset.agentStatus !== "installed" && asset.agentStatus !== "deploying" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => deployAgentMutation.mutate(asset.id)}
+                            disabled={deployAgentMutation.isPending}
+                            data-testid={`button-deploy-agent-${asset.id}`}
+                          >
+                            <Play className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function Infrastructure() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("assets");
@@ -820,60 +1205,19 @@ export default function Infrastructure() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {cloudConnections.map((conn) => (
-                <Card key={conn.id} data-testid={`card-cloud-${conn.id}`}>
-                  <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-muted">
-                        <Cloud className="h-5 w-5 text-cyan-400" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-base">{conn.name}</CardTitle>
-                        <CardDescription>{conn.provider.toUpperCase()}</CardDescription>
-                      </div>
-                    </div>
-                    <Badge className={getStatusBadge(conn.status)}>
-                      {conn.status}
-                    </Badge>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Assets Discovered</span>
-                        <span className="font-mono">{conn.assetsDiscovered || 0}</span>
-                      </div>
-                      {conn.lastSyncAt && (
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Last Sync</span>
-                          <span>{new Date(conn.lastSyncAt).toLocaleString()}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 pt-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => testCloudMutation.mutate(conn.id)}
-                          disabled={testCloudMutation.isPending}
-                          data-testid={`button-test-cloud-${conn.id}`}
-                        >
-                          <RefreshCw className="h-3 w-3 mr-1" />
-                          Sync
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => deleteCloudMutation.mutate(conn.id)}
-                          data-testid={`button-delete-cloud-${conn.id}`}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="space-y-6">
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {cloudConnections.map((conn) => (
+                  <CloudConnectionCard
+                    key={conn.id}
+                    connection={conn}
+                    onTest={() => testCloudMutation.mutate(conn.id)}
+                    onDelete={() => deleteCloudMutation.mutate(conn.id)}
+                    getStatusBadge={getStatusBadge}
+                    testPending={testCloudMutation.isPending}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </TabsContent>
