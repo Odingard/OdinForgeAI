@@ -320,9 +320,14 @@ export class AWSAdapter implements ProviderAdapter {
     if (isWindows) {
       // PowerShell commands for Windows - each command is a separate array element for SSM
       return [
-        "$ErrorActionPreference = 'Stop'",
+        "$ErrorActionPreference = 'SilentlyContinue'",
         "$installDir = 'C:\\ProgramData\\OdinForge'",
         "$agentPath = Join-Path $installDir 'odinforge-agent.exe'",
+        "Write-Host 'Cleaning up existing OdinForge installation...'",
+        "Stop-Service -Name 'OdinForgeAgent' -Force -ErrorAction SilentlyContinue",
+        "sc.exe delete 'OdinForgeAgent' 2>$null",
+        "Start-Sleep -Seconds 2",
+        "$ErrorActionPreference = 'Stop'",
         "if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }",
         "Write-Host 'Downloading OdinForge agent...'",
         "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
