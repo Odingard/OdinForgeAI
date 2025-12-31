@@ -319,21 +319,25 @@ export class AWSAdapter implements ProviderAdapter {
   private generateInstallScript(config: { serverUrl: string; registrationToken: string; organizationId: string }, isWindows: boolean): string[] {
     if (isWindows) {
       // PowerShell commands for Windows - each command is a separate array element for SSM
+      // Service name is 'odinforge-agent' (lowercase with hyphen) and installs to C:\Program Files\OdinForge
       return [
         "$ErrorActionPreference = 'SilentlyContinue'",
-        "$installDir = 'C:\\ProgramData\\OdinForge'",
-        "$agentPath = Join-Path $installDir 'odinforge-agent.exe'",
-        "Write-Host 'Cleaning up existing OdinForge installation...'",
-        "Stop-Service -Name 'OdinForgeAgent' -Force -ErrorAction SilentlyContinue",
-        "sc.exe delete 'OdinForgeAgent' 2>$null",
+        "Write-Host 'Stopping existing OdinForge service...'",
+        "sc.exe stop 'odinforge-agent' 2>$null",
+        "Start-Sleep -Seconds 3",
+        "Write-Host 'Removing existing OdinForge service...'",
+        "sc.exe delete 'odinforge-agent' 2>$null",
         "Start-Sleep -Seconds 2",
+        "Stop-Process -Name 'odinforge-agent' -Force -ErrorAction SilentlyContinue",
         "$ErrorActionPreference = 'Stop'",
-        "if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }",
+        "$downloadDir = 'C:\\ProgramData\\OdinForge'",
+        "$agentDownload = Join-Path $downloadDir 'odinforge-agent.exe'",
+        "if (-not (Test-Path $downloadDir)) { New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null }",
         "Write-Host 'Downloading OdinForge agent...'",
         "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-        `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentPath -UseBasicParsing`,
+        `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentDownload -UseBasicParsing`,
         "Write-Host 'Installing OdinForge agent...'",
-        `& $agentPath install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force`,
+        `& $agentDownload install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force`,
         "Write-Host 'OdinForge agent installed successfully'"
       ];
     } else {
