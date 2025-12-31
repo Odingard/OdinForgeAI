@@ -2,8 +2,10 @@ package config
 
 import (
         "errors"
+        "log"
         "net/url"
         "os"
+        "runtime"
         "strings"
         "time"
 
@@ -88,18 +90,56 @@ func Default() Config {
         }
 }
 
+// defaultConfigPaths returns the list of paths to search for config file
+func defaultConfigPaths() []string {
+        if runtime.GOOS == "windows" {
+                return []string{
+                        `C:\ProgramData\OdinForge\agent.yaml`,
+                        `C:\Program Files\OdinForge\agent.yaml`,
+                        `.\odinforge-agent.yaml`,
+                }
+        }
+        return []string{
+                "/etc/odinforge/agent.yaml",
+                "/etc/odinforge-agent/agent.yaml",
+                "/var/lib/odinforge-agent/agent.yaml",
+                "./odinforge-agent.yaml",
+        }
+}
+
+// findConfigFile searches for a config file in default locations
+func findConfigFile() string {
+        for _, p := range defaultConfigPaths() {
+                if _, err := os.Stat(p); err == nil {
+                        log.Printf("Found config file at: %s", p)
+                        return p
+                }
+        }
+        return ""
+}
+
 // Load merges: defaults <- yaml <- env
 func Load(path string) (Config, error) {
         cfg := Default()
 
+        // If no path provided, search default locations
+        if path == "" {
+                path = findConfigFile()
+        }
+
         if path != "" {
                 b, err := os.ReadFile(path)
                 if err != nil {
+                        log.Printf("Failed to read config file %s: %v", path, err)
                         return cfg, err
                 }
                 if err := yaml.Unmarshal(b, &cfg); err != nil {
+                        log.Printf("Failed to parse config file %s: %v", path, err)
                         return cfg, err
                 }
+                log.Printf("Loaded config from: %s", path)
+        } else {
+                log.Printf("No config file found, using defaults and environment variables")
         }
 
         applyEnv(&cfg)
