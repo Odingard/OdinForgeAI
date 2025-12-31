@@ -316,51 +316,43 @@ export class AWSAdapter implements ProviderAdapter {
     }
   }
 
-  private generateInstallScript(config: { serverUrl: string; registrationToken: string; organizationId: string }, isWindows: boolean): string {
+  private generateInstallScript(config: { serverUrl: string; registrationToken: string; organizationId: string }, isWindows: boolean): string[] {
     if (isWindows) {
-      // PowerShell script for Windows
-      return `$ErrorActionPreference = 'Stop'
-$installDir = 'C:\\ProgramData\\OdinForge'
-$agentPath = Join-Path $installDir 'odinforge-agent.exe'
-
-# Create installation directory
-if (-not (Test-Path $installDir)) {
-    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-}
-
-# Download the Windows agent binary
-Write-Host "Downloading OdinForge agent..."
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentPath -UseBasicParsing
-
-# Install and start the agent
-Write-Host "Installing OdinForge agent..."
-& $agentPath install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force
-
-Write-Host "OdinForge agent installed successfully"
-`;
+      // PowerShell commands for Windows - each command is a separate array element for SSM
+      return [
+        "$ErrorActionPreference = 'Stop'",
+        "$installDir = 'C:\\ProgramData\\OdinForge'",
+        "$agentPath = Join-Path $installDir 'odinforge-agent.exe'",
+        "if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }",
+        "Write-Host 'Downloading OdinForge agent...'",
+        "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+        `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentPath -UseBasicParsing`,
+        "Write-Host 'Installing OdinForge agent...'",
+        `& $agentPath install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force`,
+        "Write-Host 'OdinForge agent installed successfully'"
+      ];
     } else {
-      // Bash script for Linux
-      return `#!/bin/bash
-set -e
-
-curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent
-chmod +x /tmp/odinforge-agent
-sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force
-`;
+      // Bash commands for Linux - each command is a separate array element for SSM
+      return [
+        "#!/bin/bash",
+        "set -e",
+        `curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent`,
+        "chmod +x /tmp/odinforge-agent",
+        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`
+      ];
     }
   }
 
   private async deployViaSSM(
     creds: NonNullable<CloudCredentials["aws"]>,
     asset: CloudAssetInfo,
-    script: string,
+    commands: string[],
     isWindows: boolean
   ): Promise<DeploymentResult> {
     const instanceId = asset.providerResourceId;
     const region = asset.region || "us-east-1";
     
-    console.log(`[AWS SSM] Sending command to instance ${instanceId} in ${region} (platform: ${isWindows ? "Windows" : "Linux"})`);
+    console.log(`[AWS SSM] Sending ${commands.length} commands to instance ${instanceId} in ${region} (platform: ${isWindows ? "Windows" : "Linux"})`);
 
     try {
       const ssmClient = new SSMClient({
@@ -370,12 +362,12 @@ sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registrat
 
       const documentName = isWindows ? "AWS-RunPowerShellScript" : "AWS-RunShellScript";
       
-      // Send the command via SSM
+      // Send the command via SSM - each command as separate array element
       const sendCommand = new SendCommandCommand({
         InstanceIds: [instanceId],
         DocumentName: documentName,
         Parameters: {
-          commands: [script],
+          commands: commands,
         },
         TimeoutSeconds: 600, // 10 minute timeout
         Comment: "OdinForge Agent Deployment",
