@@ -299,35 +299,68 @@ export class AWSAdapter implements ProviderAdapter {
 
     console.log(`[AWS] Deploying agent to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "ssm"}`);
 
-    const installScript = this.generateInstallScript(agentConfig);
+    // Detect platform from metadata
+    const platform = asset.rawMetadata?.platform?.toLowerCase() || 
+                     asset.rawMetadata?.Platform?.toLowerCase() || 
+                     asset.rawMetadata?.PlatformDetails?.toLowerCase() || "";
+    const isWindows = platform.includes("windows");
+    console.log(`[AWS] Detected platform: ${isWindows ? "Windows" : "Linux"} (raw: "${platform}")`);
+
+    const installScript = this.generateInstallScript(agentConfig, isWindows);
 
     switch (asset.agentDeploymentMethod) {
       case "ssm":
-        return this.deployViaSSM(awsCreds, asset, installScript);
+        return this.deployViaSSM(awsCreds, asset, installScript, isWindows);
       default:
         return { success: false, errorMessage: `Deployment method ${asset.agentDeploymentMethod} not supported` };
     }
   }
 
-  private generateInstallScript(config: { serverUrl: string; registrationToken: string; organizationId: string }): string {
-    return `#!/bin/bash
+  private generateInstallScript(config: { serverUrl: string; registrationToken: string; organizationId: string }, isWindows: boolean): string {
+    if (isWindows) {
+      // PowerShell script for Windows
+      return `$ErrorActionPreference = 'Stop'
+$installDir = 'C:\\ProgramData\\OdinForge'
+$agentPath = Join-Path $installDir 'odinforge-agent.exe'
+
+# Create installation directory
+if (-not (Test-Path $installDir)) {
+    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+}
+
+# Download the Windows agent binary
+Write-Host "Downloading OdinForge agent..."
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentPath -UseBasicParsing
+
+# Install and start the agent
+Write-Host "Installing OdinForge agent..."
+& $agentPath install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force
+
+Write-Host "OdinForge agent installed successfully"
+`;
+    } else {
+      // Bash script for Linux
+      return `#!/bin/bash
 set -e
 
 curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent
 chmod +x /tmp/odinforge-agent
 sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force
 `;
+    }
   }
 
   private async deployViaSSM(
     creds: NonNullable<CloudCredentials["aws"]>,
     asset: CloudAssetInfo,
-    script: string
+    script: string,
+    isWindows: boolean
   ): Promise<DeploymentResult> {
     const instanceId = asset.providerResourceId;
     const region = asset.region || "us-east-1";
     
-    console.log(`[AWS SSM] Sending command to instance ${instanceId} in ${region}`);
+    console.log(`[AWS SSM] Sending command to instance ${instanceId} in ${region} (platform: ${isWindows ? "Windows" : "Linux"})`);
 
     try {
       const ssmClient = new SSMClient({
@@ -335,13 +368,6 @@ sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registrat
         credentials: this.getCredentialsConfig(creds),
       });
 
-      // Determine if Windows or Linux based on platform metadata
-      // AWS EC2 sets 'Platform' to 'Windows' for Windows instances, undefined/null for Linux
-      const platform = asset.rawMetadata?.platform?.toLowerCase() || 
-                       asset.rawMetadata?.Platform?.toLowerCase() || 
-                       asset.rawMetadata?.PlatformDetails?.toLowerCase() || "";
-      const isWindows = platform.includes("windows");
-      
       const documentName = isWindows ? "AWS-RunPowerShellScript" : "AWS-RunShellScript";
       
       // Send the command via SSM
