@@ -16,11 +16,21 @@ import (
         "odinforge-agent/internal/queue"
         "odinforge-agent/internal/registrar"
         "odinforge-agent/internal/sender"
+        "odinforge-agent/internal/service"
 )
 
-const version = "1.0.2"
+const version = "1.0.3"
 
 func main() {
+        // Check if running as Windows service
+        if service.IsWindowsService() {
+                log.Printf("Detected Windows service mode")
+                if err := service.RunAsService("odinforge-agent", runAgentWithContext); err != nil {
+                        log.Fatalf("Failed to run as Windows service: %v", err)
+                }
+                return
+        }
+
         if len(os.Args) < 2 {
                 runAgent()
                 return
@@ -242,6 +252,123 @@ func runAgent() {
                 select {
                 case <-ctx.Done():
                         log.Printf("exiting main loop")
+                        return
+
+                case ready := <-authReady:
+                        if ready && !authenticated {
+                                authenticated = true
+                                c = collector.New(cfg)
+                                s, err = sender.New(cfg)
+                                if err != nil {
+                                        log.Printf("sender init failed: %v", err)
+                                        authenticated = false
+                                        continue
+                                }
+                                log.Printf("odinforge-agent fully started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+                                enqueueTelemetry(ctx, c, q)
+                        }
+
+                case <-authRetryTicker.C:
+                        if !authenticated && authError != nil {
+                                log.Printf("retrying authentication...")
+                                authError = nil
+                                go func() {
+                                        if err := registrar.EnsureAPIKey(&cfg); err != nil {
+                                                authError = err
+                                                log.Printf("authentication retry failed: %v", err)
+                                                authReady <- false
+                                                return
+                                        }
+                                        authReady <- true
+                                }()
+                        }
+
+                case <-heartbeatTicker.C:
+                        if authenticated && c != nil {
+                                enqueueHeartbeat(c, q)
+                        }
+
+                case <-telemetryTicker.C:
+                        if authenticated && c != nil {
+                                enqueueTelemetry(ctx, c, q)
+                        }
+
+                case <-commandPollTicker.C:
+                        if authenticated && s != nil {
+                                pollAndExecuteCommands(ctx, cfg, c, q, s)
+                        }
+
+                case <-flushTicker.C:
+                        if authenticated && s != nil {
+                                if err := s.Flush(ctx, q); err != nil {
+                                        log.Printf("flush error: %v", err)
+                                }
+                        }
+                }
+        }
+}
+
+// runAgentWithContext is called when running as a Windows service
+// The context is managed by the Windows service handler
+func runAgentWithContext(ctx context.Context) {
+        cfg, err := config.Load("")
+        if err != nil {
+                log.Printf("config load failed: %v", err)
+                return
+        }
+
+        // Basic safety guard: require HTTPS unless explicitly allowed.
+        if cfg.Safety.RequireHTTPS && !config.IsHTTPS(cfg.Server.URL) && !config.IsLocalhost(cfg.Server.URL) {
+                log.Printf("refusing to run: server url must be https (got %s)", cfg.Server.URL)
+                return
+        }
+
+        // Create queue early so we can start the service loop
+        q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
+        if err != nil {
+                log.Printf("queue init failed: %v", err)
+                return
+        }
+        defer q.Close()
+
+        log.Printf("odinforge-agent starting (Windows service) | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+
+        // Channel to signal when authentication is ready
+        authReady := make(chan bool, 1)
+        var authError error
+
+        // Run authentication in background
+        go func() {
+                if err := registrar.EnsureAPIKey(&cfg); err != nil {
+                        authError = err
+                        log.Printf("authentication setup failed (will retry): %v", err)
+                        authReady <- false
+                        return
+                }
+                log.Printf("authentication setup complete")
+                authReady <- true
+        }()
+
+        // Schedulers
+        telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
+        heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
+        commandPollTicker := time.NewTicker(30 * time.Second)
+        flushTicker := time.NewTicker(5 * time.Second)
+        authRetryTicker := time.NewTicker(10 * time.Second)
+        defer telemetryTicker.Stop()
+        defer heartbeatTicker.Stop()
+        defer commandPollTicker.Stop()
+        defer flushTicker.Stop()
+        defer authRetryTicker.Stop()
+
+        var c *collector.Collector
+        var s *sender.Sender
+        authenticated := false
+
+        for {
+                select {
+                case <-ctx.Done():
+                        log.Printf("exiting main loop (Windows service stop)")
                         return
 
                 case ready := <-authReady:
