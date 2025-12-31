@@ -32,9 +32,13 @@ func (s *AgentService) Execute(args []string, r <-chan svc.ChangeRequest, change
 
         s.ctx, s.cancel = context.WithCancel(context.Background())
 
+        // Channel to detect if runFunc exits prematurely
+        runDone := make(chan struct{})
+        
         s.wg.Add(1)
         go func() {
                 defer s.wg.Done()
+                defer close(runDone)
                 s.runFunc(s.ctx)
         }()
 
@@ -54,11 +58,21 @@ func (s *AgentService) Execute(args []string, r <-chan svc.ChangeRequest, change
                                 changes <- svc.Status{State: svc.StopPending}
                                 s.cancel()
                                 s.wg.Wait()
+                                changes <- svc.Status{State: svc.Stopped}
                                 return
                         default:
                                 log.Printf("unexpected control request #%d", c)
                         }
+                case <-runDone:
+                        // runFunc exited prematurely (config error, etc.)
+                        log.Printf("Windows service runFunc exited unexpectedly, stopping service")
+                        changes <- svc.Status{State: svc.StopPending}
+                        s.cancel()
+                        s.wg.Wait()
+                        changes <- svc.Status{State: svc.Stopped}
+                        return
                 case <-s.ctx.Done():
+                        changes <- svc.Status{State: svc.Stopped}
                         return
                 }
         }
