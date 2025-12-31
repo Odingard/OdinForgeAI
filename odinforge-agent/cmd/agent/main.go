@@ -165,22 +165,12 @@ func runAgent() {
                 log.Fatalf("refusing to run: server url must be https (got %s)", cfg.Server.URL)
         }
 
-        // Auto-registration: if no API key, try to auto-register using registration token
-        if err := registrar.EnsureAPIKey(&cfg); err != nil {
-                log.Fatalf("authentication setup failed: %v", err)
-        }
-
+        // Create queue early so we can start the service loop
         q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
         if err != nil {
                 log.Fatalf("queue init failed: %v", err)
         }
         defer q.Close()
-
-        c := collector.New(cfg)
-        s, err := sender.New(cfg)
-        if err != nil {
-                log.Fatalf("sender init failed: %v", err)
-        }
 
         ctx, cancel := context.WithCancel(context.Background())
         defer cancel()
@@ -194,45 +184,115 @@ func runAgent() {
                 cancel()
         }()
 
-        // If once, do a single run.
+        log.Printf("odinforge-agent starting | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+
+        // Channel to signal when authentication is ready
+        authReady := make(chan bool, 1)
+        var authError error
+
+        // Run authentication in background to avoid Windows service timeout (error 1053)
+        go func() {
+                if err := registrar.EnsureAPIKey(&cfg); err != nil {
+                        authError = err
+                        log.Printf("authentication setup failed (will retry): %v", err)
+                        authReady <- false
+                        return
+                }
+                log.Printf("authentication setup complete")
+                authReady <- true
+        }()
+
+        // If once, wait for auth then do a single run
         if *once {
+                <-authReady
+                if authError != nil {
+                        log.Fatalf("authentication setup failed: %v", authError)
+                }
+                c := collector.New(cfg)
+                s, err := sender.New(cfg)
+                if err != nil {
+                        log.Fatalf("sender init failed: %v", err)
+                }
                 if err := runOnce(ctx, c, q, s); err != nil {
                         log.Fatalf("run-once failed: %v", err)
                 }
                 return
         }
 
+        // For service mode, continue immediately (don't block on auth)
+        // This prevents Windows error 1053 (service timeout)
+
         // Schedulers (with jitter)
         telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
         heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
-        commandPollTicker := time.NewTicker(30 * time.Second) // Poll for commands every 30 seconds
+        commandPollTicker := time.NewTicker(30 * time.Second)
         flushTicker := time.NewTicker(5 * time.Second)
+        authRetryTicker := time.NewTicker(10 * time.Second)
         defer telemetryTicker.Stop()
         defer heartbeatTicker.Stop()
         defer commandPollTicker.Stop()
         defer flushTicker.Stop()
+        defer authRetryTicker.Stop()
 
-        log.Printf("odinforge-agent started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
-
-        // initial telemetry
-        enqueueTelemetry(ctx, c, q)
+        var c *collector.Collector
+        var s *sender.Sender
+        authenticated := false
 
         for {
                 select {
                 case <-ctx.Done():
                         log.Printf("exiting main loop")
                         return
+
+                case ready := <-authReady:
+                        if ready && !authenticated {
+                                authenticated = true
+                                c = collector.New(cfg)
+                                s, err = sender.New(cfg)
+                                if err != nil {
+                                        log.Printf("sender init failed: %v", err)
+                                        authenticated = false
+                                        continue
+                                }
+                                log.Printf("odinforge-agent fully started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+                                enqueueTelemetry(ctx, c, q)
+                        }
+
+                case <-authRetryTicker.C:
+                        if !authenticated && authError != nil {
+                                log.Printf("retrying authentication...")
+                                authError = nil
+                                go func() {
+                                        if err := registrar.EnsureAPIKey(&cfg); err != nil {
+                                                authError = err
+                                                log.Printf("authentication retry failed: %v", err)
+                                                authReady <- false
+                                                return
+                                        }
+                                        authReady <- true
+                                }()
+                        }
+
                 case <-heartbeatTicker.C:
-                        enqueueHeartbeat(c, q)
+                        if authenticated && c != nil {
+                                enqueueHeartbeat(c, q)
+                        }
+
                 case <-telemetryTicker.C:
-                        enqueueTelemetry(ctx, c, q)
+                        if authenticated && c != nil {
+                                enqueueTelemetry(ctx, c, q)
+                        }
+
                 case <-commandPollTicker.C:
-                        // Poll for and execute pending commands
-                        pollAndExecuteCommands(ctx, cfg, c, q, s)
+                        if authenticated && s != nil {
+                                pollAndExecuteCommands(ctx, cfg, c, q, s)
+                        }
+
                 case <-flushTicker.C:
-                        // drain queue in the background cadence
-                        if err := s.Flush(ctx, q); err != nil {
-                                log.Printf("flush error: %v", err)
+                        if authenticated && s != nil {
+                                if err := s.Flush(ctx, q); err != nil {
+                                        log.Printf("flush error: %v", err)
+                                }
                         }
                 }
         }
