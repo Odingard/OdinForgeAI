@@ -29,7 +29,43 @@ func GetRunningServices() []ServiceInfo {
 }
 
 func getWindowsServices() []ServiceInfo {
-        cmd := exec.Command("sc", "query", "type=", "service", "state=", "running")
+        cmd := exec.Command("powershell", "-NoProfile", "-Command",
+                "Get-Service | Where-Object {$_.Status -eq 'Running'} | Select-Object -First 100 Name,Status | ForEach-Object { $_.Name + '|' + $_.Status }")
+        var out bytes.Buffer
+        cmd.Stdout = &out
+        if err := cmd.Run(); err != nil {
+                return getWindowsServicesFromCmd()
+        }
+
+        var services []ServiceInfo
+        lines := strings.Split(out.String(), "\n")
+
+        for _, line := range lines {
+                line = strings.TrimSpace(line)
+                if line == "" {
+                        continue
+                }
+                parts := strings.Split(line, "|")
+                if len(parts) >= 1 && parts[0] != "" {
+                        status := "running"
+                        if len(parts) >= 2 {
+                                status = strings.ToLower(parts[1])
+                        }
+                        services = append(services, ServiceInfo{
+                                Name:   parts[0],
+                                Status: status,
+                        })
+                }
+        }
+
+        if len(services) > 100 {
+                services = services[:100]
+        }
+        return services
+}
+
+func getWindowsServicesFromCmd() []ServiceInfo {
+        cmd := exec.Command("cmd", "/c", "sc", "query", "type=", "service", "state=", "running")
         var out bytes.Buffer
         cmd.Stdout = &out
         if err := cmd.Run(); err != nil {
