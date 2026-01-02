@@ -24,9 +24,96 @@ func GetOpenPorts() []PortInfo {
                 return getMacOSPorts()
         case "linux":
                 return getLinuxPorts()
+        case "windows":
+                return getWindowsPorts()
         default:
                 return nil
         }
+}
+
+func getWindowsPorts() []PortInfo {
+        cmd := exec.Command("netstat", "-ano", "-p", "tcp")
+        var out bytes.Buffer
+        cmd.Stdout = &out
+        if err := cmd.Run(); err != nil {
+                return nil
+        }
+
+        seen := make(map[int]bool)
+        var ports []PortInfo
+        lines := strings.Split(out.String(), "\n")
+
+        for _, line := range lines {
+                line = strings.TrimSpace(line)
+                if !strings.Contains(line, "LISTENING") {
+                        continue
+                }
+
+                fields := strings.Fields(line)
+                if len(fields) < 4 {
+                        continue
+                }
+
+                local := fields[1]
+                pid := fields[len(fields)-1]
+
+                idx := strings.LastIndex(local, ":")
+                if idx < 0 {
+                        continue
+                }
+
+                portStr := local[idx+1:]
+                port, err := strconv.Atoi(portStr)
+                if err != nil || port <= 0 || port > 65535 || seen[port] {
+                        continue
+                }
+
+                seen[port] = true
+                addr := local[:idx]
+                if addr == "0.0.0.0" || addr == "[::]" || addr == "::" {
+                        addr = "*"
+                }
+
+                process := getWindowsProcessName(pid)
+
+                ports = append(ports, PortInfo{
+                        Port:     port,
+                        Protocol: "tcp",
+                        Process:  process,
+                        PID:      pid,
+                        Address:  addr,
+                })
+        }
+
+        if len(ports) > 200 {
+                ports = ports[:200]
+        }
+        return ports
+}
+
+func getWindowsProcessName(pid string) string {
+        if pid == "" || pid == "0" {
+                return ""
+        }
+
+        cmd := exec.Command("tasklist", "/fi", "PID eq "+pid, "/fo", "csv", "/nh")
+        var out bytes.Buffer
+        cmd.Stdout = &out
+        if err := cmd.Run(); err != nil {
+                return ""
+        }
+
+        line := strings.TrimSpace(out.String())
+        if line == "" || strings.Contains(line, "No tasks") {
+                return ""
+        }
+
+        line = strings.Trim(line, "\"")
+        if idx := strings.Index(line, "\",\""); idx > 0 {
+                return line[:idx]
+        }
+
+        return ""
 }
 
 func getMacOSPorts() []PortInfo {

@@ -21,9 +21,80 @@ func GetRunningServices() []ServiceInfo {
                 return getMacOSServices()
         case "linux":
                 return getLinuxServices()
+        case "windows":
+                return getWindowsServices()
         default:
                 return nil
         }
+}
+
+func getWindowsServices() []ServiceInfo {
+        cmd := exec.Command("sc", "query", "type=", "service", "state=", "running")
+        var out bytes.Buffer
+        cmd.Stdout = &out
+        if err := cmd.Run(); err != nil {
+                return getWindowsServicesFromWMIC()
+        }
+
+        var services []ServiceInfo
+        lines := strings.Split(out.String(), "\n")
+        var currentName string
+
+        for _, line := range lines {
+                line = strings.TrimSpace(line)
+                if strings.HasPrefix(line, "SERVICE_NAME:") {
+                        currentName = strings.TrimSpace(strings.TrimPrefix(line, "SERVICE_NAME:"))
+                } else if strings.HasPrefix(line, "STATE") && currentName != "" {
+                        if strings.Contains(line, "RUNNING") {
+                                services = append(services, ServiceInfo{
+                                        Name:   currentName,
+                                        Status: "running",
+                                })
+                        }
+                        currentName = ""
+                }
+        }
+
+        if len(services) > 100 {
+                services = services[:100]
+        }
+        return services
+}
+
+func getWindowsServicesFromWMIC() []ServiceInfo {
+        cmd := exec.Command("wmic", "service", "where", "State='Running'", "get", "Name,ProcessId", "/format:csv")
+        var out bytes.Buffer
+        cmd.Stdout = &out
+        if err := cmd.Run(); err != nil {
+                return nil
+        }
+
+        var services []ServiceInfo
+        lines := strings.Split(out.String(), "\n")
+
+        for _, line := range lines {
+                line = strings.TrimSpace(line)
+                if line == "" || strings.HasPrefix(line, "Node,") {
+                        continue
+                }
+                fields := strings.Split(line, ",")
+                if len(fields) >= 3 {
+                        name := fields[1]
+                        pid := fields[2]
+                        if name != "" && name != "Name" {
+                                services = append(services, ServiceInfo{
+                                        Name:   name,
+                                        Status: "running",
+                                        PID:    pid,
+                                })
+                        }
+                }
+        }
+
+        if len(services) > 100 {
+                services = services[:100]
+        }
+        return services
 }
 
 func getMacOSServices() []ServiceInfo {
