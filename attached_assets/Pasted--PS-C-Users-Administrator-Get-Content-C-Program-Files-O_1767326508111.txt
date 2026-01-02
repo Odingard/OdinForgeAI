@@ -1,0 +1,66 @@
+ PS C:\Users\Administrator> Get-Content "C:\Program Files\OdinForge\logs\agent.log" -Tail 50
+Get-Content : Cannot find path 'C:\Program Files\OdinForge\logs\agent.log' because 
+it does not exist.
+At line:1 char:1
++ Get-Content "C:\Program Files\OdinForge\logs\agent.log" -Tail 50
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Program File...\logs\agent.log:St 
+   ring) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetContent 
+   Command
+ 
+
+PS C:\Users\Administrator> Get-Service odinforge-agent
+
+Status   Name               DisplayName                           
+------   ----               -----------                           
+Running  odinforge-agent    OdinForge Security Agent              
+
+
+
+PS C:\Users\Administrator> Get-EventLog -LogName Application -Source odinforge-agent -Newest 20
+Get-EventLog : No matches found
+At line:1 char:1
++ Get-EventLog -LogName Application -Source odinforge-agent -Newest 20
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (:) [Get-EventLog], ArgumentException
+    + FullyQualifiedErrorId : GetEventLogNoEntriesFound,Microsoft.PowerShell.Comman 
+   ds.GetEventLogCommand
+ 
+
+PS C:\Users\Administrator> Get-EventLog -LogName Application -Newest 50 | Where-Object {$_.Message -like "*odinforge*" -or $_.Message -like "*agent*"}
+
+PS C:\Users\Administrator> ls "C:\Program Files\OdinForge\"
+
+
+    Directory: C:\Program Files\OdinForge
+
+
+Mode                 LastWriteTime         Length Name                              
+----                 -------------         ------ ----                              
+-a----          1/2/2026   3:12 AM        9010688 odinforge-agent.exe               
+
+
+
+PS C:\Users\Administrator> Get-Content "C:\Program Files\OdinForge\agent.yaml"
+Get-Content : Cannot find path 'C:\Program Files\OdinForge\agent.yaml' because it 
+does not exist.
+At line:1 char:1
++ Get-Content "C:\Program Files\OdinForge\agent.yaml"
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Program Files\OdinForge\agent.yam 
+   l:String) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetContent 
+   Command
+ 
+
+PS C:\Users\Administrator> Get-Content "C:\Program Files\OdinForge\api_key"
+Get-Content : Cannot find path 'C:\Program Files\OdinForge\api_key' because it does 
+not exist.
+At line:1 char:1
++ Get-Content "C:\Program Files\OdinForge\api_key"
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (C:\Program Files\OdinForge\api_key:S 
+   tring) [Get-Content], ItemNotFoundException
+    + FullyQualifiedErrorId : PathNotFound,Microsoft.PowerShell.Commands.GetContent 
+   Command 
