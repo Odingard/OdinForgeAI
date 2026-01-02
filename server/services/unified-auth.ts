@@ -46,7 +46,8 @@ class UnifiedAuthService {
     authHeader: string | undefined,
     clientCertHeader: string | undefined,
     agents: EndpointAgent[],
-    certSecretHeader?: string
+    certSecretHeader?: string,
+    xApiKeyHeader?: string
   ): Promise<AuthResult> {
     if (this.config.enableMTLS && clientCertHeader) {
       const mtlsResult = await this.authenticateWithMTLS(clientCertHeader, certSecretHeader);
@@ -72,6 +73,14 @@ class UnifiedAuthService {
             return apiKeyResult;
           }
         }
+      }
+    }
+    
+    // Also check X-API-Key header (used by agents for command polling)
+    if (this.config.enableApiKey && xApiKeyHeader) {
+      const apiKeyResult = await this.authenticateWithApiKey(xApiKeyHeader, agents);
+      if (apiKeyResult.authenticated) {
+        return apiKeyResult;
       }
     }
     

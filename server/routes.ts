@@ -2132,6 +2132,7 @@ export async function registerRoutes(
     const authHeader = req.headers.authorization;
     const clientCertHeader = req.headers["x-client-cert-fingerprint"] || req.headers["x-ssl-client-cert"];
     const certSecretHeader = req.headers["x-cert-secret"];
+    const xApiKeyHeader = req.headers["x-api-key"];
     
     // Get all agents for API key comparison
     const agents = await storage.getEndpointAgents();
@@ -2141,7 +2142,8 @@ export async function registerRoutes(
       authHeader,
       clientCertHeader,
       agents,
-      certSecretHeader
+      certSecretHeader,
+      xApiKeyHeader
     );
     
     if (!authResult.authenticated) {
