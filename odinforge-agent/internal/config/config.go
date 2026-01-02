@@ -93,10 +93,11 @@ func Default() Config {
 // defaultConfigPaths returns the list of paths to search for config file
 func defaultConfigPaths() []string {
         if runtime.GOOS == "windows" {
+                // Use forward slashes - Windows handles them fine and avoids escape issues
                 return []string{
-                        `C:\ProgramData\OdinForge\agent.yaml`,
-                        `C:\Program Files\OdinForge\agent.yaml`,
-                        `.\odinforge-agent.yaml`,
+                        "C:/ProgramData/OdinForge/agent.yaml",
+                        "C:/Program Files/OdinForge/agent.yaml",
+                        "./odinforge-agent.yaml",
                 }
         }
         return []string{
