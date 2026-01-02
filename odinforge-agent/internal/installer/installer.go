@@ -312,10 +312,11 @@ func (w *WindowsInstaller) Name() string {
 }
 
 func (w *WindowsInstaller) Install(cfg InstallConfig) error {
-        // Windows-specific paths
-        cfg.ConfigPath = "C:\\ProgramData\\OdinForge\\agent.yaml"
-        cfg.DataPath = "C:\\ProgramData\\OdinForge\\data"
-        cfg.BinaryPath = "C:\\Program Files\\OdinForge\\odinforge-agent.exe"
+        // Windows-specific paths - use forward slashes to avoid YAML escape issues
+        // Windows handles forward slashes fine in paths
+        cfg.ConfigPath = "C:/ProgramData/OdinForge/agent.yaml"
+        cfg.DataPath = "C:/ProgramData/OdinForge/data"
+        cfg.BinaryPath = "C:/Program Files/OdinForge/odinforge-agent.exe"
 
         // Create directories
         dirs := []string{
