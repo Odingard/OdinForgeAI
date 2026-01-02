@@ -80,25 +80,36 @@ try {
     exit 1
 }
 
-# Run the self-installing binary
-Write-Host "Installing OdinForge agent..." -ForegroundColor Yellow
+# Run the self-installing binary with install subcommand and flags
+Write-Host "Installing OdinForge agent as Windows service..." -ForegroundColor Yellow
 
-# Set environment variables for the installer
-$env:ODINFORGE_SERVER_URL = $serverUrl
-$env:ODINFORGE_REGISTRATION_TOKEN = $token
-$env:ODINFORGE_TENANT_ID = "default"
+# Build the install command arguments
+$installArgs = "install --server-url `"$serverUrl`" --registration-token `"$token`" --tenant-id default --force"
 
-# Run with --install flag
-$process = Start-Process -FilePath $binaryPath -ArgumentList "--install" -Wait -PassThru -NoNewWindow
+Write-Host "  Running: odinforge-agent.exe $installArgs" -ForegroundColor Gray
+
+# Run the install command
+$process = Start-Process -FilePath $binaryPath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
 $exitCode = $process.ExitCode
 
 if ($exitCode -eq 0) {
     Write-Host ""
-    Write-Host "OdinForge agent installed successfully" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host "OdinForge agent installed successfully!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "The agent is now running as a Windows service." -ForegroundColor Cyan
+    Write-Host "Check status: sc.exe query odinforge-agent" -ForegroundColor Cyan
+    Write-Host "View logs: Get-EventLog -LogName Application -Source odinforge-agent" -ForegroundColor Cyan
 } else {
     Write-Host ""
-    Write-Host "Installation completed with exit code: $exitCode" -ForegroundColor Yellow
+    Write-Host "Installation failed with exit code: $exitCode" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Troubleshooting:" -ForegroundColor Yellow
+    Write-Host "  1. Ensure you're running as Administrator" -ForegroundColor Yellow
+    Write-Host "  2. Check if the server URL is reachable: $serverUrl" -ForegroundColor Yellow
+    Write-Host "  3. Verify the registration token is correct" -ForegroundColor Yellow
+    exit $exitCode
 }
 
-Write-Host "Error $exitCode" -ForegroundColor Gray
 Write-Host ""
