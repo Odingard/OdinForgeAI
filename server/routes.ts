@@ -1902,6 +1902,68 @@ export async function registerRoutes(
     }
   });
 
+  // Redeploy agent to a cloud asset (force reinstall)
+  app.post("/api/cloud-assets/:id/redeploy-agent", async (req, res) => {
+    try {
+      const { cloudIntegrationService } = await import("./services/cloud/index");
+      
+      const asset = await storage.getCloudAsset(req.params.id);
+      if (!asset) {
+        return res.status(404).json({ error: "Cloud asset not found" });
+      }
+
+      const previousAgentId = asset.agentId;
+
+      // First, reset the deployment status to allow redeployment
+      // This is necessary because deployAgentToAsset checks agentInstalled flag
+      await storage.updateCloudAsset(req.params.id, {
+        agentInstalled: false,
+        agentDeploymentStatus: "pending",
+        agentDeploymentError: null,
+        agentId: null,
+      });
+
+      // Trigger fresh deployment
+      const result = await cloudIntegrationService.deployAgentToAsset(
+        req.params.id,
+        { initiatedBy: req.body.userId || "redeploy" }
+      );
+
+      if (result.error) {
+        // Rollback: restore the previous state since deployment failed to start
+        await storage.updateCloudAsset(req.params.id, {
+          agentInstalled: previousAgentId ? true : false,
+          agentDeploymentStatus: asset.agentDeploymentStatus,
+          agentDeploymentError: result.error,
+          agentId: previousAgentId,
+        });
+        return res.status(400).json({ error: result.error });
+      }
+
+      // Deployment job created successfully - now mark old agent as replaced
+      if (previousAgentId) {
+        try {
+          await storage.updateEndpointAgent(previousAgentId, {
+            status: "offline",
+            tags: ["replaced", `cloud:${asset.provider || "unknown"}`],
+          });
+        } catch (err) {
+          console.warn("[Redeploy] Failed to update old agent status:", err);
+        }
+      }
+
+      res.json({ 
+        success: true, 
+        jobId: result.jobId,
+        message: "Agent redeployment started",
+        previousAgentId: previousAgentId,
+      });
+    } catch (error) {
+      console.error("Error redeploying agent:", error);
+      res.status(500).json({ error: "Failed to redeploy agent" });
+    }
+  });
+
   // Deploy agents to all assets in a connection
   app.post("/api/cloud-connections/:id/deploy-all-agents", async (req, res) => {
     try {

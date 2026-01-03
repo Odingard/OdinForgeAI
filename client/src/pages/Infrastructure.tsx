@@ -219,6 +219,21 @@ function CloudConnectionCard({
     },
   });
 
+  const redeployAgentMutation = useMutation({
+    mutationFn: async (assetId: string) => {
+      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/redeploy-agent`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      toast({ title: "Agent Redeployment Started", description: "Fresh agent install triggered" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Redeployment Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const deployAllAgentsMutation = useMutation({
     mutationFn: async () => {
       // Deploy to all deployable assets - don't filter by asset type
@@ -515,11 +530,10 @@ function CloudConnectionCard({
                           <span className="text-xs text-muted-foreground">N/A</span>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="flex items-center gap-1">
                         {asset.agentDeployable && 
                          asset.agentDeploymentStatus !== "success" && 
                          asset.agentDeploymentStatus !== "deploying" && 
-                         // Allow retry for pending only if no agent was linked (stuck deployment)
                          (asset.agentDeploymentStatus !== "pending" || !asset.agentId) && (
                           <Button
                             size="sm"
@@ -527,8 +541,22 @@ function CloudConnectionCard({
                             onClick={() => deployAgentMutation.mutate(asset.id)}
                             disabled={deployAgentMutation.isPending}
                             data-testid={`button-deploy-agent-${asset.id}`}
+                            title="Deploy Agent"
                           >
                             <Play className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {asset.agentDeployable && 
+                         (asset.agentDeploymentStatus === "success" || asset.agentDeploymentStatus === "failed") && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => redeployAgentMutation.mutate(asset.id)}
+                            disabled={redeployAgentMutation.isPending}
+                            data-testid={`button-redeploy-agent-${asset.id}`}
+                            title="Redeploy Agent"
+                          >
+                            <RefreshCw className="h-3 w-3" />
                           </Button>
                         )}
                       </TableCell>
