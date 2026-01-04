@@ -569,8 +569,8 @@ export async function registerRoutes(
   // Abort a running live scan
   app.post("/api/aev/live-scans/:evaluationId/abort", async (req, res) => {
     try {
-      const { abortScan } = await import("./services/live-network-testing");
-      const aborted = abortScan(req.params.evaluationId);
+      const { abortCurrentScan } = await import("./services/live-network-testing");
+      const aborted = abortCurrentScan();
       
       if (aborted) {
         await storage.updateLiveScanResult(req.params.evaluationId, { 
@@ -4161,15 +4161,15 @@ async function runEvaluation(evaluationId: string, data: {
               banner: p.banner,
               version: p.version,
             })),
-            vulnerabilities: liveScanResult.vulnerabilities.map(v => ({
-              id: v.id,
+            vulnerabilities: liveScanResult.vulnerabilities.map((v, i) => ({
+              id: `vuln-${i + 1}`,
               port: v.port,
               service: v.service,
               severity: v.severity,
-              title: v.title,
-              description: v.description,
-              cveIds: v.cveIds,
-              remediation: v.remediation,
+              title: v.issue,
+              description: v.issue,
+              cveIds: v.cve ? [v.cve] : [],
+              remediation: v.recommendation,
             })),
             scanStarted: liveScanResult.scanStarted,
             scanCompleted: liveScanResult.scanCompleted,
@@ -4267,19 +4267,19 @@ async function runEvaluation(evaluationId: string, data: {
       // Add live scan vulnerabilities to attack path
       const liveAttackSteps = liveScanResult.vulnerabilities.map((v, i) => ({
         id: (finalResult.attackPath?.length || 0) + i + 1,
-        title: `[Live Scan] ${v.title}`,
+        title: `[Live Scan] ${v.issue}`,
         phase: "initial_access" as const,
         technique: "network_vulnerability",
         severity: v.severity,
-        description: v.description,
+        description: v.issue,
         prerequisites: [`Open port ${v.port} (${v.service || "unknown service"})`],
-        artifacts: v.cveIds?.map(cve => ({ type: "cve", value: cve })) || [],
+        artifacts: v.cve ? [{ type: "cve", value: v.cve }] : [],
       }));
       
       // Add live scan recommendations
       const liveRecommendations = liveScanResult.vulnerabilities
-        .filter(v => v.remediation)
-        .map(v => `[Live] ${v.remediation}`);
+        .filter(v => v.recommendation)
+        .map(v => `[Live] ${v.recommendation}`);
       
       const existingRecs = new Set(finalResult.recommendations || []);
       const newLiveRecs = liveRecommendations.filter(r => !existingRecs.has(r));
