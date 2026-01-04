@@ -3921,6 +3921,38 @@ export async function registerRoutes(
         organizationId: "default",
       });
 
+      // Create LiveScanResult so this can be used in AI simulations
+      const ports = (result.portScan || []).map((p: any) => ({
+        port: p.port,
+        state: p.state,
+        service: p.service || null,
+        banner: p.banner || null,
+      }));
+
+      const vulnerabilities = selected.map((exp: any) => ({
+        issue: exp.description,
+        recommendation: `Address ${exp.type} finding: ${exp.description}`,
+        cve: null,
+        severity: exp.severity,
+      }));
+
+      // Use current time for timestamps - scanTime is a Date object from fullRecon
+      const now = new Date();
+      const startTime = result.scanTime instanceof Date ? result.scanTime : now;
+      
+      await storage.createLiveScanResult({
+        evaluationId: evaluation.id,
+        organizationId: "default",
+        targetHost: result.target,
+        resolvedIp: null,
+        resolvedHostname: null,
+        ports,
+        vulnerabilities,
+        scanStartedAt: startTime,
+        scanCompletedAt: now,
+        status: "completed",
+      });
+
       res.json({ 
         evaluationId: evaluation.id,
         message: "Evaluation created from reconnaissance findings"
