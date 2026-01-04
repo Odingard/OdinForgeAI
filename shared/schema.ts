@@ -1091,6 +1091,53 @@ export type InsertResult = z.infer<typeof insertResultSchema>;
 export type Result = typeof aevResults.$inferSelect;
 
 // ============================================================================
+// LIVE NETWORK TESTING RESULTS
+// ============================================================================
+
+export interface PortScanResult {
+  port: number;
+  state: "open" | "closed" | "filtered";
+  service?: string;
+  banner?: string;
+  version?: string;
+}
+
+export interface NetworkVulnerability {
+  id: string;
+  port: number;
+  service?: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  title: string;
+  description: string;
+  cveIds?: string[];
+  remediation?: string;
+}
+
+export const liveScanResults = pgTable("live_scan_results", {
+  id: varchar("id").primaryKey(),
+  evaluationId: varchar("evaluation_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  targetHost: varchar("target_host").notNull(),
+  resolvedIp: varchar("resolved_ip"),
+  resolvedHostname: varchar("resolved_hostname"),
+  ports: jsonb("ports").$type<PortScanResult[]>(),
+  vulnerabilities: jsonb("vulnerabilities").$type<NetworkVulnerability[]>(),
+  scanStarted: timestamp("scan_started"),
+  scanCompleted: timestamp("scan_completed"),
+  status: varchar("status").default("pending"), // pending, running, completed, failed, aborted
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLiveScanResultSchema = createInsertSchema(liveScanResults).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLiveScanResult = z.infer<typeof insertLiveScanResultSchema>;
+export type LiveScanResult = typeof liveScanResults.$inferSelect;
+
+// ============================================================================
 // REPORTING & BATCH VALIDATION SCHEMAS
 // ============================================================================
 

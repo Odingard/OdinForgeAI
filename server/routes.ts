@@ -541,6 +541,51 @@ export async function registerRoutes(
     }
   });
 
+  // Live scan results endpoints
+  app.get("/api/aev/live-scans", async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+      const results = await storage.getLiveScanResults(organizationId);
+      res.json(results);
+    } catch (error) {
+      console.error("Error fetching live scan results:", error);
+      res.status(500).json({ error: "Failed to fetch live scan results" });
+    }
+  });
+
+  app.get("/api/aev/live-scans/:evaluationId", async (req, res) => {
+    try {
+      const result = await storage.getLiveScanResultByEvaluationId(req.params.evaluationId);
+      if (!result) {
+        return res.status(404).json({ error: "Live scan result not found" });
+      }
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching live scan result:", error);
+      res.status(500).json({ error: "Failed to fetch live scan result" });
+    }
+  });
+
+  // Abort a running live scan
+  app.post("/api/aev/live-scans/:evaluationId/abort", async (req, res) => {
+    try {
+      const { abortScan } = await import("./services/live-network-testing");
+      const aborted = abortScan(req.params.evaluationId);
+      
+      if (aborted) {
+        await storage.updateLiveScanResult(req.params.evaluationId, { 
+          status: "aborted",
+          errorMessage: "Scan aborted by user",
+        });
+      }
+      
+      res.json({ success: aborted });
+    } catch (error) {
+      console.error("Error aborting live scan:", error);
+      res.status(500).json({ error: "Failed to abort scan" });
+    }
+  });
+
   app.get("/api/aev/stats", async (req, res) => {
     try {
       const evaluations = await storage.getEvaluations();
@@ -4075,6 +4120,73 @@ async function runEvaluation(evaluationId: string, data: {
       return;
     }
 
+    // If in live mode, perform actual network scanning in addition to AI analysis
+    let liveScanResult: import("./services/live-network-testing").ScanResult | null = null;
+    if (executionMode === "live") {
+      console.log(`[GOVERNANCE] Live mode enabled for evaluation ${evaluationId} - performing network scan`);
+      
+      const { performLiveScan, parseTargetFromAsset } = await import("./services/live-network-testing");
+      const target = parseTargetFromAsset(data.assetId, data.description);
+      
+      if (target) {
+        try {
+          wsService.sendProgress(evaluationId, "Live Scanner", "init", 5, `Initializing live scan for ${target.host}...`);
+          
+          liveScanResult = await performLiveScan(
+            evaluationId,
+            target,
+            orgId,
+            (progress) => {
+              wsService.sendProgress(
+                evaluationId, 
+                "Live Scanner", 
+                progress.phase, 
+                progress.progress, 
+                progress.message
+              );
+            }
+          );
+          
+          // Store live scan result
+          await storage.createLiveScanResult({
+            evaluationId,
+            organizationId: orgId,
+            targetHost: target.host,
+            resolvedIp: liveScanResult.ip,
+            resolvedHostname: liveScanResult.hostname,
+            ports: liveScanResult.ports.map(p => ({
+              port: p.port,
+              state: p.state,
+              service: p.service,
+              banner: p.banner,
+              version: p.version,
+            })),
+            vulnerabilities: liveScanResult.vulnerabilities.map(v => ({
+              id: v.id,
+              port: v.port,
+              service: v.service,
+              severity: v.severity,
+              title: v.title,
+              description: v.description,
+              cveIds: v.cveIds,
+              remediation: v.remediation,
+            })),
+            scanStarted: liveScanResult.scanStarted,
+            scanCompleted: liveScanResult.scanCompleted,
+            status: "completed",
+          });
+          
+          console.log(`[LIVE] Scan completed: ${liveScanResult.ports.length} open ports, ${liveScanResult.vulnerabilities.length} vulnerabilities`);
+        } catch (liveError) {
+          console.error(`[LIVE] Scan failed for ${target.host}:`, liveError);
+          wsService.sendProgress(evaluationId, "Live Scanner", "error", 0, `Live scan failed: ${String(liveError)}`);
+          // Continue with AI analysis even if live scan fails
+        }
+      } else {
+        console.log(`[LIVE] No scannable target found in asset ${data.assetId}`);
+      }
+    }
+
     // Standard evaluation (safe mode or live mode)
     const result = await runAgentOrchestrator(
       data.assetId,
@@ -4146,6 +4258,53 @@ async function runEvaluation(evaluationId: string, data: {
             : result.impact,
         };
       }
+    }
+
+    // Merge live scan findings into final result if available
+    if (liveScanResult && liveScanResult.vulnerabilities.length > 0) {
+      console.log(`[LIVE] Merging ${liveScanResult.vulnerabilities.length} live scan findings`);
+      
+      // Add live scan vulnerabilities to attack path
+      const liveAttackSteps = liveScanResult.vulnerabilities.map((v, i) => ({
+        id: (finalResult.attackPath?.length || 0) + i + 1,
+        title: `[Live Scan] ${v.title}`,
+        phase: "initial_access" as const,
+        technique: "network_vulnerability",
+        severity: v.severity,
+        description: v.description,
+        prerequisites: [`Open port ${v.port} (${v.service || "unknown service"})`],
+        artifacts: v.cveIds?.map(cve => ({ type: "cve", value: cve })) || [],
+      }));
+      
+      // Add live scan recommendations
+      const liveRecommendations = liveScanResult.vulnerabilities
+        .filter(v => v.remediation)
+        .map(v => `[Live] ${v.remediation}`);
+      
+      const existingRecs = new Set(finalResult.recommendations || []);
+      const newLiveRecs = liveRecommendations.filter(r => !existingRecs.has(r));
+      
+      // Update score based on live findings
+      const criticalCount = liveScanResult.vulnerabilities.filter(v => v.severity === "critical").length;
+      const highCount = liveScanResult.vulnerabilities.filter(v => v.severity === "high").length;
+      const liveScoreBoost = Math.min(30, criticalCount * 15 + highCount * 5);
+      
+      finalResult = {
+        ...finalResult,
+        exploitable: finalResult.exploitable || criticalCount > 0 || highCount > 0,
+        score: Math.min(100, finalResult.score + liveScoreBoost),
+        attackPath: [...(finalResult.attackPath || []), ...liveAttackSteps],
+        recommendations: [...(finalResult.recommendations || []), ...newLiveRecs],
+        evidenceArtifacts: [
+          ...(finalResult.evidenceArtifacts || []),
+          {
+            type: "live_scan" as const,
+            name: "Network Scan Results",
+            content: `Scanned ${liveScanResult.ip}: ${liveScanResult.ports.length} open ports found`,
+            timestamp: liveScanResult.scanCompleted?.toISOString() || new Date().toISOString(),
+          },
+        ],
+      };
     }
 
     const duration = Date.now() - startTime;
