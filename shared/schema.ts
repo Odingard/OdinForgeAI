@@ -428,7 +428,22 @@ export const exposureTypes = [
   "privilege_boundary",     // Privilege boundary violations
   "workflow_desync",        // Workflow desynchronization
   "order_lifecycle",        // Order lifecycle abuse
+  "app_logic",              // Application logic flaws (IDOR/BOLA, mass assignment, rate limiting)
 ] as const;
+
+// App Logic Exposure Data - Structured input for deterministic IDOR/BOLA/auth analysis
+export interface AppLogicExposureData {
+  endpoint?: string;              // e.g., "/api/users/{id}"
+  method?: string;                // GET, POST, PUT, DELETE, PATCH
+  authRequired?: boolean;         // Is authentication required?
+  roleRequired?: string;          // e.g., "admin", "user", null
+  pathParams?: string[];          // e.g., ["id", "userId"]
+  objectIdParam?: string;         // Which param is the object ID? e.g., "id"
+  ownershipEnforced?: boolean | null; // true=enforced, false=not enforced, null=unknown
+  rateLimit?: "none" | "weak" | "strong" | null;
+  sensitiveFields?: string[];     // Fields that could be mass-assigned, e.g., ["role", "isAdmin"]
+  acceptsUserInput?: boolean;     // Does the endpoint accept user input in body?
+}
 
 export type ExposureType = typeof exposureTypes[number];
 
