@@ -4089,45 +4089,63 @@ async function runEvaluation(evaluationId: string, data: {
     );
 
     // Auto-detect and merge app-logic findings if API patterns detected
-    const { tryAutoAnalyze } = await import("./services/app-logic-analyzer");
-    const appLogicResult = tryAutoAnalyze(data.assetId, data.description);
+    const { detectsApiPatterns, tryAutoAnalyze } = await import("./services/app-logic-analyzer");
     
     let finalResult = result;
-    if (appLogicResult && appLogicResult.exploitable) {
-      console.log(`[AEV] Auto-detected app logic issues in ${evaluationId}`);
-      wsService.sendProgress(evaluationId, "App Logic Analyzer", "merge", 95, "Merging app-logic findings...");
+    // Only run app-logic analyzer if patterns are detected (cheap check first)
+    if (detectsApiPatterns(data.description)) {
+      const appLogicResult = tryAutoAnalyze(data.assetId, data.description);
       
-      // Merge attack paths
-      const mergedAttackPath = [
-        ...(result.attackPath || []),
-        ...(appLogicResult.attackPath || []).map((step, i) => ({
-          ...step,
-          id: (result.attackPath?.length || 0) + i + 1,
-          title: `[Auto-detected] ${step.title}`,
-        })),
-      ];
-      
-      // Merge recommendations
-      const existingRecTitles = new Set(result.recommendations || []);
-      const mergedRecommendations = [
-        ...(result.recommendations || []),
-        ...(appLogicResult.recommendations || [])
+      if (appLogicResult && appLogicResult.exploitable) {
+        console.log(`[AEV] Auto-detected app logic issues in ${evaluationId}`);
+        wsService.sendProgress(evaluationId, "App Logic Analyzer", "merge", 95, "Merging app-logic findings...");
+        
+        // Merge attack paths
+        const mergedAttackPath = [
+          ...(result.attackPath || []),
+          ...(appLogicResult.attackPath || []).map((step, i) => ({
+            ...step,
+            id: (result.attackPath?.length || 0) + i + 1,
+            title: `[Auto-detected] ${step.title}`,
+          })),
+        ];
+        
+        // Merge recommendations (result.recommendations is string[], appLogicResult has structured recs)
+        const existingRecTitles = new Set(result.recommendations || []);
+        const newRecTitles = (appLogicResult.recommendations || [])
           .map(r => r.title)
-          .filter(title => !existingRecTitles.has(title)),
-      ];
-      
-      // Take higher score/confidence if app-logic found issues
-      finalResult = {
-        ...result,
-        exploitable: result.exploitable || appLogicResult.exploitable,
-        confidence: Math.max(result.confidence, appLogicResult.confidence),
-        score: Math.max(result.score, appLogicResult.score),
-        attackPath: mergedAttackPath,
-        recommendations: mergedRecommendations,
-        impact: appLogicResult.exploitable && !result.exploitable 
-          ? appLogicResult.impact 
-          : result.impact,
-      };
+          .filter(title => !existingRecTitles.has(title));
+        const mergedRecommendations = [
+          ...(result.recommendations || []),
+          ...newRecTitles,
+        ];
+        
+        // Build businessLogicFindings from app-logic detections
+        const appLogicFindings = {
+          detected: true,
+          autoDetected: true,
+          findings: (appLogicResult.attackPath || []).map(step => ({
+            type: step.technique || "app_logic",
+            severity: step.severity || "high",
+            description: step.description,
+            impact: appLogicResult.impact,
+          })),
+        };
+        
+        // Take higher score/confidence if app-logic found issues
+        finalResult = {
+          ...result,
+          exploitable: result.exploitable || appLogicResult.exploitable,
+          confidence: Math.max(result.confidence, appLogicResult.confidence),
+          score: Math.max(result.score, appLogicResult.score),
+          attackPath: mergedAttackPath,
+          recommendations: mergedRecommendations,
+          businessLogicFindings: result.businessLogicFindings || appLogicFindings,
+          impact: appLogicResult.exploitable && !result.exploitable 
+            ? appLogicResult.impact 
+            : result.impact,
+        };
+      }
     }
 
     const duration = Date.now() - startTime;
