@@ -12,9 +12,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Swords, Play, Trash2, Eye, Clock, CheckCircle2, XCircle, Loader2, Shield, Skull, Zap, Lock } from "lucide-react";
+import { Swords, Play, Trash2, Eye, Clock, CheckCircle2, XCircle, Loader2, Shield, Skull, Zap, Lock, Radio } from "lucide-react";
 import { format } from "date-fns";
 import type { AiSimulation } from "@shared/schema";
+
+interface LiveScanResult {
+  id: number;
+  evaluationId: string;
+  targetHost: string;
+  vulnerabilities: any[];
+  ports: any[];
+}
 
 export default function Simulations() {
   const { toast } = useToast();
@@ -30,21 +38,32 @@ export default function Simulations() {
     priority: "high",
     description: "",
     rounds: 3,
+    sourceEvaluationId: "",
   });
 
   const { data: simulations = [], isLoading } = useQuery<AiSimulation[]>({
     queryKey: ["/api/simulations"],
   });
 
+  // Fetch evaluations with live scan data
+  const { data: liveScanResults = [] } = useQuery<LiveScanResult[]>({
+    queryKey: ["/api/aev/live-scans"],
+  });
+
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const res = await apiRequest("POST", "/api/simulations", data);
+      // Only include sourceEvaluationId if it's not empty
+      const payload = {
+        ...data,
+        sourceEvaluationId: data.sourceEvaluationId || undefined,
+      };
+      const res = await apiRequest("POST", "/api/simulations", payload);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/simulations"] });
       setIsCreateOpen(false);
-      setFormData({ assetId: "", exposureType: "cve", priority: "high", description: "", rounds: 3 });
+      setFormData({ assetId: "", exposureType: "cve", priority: "high", description: "", rounds: 3, sourceEvaluationId: "" });
       toast({ title: "Simulation Started", description: "AI vs AI simulation is now running." });
     },
     onError: (error: Error) => {
@@ -189,6 +208,34 @@ export default function Simulations() {
                   data-testid="input-simulation-description"
                 />
               </div>
+              
+              {liveScanResults.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="sourceEvaluation" className="flex items-center gap-2">
+                    <Radio className="h-4 w-4 text-green-500" />
+                    Use Live Scan Data (Optional)
+                  </Label>
+                  <Select
+                    value={formData.sourceEvaluationId}
+                    onValueChange={(v) => setFormData({ ...formData, sourceEvaluationId: v })}
+                  >
+                    <SelectTrigger data-testid="select-live-scan-source">
+                      <SelectValue placeholder="Select a live scan for real network data..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None (use simulated data)</SelectItem>
+                      {liveScanResults.map((scan) => (
+                        <SelectItem key={scan.evaluationId} value={scan.evaluationId}>
+                          {scan.targetHost} ({scan.ports?.length || 0} ports, {scan.vulnerabilities?.length || 0} vulns)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Inject real network scan findings into the simulation for realistic attack scenarios
+                  </p>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
