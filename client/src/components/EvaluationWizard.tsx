@@ -64,6 +64,7 @@ const categoryIcons: Record<string, typeof Globe> = {
   identity: Users,
   email: Mail,
   applications: Code,
+  app_logic: Shield,
 };
 
 const priorityColors: Record<string, string> = {
@@ -116,6 +117,18 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
       priority: string;
       description: string;
       adversaryProfile?: string;
+      appLogicData?: {
+        endpoint?: string;
+        method?: string;
+        authRequired?: boolean;
+        roleRequired?: string;
+        pathParams?: string[];
+        objectIdParam?: string;
+        ownershipEnforced?: boolean | null;
+        rateLimit?: "none" | "weak" | "strong" | null;
+        sensitiveFields?: string[];
+        acceptsUserInput?: boolean;
+      };
     }) => {
       const response = await apiRequest("POST", "/api/aev/evaluate", data);
       return response.json();
@@ -196,12 +209,40 @@ export function EvaluationWizard({ open, onOpenChange }: EvaluationWizardProps) 
     const exposureType = getExposureType(selectedCategory.id, selectedType.id);
     const priority = getPriorityFromAnswers(answers);
 
+    // Build appLogicData for app_logic exposure type
+    let appLogicData = undefined;
+    if (exposureType === "app_logic") {
+      const endpoint = answers.endpoint as string || "";
+      const sensitiveFieldsRaw = answers.sensitiveFields as string || "";
+      
+      // Extract path params from endpoint (e.g., /api/users/{id} -> ["id"])
+      const pathParamMatches = endpoint.match(/\{(\w+)\}|:(\w+)/g) || [];
+      const pathParams = pathParamMatches.map(p => p.replace(/[{}:]/g, ""));
+      
+      appLogicData = {
+        endpoint,
+        method: answers.method as string || "GET",
+        authRequired: answers.authRequired === "yes",
+        roleRequired: answers.roleRequired as string || undefined,
+        pathParams,
+        objectIdParam: pathParams[0] || "id",
+        ownershipEnforced: answers.ownershipEnforced === "yes" ? true : 
+                          answers.ownershipEnforced === "no" ? false : null,
+        rateLimit: (answers.rateLimit === "strong" || answers.rateLimit === "weak" || answers.rateLimit === "none") 
+          ? answers.rateLimit as "none" | "weak" | "strong" 
+          : null,
+        sensitiveFields: sensitiveFieldsRaw ? sensitiveFieldsRaw.split(",").map(s => s.trim()).filter(Boolean) : [],
+        acceptsUserInput: ["POST", "PUT", "PATCH"].includes(answers.method as string || ""),
+      };
+    }
+
     createEvaluationMutation.mutate({
       assetId,
       exposureType,
       priority,
       description,
       adversaryProfile: adversaryProfile || undefined,
+      appLogicData,
     });
   };
 

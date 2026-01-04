@@ -411,6 +411,9 @@ export async function registerRoutes(
       
       res.json({ evaluationId: evaluation.id, assetId: evaluation.assetId, status: "started" });
 
+      // Extract app logic data from request body if present (for app_logic exposure type)
+      const appLogicData = req.body.appLogicData || undefined;
+
       runEvaluation(evaluation.id, {
         assetId: parsed.data.assetId,
         exposureType: parsed.data.exposureType,
@@ -418,6 +421,7 @@ export async function registerRoutes(
         description: parsed.data.description,
         adversaryProfile: parsed.data.adversaryProfile || undefined,
         organizationId: parsed.data.organizationId || "default",
+        appLogicData,
       });
     } catch (error) {
       console.error("Error starting evaluation:", error);
@@ -3925,6 +3929,7 @@ async function runEvaluation(evaluationId: string, data: {
   description: string;
   adversaryProfile?: string;
   organizationId?: string;
+  appLogicData?: import("@shared/schema").AppLogicExposureData;
 }) {
   const startTime = Date.now();
   const orgId = data.organizationId || "default";
@@ -3943,6 +3948,56 @@ async function runEvaluation(evaluationId: string, data: {
     }
     
     await storage.updateEvaluationStatus(evaluationId, "in_progress", executionMode);
+
+    // Fast path: For app_logic exposure type, use deterministic analyzer (no LLM cost)
+    if (data.exposureType === "app_logic" && data.appLogicData) {
+      const { analyzeAppLogicExposure } = await import("./services/app-logic-analyzer");
+      
+      wsService.sendProgress(evaluationId, "App Logic Analyzer", "init", 10, "Initializing deterministic analyzer...");
+      wsService.sendProgress(evaluationId, "App Logic Analyzer", "analysis", 50, "Checking IDOR/BOLA patterns...");
+      
+      const result = analyzeAppLogicExposure({
+        assetId: data.assetId,
+        description: data.description,
+        data: data.appLogicData,
+      });
+      
+      wsService.sendProgress(evaluationId, "App Logic Analyzer", "complete", 100, "Analysis complete");
+      
+      const duration = Date.now() - startTime;
+      
+      await storage.createResult({
+        id: `res-${randomUUID().slice(0, 8)}`,
+        evaluationId,
+        exploitable: result.exploitable,
+        confidence: result.confidence,
+        score: result.score,
+        attackPath: result.attackPath,
+        impact: result.impact,
+        recommendations: result.recommendations.map(r => r.title),
+        evidenceArtifacts: [],
+        intelligentScore: {
+          overall: result.score,
+          exploitability: result.exploitable ? result.score : result.score * 0.3,
+          impact: result.exploitable ? 70 : 30,
+          defensibility: result.exploitable ? 30 : 70,
+          confidence: result.confidence,
+        },
+        remediationGuidance: {
+          immediate: result.recommendations.filter(r => r.priority === "critical" || r.priority === "high").map(r => r.description),
+          shortTerm: result.recommendations.filter(r => r.priority === "medium").map(r => r.description),
+          longTerm: result.recommendations.filter(r => r.priority === "low").map(r => r.description),
+          estimatedEffort: result.exploitable ? "medium" : "low",
+          priorityOrder: result.recommendations.map(r => r.title),
+        },
+        duration,
+      });
+      
+      await storage.updateEvaluationStatus(evaluationId, "completed");
+      wsService.sendComplete(evaluationId, true);
+      console.log(`[AEV] App logic evaluation ${evaluationId} completed in ${duration}ms (deterministic, no LLM)`);
+      return;
+    }
 
     // If in simulation mode, run AI vs AI simulation instead
     if (executionMode === "simulation") {
