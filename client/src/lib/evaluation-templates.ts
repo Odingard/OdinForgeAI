@@ -1099,6 +1099,158 @@ export const evaluationTemplates: TemplateCategory[] = [
       },
     ],
   },
+  {
+    id: "app_logic",
+    name: "Application Logic",
+    description: "API endpoint and business logic vulnerabilities (IDOR, auth bypass, rate limiting)",
+    icon: "Shield",
+    types: [
+      {
+        id: "api_endpoint",
+        name: "API Endpoint",
+        description: "REST/GraphQL endpoint authorization check",
+        icon: "Code",
+        versions: [
+          { value: "rest", label: "REST API" },
+          { value: "graphql", label: "GraphQL API" },
+          { value: "grpc", label: "gRPC API" },
+          { value: "soap", label: "SOAP/XML API" },
+          { value: "other", label: "Other" },
+        ],
+        questions: [
+          {
+            id: "endpoint",
+            label: "Endpoint path (e.g., /api/users/{id})",
+            type: "text",
+            required: true,
+            helpText: "Include path parameters like {id} or :userId",
+          },
+          {
+            id: "method",
+            label: "HTTP Method",
+            type: "select",
+            required: true,
+            options: [
+              { value: "GET", label: "GET (Read)" },
+              { value: "POST", label: "POST (Create)" },
+              { value: "PUT", label: "PUT (Update/Replace)" },
+              { value: "PATCH", label: "PATCH (Partial Update)" },
+              { value: "DELETE", label: "DELETE (Remove)" },
+            ],
+          },
+          {
+            id: "authRequired",
+            label: "Is authentication required?",
+            type: "radio",
+            required: true,
+            options: [
+              { value: "yes", label: "Yes - Must be logged in" },
+              { value: "no", label: "No - Public endpoint" },
+            ],
+          },
+          {
+            id: "ownershipEnforced",
+            label: "Is object ownership verified? (e.g., can user A access user B's data?)",
+            type: "radio",
+            required: true,
+            helpText: "This checks if the server verifies the requesting user owns/has access to the resource",
+            options: [
+              { value: "yes", label: "Yes - Server checks ownership" },
+              { value: "no", label: "No - Any authenticated user can access" },
+              { value: "unknown", label: "Not sure / Unknown" },
+            ],
+          },
+          {
+            id: "roleRequired",
+            label: "Is a specific role required? (leave empty if any user)",
+            type: "text",
+            helpText: "e.g., admin, manager, moderator",
+          },
+          {
+            id: "sensitiveFields",
+            label: "Sensitive fields that should NOT be user-writable (comma separated)",
+            type: "text",
+            helpText: "e.g., role, isAdmin, balance, permissions",
+          },
+          {
+            id: "rateLimit",
+            label: "Rate limiting on this endpoint",
+            type: "select",
+            options: [
+              { value: "strong", label: "Strong (strict limits, CAPTCHA)" },
+              { value: "weak", label: "Weak (basic limiting)" },
+              { value: "none", label: "None" },
+              { value: "unknown", label: "Not sure" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "auth_endpoint",
+        name: "Authentication Endpoint",
+        description: "Login, password reset, or token endpoints",
+        icon: "Users",
+        versions: [
+          { value: "login", label: "Login / Sign-in" },
+          { value: "password_reset", label: "Password Reset" },
+          { value: "token", label: "Token / OAuth" },
+          { value: "mfa", label: "MFA / 2FA" },
+          { value: "registration", label: "Registration" },
+        ],
+        questions: [
+          {
+            id: "endpoint",
+            label: "Endpoint path (e.g., /api/auth/login)",
+            type: "text",
+            required: true,
+          },
+          {
+            id: "method",
+            label: "HTTP Method",
+            type: "select",
+            required: true,
+            options: [
+              { value: "POST", label: "POST" },
+              { value: "GET", label: "GET" },
+              { value: "PUT", label: "PUT" },
+            ],
+          },
+          {
+            id: "rateLimit",
+            label: "Rate limiting protection",
+            type: "select",
+            required: true,
+            options: [
+              { value: "strong", label: "Strong (account lockout, CAPTCHA)" },
+              { value: "weak", label: "Weak (basic IP limiting)" },
+              { value: "none", label: "None" },
+              { value: "unknown", label: "Not sure" },
+            ],
+          },
+          {
+            id: "lockoutPolicy",
+            label: "Account lockout after failed attempts?",
+            type: "radio",
+            options: [
+              { value: "yes", label: "Yes" },
+              { value: "no", label: "No" },
+              { value: "unknown", label: "Not sure" },
+            ],
+          },
+          {
+            id: "mfaEnabled",
+            label: "Multi-factor authentication available?",
+            type: "radio",
+            options: [
+              { value: "yes", label: "Yes - MFA enabled" },
+              { value: "no", label: "No" },
+              { value: "optional", label: "Optional for users" },
+            ],
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 export function generateDescription(
@@ -1191,6 +1343,8 @@ export function getExposureType(categoryId: string, typeId: string): string {
     "nodejs": "Application",
     "java": "Application",
     "dotnet": "Application",
+    "api_endpoint": "app_logic",
+    "auth_endpoint": "app_logic",
   };
   
   return typeMap[typeId] || categoryId;

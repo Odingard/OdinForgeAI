@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { type AttackPathStep, type Recommendation } from "@shared/schema";
+import { type AttackPathStep, type Recommendation, type AppLogicExposureData } from "@shared/schema";
+import { analyzeAppLogicExposure } from "./app-logic-analyzer";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -22,8 +23,24 @@ export async function analyzeExposure(
   exposureType: string,
   priority: string,
   description: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  appLogicData?: AppLogicExposureData
 ): Promise<AEVAnalysisResult> {
+  // For app_logic exposure type, use deterministic analyzer (no LLM cost)
+  if (exposureType === "app_logic" && appLogicData) {
+    onProgress?.("app_logic_analysis", 25, "Analyzing endpoint metadata...");
+    onProgress?.("app_logic_analysis", 50, "Checking IDOR/BOLA patterns...");
+    onProgress?.("app_logic_analysis", 75, "Evaluating authorization boundaries...");
+    
+    const result = analyzeAppLogicExposure({
+      assetId,
+      description,
+      data: appLogicData
+    });
+    
+    onProgress?.("app_logic_analysis", 100, "Analysis complete");
+    return result;
+  }
   const stages = [
     { name: "attack_surface", progress: 25, message: "Analyzing attack surface..." },
     { name: "exploit_chain", progress: 50, message: "Constructing exploit chain..." },
