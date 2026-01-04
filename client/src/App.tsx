@@ -7,10 +7,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "./components/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
 import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
-import { ViewModeProvider, useViewMode } from "./contexts/ViewModeContext";
+import { ViewModeProvider } from "./contexts/ViewModeContext";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/AppSidebar";
-import { ViewModeToggle } from "./components/ViewModeToggle";
 import { Dashboard } from "./components/Dashboard";
 import RiskDashboard from "@/pages/RiskDashboard";
 import Assets from "@/pages/Assets";
@@ -61,7 +60,6 @@ function Router() {
 
 function AppHeader() {
   const { theme, toggleTheme } = useTheme();
-  const { viewMode, setViewMode } = useViewMode();
   const { user, setUserRole, availableRoles } = useAuth();
   const { user: uiUser, logout } = useUIAuth();
 
@@ -78,8 +76,6 @@ function AppHeader() {
         </div>
 
         <div className="flex items-center gap-3">
-          <ViewModeToggle mode={viewMode} onChange={setViewMode} />
-          
           <Button
             variant="ghost"
             size="icon"
