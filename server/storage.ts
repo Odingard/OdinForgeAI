@@ -53,12 +53,15 @@ import {
   type InsertUIRefreshToken,
   type FullAssessment,
   type InsertFullAssessment,
+  type LiveScanResult,
+  type InsertLiveScanResult,
   type SystemRoleId,
   systemRoleIds,
   uiRoles,
   users,
   aevEvaluations,
   aevResults,
+  liveScanResults,
   reports,
   reportNarratives,
   batchJobs,
@@ -157,6 +160,13 @@ export interface IStorage {
   getFullAssessments(organizationId?: string): Promise<FullAssessment[]>;
   updateFullAssessment(id: string, updates: Partial<FullAssessment>): Promise<void>;
   deleteFullAssessment(id: string): Promise<void>;
+  
+  // Live Scan Result operations
+  createLiveScanResult(data: InsertLiveScanResult): Promise<LiveScanResult>;
+  getLiveScanResult(id: string): Promise<LiveScanResult | undefined>;
+  getLiveScanResultByEvaluationId(evaluationId: string): Promise<LiveScanResult | undefined>;
+  getLiveScanResults(organizationId?: string): Promise<LiveScanResult[]>;
+  updateLiveScanResult(id: string, updates: Partial<LiveScanResult>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1499,6 +1509,49 @@ export class DatabaseStorage implements IStorage {
 
   async deleteFullAssessment(id: string): Promise<void> {
     await db.delete(fullAssessments).where(eq(fullAssessments.id, id));
+  }
+
+  async createLiveScanResult(data: InsertLiveScanResult): Promise<LiveScanResult> {
+    const id = randomUUID();
+    const [result] = await db
+      .insert(liveScanResults)
+      .values({ ...data, id } as typeof liveScanResults.$inferInsert)
+      .returning();
+    return result;
+  }
+
+  async getLiveScanResult(id: string): Promise<LiveScanResult | undefined> {
+    const [result] = await db
+      .select()
+      .from(liveScanResults)
+      .where(eq(liveScanResults.id, id));
+    return result;
+  }
+
+  async getLiveScanResultByEvaluationId(evaluationId: string): Promise<LiveScanResult | undefined> {
+    const [result] = await db
+      .select()
+      .from(liveScanResults)
+      .where(eq(liveScanResults.evaluationId, evaluationId));
+    return result;
+  }
+
+  async getLiveScanResults(organizationId?: string): Promise<LiveScanResult[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(liveScanResults)
+        .where(eq(liveScanResults.organizationId, organizationId))
+        .orderBy(desc(liveScanResults.createdAt));
+    }
+    return db.select().from(liveScanResults).orderBy(desc(liveScanResults.createdAt));
+  }
+
+  async updateLiveScanResult(id: string, updates: Partial<LiveScanResult>): Promise<void> {
+    await db
+      .update(liveScanResults)
+      .set(updates)
+      .where(eq(liveScanResults.id, id));
   }
 }
 
