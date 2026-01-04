@@ -407,8 +407,8 @@ export function extractEndpointMetadata(description: string): AppLogicExposureDa
   const sensitiveMatches = text.match(sensitiveFieldPatterns) || [];
   const sensitiveFields = Array.from(new Set(sensitiveMatches.map(s => s.toLowerCase())));
   
-  // Only return if we found meaningful data
-  if (!endpoint && pathParams.length === 0 && ownershipEnforced === null && rateLimit === null) {
+  // Only return if we found a valid endpoint path - require concrete evidence
+  if (!endpoint || endpoint.length < 3) {
     return null;
   }
   
