@@ -14,6 +14,7 @@ import {
   Settings,
   Users,
   ScanSearch,
+  Globe,
 } from "lucide-react";
 import {
   Sidebar,
@@ -45,6 +46,7 @@ const mainNavItems = [
 
 const analysisItems = [
   { title: "Full Assessment", href: "/full-assessment", icon: ScanSearch },
+  { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
   { title: "Batch Jobs", href: "/batch", icon: Layers },
   { title: "Simulations", href: "/simulations", icon: Swords },
