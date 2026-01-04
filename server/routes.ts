@@ -4088,24 +4088,66 @@ async function runEvaluation(evaluationId: string, data: {
       { adversaryProfile: data.adversaryProfile as any }
     );
 
+    // Auto-detect and merge app-logic findings if API patterns detected
+    const { tryAutoAnalyze } = await import("./services/app-logic-analyzer");
+    const appLogicResult = tryAutoAnalyze(data.assetId, data.description);
+    
+    let finalResult = result;
+    if (appLogicResult && appLogicResult.exploitable) {
+      console.log(`[AEV] Auto-detected app logic issues in ${evaluationId}`);
+      wsService.sendProgress(evaluationId, "App Logic Analyzer", "merge", 95, "Merging app-logic findings...");
+      
+      // Merge attack paths
+      const mergedAttackPath = [
+        ...(result.attackPath || []),
+        ...(appLogicResult.attackPath || []).map((step, i) => ({
+          ...step,
+          id: (result.attackPath?.length || 0) + i + 1,
+          title: `[Auto-detected] ${step.title}`,
+        })),
+      ];
+      
+      // Merge recommendations
+      const existingRecTitles = new Set(result.recommendations || []);
+      const mergedRecommendations = [
+        ...(result.recommendations || []),
+        ...(appLogicResult.recommendations || [])
+          .map(r => r.title)
+          .filter(title => !existingRecTitles.has(title)),
+      ];
+      
+      // Take higher score/confidence if app-logic found issues
+      finalResult = {
+        ...result,
+        exploitable: result.exploitable || appLogicResult.exploitable,
+        confidence: Math.max(result.confidence, appLogicResult.confidence),
+        score: Math.max(result.score, appLogicResult.score),
+        attackPath: mergedAttackPath,
+        recommendations: mergedRecommendations,
+        impact: appLogicResult.exploitable && !result.exploitable 
+          ? appLogicResult.impact 
+          : result.impact,
+      };
+    }
+
     const duration = Date.now() - startTime;
 
     await storage.createResult({
       id: `res-${randomUUID().slice(0, 8)}`,
       evaluationId,
-      exploitable: result.exploitable,
-      confidence: result.confidence,
-      score: result.score,
-      attackPath: result.attackPath,
-      attackGraph: result.attackGraph,
-      businessLogicFindings: result.businessLogicFindings,
-      multiVectorFindings: result.multiVectorFindings,
-      workflowAnalysis: result.workflowAnalysis,
-      impact: result.impact,
-      recommendations: result.recommendations,
-      evidenceArtifacts: result.evidenceArtifacts,
-      intelligentScore: result.intelligentScore,
-      remediationGuidance: result.remediationGuidance,
+      exploitable: finalResult.exploitable,
+      confidence: finalResult.confidence,
+      score: finalResult.score,
+      attackPath: finalResult.attackPath,
+      attackGraph: finalResult.attackGraph,
+      businessLogicFindings: finalResult.businessLogicFindings,
+      multiVectorFindings: finalResult.multiVectorFindings,
+      workflowAnalysis: finalResult.workflowAnalysis,
+      impact: finalResult.impact,
+      recommendations: finalResult.recommendations,
+      evidenceArtifacts: finalResult.evidenceArtifacts,
+      intelligentScore: finalResult.intelligentScore,
+      remediationGuidance: finalResult.remediationGuidance,
       duration,
     });
 
