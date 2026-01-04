@@ -3777,9 +3777,6 @@ export async function registerRoutes(
     }).optional(),
   });
 
-  // In-memory store for recon results (per-session)
-  const reconResults: Map<string, ReconResult> = new Map();
-
   app.post("/api/recon/scan", evaluationRateLimiter, async (req, res) => {
     try {
       const parsed = reconScanSchema.safeParse(req.body);
@@ -3812,6 +3809,15 @@ export async function registerRoutes(
         });
       }
 
+      // Create pending scan record in database
+      await storage.createReconScan({
+        id: scanId,
+        target: hostname,
+        status: "pending",
+        organizationId: "default",
+        errors: [],
+      });
+
       // Start scan asynchronously
       res.json({ 
         scanId,
@@ -3825,22 +3831,38 @@ export async function registerRoutes(
         sslCheck: scanTypes?.sslCheck ?? true,
         httpFingerprint: scanTypes?.httpFingerprint ?? true,
         dnsEnum: scanTypes?.dnsEnum ?? true,
-      }).then(result => {
-        reconResults.set(scanId, result);
-        // Notify via WebSocket
-        wsService.broadcast({
-          type: 'recon_complete',
-          scanId,
-          target: hostname,
-          timestamp: new Date().toISOString(),
-        });
-      }).catch(err => {
+      }).then(async (result) => {
+        try {
+          // Save completed scan to database
+          await storage.updateReconScan(scanId, {
+            status: "completed",
+            scanTime: result.scanTime,
+            portScan: result.portScan || null,
+            sslCheck: result.sslCheck || null,
+            httpFingerprint: result.httpFingerprint || null,
+            dnsEnum: result.dnsEnum || null,
+            errors: result.errors || [],
+          });
+          // Notify via WebSocket
+          wsService.broadcast({
+            type: 'recon_complete',
+            scanId,
+            target: hostname,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (dbErr) {
+          console.error("Failed to save recon scan result:", dbErr);
+        }
+      }).catch(async (err) => {
         console.error("Recon scan error:", err);
-        reconResults.set(scanId, {
-          target,
-          scanTime: new Date(),
-          errors: [err.message],
-        });
+        try {
+          await storage.updateReconScan(scanId, {
+            status: "failed",
+            errors: [err.message],
+          });
+        } catch (dbErr) {
+          console.error("Failed to update recon scan status:", dbErr);
+        }
       });
     } catch (error) {
       console.error("Recon scan error:", error);
@@ -3851,14 +3873,32 @@ export async function registerRoutes(
   app.get("/api/recon/results/:scanId", async (req, res) => {
     try {
       const { scanId } = req.params;
-      const result = reconResults.get(scanId);
+      const scan = await storage.getReconScan(scanId);
       
-      if (!result) {
+      if (!scan) {
         return res.status(404).json({ 
-          error: "Scan not found or still in progress",
-          message: "The scan may still be running. Try again in a few seconds."
+          error: "Scan not found",
+          message: "The scan ID was not found."
         });
       }
+      
+      if (scan.status === "pending") {
+        return res.status(404).json({ 
+          error: "Scan still in progress",
+          message: "The scan is still running. Try again in a few seconds."
+        });
+      }
+
+      // Convert database record to ReconResult format for reconToExposures
+      const result: ReconResult = {
+        target: scan.target,
+        scanTime: scan.scanTime || new Date(),
+        portScan: scan.portScan || undefined,
+        sslCheck: scan.sslCheck || undefined,
+        httpFingerprint: scan.httpFingerprint || undefined,
+        dnsEnum: scan.dnsEnum || undefined,
+        errors: scan.errors || [],
+      };
 
       // Convert to exposures for evaluation integration
       const exposures = reconToExposures(result);
@@ -3884,10 +3924,22 @@ export async function registerRoutes(
         return res.status(400).json({ error: "scanId and selectedExposures are required" });
       }
 
-      const result = reconResults.get(scanId);
-      if (!result) {
-        return res.status(404).json({ error: "Scan results not found" });
+      // Fetch from database instead of in-memory map
+      const scan = await storage.getReconScan(scanId);
+      if (!scan || scan.status !== "completed") {
+        return res.status(404).json({ error: "Scan results not found or still in progress" });
       }
+
+      // Convert database record to ReconResult format
+      const result: ReconResult = {
+        target: scan.target,
+        scanTime: scan.scanTime || new Date(),
+        portScan: scan.portScan || undefined,
+        sslCheck: scan.sslCheck || undefined,
+        httpFingerprint: scan.httpFingerprint || undefined,
+        dnsEnum: scan.dnsEnum || undefined,
+        errors: scan.errors || [],
+      };
 
       // Create evaluation from findings
       const exposures = reconToExposures(result);
@@ -3936,9 +3988,9 @@ export async function registerRoutes(
         severity: exp.severity,
       }));
 
-      // Use current time for timestamps - scanTime is a Date object from fullRecon
+      // Use current time for timestamps
       const now = new Date();
-      const startTime = result.scanTime instanceof Date ? result.scanTime : now;
+      const startTime = scan.scanTime instanceof Date ? scan.scanTime : now;
       
       await storage.createLiveScanResult({
         evaluationId: evaluation.id,
