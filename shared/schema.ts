@@ -2796,3 +2796,70 @@ export const insertFullAssessmentSchema = createInsertSchema(fullAssessments).om
 
 export type InsertFullAssessment = z.infer<typeof insertFullAssessmentSchema>;
 export type FullAssessment = typeof fullAssessments.$inferSelect;
+
+// ============================================================================
+// External Reconnaissance Scans
+// Stores results from external internet-facing asset scans
+// ============================================================================
+
+export const reconScans = pgTable("recon_scans", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  target: varchar("target").notNull(),
+  status: varchar("status").notNull().default("pending"),
+  
+  scanTime: timestamp("scan_time").defaultNow(),
+  
+  portScan: jsonb("port_scan").$type<Array<{
+    port: number;
+    state: string;
+    service?: string;
+    banner?: string;
+  }>>(),
+  
+  sslCheck: jsonb("ssl_check").$type<{
+    valid?: boolean;
+    issuer?: string;
+    subject?: string;
+    validFrom?: string;
+    validTo?: string;
+    daysUntilExpiry?: number;
+    protocol?: string;
+    cipher?: string;
+    keySize?: number;
+    vulnerabilities: string[];
+  }>(),
+  
+  httpFingerprint: jsonb("http_fingerprint").$type<{
+    server?: string;
+    poweredBy?: string;
+    technologies: string[];
+    headers: Record<string, string>;
+    statusCode?: number;
+    redirectsTo?: string;
+    securityHeaders: {
+      present: string[];
+      missing: string[];
+    };
+  }>(),
+  
+  dnsEnum: jsonb("dns_enum").$type<{
+    ipv4: string[];
+    ipv6: string[];
+    mx: Array<{ priority: number; exchange: string }>;
+    ns: string[];
+    txt: string[];
+    cname: string[];
+  }>(),
+  
+  errors: jsonb("errors").$type<string[]>().default([]),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertReconScanSchema = createInsertSchema(reconScans).omit({
+  createdAt: true,
+});
+
+export type InsertReconScan = z.infer<typeof insertReconScanSchema>;
+export type ReconScan = typeof reconScans.$inferSelect;

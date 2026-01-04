@@ -98,6 +98,9 @@ import {
   type InsertAgentDeploymentJob,
   uiRefreshTokens,
   fullAssessments,
+  reconScans,
+  type ReconScan,
+  type InsertReconScan,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -167,6 +170,11 @@ export interface IStorage {
   getLiveScanResultByEvaluationId(evaluationId: string): Promise<LiveScanResult | undefined>;
   getLiveScanResults(organizationId?: string): Promise<LiveScanResult[]>;
   updateLiveScanResult(id: string, updates: Partial<LiveScanResult>): Promise<void>;
+  
+  // Recon Scan operations
+  createReconScan(data: InsertReconScan): Promise<ReconScan>;
+  getReconScan(id: string): Promise<ReconScan | undefined>;
+  updateReconScan(id: string, updates: Partial<ReconScan>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1552,6 +1560,29 @@ export class DatabaseStorage implements IStorage {
       .update(liveScanResults)
       .set(updates)
       .where(eq(liveScanResults.id, id));
+  }
+
+  async createReconScan(data: InsertReconScan): Promise<ReconScan> {
+    const [result] = await db
+      .insert(reconScans)
+      .values(data as typeof reconScans.$inferInsert)
+      .returning();
+    return result;
+  }
+
+  async getReconScan(id: string): Promise<ReconScan | undefined> {
+    const [result] = await db
+      .select()
+      .from(reconScans)
+      .where(eq(reconScans.id, id));
+    return result;
+  }
+
+  async updateReconScan(id: string, updates: Partial<ReconScan>): Promise<void> {
+    await db
+      .update(reconScans)
+      .set(updates)
+      .where(eq(reconScans.id, id));
   }
 }
 
