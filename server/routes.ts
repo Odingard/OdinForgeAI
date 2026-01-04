@@ -2074,6 +2074,7 @@ export async function registerRoutes(
     priority: z.enum(["critical", "high", "medium", "low"]).default("high"),
     description: z.string().min(1, "description is required"),
     rounds: z.number().int().min(1).max(10).default(3),
+    sourceEvaluationId: z.string().optional(), // Optional: ID of evaluation with live scan data
   });
 
   // Start a new AI vs AI simulation
@@ -2083,7 +2084,42 @@ export async function registerRoutes(
       if (!parseResult.success) {
         return res.status(400).json({ error: parseResult.error.errors[0].message });
       }
-      const { assetId, exposureType, priority, description, rounds } = parseResult.data;
+      const { assetId, exposureType, priority, description, rounds, sourceEvaluationId } = parseResult.data;
+
+      // Look up live scan data if sourceEvaluationId is provided
+      let liveScanData: import("./services/agents/ai-simulation").LiveScanInput | undefined;
+      if (sourceEvaluationId) {
+        const liveScanResult = await storage.getLiveScanResultByEvaluationId(sourceEvaluationId);
+        if (liveScanResult) {
+          // Normalize and validate the data structure
+          const rawPorts = Array.isArray(liveScanResult.ports) ? liveScanResult.ports : [];
+          const rawVulns = Array.isArray(liveScanResult.vulnerabilities) ? liveScanResult.vulnerabilities : [];
+          
+          liveScanData = {
+            targetHost: liveScanResult.targetHost || "unknown",
+            resolvedIp: liveScanResult.resolvedIp || undefined,
+            ports: rawPorts.map((p: any) => ({
+              port: p?.port ?? 0,
+              state: p?.state ?? "unknown",
+              service: p?.service,
+              banner: p?.banner,
+              version: p?.version,
+            })),
+            vulnerabilities: rawVulns.map((v: any) => ({
+              port: v?.port ?? 0,
+              service: v?.service ?? "unknown",
+              severity: v?.severity ?? "medium",
+              title: v?.title ?? "Unknown vulnerability",
+              description: v?.description ?? "",
+              cveIds: Array.isArray(v?.cveIds) ? v.cveIds : [],
+              remediation: v?.remediation,
+            })),
+          };
+          console.log(`[SIMULATION] Using live scan data from evaluation ${sourceEvaluationId}: ${liveScanData.ports.length} ports, ${liveScanData.vulnerabilities.length} vulnerabilities`);
+        } else {
+          console.log(`[SIMULATION] No live scan data found for evaluation ${sourceEvaluationId}`);
+        }
+      }
 
       // Check kill switch before starting simulation
       const governance = await storage.getOrganizationGovernance("default");
@@ -2112,12 +2148,13 @@ export async function registerRoutes(
       const simulationId = simulation.id;
 
       // Run simulation asynchronously
-      runSimulation(simulationId, assetId, exposureType, priority || "high", description, rounds);
+      runSimulation(simulationId, assetId, exposureType, priority || "high", description, rounds, liveScanData);
 
       res.json({ 
         simulationId,
         status: "running",
         message: "AI vs AI simulation started. Use WebSocket or GET /api/simulations/:id for progress updates.",
+        usingLiveScanData: !!liveScanData,
       });
     } catch (error) {
       console.error("Error starting simulation:", error);
@@ -2172,10 +2209,12 @@ export async function registerRoutes(
     exposureType: string,
     priority: string,
     description: string,
-    rounds: number
+    rounds: number,
+    liveScanData?: import("./services/agents/ai-simulation").LiveScanInput
   ) {
     try {
-      wsService.sendProgress(simulationId, "AI Simulation", "starting", 0, "Starting AI vs AI simulation...");
+      wsService.sendProgress(simulationId, "AI Simulation", "starting", 0, 
+        liveScanData ? "Starting AI vs AI simulation with live scan data..." : "Starting AI vs AI simulation...");
 
       const result = await runAISimulation(
         assetId,
@@ -2186,7 +2225,8 @@ export async function registerRoutes(
         rounds,
         (phase, round, progress, message) => {
           wsService.sendProgress(simulationId, `AI Simulation (Round ${round})`, phase, progress, message);
-        }
+        },
+        liveScanData
       );
 
       // Update simulation with results

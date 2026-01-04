@@ -57,6 +57,28 @@ export type SimulationProgressCallback = (
   message: string
 ) => void;
 
+// Live scan data that can be injected into simulations
+export interface LiveScanInput {
+  targetHost: string;
+  resolvedIp?: string;
+  ports: Array<{
+    port: number;
+    state: string;
+    service?: string;
+    banner?: string;
+    version?: string;
+  }>;
+  vulnerabilities: Array<{
+    port: number;
+    service: string;
+    severity: string;
+    title: string;
+    description: string;
+    cveIds?: string[];
+    remediation?: string;
+  }>;
+}
+
 export async function runAISimulation(
   assetId: string,
   exposureType: string,
@@ -64,18 +86,32 @@ export async function runAISimulation(
   description: string,
   evaluationId: string,
   rounds: number = 3,
-  onProgress?: SimulationProgressCallback
+  onProgress?: SimulationProgressCallback,
+  liveScanData?: LiveScanInput
 ): Promise<AISimulationResult> {
   const startTime = Date.now();
   const simulationRounds: SimulationRound[] = [];
   
   onProgress?.("initialization", 0, 5, "Initializing AI vs AI simulation...");
 
+  // Build enhanced description with live scan data if available
+  let enhancedDescription = description;
+  if (liveScanData) {
+    const liveReconData = buildLiveScanReconData(liveScanData);
+    enhancedDescription = `${description}
+
+LIVE RECONNAISSANCE DATA (from actual network scan):
+${liveReconData}
+
+Use this real network data as the foundation for attack planning.`;
+    onProgress?.("initialization", 0, 8, `Injecting live scan data: ${liveScanData.ports.length} ports, ${liveScanData.vulnerabilities.length} vulnerabilities`);
+  }
+
   const context: AgentContext = {
     assetId,
     exposureType,
     priority,
-    description,
+    description: enhancedDescription,
     evaluationId,
   };
 
@@ -200,6 +236,40 @@ The attacker must now attempt to evade these defenses or find alternative attack
     ...context,
     description: adaptedDescription,
   };
+}
+
+function buildLiveScanReconData(liveScanData: LiveScanInput): string {
+  const sections: string[] = [];
+  
+  // Target information
+  sections.push(`Target: ${liveScanData.targetHost}${liveScanData.resolvedIp ? ` (${liveScanData.resolvedIp})` : ""}`);
+  
+  // Open ports and services
+  if (liveScanData.ports.length > 0) {
+    const openPorts = liveScanData.ports.filter(p => p.state === "open");
+    sections.push(`\nOpen Ports (${openPorts.length} discovered):`);
+    for (const port of openPorts) {
+      let portInfo = `  - ${port.port}/${port.service || "unknown"}`;
+      if (port.version) portInfo += ` (${port.version})`;
+      if (port.banner) portInfo += ` - Banner: "${port.banner.slice(0, 50)}..."`;
+      sections.push(portInfo);
+    }
+  }
+  
+  // Known vulnerabilities
+  if (liveScanData.vulnerabilities.length > 0) {
+    sections.push(`\nConfirmed Vulnerabilities (${liveScanData.vulnerabilities.length} found):`);
+    for (const vuln of liveScanData.vulnerabilities) {
+      sections.push(`  - [${vuln.severity.toUpperCase()}] ${vuln.title}`);
+      sections.push(`    Port: ${vuln.port} | Service: ${vuln.service}`);
+      sections.push(`    Description: ${vuln.description}`);
+      if (vuln.cveIds && vuln.cveIds.length > 0) {
+        sections.push(`    CVEs: ${vuln.cveIds.join(", ")}`);
+      }
+    }
+  }
+  
+  return sections.join("\n");
 }
 
 function calculateAttackSuccess(
