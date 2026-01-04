@@ -310,3 +310,139 @@ function calculateScore(confidence: number, impact: string, exploitable: boolean
   const final = base * 100;
   return Math.min(100, Math.round(final * 100) / 100);
 }
+
+/**
+ * Auto-detect API patterns in evaluation description
+ * Returns true if description contains API endpoint patterns
+ */
+export function detectsApiPatterns(description: string): boolean {
+  if (!description) return false;
+  
+  const text = description.toLowerCase();
+  
+  // Check for API endpoint patterns
+  const patterns = [
+    /\/api\//,                           // /api/ paths
+    /\/v\d+\//,                          // Versioned paths like /v1/, /v2/
+    /\/(users|accounts|orders|products|items|posts|comments|messages|files|uploads|documents|resources|data)\//i,
+    /\{[\w]+\}/,                         // Path params like {id}, {userId}
+    /:[\w]+/,                            // Express-style params like :id
+    /rest\s*api/i,                       // "REST API"
+    /graphql/i,                          // GraphQL
+    /endpoint/i,                         // Mentions endpoint
+    /(GET|POST|PUT|PATCH|DELETE)\s+\//,  // HTTP methods with paths
+    /authentication.*endpoint/i,          // Auth endpoints
+    /login.*api/i,                       // Login API
+    /authorization.*check/i,             // Auth checks mentioned
+    /object.*id/i,                       // Object ID references
+    /user.*data/i,                       // User data access
+  ];
+  
+  return patterns.some(p => p.test(description));
+}
+
+/**
+ * Extract API endpoint metadata from evaluation description
+ * Attempts to parse endpoint info for automatic app-logic analysis
+ */
+export function extractEndpointMetadata(description: string): AppLogicExposureData | null {
+  if (!description) return null;
+  
+  const text = description;
+  
+  // Try to extract endpoint path
+  const pathPatterns = [
+    /(?:endpoint|path|route|url)[:\s]+([\/\w\-\{\}:]+)/i,
+    /(\/api\/[\w\-\/\{\}:]+)/i,
+    /(\/v\d+\/[\w\-\/\{\}:]+)/i,
+    /(\/[\w\-]+\/[\w\-\/\{\}:]+)/i,
+  ];
+  
+  let endpoint = "";
+  for (const pattern of pathPatterns) {
+    const match = text.match(pattern);
+    if (match && match[1]) {
+      endpoint = match[1].trim();
+      break;
+    }
+  }
+  
+  // Extract HTTP method
+  const methodMatch = text.match(/(GET|POST|PUT|PATCH|DELETE)/i);
+  const method = methodMatch ? methodMatch[1].toUpperCase() : "GET";
+  
+  // Detect auth requirement hints
+  const requiresAuth = /auth(entication|orization)?\s*(required|needed|enabled)/i.test(text) ||
+                       /logged\s*in/i.test(text) ||
+                       /protected/i.test(text) ||
+                       !/public|unauthenticated|anonymous/i.test(text);
+  
+  // Detect ownership enforcement hints
+  let ownershipEnforced: boolean | null = null;
+  if (/ownership\s*(check|enforced|verified)/i.test(text) || 
+      /user\s*can\s*only\s*access\s*(their|own)/i.test(text)) {
+    ownershipEnforced = true;
+  } else if (/no\s*ownership\s*check/i.test(text) ||
+             /any\s*(user|authenticated)\s*can\s*access/i.test(text) ||
+             /idor|bola/i.test(text)) {
+    ownershipEnforced = false;
+  }
+  
+  // Detect rate limiting hints
+  let rateLimit: "none" | "weak" | "strong" | null = null;
+  if (/no\s*rate\s*limit/i.test(text) || /unlimited\s*requests/i.test(text)) {
+    rateLimit = "none";
+  } else if (/weak\s*rate\s*limit/i.test(text) || /basic\s*throttl/i.test(text)) {
+    rateLimit = "weak";
+  } else if (/rate\s*limit(ed|ing)?/i.test(text) || /throttl(ed|ing)/i.test(text)) {
+    rateLimit = "strong";
+  }
+  
+  // Extract path params
+  const pathParamMatches = endpoint.match(/\{(\w+)\}|:(\w+)/g) || [];
+  const pathParams = pathParamMatches.map(p => p.replace(/[{}:]/g, ""));
+  
+  // Detect sensitive fields mentioned
+  const sensitiveFieldPatterns = /(?:role|admin|isAdmin|permissions?|balance|credits?|password|secret|token|privilege)/gi;
+  const sensitiveMatches = text.match(sensitiveFieldPatterns) || [];
+  const sensitiveFields = Array.from(new Set(sensitiveMatches.map(s => s.toLowerCase())));
+  
+  // Only return if we found meaningful data
+  if (!endpoint && pathParams.length === 0 && ownershipEnforced === null && rateLimit === null) {
+    return null;
+  }
+  
+  return {
+    endpoint,
+    method,
+    authRequired: requiresAuth,
+    pathParams,
+    objectIdParam: pathParams[0] || "id",
+    ownershipEnforced,
+    rateLimit,
+    sensitiveFields,
+    acceptsUserInput: ["POST", "PUT", "PATCH"].includes(method),
+  };
+}
+
+/**
+ * Try to auto-analyze description for app logic issues
+ * Returns null if no API patterns detected
+ */
+export function tryAutoAnalyze(assetId: string, description: string): AEVAnalysisResult | null {
+  if (!detectsApiPatterns(description)) {
+    return null;
+  }
+  
+  const metadata = extractEndpointMetadata(description);
+  if (!metadata) {
+    return null;
+  }
+  
+  // Run analysis with extracted metadata
+  return analyzeAppLogicExposure({
+    assetId,
+    description,
+    data: metadata,
+  });
+}
