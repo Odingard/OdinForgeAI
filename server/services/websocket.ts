@@ -27,12 +27,22 @@ interface SimulationProgressEvent {
   message: string;
 }
 
+interface ReconProgressEvent {
+  type: "recon_progress";
+  scanId: string;
+  phase: "dns" | "ports" | "ssl" | "http" | "complete";
+  progress: number;
+  message: string;
+  portsFound?: number;
+  vulnerabilitiesFound?: number;
+}
+
 interface HeartbeatEvent {
   type: "heartbeat";
   timestamp: number;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | HeartbeatEvent;
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -367,6 +377,21 @@ class WebSocketService {
     
     this.broadcast(event);
     this.broadcastToChannel(`simulation:${simulationId}`, event);
+  }
+
+  sendReconProgress(scanId: string, phase: "dns" | "ports" | "ssl" | "http" | "complete", progress: number, message: string, portsFound?: number, vulnerabilitiesFound?: number): void {
+    const event: ReconProgressEvent = {
+      type: "recon_progress",
+      scanId,
+      phase,
+      progress,
+      message,
+      portsFound,
+      vulnerabilitiesFound,
+    };
+    
+    this.broadcast(event);
+    this.broadcastToChannel(`recon:${scanId}`, event);
   }
 
   getStats(): {

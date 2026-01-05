@@ -3825,12 +3825,15 @@ export async function registerRoutes(
         target: hostname
       });
 
-      // Run the scan in background
+      // Run the scan in background with progress reporting
       fullRecon(target, {
         portScan: scanTypes?.portScan ?? true,
         sslCheck: scanTypes?.sslCheck ?? true,
         httpFingerprint: scanTypes?.httpFingerprint ?? true,
         dnsEnum: scanTypes?.dnsEnum ?? true,
+      }, (phase, progress, message, portsFound, vulnerabilitiesFound) => {
+        // Send progress update via WebSocket
+        wsService.sendReconProgress(scanId, phase, progress, message, portsFound, vulnerabilitiesFound);
       }).then(async (result) => {
         try {
           // Save completed scan to database
