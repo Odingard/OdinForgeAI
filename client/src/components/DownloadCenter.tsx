@@ -346,7 +346,7 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
                     data-testid="btn-download-selected"
                   >
                     <a 
-                      href={`${window.location.origin}/api/agents/download/${currentPlatform.platform}`} 
+                      href={`${window.location.origin}/agents/${currentPlatform.filename}`} 
                       download={currentPlatform.filename}
                     >
                       <Download className="h-4 w-4 mr-2" />
@@ -450,7 +450,7 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
                           asChild
                           data-testid={`btn-download-${platform.platform}`}
                         >
-                          <a href={`${window.location.origin}/api/agents/download/${platform.platform}`} download={platform.filename}>
+                          <a href={`${window.location.origin}/agents/${platform.filename}`} download={platform.filename}>
                             <Download className="h-3 w-3" />
                           </a>
                         </Button>
