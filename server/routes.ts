@@ -125,6 +125,42 @@ export async function registerRoutes(
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.sendFile(binaryPath);
   });
+
+  // Serve install.sh script for curl-based installation (no auth required)
+  app.get("/api/agents/install.sh", (req, res) => {
+    const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.sh");
+    
+    if (fs.existsSync(scriptPath)) {
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", "inline; filename=install.sh");
+      const script = fs.readFileSync(scriptPath, "utf-8");
+      res.send(script);
+    } else {
+      res.status(404).json({ error: "Install script not found" });
+    }
+  });
+
+  // Serve install.ps1 script for PowerShell-based installation (no auth required)
+  app.get("/api/agents/install.ps1", (req, res) => {
+    const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.ps1");
+    
+    if (fs.existsSync(scriptPath)) {
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", "inline; filename=install.ps1");
+      const script = fs.readFileSync(scriptPath, "utf-8");
+      res.send(script);
+    } else {
+      res.status(404).json({ error: "Install script not found" });
+    }
+  });
+
+  // Agent release info endpoint (no auth required for download center)
+  app.get("/api/agent-releases/latest", (req, res) => {
+    res.json({
+      release: AGENT_RELEASE,
+      instructions: INSTALLATION_INSTRUCTIONS
+    });
+  });
   
   // ========== UI AUTHENTICATION ENDPOINTS ==========
   // These routes are for control plane UI authentication ONLY
@@ -2858,62 +2894,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get agent release information for download center
-  app.get("/api/agent-releases/latest", async (req, res) => {
-    try {
-      res.json({
-        release: AGENT_RELEASE,
-        instructions: INSTALLATION_INSTRUCTIONS
-      });
-    } catch (error) {
-      console.error("Error fetching agent releases:", error);
-      res.status(500).json({ error: "Failed to fetch agent releases" });
-    }
-  });
-
-  // Serve install.sh script for curl-based installation
-  app.get("/api/agents/install.sh", async (req, res) => {
-    try {
-      const fs = await import("fs");
-      const path = await import("path");
-      const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.sh");
-      
-      if (fs.existsSync(scriptPath)) {
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.setHeader("Content-Disposition", "inline; filename=install.sh");
-        const script = fs.readFileSync(scriptPath, "utf-8");
-        res.send(script);
-      } else {
-        res.status(404).json({ error: "Install script not found" });
-      }
-    } catch (error) {
-      console.error("Error serving install script:", error);
-      res.status(500).json({ error: "Failed to serve install script" });
-    }
-  });
-
-  // Serve install.ps1 script for PowerShell-based installation (Windows)
-  app.get("/api/agents/install.ps1", async (req, res) => {
-    try {
-      const fs = await import("fs");
-      const path = await import("path");
-      const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.ps1");
-      
-      if (fs.existsSync(scriptPath)) {
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.setHeader("Content-Disposition", "inline; filename=install.ps1");
-        const script = fs.readFileSync(scriptPath, "utf-8");
-        res.send(script);
-      } else {
-        res.status(404).json({ error: "Install script not found" });
-      }
-    } catch (error) {
-      console.error("Error serving install script:", error);
-      res.status(500).json({ error: "Failed to serve install script" });
-    }
-  });
-
-  // Serve Kubernetes DaemonSet manifest
+  // Serve Kubernetes DaemonSet manifest (no auth required)
   app.get("/api/agents/kubernetes/daemonset.yaml", async (req, res) => {
     try {
       const fs = await import("fs");

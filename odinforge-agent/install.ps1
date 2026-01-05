@@ -66,7 +66,7 @@ New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 
 # Download the agent binary
 Write-Host "Downloading OdinForge agent..." -ForegroundColor Yellow
-$downloadUrl = "${serverUrl}/api/agents/download/${platform}"
+$downloadUrl = "${serverUrl}/agents/${binaryName}"
 $binaryPath = "$installDir\odinforge-agent.exe"
 
 try {

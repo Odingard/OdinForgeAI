@@ -271,7 +271,7 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
               </p>
               <div className="relative bg-background border rounded-md p-4 font-mono text-sm overflow-x-auto">
                 <pre className="whitespace-pre-wrap break-all" data-testid="text-install-command">
-{`curl -fsSL ${window.location.origin}/api/install.sh | sudo bash -s -- \\
+{`curl -fsSL ${window.location.origin}/api/agents/install.sh | sudo bash -s -- \\
   --server-url ${serverUrl || window.location.origin} \\
   --registration-token ${registrationToken || "YOUR_TOKEN"}`}
                 </pre>
@@ -280,7 +280,7 @@ export function DownloadCenter({ serverUrl, registrationToken }: DownloadCenterP
                   size="sm"
                   className="absolute top-2 right-2"
                   onClick={() => copyToClipboard(
-                    `curl -fsSL ${window.location.origin}/api/install.sh | sudo bash -s -- --server-url ${serverUrl || window.location.origin} --registration-token ${registrationToken || "YOUR_TOKEN"}`,
+                    `curl -fsSL ${window.location.origin}/api/agents/install.sh | sudo bash -s -- --server-url ${serverUrl || window.location.origin} --registration-token ${registrationToken || "YOUR_TOKEN"}`,
                     "install-cmd"
                   )}
                   data-testid="btn-copy-install-cmd"
