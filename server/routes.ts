@@ -129,13 +129,17 @@ export async function registerRoutes(
   });
 
   // Serve install.sh script for curl-based installation (no auth required)
+  // Automatically injects the server URL so users don't need to enter it manually
   app.get("/api/agents/install.sh", (req, res) => {
     const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.sh");
     
     if (fs.existsSync(scriptPath)) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.setHeader("Content-Disposition", "inline; filename=install.sh");
-      const script = fs.readFileSync(scriptPath, "utf-8");
+      let script = fs.readFileSync(scriptPath, "utf-8");
+      // Inject the server URL - replace placeholder with actual URL
+      const serverUrl = `${req.protocol}://${req.get("host")}`;
+      script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
       res.send(script);
     } else {
       res.status(404).json({ error: "Install script not found" });
@@ -143,13 +147,17 @@ export async function registerRoutes(
   });
 
   // Serve install.ps1 script for PowerShell-based installation (no auth required)
+  // Automatically injects the server URL so users don't need to enter it manually
   app.get("/api/agents/install.ps1", (req, res) => {
     const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.ps1");
     
     if (fs.existsSync(scriptPath)) {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.setHeader("Content-Disposition", "inline; filename=install.ps1");
-      const script = fs.readFileSync(scriptPath, "utf-8");
+      let script = fs.readFileSync(scriptPath, "utf-8");
+      // Inject the server URL - replace placeholder with actual URL
+      const serverUrl = `${req.protocol}://${req.get("host")}`;
+      script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
       res.send(script);
     } else {
       res.status(404).json({ error: "Install script not found" });

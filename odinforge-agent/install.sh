@@ -53,12 +53,29 @@ esac
 BINARY_NAME="odinforge-agent-${PLATFORM}-${ARCH}"
 echo -e "Detected platform: ${GREEN}${PLATFORM}-${ARCH}${NC}"
 
-# Get server URL from environment or prompt
-if [ -z "$ODINFORGE_SERVER_URL" ] && [ -z "$SERVER_URL" ]; then
+# Default server URL - automatically embedded when downloaded from server
+# When served via the API, this is replaced with the actual server URL
+DEFAULT_SERVER_URL="__SERVER_URL_PLACEHOLDER__"
+
+# Check if URL was embedded (starts with http)
+url_is_embedded() {
+    case "$1" in
+        http://*|https://*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Get server URL from environment, default, or prompt
+if [ -n "$ODINFORGE_SERVER_URL" ]; then
+    SERVER_URL="$ODINFORGE_SERVER_URL"
+elif [ -n "$SERVER_URL" ]; then
+    SERVER_URL="$SERVER_URL"
+elif url_is_embedded "$DEFAULT_SERVER_URL"; then
+    SERVER_URL="$DEFAULT_SERVER_URL"
+    echo -e "${GREEN}Using server: ${SERVER_URL}${NC}"
+else
     echo -e "${YELLOW}Enter OdinForge server URL:${NC}"
     read -r SERVER_URL < /dev/tty
-else
-    SERVER_URL="${ODINFORGE_SERVER_URL:-$SERVER_URL}"
 fi
 
 # Remove trailing slash

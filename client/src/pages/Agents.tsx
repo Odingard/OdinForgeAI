@@ -1118,7 +1118,7 @@ kubectl apply -f daemonset.yaml
                   <Select 
                     value={String(autoCleanupConfig?.intervalHours || 24)} 
                     onValueChange={(val) => updateAutoCleanupMutation.mutate({ intervalHours: parseInt(val) })}
-                    disabled={!autoCleanupConfig?.enabled || !canDeleteAgent}
+                    disabled={updateAutoCleanupMutation.isPending || !canDeleteAgent}
                   >
                     <SelectTrigger data-testid="select-auto-interval">
                       <SelectValue />
@@ -1139,7 +1139,7 @@ kubectl apply -f daemonset.yaml
                   <Select 
                     value={String(autoCleanupConfig?.maxAgeHours || 72)} 
                     onValueChange={(val) => updateAutoCleanupMutation.mutate({ maxAgeHours: parseInt(val) })}
-                    disabled={!autoCleanupConfig?.enabled || !canDeleteAgent}
+                    disabled={updateAutoCleanupMutation.isPending || !canDeleteAgent}
                   >
                     <SelectTrigger data-testid="select-auto-max-age">
                       <SelectValue />
