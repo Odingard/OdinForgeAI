@@ -129,6 +129,8 @@ export default function Agents() {
   const [scriptDialogOpen, setScriptDialogOpen] = useState(false);
   const [telemetryAgentId, setTelemetryAgentId] = useState<string | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [cleanupHours, setCleanupHours] = useState("24");
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<EndpointAgent[]>({
     queryKey: ["/api/agents"],
@@ -145,6 +147,19 @@ export default function Agents() {
   // Fetch registration token for download center
   const { data: tokenData } = useQuery<{ token: string | null }>({
     queryKey: ["/api/agents/registration-token"],
+  });
+
+  // Fetch auto-cleanup settings
+  interface AutoCleanupConfig {
+    enabled: boolean;
+    intervalHours: number;
+    maxAgeHours: number;
+    lastRun: string | null;
+    nextRun: string | null;
+    deletedCount: number;
+  }
+  const { data: autoCleanupConfig, refetch: refetchAutoCleanup } = useQuery<AutoCleanupConfig>({
+    queryKey: ["/api/agents/auto-cleanup"],
   });
 
   // Query telemetry for a specific agent when selected, auto-refresh every 30s
@@ -232,6 +247,50 @@ export default function Agents() {
     onError: (error: Error) => {
       toast({
         title: "Check-in Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateAutoCleanupMutation = useMutation({
+    mutationFn: async (config: { enabled?: boolean; intervalHours?: number; maxAgeHours?: number }) => {
+      const response = await apiRequest("POST", "/api/agents/auto-cleanup", config);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Settings Updated",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/auto-cleanup"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const runCleanupNowMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/agents/auto-cleanup/run-now");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Cleanup Complete",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/auto-cleanup"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cleanup Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -379,19 +438,79 @@ kubectl apply -f daemonset.yaml
             <Terminal className="h-4 w-4 mr-2" />
             Installation Guide
           </Button>
-          <Button 
-            variant="outline" 
-            onClick={() => cleanupStaleAgentsMutation.mutate(24)}
-            disabled={cleanupStaleAgentsMutation.isPending || !canDeleteAgent}
-            data-testid="btn-cleanup-agents"
-          >
-            {cleanupStaleAgentsMutation.isPending ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4 mr-2" />
-            )}
-            Cleanup Stale
-          </Button>
+          <Dialog open={cleanupDialogOpen} onOpenChange={setCleanupDialogOpen}>
+            <DialogTrigger asChild>
+              <Button 
+                variant="destructive" 
+                disabled={!canDeleteAgent}
+                data-testid="btn-cleanup-agents"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Cleanup Stale Agents
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Cleanup Stale Agents</DialogTitle>
+                <DialogDescription>
+                  Remove agents that haven't checked in for a specified period of time.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Remove agents inactive for more than:</Label>
+                  <Select value={cleanupHours} onValueChange={setCleanupHours}>
+                    <SelectTrigger data-testid="select-cleanup-hours">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 hour</SelectItem>
+                      <SelectItem value="6">6 hours</SelectItem>
+                      <SelectItem value="12">12 hours</SelectItem>
+                      <SelectItem value="24">24 hours (1 day)</SelectItem>
+                      <SelectItem value="48">48 hours (2 days)</SelectItem>
+                      <SelectItem value="72">72 hours (3 days)</SelectItem>
+                      <SelectItem value="168">168 hours (1 week)</SelectItem>
+                      <SelectItem value="720">720 hours (30 days)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {stats && (
+                  <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertDescription>
+                      Currently {stats.offlineAgents} agent(s) are offline. This action cannot be undone.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex gap-2 justify-end">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setCleanupDialogOpen(false)}
+                    data-testid="btn-cancel-cleanup"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    variant="destructive"
+                    onClick={() => {
+                      cleanupStaleAgentsMutation.mutate(parseInt(cleanupHours));
+                      setCleanupDialogOpen(false);
+                    }}
+                    disabled={cleanupStaleAgentsMutation.isPending}
+                    data-testid="btn-confirm-cleanup"
+                  >
+                    {cleanupStaleAgentsMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    )}
+                    Delete Stale Agents
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
           <Dialog open={registerDialogOpen} onOpenChange={(open) => {
             setRegisterDialogOpen(open);
             if (!open) {
@@ -559,6 +678,7 @@ kubectl apply -f daemonset.yaml
           <TabsTrigger value="agents" data-testid="tab-agents">Agents</TabsTrigger>
           <TabsTrigger value="findings" data-testid="tab-findings">Findings</TabsTrigger>
           <TabsTrigger value="system" data-testid="tab-system">System</TabsTrigger>
+          <TabsTrigger value="settings" data-testid="tab-settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agents" className="space-y-4">
@@ -959,6 +1079,131 @@ kubectl apply -f daemonset.yaml
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trash2 className="h-5 w-5" />
+                Automatic Stale Agent Cleanup
+              </CardTitle>
+              <CardDescription>
+                Automatically remove agents that haven't checked in for a specified period
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between gap-4 p-4 border rounded-md">
+                <div className="space-y-1">
+                  <Label className="text-base font-medium">Enable Automatic Cleanup</Label>
+                  <p className="text-sm text-muted-foreground">
+                    When enabled, stale agents will be automatically removed on a schedule
+                  </p>
+                </div>
+                <Button
+                  variant={autoCleanupConfig?.enabled ? "default" : "outline"}
+                  onClick={() => updateAutoCleanupMutation.mutate({ enabled: !autoCleanupConfig?.enabled })}
+                  disabled={updateAutoCleanupMutation.isPending || !canDeleteAgent}
+                  data-testid="btn-toggle-auto-cleanup"
+                >
+                  {autoCleanupConfig?.enabled ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Run cleanup every:</Label>
+                  <Select 
+                    value={String(autoCleanupConfig?.intervalHours || 24)} 
+                    onValueChange={(val) => updateAutoCleanupMutation.mutate({ intervalHours: parseInt(val) })}
+                    disabled={!autoCleanupConfig?.enabled || !canDeleteAgent}
+                  >
+                    <SelectTrigger data-testid="select-auto-interval">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Every 1 hour</SelectItem>
+                      <SelectItem value="6">Every 6 hours</SelectItem>
+                      <SelectItem value="12">Every 12 hours</SelectItem>
+                      <SelectItem value="24">Every 24 hours</SelectItem>
+                      <SelectItem value="48">Every 48 hours</SelectItem>
+                      <SelectItem value="168">Every week</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Remove agents inactive for more than:</Label>
+                  <Select 
+                    value={String(autoCleanupConfig?.maxAgeHours || 72)} 
+                    onValueChange={(val) => updateAutoCleanupMutation.mutate({ maxAgeHours: parseInt(val) })}
+                    disabled={!autoCleanupConfig?.enabled || !canDeleteAgent}
+                  >
+                    <SelectTrigger data-testid="select-auto-max-age">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 hour</SelectItem>
+                      <SelectItem value="6">6 hours</SelectItem>
+                      <SelectItem value="24">24 hours (1 day)</SelectItem>
+                      <SelectItem value="48">48 hours (2 days)</SelectItem>
+                      <SelectItem value="72">72 hours (3 days)</SelectItem>
+                      <SelectItem value="168">168 hours (1 week)</SelectItem>
+                      <SelectItem value="720">720 hours (30 days)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {autoCleanupConfig && (
+                <div className="p-4 bg-muted rounded-md space-y-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Status
+                  </h4>
+                  <div className="grid gap-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status:</span>
+                      <Badge variant={autoCleanupConfig.enabled ? "default" : "secondary"}>
+                        {autoCleanupConfig.enabled ? "Active" : "Disabled"}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Last run:</span>
+                      <span>{autoCleanupConfig.lastRun ? formatDistanceToNow(new Date(autoCleanupConfig.lastRun), { addSuffix: true }) : "Never"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Next scheduled run:</span>
+                      <span>{autoCleanupConfig.nextRun && autoCleanupConfig.enabled ? formatDistanceToNow(new Date(autoCleanupConfig.nextRun), { addSuffix: true }) : "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total agents cleaned:</span>
+                      <span>{autoCleanupConfig.deletedCount}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  onClick={() => runCleanupNowMutation.mutate()}
+                  disabled={runCleanupNowMutation.isPending || !canDeleteAgent}
+                  data-testid="btn-run-cleanup-now"
+                >
+                  {runCleanupNowMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  Run Cleanup Now
+                </Button>
+                <p className="text-sm text-muted-foreground self-center">
+                  Immediately delete agents inactive for {autoCleanupConfig?.maxAgeHours || 72} hours
+                </p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

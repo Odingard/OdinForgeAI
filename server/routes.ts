@@ -3032,6 +3032,119 @@ export async function registerRoutes(
     }
   });
 
+  // ========== AUTO-CLEANUP CONFIGURATION (must be before :id routes) ==========
+  // Auto-cleanup configuration (in-memory, resets on restart)
+  let autoCleanupConfig = {
+    enabled: false,
+    intervalHours: 24, // Run every 24 hours
+    maxAgeHours: 72,   // Delete agents inactive for 72 hours
+    lastRun: null as string | null,
+    nextRun: null as string | null,
+    deletedCount: 0
+  };
+  let autoCleanupInterval: NodeJS.Timeout | null = null;
+
+  const runAutoCleanup = async () => {
+    if (!autoCleanupConfig.enabled) return;
+    
+    try {
+      console.log(`[Auto-Cleanup] Running automatic stale agent cleanup (maxAge: ${autoCleanupConfig.maxAgeHours}h)`);
+      const result = await storage.deleteStaleAgents(autoCleanupConfig.maxAgeHours);
+      autoCleanupConfig.lastRun = new Date().toISOString();
+      autoCleanupConfig.deletedCount += result.deleted;
+      autoCleanupConfig.nextRun = new Date(Date.now() + autoCleanupConfig.intervalHours * 60 * 60 * 1000).toISOString();
+      
+      if (result.deleted > 0) {
+        console.log(`[Auto-Cleanup] Deleted ${result.deleted} stale agent(s): ${result.agents.join(", ")}`);
+        // Broadcast update via WebSocket
+        wsService.broadcastProgress("agent-cleanup", {
+          type: "auto_cleanup_complete",
+          deleted: result.deleted,
+          agents: result.agents
+        });
+      }
+    } catch (error) {
+      console.error("[Auto-Cleanup] Error during automatic cleanup:", error);
+    }
+  };
+
+  const startAutoCleanup = () => {
+    if (autoCleanupInterval) {
+      clearInterval(autoCleanupInterval);
+    }
+    if (autoCleanupConfig.enabled) {
+      autoCleanupConfig.nextRun = new Date(Date.now() + autoCleanupConfig.intervalHours * 60 * 60 * 1000).toISOString();
+      autoCleanupInterval = setInterval(runAutoCleanup, autoCleanupConfig.intervalHours * 60 * 60 * 1000);
+      console.log(`[Auto-Cleanup] Scheduled to run every ${autoCleanupConfig.intervalHours} hours`);
+    }
+  };
+
+  // Get auto-cleanup settings (must be before /api/agents/:id)
+  app.get("/api/agents/auto-cleanup", async (req, res) => {
+    res.json({
+      enabled: autoCleanupConfig.enabled,
+      intervalHours: autoCleanupConfig.intervalHours,
+      maxAgeHours: autoCleanupConfig.maxAgeHours,
+      lastRun: autoCleanupConfig.lastRun,
+      nextRun: autoCleanupConfig.nextRun,
+      deletedCount: autoCleanupConfig.deletedCount
+    });
+  });
+
+  // Update auto-cleanup settings
+  app.post("/api/agents/auto-cleanup", async (req, res) => {
+    try {
+      const { enabled, intervalHours, maxAgeHours } = req.body;
+      
+      if (typeof enabled === "boolean") {
+        autoCleanupConfig.enabled = enabled;
+      }
+      if (typeof intervalHours === "number" && intervalHours >= 1 && intervalHours <= 168) {
+        autoCleanupConfig.intervalHours = intervalHours;
+      }
+      if (typeof maxAgeHours === "number" && maxAgeHours >= 1 && maxAgeHours <= 720) {
+        autoCleanupConfig.maxAgeHours = maxAgeHours;
+      }
+
+      startAutoCleanup();
+
+      res.json({
+        success: true,
+        config: {
+          enabled: autoCleanupConfig.enabled,
+          intervalHours: autoCleanupConfig.intervalHours,
+          maxAgeHours: autoCleanupConfig.maxAgeHours,
+          nextRun: autoCleanupConfig.nextRun
+        },
+        message: autoCleanupConfig.enabled 
+          ? `Auto-cleanup enabled: will run every ${autoCleanupConfig.intervalHours}h, removing agents inactive for ${autoCleanupConfig.maxAgeHours}h`
+          : "Auto-cleanup disabled"
+      });
+    } catch (error) {
+      console.error("Error updating auto-cleanup settings:", error);
+      res.status(500).json({ error: "Failed to update auto-cleanup settings" });
+    }
+  });
+
+  // Trigger immediate auto-cleanup run
+  app.post("/api/agents/auto-cleanup/run-now", async (req, res) => {
+    try {
+      const result = await storage.deleteStaleAgents(autoCleanupConfig.maxAgeHours);
+      autoCleanupConfig.lastRun = new Date().toISOString();
+      autoCleanupConfig.deletedCount += result.deleted;
+      
+      res.json({
+        success: true,
+        deleted: result.deleted,
+        agents: result.agents,
+        message: `Manually triggered cleanup: deleted ${result.deleted} stale agent(s)`
+      });
+    } catch (error) {
+      console.error("Error running immediate cleanup:", error);
+      res.status(500).json({ error: "Failed to run cleanup" });
+    }
+  });
+
   // Get agent by ID
   app.get("/api/agents/:id", async (req, res) => {
     try {
