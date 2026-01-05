@@ -4000,8 +4000,8 @@ export async function registerRoutes(
         resolvedHostname: null,
         ports,
         vulnerabilities,
-        scanStartedAt: startTime,
-        scanCompletedAt: now,
+        scanStarted: startTime,
+        scanCompleted: now,
         status: "completed",
       });
 
