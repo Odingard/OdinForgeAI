@@ -52,10 +52,10 @@ export default function Simulations() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      // Only include sourceEvaluationId if it's not empty
+      // Only include sourceEvaluationId if it's not empty or "none"
       const payload = {
         ...data,
-        sourceEvaluationId: data.sourceEvaluationId || undefined,
+        sourceEvaluationId: data.sourceEvaluationId && data.sourceEvaluationId !== "none" ? data.sourceEvaluationId : undefined,
       };
       const res = await apiRequest("POST", "/api/simulations", payload);
       return res.json();
@@ -223,7 +223,7 @@ export default function Simulations() {
                       <SelectValue placeholder="Select a live scan for real network data..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None (use simulated data)</SelectItem>
+                      <SelectItem value="none">None (use simulated data)</SelectItem>
                       {liveScanResults.map((scan) => (
                         <SelectItem key={scan.evaluationId} value={scan.evaluationId}>
                           {scan.targetHost} ({scan.ports?.length || 0} ports, {scan.vulnerabilities?.length || 0} vulns)
