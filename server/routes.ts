@@ -128,6 +128,16 @@ export async function registerRoutes(
     res.sendFile(binaryPath);
   });
 
+  // Helper function to get the correct server URL (HTTPS for production, HTTP for localhost)
+  const getServerUrl = (req: any): string => {
+    const host = req.get("host") || "localhost:5000";
+    // For non-localhost hosts, ALWAYS use HTTPS (agent binary requires HTTPS in production)
+    // This is necessary because reverse proxies may set x-forwarded-proto to http even for HTTPS traffic
+    const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+    const protocol = isLocalhost ? "http" : "https";
+    return `${protocol}://${host}`;
+  };
+
   // Serve install.sh script for curl-based installation (no auth required)
   // Automatically injects the server URL so users don't need to enter it manually
   app.get("/api/agents/install.sh", (req, res) => {
@@ -138,7 +148,7 @@ export async function registerRoutes(
       res.setHeader("Content-Disposition", "inline; filename=install.sh");
       let script = fs.readFileSync(scriptPath, "utf-8");
       // Inject the server URL - replace placeholder with actual URL
-      const serverUrl = `${req.protocol}://${req.get("host")}`;
+      const serverUrl = getServerUrl(req);
       script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
       res.send(script);
     } else {
@@ -156,7 +166,7 @@ export async function registerRoutes(
       res.setHeader("Content-Disposition", "inline; filename=install.ps1");
       let script = fs.readFileSync(scriptPath, "utf-8");
       // Inject the server URL - replace placeholder with actual URL
-      const serverUrl = `${req.protocol}://${req.get("host")}`;
+      const serverUrl = getServerUrl(req);
       script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
       res.send(script);
     } else {
