@@ -22,8 +22,11 @@ import {
   Loader2,
   Search,
   FileWarning,
-  ArrowRight
+  ArrowRight,
+  Swords,
+  Sparkles
 } from "lucide-react";
+import { useLocation } from "wouter";
 
 interface PortScanResult {
   port: number;
@@ -89,6 +92,46 @@ interface ScanResponse {
   target: string;
 }
 
+function EvaluationSuccess({ openPorts, exposuresCount }: { openPorts: number; exposuresCount: number }) {
+  const [, navigate] = useLocation();
+  
+  return (
+    <div className="bg-green-500/10 border border-green-500/30 rounded-md p-4 space-y-3" data-testid="evaluation-success">
+      <div className="flex items-center gap-2 text-green-500">
+        <Sparkles className="h-5 w-5" />
+        <span className="font-medium">Evaluation Created Successfully</span>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Your live scan data is ready for AI analysis. Here's what you can do next:
+      </p>
+      <div className="grid gap-2">
+        <Button 
+          className="w-full" 
+          variant="default" 
+          onClick={() => navigate("/simulations")}
+          data-testid="button-go-to-simulations"
+        >
+          <Swords className="h-4 w-4 mr-2" />
+          Run AI vs AI Simulation with This Data
+        </Button>
+        <Button 
+          className="w-full" 
+          variant="outline" 
+          onClick={() => navigate("/evaluations")}
+          data-testid="button-go-to-evaluations"
+        >
+          <Shield className="h-4 w-4 mr-2" />
+          View Evaluation Details
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        The simulation will use real ports ({openPorts} open), 
+        SSL data, and {exposuresCount} vulnerabilities from your scan.
+      </p>
+    </div>
+  );
+}
+
 interface ResultsResponse {
   scanId: string;
   result: ReconResult;
@@ -120,6 +163,7 @@ export function ExternalRecon() {
       setPolling(true);
       setResults(null);
       setSelectedExposures([]);
+      setCreatedEvaluationId(null);
       toast({
         title: "Scan Started",
         description: `Scanning ${data.target}...`,
@@ -134,17 +178,21 @@ export function ExternalRecon() {
     },
   });
 
+  const [createdEvaluationId, setCreatedEvaluationId] = useState<string | null>(null);
+
   const createEvaluation = useMutation({
     mutationFn: async (): Promise<{ evaluationId: string }> => {
       const response = await apiRequest("POST", "/api/recon/create-evaluation", { scanId, selectedExposures });
       return response.json();
     },
     onSuccess: (data) => {
+      setCreatedEvaluationId(data.evaluationId);
       toast({
         title: "Evaluation Created",
         description: `Created evaluation ${data.evaluationId} from reconnaissance findings`,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/live-scans"] });
     },
     onError: (error: Error) => {
       toast({
@@ -374,7 +422,12 @@ export function ExternalRecon() {
                       ))}
                     </div>
 
-                    {results.canCreateEvaluation && selectedExposures.length > 0 && (
+                    {createdEvaluationId ? (
+                      <EvaluationSuccess 
+                        openPorts={results.result.portScan?.filter(p => p.state === 'open').length || 0}
+                        exposuresCount={results.exposures.length}
+                      />
+                    ) : results.canCreateEvaluation && selectedExposures.length > 0 && (
                       <Button 
                         onClick={() => createEvaluation.mutate()}
                         disabled={createEvaluation.isPending}

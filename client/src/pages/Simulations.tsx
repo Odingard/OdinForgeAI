@@ -234,6 +234,64 @@ export default function Simulations() {
                   <p className="text-xs text-muted-foreground">
                     Inject real network scan findings into the simulation for realistic attack scenarios
                   </p>
+                  
+                  {formData.sourceEvaluationId && formData.sourceEvaluationId !== "none" && (() => {
+                    const selectedScan = liveScanResults.find(s => s.evaluationId === formData.sourceEvaluationId);
+                    if (!selectedScan) return null;
+                    return (
+                      <div className="bg-muted/50 rounded-md p-3 space-y-2 border" data-testid="live-scan-preview">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Radio className="h-4 w-4 text-green-500" />
+                          Live Scan Data Preview: {selectedScan.targetHost}
+                        </div>
+                        
+                        {selectedScan.ports && selectedScan.ports.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-xs text-muted-foreground">Open Ports ({selectedScan.ports.length}):</span>
+                            <div className="flex flex-wrap gap-1">
+                              {selectedScan.ports.slice(0, 8).map((port: any, i: number) => (
+                                <Badge key={i} variant="outline" className="text-xs">
+                                  {port.port}/{port.service || 'unknown'}
+                                </Badge>
+                              ))}
+                              {selectedScan.ports.length > 8 && (
+                                <Badge variant="secondary" className="text-xs">+{selectedScan.ports.length - 8} more</Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {selectedScan.vulnerabilities && selectedScan.vulnerabilities.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-xs text-muted-foreground">Vulnerabilities ({selectedScan.vulnerabilities.length}):</span>
+                            <div className="flex flex-wrap gap-1">
+                              {selectedScan.vulnerabilities.slice(0, 5).map((vuln: any, i: number) => (
+                                <Badge 
+                                  key={i} 
+                                  variant="outline" 
+                                  className={`text-xs ${
+                                    vuln.severity === 'critical' ? 'border-red-500 text-red-500' :
+                                    vuln.severity === 'high' ? 'border-orange-500 text-orange-500' :
+                                    vuln.severity === 'medium' ? 'border-yellow-500 text-yellow-500' :
+                                    'border-blue-500 text-blue-500'
+                                  }`}
+                                >
+                                  {vuln.type || vuln.description?.slice(0, 20) || 'Unknown'}
+                                </Badge>
+                              ))}
+                              {selectedScan.vulnerabilities.length > 5 && (
+                                <Badge variant="secondary" className="text-xs">+{selectedScan.vulnerabilities.length - 5} more</Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <p className="text-xs text-green-600">
+                          This real network data will be injected into the AI simulation
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>
