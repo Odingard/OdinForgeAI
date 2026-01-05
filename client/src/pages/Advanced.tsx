@@ -43,13 +43,36 @@ import {
 import { format } from "date-fns";
 import type { 
   DefensivePostureScore, 
-  AttackPrediction, 
   AiAdversaryProfile, 
   AiSimulation, 
   PurpleTeamFinding 
 } from "@shared/schema";
 
 const ORG_ID = "default";
+
+interface AttackPredictionVector {
+  vector: string;
+  likelihood: number;
+  confidence: number;
+  adversaryProfile: string;
+  estimatedImpact: string;
+  mitreAttackId: string;
+  occurrences: number;
+}
+
+interface AttackPredictionMetrics {
+  id: string;
+  organizationId: string;
+  predictedAttackVectors: AttackPredictionVector[];
+  overallBreachLikelihood: number;
+  riskFactors: Array<{ factor: string; contribution: number; trend: string }>;
+  recommendedActions: string[];
+  dataSource: "computed" | "insufficient_data";
+  evaluationsAnalyzed: number;
+  timeHorizon: string;
+  modelVersion: string;
+  calculatedAt: string;
+}
 
 const adversaryTypeConfig: Record<string, { label: string; icon: typeof Skull; color: string }> = {
   script_kiddie: { label: "Script Kiddie", icon: GraduationCap, color: "text-emerald-400" },
@@ -105,7 +128,7 @@ export default function Advanced() {
     queryKey: ["/api/defensive-posture", ORG_ID],
   });
 
-  const { data: predictions = [], isLoading: predictionsLoading } = useQuery<AttackPrediction[]>({
+  const { data: predictions, isLoading: predictionsLoading } = useQuery<AttackPredictionMetrics>({
     queryKey: ["/api/attack-predictions", ORG_ID],
   });
 
@@ -196,7 +219,7 @@ export default function Advanced() {
     },
   });
 
-  const latestPrediction = predictions.length > 0 ? predictions[0] : null;
+  const latestPrediction = predictions || null;
   const categoryScores = posture?.categoryScores as Record<string, number> | undefined;
 
   const getScoreColor = (score: number) => {
@@ -228,7 +251,7 @@ export default function Advanced() {
     );
   }
 
-  const isInitialData = simulations.length === 0 && purpleTeamFindings.length === 0 && predictions.length === 0;
+  const isInitialData = simulations.length === 0 && purpleTeamFindings.length === 0 && !predictions;
 
   return (
     <div className="space-y-6" data-testid="advanced-page">
