@@ -45,29 +45,36 @@ const PHASE_INFO = {
 };
 
 function ScanProgressTracker({ scanId, progress }: { scanId: string; progress: ScanProgress | null }) {
-  if (!progress) return null;
+  // Show initializing state when progress is null
+  const displayProgress = progress || {
+    phase: 'dns' as const,
+    progress: 2,
+    message: 'Initializing scan...',
+    portsFound: 0,
+    vulnerabilitiesFound: 0,
+  };
 
   const phases: Array<'dns' | 'ports' | 'ssl' | 'http'> = ['dns', 'ports', 'ssl', 'http'];
-  const currentPhaseIndex = phases.indexOf(progress.phase as any);
+  const currentPhaseIndex = phases.indexOf(displayProgress.phase as any);
   
   return (
     <div className="space-y-4 p-4 bg-muted/30 rounded-md border" data-testid="scan-progress-tracker">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          <span className="text-sm font-medium">{progress.message}</span>
+          <span className="text-sm font-medium">{displayProgress.message}</span>
         </div>
-        <span className="text-sm text-muted-foreground">{progress.progress}%</span>
+        <span className="text-sm text-muted-foreground">{displayProgress.progress}%</span>
       </div>
       
-      <Progress value={progress.progress} className="h-2" />
+      <Progress value={displayProgress.progress} className="h-2" />
       
       <div className="grid grid-cols-4 gap-2">
         {phases.map((phase, idx) => {
           const info = PHASE_INFO[phase];
           const Icon = info.icon;
-          const isActive = phase === progress.phase;
-          const isComplete = currentPhaseIndex > idx || progress.phase === 'complete';
+          const isActive = phase === displayProgress.phase;
+          const isComplete = currentPhaseIndex > idx || displayProgress.phase === 'complete';
           
           return (
             <div 
@@ -87,18 +94,18 @@ function ScanProgressTracker({ scanId, progress }: { scanId: string; progress: S
         })}
       </div>
       
-      {(progress.portsFound > 0 || progress.vulnerabilitiesFound > 0) && (
+      {(displayProgress.portsFound > 0 || displayProgress.vulnerabilitiesFound > 0) && (
         <div className="flex gap-4 text-sm">
-          {progress.portsFound > 0 && (
+          {displayProgress.portsFound > 0 && (
             <div className="flex items-center gap-1">
               <Server className="h-3 w-3 text-cyan-400" />
-              <span>{progress.portsFound} open ports</span>
+              <span>{displayProgress.portsFound} open ports</span>
             </div>
           )}
-          {progress.vulnerabilitiesFound > 0 && (
+          {displayProgress.vulnerabilitiesFound > 0 && (
             <div className="flex items-center gap-1">
               <AlertTriangle className="h-3 w-3 text-yellow-400" />
-              <span>{progress.vulnerabilitiesFound} issues found</span>
+              <span>{displayProgress.vulnerabilitiesFound} issues found</span>
             </div>
           )}
         </div>
@@ -231,13 +238,60 @@ export function ExternalRecon() {
   const [selectedExposures, setSelectedExposures] = useState<number[]>([]);
   const [polling, setPolling] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
+
+  // Track if we've received real WebSocket progress
+  const hasRealProgressRef = useRef(false);
+  
+  // Simulate progress when WebSocket events aren't available
+  useEffect(() => {
+    if (!polling || !scanStartTime) {
+      hasRealProgressRef.current = false;
+      return;
+    }
+    
+    const phases: Array<'dns' | 'ports' | 'ssl' | 'http'> = ['dns', 'ports', 'ssl', 'http'];
+    const phaseMessages = {
+      dns: 'Resolving DNS records...',
+      ports: 'Scanning ports...',
+      ssl: 'Checking SSL certificates...',
+      http: 'Fingerprinting HTTP services...',
+    };
+    
+    // Estimate ~30 seconds total scan time, simulate progress
+    const estimatedDuration = 30000;
+    
+    const updateSimulatedProgress = () => {
+      // If we've received real WebSocket progress, stop simulating
+      if (hasRealProgressRef.current) return;
+      
+      const elapsed = Date.now() - scanStartTime;
+      const rawProgress = Math.min(95, Math.round((elapsed / estimatedDuration) * 100));
+      const phaseIndex = Math.min(3, Math.floor((rawProgress / 100) * 4));
+      const currentPhase = phases[phaseIndex];
+      
+      setScanProgress({
+        phase: currentPhase,
+        progress: rawProgress,
+        message: phaseMessages[currentPhase],
+        portsFound: 0,
+        vulnerabilitiesFound: 0,
+      });
+    };
+    
+    // Start with initial progress
+    updateSimulatedProgress();
+    
+    const interval = setInterval(updateSimulatedProgress, 500);
+    
+    return () => clearInterval(interval);
+  }, [polling, scanStartTime]);
 
   // WebSocket connection for real-time progress updates
   useEffect(() => {
     if (!scanId || !polling) {
-      setScanProgress(null);
       return;
     }
 
@@ -252,6 +306,8 @@ export function ExternalRecon() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'recon_progress' && data.scanId === scanId) {
+            // Mark that we received real progress, stop simulation
+            hasRealProgressRef.current = true;
             setScanProgress({
               phase: data.phase,
               progress: data.progress,
@@ -266,7 +322,7 @@ export function ExternalRecon() {
       };
 
       ws.onerror = () => {
-        // WebSocket error, fall back to polling-only
+        // WebSocket error, fall back to simulated progress
       };
 
       return () => {
@@ -274,7 +330,7 @@ export function ExternalRecon() {
         wsRef.current = null;
       };
     } catch {
-      // WebSocket creation failed, continue with polling
+      // WebSocket creation failed, continue with simulated progress
     }
   }, [scanId, polling]);
 
@@ -286,6 +342,8 @@ export function ExternalRecon() {
     onSuccess: (data) => {
       setScanId(data.scanId);
       setPolling(true);
+      setScanStartTime(Date.now());
+      setScanProgress(null);
       setResults(null);
       setSelectedExposures([]);
       setCreatedEvaluationId(null);
@@ -469,16 +527,6 @@ export function ExternalRecon() {
 
           {polling && scanId && (
             <ScanProgressTracker scanId={scanId} progress={scanProgress} />
-          )}
-          
-          {polling && !scanProgress && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Initializing scan for {target}...
-              </div>
-              <Progress value={5} className="h-2" />
-            </div>
           )}
         </CardContent>
       </Card>
