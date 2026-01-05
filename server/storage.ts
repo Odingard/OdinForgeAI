@@ -1108,6 +1108,30 @@ export class DatabaseStorage implements IStorage {
     await db.delete(endpointAgents).where(eq(endpointAgents.id, id));
   }
 
+  async deleteStaleAgents(maxAgeHours: number = 24): Promise<{ deleted: number; agents: string[] }> {
+    const cutoffDate = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+    
+    // Find stale agents
+    const staleAgents = await db
+      .select({ id: endpointAgents.id, name: endpointAgents.name })
+      .from(endpointAgents)
+      .where(
+        sql`${endpointAgents.lastHeartbeat} IS NULL OR ${endpointAgents.lastHeartbeat} < ${cutoffDate}`
+      );
+    
+    const deletedIds: string[] = [];
+    
+    // Delete each stale agent and its related data
+    for (const agent of staleAgents) {
+      await db.delete(agentFindings).where(eq(agentFindings.agentId, agent.id));
+      await db.delete(agentTelemetry).where(eq(agentTelemetry.agentId, agent.id));
+      await db.delete(endpointAgents).where(eq(endpointAgents.id, agent.id));
+      deletedIds.push(agent.name || agent.id);
+    }
+    
+    return { deleted: deletedIds.length, agents: deletedIds };
+  }
+
   async updateAgentHeartbeat(id: string): Promise<void> {
     await db.update(endpointAgents).set({ 
       lastHeartbeat: new Date(),
