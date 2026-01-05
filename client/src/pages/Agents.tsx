@@ -36,7 +36,8 @@ import {
   RefreshCw,
   Monitor,
   Download,
-  Clock
+  Clock,
+  Loader2
 } from "lucide-react";
 import { DownloadCenter } from "@/components/DownloadCenter";
 import { Progress } from "@/components/ui/progress";
@@ -187,6 +188,28 @@ export default function Agents() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
       queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
+    },
+  });
+
+  const cleanupStaleAgentsMutation = useMutation({
+    mutationFn: async (maxAgeHours: number = 24) => {
+      const response = await apiRequest("POST", "/api/agents/cleanup", { maxAgeHours });
+      return response.json();
+    },
+    onSuccess: (data: { deleted: number; agents: string[]; message: string }) => {
+      toast({
+        title: "Cleanup Complete",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cleanup Failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -355,6 +378,19 @@ kubectl apply -f daemonset.yaml
           <Button variant="outline" onClick={() => setScriptDialogOpen(true)} data-testid="btn-view-script">
             <Terminal className="h-4 w-4 mr-2" />
             Installation Guide
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => cleanupStaleAgentsMutation.mutate(24)}
+            disabled={cleanupStaleAgentsMutation.isPending || !canDeleteAgent}
+            data-testid="btn-cleanup-agents"
+          >
+            {cleanupStaleAgentsMutation.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-2" />
+            )}
+            Cleanup Stale
           </Button>
           <Dialog open={registerDialogOpen} onOpenChange={(open) => {
             setRegisterDialogOpen(open);

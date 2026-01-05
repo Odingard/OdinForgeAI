@@ -3220,6 +3220,26 @@ export async function registerRoutes(
     }
   });
 
+  // Cleanup stale agents (agents that haven't checked in for specified hours)
+  app.post("/api/agents/cleanup", async (req, res) => {
+    try {
+      const maxAgeHours = Math.max(1, Math.min(720, Number(req.body.maxAgeHours) || 24));
+      if (isNaN(maxAgeHours)) {
+        return res.status(400).json({ error: "Invalid maxAgeHours value" });
+      }
+      const result = await storage.deleteStaleAgents(maxAgeHours);
+      res.json({ 
+        success: true, 
+        deleted: result.deleted,
+        agents: result.agents,
+        message: `Deleted ${result.deleted} stale agent(s) that haven't checked in for ${maxAgeHours} hours`
+      });
+    } catch (error) {
+      console.error("Error cleaning up stale agents:", error);
+      res.status(500).json({ error: "Failed to cleanup stale agents" });
+    }
+  });
+
   // Get all agent findings
   app.get("/api/agent-findings", async (req, res) => {
     try {
@@ -4564,6 +4584,12 @@ async function runBatchJob(batchJobId: string, configs: Array<{
 // AI vs AI Simulation runner
 async function runAiSimulation(simulationId: string) {
   try {
+    const simulation = await storage.getAiSimulation(simulationId);
+    if (!simulation) {
+      console.error("Simulation not found:", simulationId);
+      return;
+    }
+
     await storage.updateAiSimulation(simulationId, { 
       simulationStatus: "running",
       startedAt: new Date(),
@@ -4573,18 +4599,20 @@ async function runAiSimulation(simulationId: string) {
     await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Generate simulation results
+    const attackPath = [
+      "T1190 - Exploit Public-Facing Application",
+      "T1059.001 - PowerShell Execution",
+      "T1003.001 - LSASS Memory Dump",
+      "T1021.002 - SMB/Windows Admin Shares",
+      "T1486 - Data Encrypted for Impact",
+    ];
+    
     const results = {
       attackerSuccesses: Math.floor(Math.random() * 5) + 1,
       defenderBlocks: Math.floor(Math.random() * 8) + 3,
       timeToDetection: Math.floor(Math.random() * 30) + 5,
       timeToContainment: Math.floor(Math.random() * 60) + 15,
-      attackPath: [
-        "T1190 - Exploit Public-Facing Application",
-        "T1059.001 - PowerShell Execution",
-        "T1003.001 - LSASS Memory Dump",
-        "T1021.002 - SMB/Windows Admin Shares",
-        "T1486 - Data Encrypted for Impact",
-      ],
+      attackPath,
       detectionPoints: [
         "Network IDS flagged anomalous traffic",
         "EDR detected credential dumping",
@@ -4607,6 +4635,27 @@ async function runAiSimulation(simulationId: string) {
       completedAt: new Date(),
       simulationResults: results,
     });
+
+    // Create Purple Team Findings from simulation results
+    const organizationId = simulation.organizationId || "org-default";
+    
+    // Create findings for each attack technique
+    for (const technique of attackPath) {
+      const wasDetected = results.detectionPoints.length > 0 && Math.random() > 0.4;
+      const controlEffectiveness = wasDetected ? Math.floor(Math.random() * 40) + 50 : Math.floor(Math.random() * 30) + 10;
+      
+      await storage.createPurpleTeamFinding({
+        organizationId,
+        findingType: wasDetected ? "detection_success" : "detection_gap",
+        offensiveTechnique: technique,
+        offensiveDescription: `Attack technique from AI vs AI simulation`,
+        detectionStatus: wasDetected ? "detected" : "missed",
+        controlEffectiveness,
+        defensiveRecommendation: results.recommendations[Math.floor(Math.random() * results.recommendations.length)],
+        implementationPriority: controlEffectiveness < 40 ? "critical" : controlEffectiveness < 60 ? "high" : "medium",
+        feedbackStatus: "pending",
+      });
+    }
   } catch (error) {
     console.error("AI simulation failed:", error);
     await storage.updateAiSimulation(simulationId, {
