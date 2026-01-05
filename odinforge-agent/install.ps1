@@ -25,10 +25,19 @@ $binaryName = "odinforge-agent-${platform}.exe"
 
 Write-Host "Detected platform: $platform" -ForegroundColor Green
 
-# Get server URL - check multiple environment variable names
+# Default server URL - automatically embedded when downloaded from server
+# When served via the API, this is replaced with the actual server URL
+$defaultServerUrl = "__SERVER_URL_PLACEHOLDER__"
+
+# Get server URL - check environment variables, default, or prompt
 $serverUrl = $env:ODINFORGE_SERVER
 if (-not $serverUrl) { $serverUrl = $env:ODINFORGE_SERVER_URL }
 if (-not $serverUrl) { $serverUrl = $env:SERVER_URL }
+# Check if URL was embedded (starts with http)
+if (-not $serverUrl -and $defaultServerUrl -and $defaultServerUrl -match "^https?://") {
+    $serverUrl = $defaultServerUrl
+    Write-Host "Using server: $serverUrl" -ForegroundColor Green
+}
 if (-not $serverUrl) {
     $serverUrl = Read-Host "Enter OdinForge server URL (e.g., https://odinforgeai.replit.app)"
 }
