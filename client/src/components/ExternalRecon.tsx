@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,85 @@ import {
   Sparkles
 } from "lucide-react";
 import { useLocation } from "wouter";
+
+interface ScanProgress {
+  phase: 'dns' | 'ports' | 'ssl' | 'http' | 'complete';
+  progress: number;
+  message: string;
+  portsFound: number;
+  vulnerabilitiesFound: number;
+}
+
+const PHASE_INFO = {
+  dns: { icon: Wifi, label: 'DNS Enumeration', color: 'text-blue-400' },
+  ports: { icon: Server, label: 'Port Scanning', color: 'text-cyan-400' },
+  ssl: { icon: Lock, label: 'SSL/TLS Check', color: 'text-green-400' },
+  http: { icon: Shield, label: 'HTTP Fingerprint', color: 'text-yellow-400' },
+  complete: { icon: CheckCircle, label: 'Complete', color: 'text-green-500' },
+};
+
+function ScanProgressTracker({ scanId, progress }: { scanId: string; progress: ScanProgress | null }) {
+  if (!progress) return null;
+
+  const phases: Array<'dns' | 'ports' | 'ssl' | 'http'> = ['dns', 'ports', 'ssl', 'http'];
+  const currentPhaseIndex = phases.indexOf(progress.phase as any);
+  
+  return (
+    <div className="space-y-4 p-4 bg-muted/30 rounded-md border" data-testid="scan-progress-tracker">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span className="text-sm font-medium">{progress.message}</span>
+        </div>
+        <span className="text-sm text-muted-foreground">{progress.progress}%</span>
+      </div>
+      
+      <Progress value={progress.progress} className="h-2" />
+      
+      <div className="grid grid-cols-4 gap-2">
+        {phases.map((phase, idx) => {
+          const info = PHASE_INFO[phase];
+          const Icon = info.icon;
+          const isActive = phase === progress.phase;
+          const isComplete = currentPhaseIndex > idx || progress.phase === 'complete';
+          
+          return (
+            <div 
+              key={phase}
+              className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                isActive ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                isComplete ? 'opacity-100' : 'opacity-40'
+              }`}
+              data-testid={`phase-${phase}`}
+            >
+              <div className={`${isComplete ? 'text-green-500' : isActive ? info.color : 'text-muted-foreground'}`}>
+                {isComplete ? <CheckCircle className="h-5 w-5" /> : <Icon className="h-5 w-5" />}
+              </div>
+              <span className="text-xs text-center">{info.label}</span>
+            </div>
+          );
+        })}
+      </div>
+      
+      {(progress.portsFound > 0 || progress.vulnerabilitiesFound > 0) && (
+        <div className="flex gap-4 text-sm">
+          {progress.portsFound > 0 && (
+            <div className="flex items-center gap-1">
+              <Server className="h-3 w-3 text-cyan-400" />
+              <span>{progress.portsFound} open ports</span>
+            </div>
+          )}
+          {progress.vulnerabilitiesFound > 0 && (
+            <div className="flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3 text-yellow-400" />
+              <span>{progress.vulnerabilitiesFound} issues found</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface PortScanResult {
   port: number;
@@ -151,7 +230,53 @@ export function ExternalRecon() {
   const [results, setResults] = useState<ResultsResponse | null>(null);
   const [selectedExposures, setSelectedExposures] = useState<number[]>([]);
   const [polling, setPolling] = useState(false);
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
+
+  // WebSocket connection for real-time progress updates
+  useEffect(() => {
+    if (!scanId || !polling) {
+      setScanProgress(null);
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'recon_progress' && data.scanId === scanId) {
+            setScanProgress({
+              phase: data.phase,
+              progress: data.progress,
+              message: data.message,
+              portsFound: data.portsFound || 0,
+              vulnerabilitiesFound: data.vulnerabilitiesFound || 0,
+            });
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      };
+
+      ws.onerror = () => {
+        // WebSocket error, fall back to polling-only
+      };
+
+      return () => {
+        ws.close();
+        wsRef.current = null;
+      };
+    } catch {
+      // WebSocket creation failed, continue with polling
+    }
+  }, [scanId, polling]);
 
   const startScan = useMutation({
     mutationFn: async (): Promise<ScanResponse> => {
@@ -342,13 +467,17 @@ export function ExternalRecon() {
             </div>
           </div>
 
-          {polling && (
+          {polling && scanId && (
+            <ScanProgressTracker scanId={scanId} progress={scanProgress} />
+          )}
+          
+          {polling && !scanProgress && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Scanning {target}...
+                Initializing scan for {target}...
               </div>
-              <Progress value={undefined} className="h-2" />
+              <Progress value={5} className="h-2" />
             </div>
           )}
         </CardContent>

@@ -397,8 +397,10 @@ export async function dnsEnumeration(domain: string): Promise<DNSEnumResult> {
   return result;
 }
 
+export type ProgressCallback = (phase: 'dns' | 'ports' | 'ssl' | 'http' | 'complete', progress: number, message: string, portsFound?: number, vulnerabilitiesFound?: number) => void;
+
 /**
- * Full external reconnaissance scan
+ * Full external reconnaissance scan with progress reporting
  */
 export async function fullRecon(
   target: string, 
@@ -407,7 +409,8 @@ export async function fullRecon(
     sslCheck?: boolean;
     httpFingerprint?: boolean;
     dnsEnum?: boolean;
-  } = {}
+  } = {},
+  onProgress?: ProgressCallback
 ): Promise<ReconResult> {
   const { 
     portScan: doPortScan = true, 
@@ -435,42 +438,79 @@ export async function fullRecon(
     return result;
   }
   
-  // Run scans in parallel where possible
-  const tasks: Promise<void>[] = [];
+  // Calculate progress steps based on enabled scans
+  const enabledScans = [doDNSEnum, doPortScan, doSSLCheck, doHTTPFingerprint].filter(Boolean).length;
+  let completedScans = 0;
+  let totalVulns = 0;
+  
+  // Guard against no scans enabled
+  if (enabledScans === 0) {
+    onProgress?.('complete', 100, 'No scan types selected', 0, 0);
+    return result;
+  }
+  
+  const updateProgress = (phase: 'dns' | 'ports' | 'ssl' | 'http', message: string) => {
+    completedScans++;
+    const progress = Math.min(99, Math.round((completedScans / enabledScans) * 100));
+    onProgress?.(phase, progress, message, result.portScan?.filter(p => p.state === 'open').length || 0, totalVulns);
+  };
+  
+  // Run scans sequentially for better progress tracking
+  if (doDNSEnum) {
+    onProgress?.('dns', 5, 'Resolving DNS records...', 0, 0);
+    try {
+      result.dnsEnum = await dnsEnumeration(hostname);
+      updateProgress('dns', `DNS complete: ${result.dnsEnum.ipv4.length} IPv4, ${result.dnsEnum.mx.length} MX records`);
+    } catch (e: any) {
+      result.errors.push(`DNS enumeration error: ${e.message}`);
+      updateProgress('dns', 'DNS enumeration failed');
+    }
+  }
   
   if (doPortScan) {
-    tasks.push(
-      portScan(hostname)
-        .then(r => { result.portScan = r; })
-        .catch(e => { result.errors.push(`Port scan error: ${e.message}`); })
-    );
+    onProgress?.('ports', Math.round((completedScans / enabledScans) * 100) + 5, 'Scanning ports...', 0, totalVulns);
+    try {
+      result.portScan = await portScan(hostname);
+      const openPorts = result.portScan.filter(p => p.state === 'open').length;
+      // Check for high-risk ports
+      const highRiskPorts = result.portScan.filter(p => 
+        p.state === 'open' && [21, 23, 445, 3389, 5900, 1433, 1521, 3306, 5432, 6379, 27017].includes(p.port)
+      );
+      totalVulns += highRiskPorts.length;
+      updateProgress('ports', `Port scan complete: ${openPorts} open ports found`);
+    } catch (e: any) {
+      result.errors.push(`Port scan error: ${e.message}`);
+      updateProgress('ports', 'Port scan failed');
+    }
   }
   
   if (doSSLCheck) {
-    tasks.push(
-      sslCheck(hostname)
-        .then(r => { result.sslCheck = r; })
-        .catch(e => { result.errors.push(`SSL check error: ${e.message}`); })
-    );
+    onProgress?.('ssl', Math.round((completedScans / enabledScans) * 100) + 5, 'Checking SSL/TLS...', result.portScan?.filter(p => p.state === 'open').length || 0, totalVulns);
+    try {
+      result.sslCheck = await sslCheck(hostname);
+      totalVulns += result.sslCheck.vulnerabilities.length;
+      updateProgress('ssl', `SSL check complete: ${result.sslCheck.vulnerabilities.length} issues found`);
+    } catch (e: any) {
+      result.errors.push(`SSL check error: ${e.message}`);
+      updateProgress('ssl', 'SSL check failed');
+    }
   }
   
   if (doHTTPFingerprint) {
-    tasks.push(
-      httpFingerprint(target)
-        .then(r => { result.httpFingerprint = r; })
-        .catch(e => { result.errors.push(`HTTP fingerprint error: ${e.message}`); })
-    );
+    onProgress?.('http', Math.round((completedScans / enabledScans) * 100) + 5, 'Fingerprinting HTTP...', result.portScan?.filter(p => p.state === 'open').length || 0, totalVulns);
+    try {
+      result.httpFingerprint = await httpFingerprint(target);
+      const missingHeaders = result.httpFingerprint.securityHeaders.missing.length;
+      totalVulns += Math.min(missingHeaders, 3); // Count up to 3 missing header issues
+      updateProgress('http', `HTTP fingerprint complete: ${result.httpFingerprint.technologies.length} technologies detected`);
+    } catch (e: any) {
+      result.errors.push(`HTTP fingerprint error: ${e.message}`);
+      updateProgress('http', 'HTTP fingerprint failed');
+    }
   }
   
-  if (doDNSEnum) {
-    tasks.push(
-      dnsEnumeration(hostname)
-        .then(r => { result.dnsEnum = r; })
-        .catch(e => { result.errors.push(`DNS enumeration error: ${e.message}`); })
-    );
-  }
-  
-  await Promise.all(tasks);
+  // Final complete notification
+  onProgress?.('complete', 100, 'Scan complete!', result.portScan?.filter(p => p.state === 'open').length || 0, totalVulns);
   
   return result;
 }
