@@ -4,7 +4,7 @@ import type {
   OrchestratorResult,
   ProgressCallback,
 } from "./types";
-import type { AdversaryProfile } from "@shared/schema";
+import type { AdversaryProfile, LLMValidationResult } from "@shared/schema";
 import { runReconAgent } from "./recon";
 import { runExploitAgent } from "./exploit";
 import { runLateralAgent } from "./lateral";
@@ -17,6 +17,7 @@ import { generateEvidenceFromAnalysis } from "./evidence-collector";
 import { generateIntelligentScore } from "./scoring-engine";
 import { generateRemediationGuidance } from "./remediation-engine";
 import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
+import { validateOrchestratorFindings } from "../validation/findings-validator.js";
 
 export interface OrchestratorOptions {
   adversaryProfile?: AdversaryProfile;
@@ -156,19 +157,40 @@ export async function runAgentOrchestrator(
     onProgress?.("Remediation Engine", stage, 96 + Math.floor(progress / 25), message);
   });
 
+  onProgress?.("LLM Validation", "llm_validation", 98, "Validating findings with LLM Judge...");
+  const validatedFindings = await validateOrchestratorFindings(
+    {
+      attackPath: result.attackPath,
+      businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
+      multiVectorFindings: memory.multiVector?.findings,
+    },
+    {
+      evaluationId,
+      assetId,
+      exposureType,
+    },
+    (stage, progress, message) => {
+      onProgress?.("LLM Validation", stage, 98, message);
+    }
+  );
+
   const totalProcessingTime = Date.now() - startTime;
 
   onProgress?.("Complete", "complete", 100, "Analysis complete");
 
   return {
     ...result,
+    attackPath: validatedFindings.attackPath,
     attackGraph: graphResult.attackGraph,
-    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
-    multiVectorFindings: memory.multiVector?.findings,
+    businessLogicFindings: validatedFindings.businessLogicFindings,
+    multiVectorFindings: validatedFindings.multiVectorFindings,
     workflowAnalysis: memory.enhancedBusinessLogic?.workflowAnalysis || undefined,
     evidenceArtifacts,
     intelligentScore,
     remediationGuidance,
+    llmValidation: validatedFindings.llmValidation,
+    llmValidationVerdict: validatedFindings.llmValidationVerdict,
+    validationStats: validatedFindings.validationStats,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,

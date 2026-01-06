@@ -1,4 +1,4 @@
-import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore, RemediationGuidance, AdversaryProfile } from "@shared/schema";
+import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore, RemediationGuidance, AdversaryProfile, LLMValidationResult, LLMValidationVerdict } from "@shared/schema";
 
 export interface AgentContext {
   assetId: string;
@@ -201,18 +201,30 @@ export interface AgentResult<T> {
   processingTime: number;
 }
 
+export interface ValidationStats {
+  total: number;
+  confirmed: number;
+  noise: number;
+  needsReview: number;
+  errors: number;
+  skipped: number;
+}
+
 export interface OrchestratorResult {
   exploitable: boolean;
   confidence: number;
   score: number;
-  attackPath: AttackPathStep[];
+  attackPath: (AttackPathStep & { llmValidation?: LLMValidationResult; llmValidationVerdict?: LLMValidationVerdict })[];
   attackGraph?: AttackGraph;
-  businessLogicFindings?: BusinessLogicFinding[];
-  multiVectorFindings?: MultiVectorFinding[];
+  businessLogicFindings?: (BusinessLogicFinding & { llmValidation?: LLMValidationResult; llmValidationVerdict?: LLMValidationVerdict })[];
+  multiVectorFindings?: (MultiVectorFinding & { llmValidation?: LLMValidationResult; llmValidationVerdict?: LLMValidationVerdict })[];
   workflowAnalysis?: WorkflowStateMachine;
   evidenceArtifacts?: EvidenceArtifact[];
   intelligentScore?: IntelligentScore;
   remediationGuidance?: RemediationGuidance;
+  llmValidation?: LLMValidationResult;
+  llmValidationVerdict?: LLMValidationVerdict;
+  validationStats?: ValidationStats;
   impact: string;
   recommendations: Recommendation[];
   agentFindings: {

@@ -41,3 +41,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_openai_ai_integrations:1.0.0", "javascript_log_in_with_replit:1.0.0", "javascript_websocket:1.0.0", "javascript_database:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+AEV_LLM_VALIDATION_ENABLED = "true"
+AEV_LLM_MODEL = "gpt-4o-mini"

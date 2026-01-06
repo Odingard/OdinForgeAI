@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
@@ -70,6 +71,13 @@ interface AgentFinding {
   detectedAt: string;
   aevEvaluationId: string | null;
   autoEvaluationTriggered: boolean;
+  llmValidation: {
+    verdict: string;
+    confidence: number;
+    reason: string;
+    missingEvidence: string[] | null;
+  } | null;
+  llmValidationVerdict: string | null;
 }
 
 interface AgentStats {
@@ -131,6 +139,7 @@ export default function Agents() {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
   const [cleanupHours, setCleanupHours] = useState("24");
+  const [includeNoise, setIncludeNoise] = useState(false);
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<EndpointAgent[]>({
     queryKey: ["/api/agents"],
@@ -141,7 +150,7 @@ export default function Agents() {
   });
 
   const { data: findings = [] } = useQuery<AgentFinding[]>({
-    queryKey: ["/api/agent-findings"],
+    queryKey: [`/api/agent-findings?includeNoise=${includeNoise}`],
   });
 
   // Fetch registration token for download center
@@ -784,11 +793,24 @@ kubectl apply -f daemonset.yaml
 
         <TabsContent value="findings" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Security Findings</CardTitle>
-              <CardDescription>
-                Issues detected by endpoint agents
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle>Security Findings</CardTitle>
+                <CardDescription>
+                  Issues detected by endpoint agents
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="include-noise" className="text-sm text-muted-foreground whitespace-nowrap">
+                  Show suppressed
+                </Label>
+                <Switch
+                  id="include-noise"
+                  checked={includeNoise}
+                  onCheckedChange={setIncludeNoise}
+                  data-testid="switch-include-noise"
+                />
+              </div>
             </CardHeader>
             <CardContent>
               {findings.length === 0 ? (
@@ -796,7 +818,9 @@ kubectl apply -f daemonset.yaml
                   <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
                   <h3 className="font-medium mb-2">No Findings Yet</h3>
                   <p className="text-muted-foreground text-sm">
-                    Agent findings will appear here when detected
+                    {includeNoise 
+                      ? "No findings detected by agents" 
+                      : "No actionable findings detected (suppressed findings hidden)"}
                   </p>
                 </div>
               ) : (
@@ -804,6 +828,7 @@ kubectl apply -f daemonset.yaml
                   <TableHeader>
                     <TableRow>
                       <TableHead>Severity</TableHead>
+                      <TableHead>Verdict</TableHead>
                       <TableHead>Title</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Component</TableHead>
@@ -814,11 +839,35 @@ kubectl apply -f daemonset.yaml
                   </TableHeader>
                   <TableBody>
                     {findings.map((finding) => (
-                      <TableRow key={finding.id} data-testid={`row-finding-${finding.id}`}>
+                      <TableRow 
+                        key={finding.id} 
+                        data-testid={`row-finding-${finding.id}`}
+                        className={finding.llmValidationVerdict === "noise" ? "opacity-50" : ""}
+                      >
                         <TableCell>
                           <Badge variant={getSeverityColor(finding.severity)}>
                             {finding.severity}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {finding.llmValidationVerdict ? (
+                            <Badge 
+                              variant={
+                                finding.llmValidationVerdict === "confirmed" ? "default" :
+                                finding.llmValidationVerdict === "noise" ? "outline" :
+                                "secondary"
+                              }
+                              className={
+                                finding.llmValidationVerdict === "confirmed" ? "bg-green-600 text-white" :
+                                finding.llmValidationVerdict === "noise" ? "text-muted-foreground" :
+                                ""
+                              }
+                            >
+                              {finding.llmValidationVerdict}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
                         </TableCell>
                         <TableCell className="font-medium max-w-xs truncate">
                           {finding.title}
