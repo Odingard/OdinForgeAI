@@ -3377,6 +3377,44 @@ export async function registerRoutes(
     }
   });
 
+  // Verify a finding (mark as verified exploitable or false positive)
+  // Protected: requires authentication and security_analyst or higher role
+  const verifyFindingSchema = z.object({
+    verificationStatus: z.enum(["verified_exploitable", "verified_false_positive"]),
+    verificationNotes: z.string().max(2000).optional(),
+  });
+  
+  app.post("/api/agent-findings/:id/verify", uiAuthMiddleware, requireRole("security_analyst", "security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const parseResult = verifyFindingSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid request body", details: parseResult.error.format() });
+      }
+      
+      const { verificationStatus, verificationNotes } = parseResult.data;
+      const verifiedBy = req.user?.username || "unknown";
+      
+      const finding = await storage.getAgentFinding(req.params.id);
+      if (!finding) {
+        return res.status(404).json({ error: "Finding not found" });
+      }
+      
+      await storage.updateAgentFinding(req.params.id, {
+        verificationStatus,
+        verificationNotes: verificationNotes || null,
+        verifiedBy,
+        verifiedAt: new Date(),
+        status: verificationStatus === "verified_false_positive" ? "false_positive" : finding.status,
+      });
+      
+      const updatedFinding = await storage.getAgentFinding(req.params.id);
+      res.json(updatedFinding);
+    } catch (error) {
+      console.error("Error verifying agent finding:", error);
+      res.status(500).json({ error: "Failed to verify agent finding" });
+    }
+  });
+
   // ============================================================================
   // mTLS Certificate Management Endpoints
   // Note: These endpoints require authenticated session (admin access)

@@ -403,11 +403,21 @@ export default function Reports() {
       defaultStyle: { font: "Roboto" },
     };
 
-    pdfMake.createPdf(docDefinition).download(`${report.title.replace(/\s+/g, "_")}.pdf`);
-    toast({
-      title: "PDF Downloaded",
-      description: `${report.title}.pdf has been downloaded`,
-    });
+    try {
+      const pdfDoc = pdfMake.createPdf(docDefinition);
+      pdfDoc.download(`${report.title.replace(/\s+/g, "_")}.pdf`);
+      toast({
+        title: "PDF Downloaded",
+        description: `${report.title}.pdf has been downloaded`,
+      });
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      toast({
+        title: "PDF Export Failed",
+        description: "There was an error generating the PDF. Try downloading as JSON instead.",
+        variant: "destructive",
+      });
+    }
   };
 
   const buildPdfContent = (data: any, reportType: string): any[] => {

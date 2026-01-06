@@ -132,18 +132,24 @@ export function EvidencePanel({ artifacts, evaluationId }: EvidencePanelProps) {
           pageMargins: [40, 40, 40, 40],
         };
         
-        pdfMake.createPdf(docDefinition).download(`evidence-${evaluationId}.pdf`);
+        try {
+          const pdfDoc = pdfMake.createPdf(docDefinition);
+          pdfDoc.download(`evidence-${evaluationId}.pdf`);
+        } catch (pdfError) {
+          console.error("PDF generation error:", pdfError);
+          throw new Error("PDF generation failed - try JSON export instead");
+        }
       }
       
       toast({
         title: "Export Successful",
         description: `Evidence package exported as ${format.toUpperCase()}`,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Export failed:", error);
       toast({
         title: "Export Failed",
-        description: "Failed to generate evidence package. Please try again.",
+        description: error?.message || "Failed to generate evidence package. Please try again.",
         variant: "destructive",
       });
     } finally {

@@ -2509,6 +2509,10 @@ export type AgentTelemetry = typeof agentTelemetry.$inferSelect;
 export const agentFindingStatuses = ["new", "acknowledged", "in_progress", "resolved", "false_positive"] as const;
 export type AgentFindingStatus = typeof agentFindingStatuses[number];
 
+// Verification status for findings - distinguishes AI analysis from human verification
+export const findingVerificationStatuses = ["unverified", "verified_exploitable", "verified_false_positive", "needs_review"] as const;
+export type FindingVerificationStatus = typeof findingVerificationStatuses[number];
+
 export const agentFindings = pgTable("agent_findings", {
   id: varchar("id").primaryKey(),
   agentId: varchar("agent_id").notNull(),
@@ -2530,6 +2534,21 @@ export const agentFindings = pgTable("agent_findings", {
   // CVE info if applicable
   cveId: varchar("cve_id"),
   cvssScore: integer("cvss_score"),
+  
+  // AI Confidence & Verification - prevents false positives
+  confidenceScore: integer("confidence_score").default(0), // 0-100, AI confidence in exploitability
+  confidenceFactors: jsonb("confidence_factors").$type<{
+    hasKnownExploit: boolean;
+    patchAvailable: boolean;
+    networkExposed: boolean;
+    privilegeRequired: string;
+    userInteractionRequired: boolean;
+    exploitComplexity: string;
+  }>(),
+  verificationStatus: varchar("verification_status").default("unverified"), // One of findingVerificationStatuses
+  verifiedBy: varchar("verified_by"), // User ID who verified
+  verifiedAt: timestamp("verified_at"),
+  verificationNotes: text("verification_notes"),
   
   // Remediation
   recommendation: text("recommendation"),

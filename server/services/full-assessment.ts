@@ -64,14 +64,82 @@ export async function runFullAssessment(
   
   try {
     await updateAssessmentStatus(assessmentId, "reconnaissance", 5, "Starting reconnaissance phase...");
-    onProgress?.(assessmentId, "reconnaissance", 5, "Gathering system telemetry from all agents...");
+    onProgress?.(assessmentId, "reconnaissance", 5, "Gathering system telemetry...");
     broadcastProgress(assessmentId, "reconnaissance", 5, "Gathering system telemetry...");
     
-    const agents = await storage.getEndpointAgents();
-    const allFindings = await getAllFindings();
+    // Get the assessment to check for scope constraints
+    const assessment = await storage.getFullAssessment(assessmentId);
+    if (!assessment) {
+      await updateAssessmentStatus(assessmentId, "failed", 0, "Assessment not found");
+      return;
+    }
     
-    if (agents.length === 0 || allFindings.length === 0) {
-      await updateAssessmentStatus(assessmentId, "failed", 0, "No agents or findings available for assessment");
+    // Get agents - scoped to specific IDs if specified, otherwise all
+    let agents = await storage.getEndpointAgents();
+    if (assessment.agentIds && assessment.agentIds.length > 0) {
+      const scopedAgentIds = new Set(assessment.agentIds);
+      agents = agents.filter(a => scopedAgentIds.has(a.id));
+    }
+    
+    // Get findings - scoped to specific IDs or by agent scope
+    let allFindings: AgentFinding[];
+    if (assessment.findingIds && assessment.findingIds.length > 0) {
+      // Use only specified finding IDs
+      const findings: AgentFinding[] = [];
+      for (const findingId of assessment.findingIds) {
+        const finding = await storage.getAgentFinding(findingId);
+        if (finding) findings.push(finding);
+      }
+      allFindings = findings;
+    } else if (assessment.agentIds && assessment.agentIds.length > 0) {
+      // Scope findings to only the specified agents
+      allFindings = await getScopedFindings(assessment.agentIds);
+    } else {
+      // No scope - get all findings
+      allFindings = await getAllFindings();
+    }
+    
+    // For scoped assessments, allow completion with zero findings (soft warning)
+    const isScoped = (assessment.agentIds && assessment.agentIds.length > 0) || 
+                     (assessment.findingIds && assessment.findingIds.length > 0);
+    
+    if (agents.length === 0) {
+      await updateAssessmentStatus(assessmentId, "failed", 0, "No agents available for assessment");
+      return;
+    }
+    
+    if (allFindings.length === 0) {
+      if (isScoped) {
+        // Scoped assessment with no findings - complete with zero results
+        await storage.updateFullAssessment(assessmentId, {
+          status: "completed",
+          progress: 100,
+          currentPhase: "completed",
+          overallRiskScore: 0,
+          criticalPathCount: 0,
+          systemsAnalyzed: agents.length,
+          findingsAnalyzed: 0,
+          durationMs: Date.now() - startTime,
+          completedAt: new Date(),
+          unifiedAttackGraph: { nodes: [], edges: [] },
+          criticalPaths: [],
+          lateralMovement: [],
+          businessImpact: { 
+            confidentialityImpact: "none",
+            integrityImpact: "none", 
+            availabilityImpact: "none",
+            financialRisk: "none",
+            reputationalRisk: "none",
+            complianceRisk: "none",
+            narrative: "No findings in scope to analyze."
+          },
+          recommendations: [],
+          executiveSummary: "No findings were available in the specified scope for this assessment.",
+        });
+        broadcastProgress(assessmentId, "completed", 100, "Assessment completed with no findings in scope");
+        return;
+      }
+      await updateAssessmentStatus(assessmentId, "failed", 0, "No findings available for assessment");
       return;
     }
 
@@ -194,6 +262,18 @@ async function getAllFindings(): Promise<AgentFinding[]> {
   
   for (const agent of agents) {
     const findings = await storage.getAgentFindings(agent.id);
+    allFindings.push(...findings);
+  }
+  
+  return allFindings;
+}
+
+// Get findings scoped to specific agent IDs only
+async function getScopedFindings(agentIds: string[]): Promise<AgentFinding[]> {
+  const allFindings: AgentFinding[] = [];
+  
+  for (const agentId of agentIds) {
+    const findings = await storage.getAgentFindings(agentId);
     allFindings.push(...findings);
   }
   
