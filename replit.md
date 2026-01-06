@@ -63,6 +63,15 @@ All documentation is consolidated under the `docs/` directory:
 - **Go Agent**: Pre-compiled binaries in `public/agents/` for Linux, Windows, macOS (amd64/arm64).
 - **Real-time Status**: Agent status calculated dynamically based on heartbeat age (online <2min, stale 2-10min, offline >10min).
 - **Force Check-in**: On-demand refresh of agent data via WebSocket broadcast.
+- **Platform Validation**: Cross-platform data contamination prevention - telemetry rejected if reported OS doesn't match registered agent platform.
+
+### Validation Agent Heartbeat System
+- **Heartbeat Tracker** (`server/services/agents/heartbeat-tracker.ts`): Tracks progress of long-running AI validation agents.
+- **Stall Detection**: Agents marked stalled after 5 minutes without progress updates.
+- **Automatic Recovery**: Stalled agents trigger automatic retries (up to 2 retries, 3 total attempts).
+- **Timeout Mechanism**: `runWithStallTimeout` races agent execution against a stall timer, enabling retry when hung.
+- **WebSocket Events**: Broadcasts `agent_stall_detected`, `agent_recovery_attempt`, and `agent_recovery_failed` for real-time monitoring.
+- **Integration**: All orchestrator agent calls wrapped with `runWithHeartbeat` for automatic stall handling.
 
 ### Cloud Agent Deployment
 - **AWS**: Uses SSM Run Command to install agents on EC2 instances. Requires `ssm:SendCommand` permission and SSM Agent on instances.
