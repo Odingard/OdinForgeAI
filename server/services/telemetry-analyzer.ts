@@ -34,6 +34,15 @@ interface TelemetryData {
   } | null;
 }
 
+interface ConfidenceFactors {
+  hasKnownExploit: boolean;
+  patchAvailable: boolean;
+  networkExposed: boolean;
+  privilegeRequired: string;
+  userInteractionRequired: boolean;
+  exploitComplexity: string;
+}
+
 interface GeneratedFinding {
   findingType: string;
   severity: "critical" | "high" | "medium" | "low" | "informational";
@@ -43,6 +52,45 @@ interface GeneratedFinding {
   affectedPort?: number;
   affectedService?: string;
   recommendation?: string;
+  confidenceScore: number; // 0-100
+  confidenceFactors: ConfidenceFactors;
+}
+
+function calculateConfidenceScore(factors: Partial<ConfidenceFactors>, severity: string): number {
+  let score = 50; // Base score
+  
+  // Known exploit significantly increases confidence
+  if (factors.hasKnownExploit) score += 25;
+  
+  // Network exposure increases confidence
+  if (factors.networkExposed) score += 15;
+  
+  // Severity-based adjustment
+  if (severity === "critical") score += 10;
+  else if (severity === "high") score += 5;
+  
+  // Low complexity = higher confidence in exploitability
+  if (factors.exploitComplexity === "low") score += 10;
+  else if (factors.exploitComplexity === "medium") score += 5;
+  
+  // No user interaction needed = higher confidence
+  if (factors.userInteractionRequired === false) score += 5;
+  
+  // No special privileges needed = higher confidence  
+  if (factors.privilegeRequired === "none") score += 5;
+  
+  return Math.min(100, Math.max(0, score));
+}
+
+function buildConfidenceFactors(partial: Partial<ConfidenceFactors>): ConfidenceFactors {
+  return {
+    hasKnownExploit: partial.hasKnownExploit ?? false,
+    patchAvailable: partial.patchAvailable ?? true,
+    networkExposed: partial.networkExposed ?? false,
+    privilegeRequired: partial.privilegeRequired ?? "unknown",
+    userInteractionRequired: partial.userInteractionRequired ?? false,
+    exploitComplexity: partial.exploitComplexity ?? "medium",
+  };
 }
 
 const HIGH_RISK_PORTS: Record<number, { name: string; severity: "critical" | "high" | "medium"; reason: string; recommendation: string }> = {
@@ -120,20 +168,37 @@ function analyzeOpenPorts(ports: PortInfo[], hostname: string): GeneratedFinding
     if (riskInfo) {
       const isExposed = port.address === "*" || port.address === "0.0.0.0" || port.address === "::";
       const exposureNote = isExposed ? " (bound to all interfaces - externally accessible)" : "";
+      const severity = isExposed ? riskInfo.severity : (riskInfo.severity === "critical" ? "high" : "medium");
+      
+      const factors: Partial<ConfidenceFactors> = {
+        hasKnownExploit: riskInfo.severity === "critical", // Critical ports have known exploits
+        networkExposed: isExposed,
+        privilegeRequired: "none",
+        userInteractionRequired: false,
+        exploitComplexity: isExposed ? "low" : "medium",
+      };
       
       findings.push({
         findingType: "open_port",
-        severity: isExposed ? riskInfo.severity : (riskInfo.severity === "critical" ? "high" : "medium"),
+        severity,
         title: `${riskInfo.name} Port ${portNum} Open${exposureNote}`,
         description: `Port ${portNum} (${riskInfo.name}) is open on ${hostname}. ${riskInfo.reason}${port.process ? ` Process: ${port.process} (PID: ${port.pid || "unknown"})` : ""}`,
         affectedComponent: port.process || riskInfo.name,
         affectedPort: portNum,
         recommendation: riskInfo.recommendation,
+        confidenceScore: calculateConfidenceScore(factors, severity),
+        confidenceFactors: buildConfidenceFactors(factors),
       });
     }
 
     if (port.address === "*" || port.address === "0.0.0.0") {
       if (!HIGH_RISK_PORTS[portNum] && portNum < 1024) {
+        const factors: Partial<ConfidenceFactors> = {
+          networkExposed: true,
+          privilegeRequired: "unknown",
+          exploitComplexity: "medium",
+        };
+        
         findings.push({
           findingType: "exposed_service",
           severity: "low",
@@ -142,6 +207,8 @@ function analyzeOpenPorts(ports: PortInfo[], hostname: string): GeneratedFinding
           affectedComponent: port.process || `Port ${portNum}`,
           affectedPort: portNum,
           recommendation: "Review if this service needs to be accessible from all networks. Consider binding to specific interfaces.",
+          confidenceScore: calculateConfidenceScore(factors, "low"),
+          confidenceFactors: buildConfidenceFactors(factors),
         });
       }
     }
@@ -159,6 +226,12 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
 
     const riskInfo = RISKY_SERVICES[service.name];
     if (riskInfo) {
+      const factors: Partial<ConfidenceFactors> = {
+        hasKnownExploit: riskInfo.severity === "high",
+        networkExposed: true,
+        exploitComplexity: "medium",
+      };
+      
       findings.push({
         findingType: "risky_service",
         severity: riskInfo.severity,
@@ -167,6 +240,8 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
         affectedComponent: service.name,
         affectedService: service.name,
         recommendation: riskInfo.recommendation,
+        confidenceScore: calculateConfidenceScore(factors, riskInfo.severity),
+        confidenceFactors: buildConfidenceFactors(factors),
       });
     }
   }
@@ -178,6 +253,13 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
     }
   }
 
+  const missingSecurityFactors: Partial<ConfidenceFactors> = {
+    hasKnownExploit: false,
+    networkExposed: true,
+    privilegeRequired: "none",
+    exploitComplexity: "low",
+  };
+
   if (missingSecurityServices.includes("WinDefend") && missingSecurityServices.includes("MsMpSvc")) {
     findings.push({
       findingType: "missing_security",
@@ -187,6 +269,8 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
       affectedComponent: "Windows Defender",
       affectedService: "WinDefend",
       recommendation: "Enable Windows Defender or ensure another antivirus solution is active.",
+      confidenceScore: calculateConfidenceScore(missingSecurityFactors, "high"),
+      confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
     });
   }
 
@@ -199,6 +283,8 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
       affectedComponent: "Windows Firewall",
       affectedService: "MpsSvc",
       recommendation: "Enable Windows Firewall service immediately.",
+      confidenceScore: calculateConfidenceScore(missingSecurityFactors, "high"),
+      confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
     });
   }
 
@@ -211,6 +297,8 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
       affectedComponent: "Windows Update",
       affectedService: "wuauserv",
       recommendation: "Enable Windows Update service to ensure security patches are applied.",
+      confidenceScore: calculateConfidenceScore(missingSecurityFactors, "medium"),
+      confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
     });
   }
 
@@ -220,14 +308,25 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
 function analyzeResourceMetrics(metrics: ResourceMetrics, hostname: string): GeneratedFinding[] {
   const findings: GeneratedFinding[] = [];
 
+  // Resource anomalies are lower confidence - they may indicate issues but aren't definitive exploits
+  const resourceFactors: Partial<ConfidenceFactors> = {
+    hasKnownExploit: false,
+    networkExposed: false,
+    privilegeRequired: "unknown",
+    exploitComplexity: "high", // Harder to determine if it's actually malicious
+  };
+
   if (metrics.cpu_percent !== undefined && metrics.cpu_percent > 90) {
+    const severity = metrics.cpu_percent > 98 ? "high" : "medium";
     findings.push({
       findingType: "resource_anomaly",
-      severity: metrics.cpu_percent > 98 ? "high" : "medium",
+      severity,
       title: `High CPU Usage Detected (${metrics.cpu_percent.toFixed(1)}%)`,
       description: `Sustained high CPU usage (${metrics.cpu_percent.toFixed(1)}%) detected on ${hostname}. This could indicate cryptomining malware, runaway process, or denial of service.`,
       affectedComponent: "CPU",
       recommendation: "Investigate running processes. Check for unauthorized software or cryptomining activity.",
+      confidenceScore: calculateConfidenceScore(resourceFactors, severity),
+      confidenceFactors: buildConfidenceFactors(resourceFactors),
     });
   }
 
@@ -239,17 +338,22 @@ function analyzeResourceMetrics(metrics: ResourceMetrics, hostname: string): Gen
       description: `Memory usage is critically high (${metrics.mem_used_pct.toFixed(1)}%) on ${hostname}. System stability may be affected.`,
       affectedComponent: "Memory",
       recommendation: "Identify memory-intensive processes. Consider increasing RAM or optimizing applications.",
+      confidenceScore: calculateConfidenceScore(resourceFactors, "medium"),
+      confidenceFactors: buildConfidenceFactors(resourceFactors),
     });
   }
 
   if (metrics.disk_used_pct !== undefined && metrics.disk_used_pct > 90) {
+    const severity = metrics.disk_used_pct > 95 ? "high" : "medium";
     findings.push({
       findingType: "resource_anomaly",
-      severity: metrics.disk_used_pct > 95 ? "high" : "medium",
+      severity,
       title: `Low Disk Space (${(100 - metrics.disk_used_pct).toFixed(1)}% free)`,
       description: `Disk usage is at ${metrics.disk_used_pct.toFixed(1)}% on ${hostname}. Low disk space can prevent security updates and cause system instability.`,
       affectedComponent: "Disk",
       recommendation: "Free up disk space. Remove unnecessary files and ensure adequate space for security updates and logs.",
+      confidenceScore: calculateConfidenceScore(resourceFactors, severity),
+      confidenceFactors: buildConfidenceFactors(resourceFactors),
     });
   }
 
@@ -284,6 +388,9 @@ export function generateAgentFindings(
       affectedPort: finding.affectedPort || null,
       affectedService: finding.affectedService || null,
       recommendation: finding.recommendation || null,
+      confidenceScore: finding.confidenceScore,
+      confidenceFactors: finding.confidenceFactors,
+      verificationStatus: finding.confidenceScore < 60 ? "needs_review" : "unverified",
       detectedAt: new Date(),
     });
   }
