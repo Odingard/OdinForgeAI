@@ -16,6 +16,7 @@ import { synthesizeAttackGraph } from "./graph-synthesizer";
 import { generateEvidenceFromAnalysis } from "./evidence-collector";
 import { generateIntelligentScore } from "./scoring-engine";
 import { generateRemediationGuidance } from "./remediation-engine";
+import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 
 export interface OrchestratorOptions {
   adversaryProfile?: AdversaryProfile;
@@ -44,49 +45,70 @@ export async function runAgentOrchestrator(
   const memory: AgentMemory = { context };
 
   onProgress?.("Recon Agent", "recon", 5, "Initializing reconnaissance...");
-  const reconResult = await runReconAgent(memory, (stage: string, progress: number, message: string) => {
-    onProgress?.("Recon Agent", stage, progress, message);
-  });
+  const reconResult = await runWithHeartbeat(evaluationId, "Recon Agent", 
+    () => runReconAgent(memory, (stage: string, progress: number, message: string) => {
+      updateAgentHeartbeat(evaluationId, "Recon Agent", stage, progress, message);
+      onProgress?.("Recon Agent", stage, progress, message);
+    })
+  );
   memory.recon = reconResult.findings;
 
   onProgress?.("Exploit Agent", "exploit", 25, "Analyzing exploit chains...");
-  const exploitResult = await runExploitAgent(memory, (stage: string, progress: number, message: string) => {
-    onProgress?.("Exploit Agent", stage, progress, message);
-  });
+  const exploitResult = await runWithHeartbeat(evaluationId, "Exploit Agent",
+    () => runExploitAgent(memory, (stage: string, progress: number, message: string) => {
+      updateAgentHeartbeat(evaluationId, "Exploit Agent", stage, progress, message);
+      onProgress?.("Exploit Agent", stage, progress, message);
+    })
+  );
   memory.exploit = exploitResult.findings;
 
   onProgress?.("Lateral Movement Agent", "lateral", 45, "Mapping lateral paths...");
-  const lateralResult = await runLateralAgent(memory, (stage: string, progress: number, message: string) => {
-    onProgress?.("Lateral Movement Agent", stage, progress, message);
-  });
+  const lateralResult = await runWithHeartbeat(evaluationId, "Lateral Movement Agent",
+    () => runLateralAgent(memory, (stage: string, progress: number, message: string) => {
+      updateAgentHeartbeat(evaluationId, "Lateral Movement Agent", stage, progress, message);
+      onProgress?.("Lateral Movement Agent", stage, progress, message);
+    })
+  );
   memory.lateral = lateralResult.findings;
 
   onProgress?.("Business Logic Agent", "business_logic", 55, "Analyzing business logic flaws...");
-  const businessLogicResult = await runBusinessLogicAgent(memory, (stage: string, progress: number, message: string) => {
-    onProgress?.("Business Logic Agent", stage, progress, message);
-  });
+  const businessLogicResult = await runWithHeartbeat(evaluationId, "Business Logic Agent",
+    () => runBusinessLogicAgent(memory, (stage: string, progress: number, message: string) => {
+      updateAgentHeartbeat(evaluationId, "Business Logic Agent", stage, progress, message);
+      onProgress?.("Business Logic Agent", stage, progress, message);
+    })
+  );
   memory.businessLogic = businessLogicResult.findings;
 
   if (shouldRunEnhancedEngine(exposureType)) {
     onProgress?.("Business Logic Engine", "enhanced_business_logic", 60, "Running enhanced business logic analysis...");
-    const enhancedResult = await runEnhancedBusinessLogicEngine(memory, (stage: string, progress: number, message: string) => {
-      onProgress?.("Business Logic Engine", stage, progress, message);
-    });
+    const enhancedResult = await runWithHeartbeat(evaluationId, "Business Logic Engine",
+      () => runEnhancedBusinessLogicEngine(memory, (stage: string, progress: number, message: string) => {
+        updateAgentHeartbeat(evaluationId, "Business Logic Engine", stage, progress, message);
+        onProgress?.("Business Logic Engine", stage, progress, message);
+      })
+    );
     memory.enhancedBusinessLogic = enhancedResult.findings;
   }
 
   if (shouldRunMultiVectorAnalysis(exposureType)) {
     onProgress?.("Multi-Vector Agent", "multi_vector", 70, "Analyzing multi-vector attack paths...");
-    const multiVectorResult = await runMultiVectorAnalysisAgent(memory, (stage: string, progress: number, message: string) => {
-      onProgress?.("Multi-Vector Agent", stage, progress, message);
-    });
+    const multiVectorResult = await runWithHeartbeat(evaluationId, "Multi-Vector Agent",
+      () => runMultiVectorAnalysisAgent(memory, (stage: string, progress: number, message: string) => {
+        updateAgentHeartbeat(evaluationId, "Multi-Vector Agent", stage, progress, message);
+        onProgress?.("Multi-Vector Agent", stage, progress, message);
+      })
+    );
     memory.multiVector = multiVectorResult.findings;
   }
 
   onProgress?.("Impact Agent", "impact", 80, "Assessing business impact...");
-  const impactResult = await runImpactAgent(memory, (stage: string, progress: number, message: string) => {
-    onProgress?.("Impact Agent", stage, progress, message);
-  });
+  const impactResult = await runWithHeartbeat(evaluationId, "Impact Agent",
+    () => runImpactAgent(memory, (stage: string, progress: number, message: string) => {
+      updateAgentHeartbeat(evaluationId, "Impact Agent", stage, progress, message);
+      onProgress?.("Impact Agent", stage, progress, message);
+    })
+  );
   memory.impact = impactResult.findings;
 
   onProgress?.("Synthesizer", "synthesis", 90, "Generating final report...");

@@ -42,6 +42,37 @@ import { fullRecon, reconToExposures, type ReconResult } from "./services/extern
 import { runFullAssessment } from "./services/full-assessment";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
 
+// Helper function to normalize platform strings for comparison
+function normalizePlatform(platform: string): string {
+  const lower = platform.toLowerCase().trim();
+  
+  // Normalize Windows variants
+  if (lower.includes("windows") || lower === "win32" || lower === "win64") {
+    return "windows";
+  }
+  
+  // Normalize Linux variants
+  if (lower.includes("linux") || lower === "ubuntu" || lower === "debian" || lower === "centos" || lower === "rhel" || lower === "fedora") {
+    return "linux";
+  }
+  
+  // Normalize macOS variants
+  if (lower.includes("darwin") || lower.includes("macos") || lower.includes("mac os") || lower === "osx") {
+    return "macos";
+  }
+  
+  // Container/Kubernetes
+  if (lower.includes("container") || lower.includes("docker")) {
+    return "container";
+  }
+  
+  if (lower.includes("kubernetes") || lower.includes("k8s")) {
+    return "kubernetes";
+  }
+  
+  return lower;
+}
+
 // UI Auth Validation Schemas
 const loginSchema = z.object({
   email: z.string().email(),
@@ -2535,6 +2566,25 @@ export async function registerRoutes(
 
       const { systemInfo, resourceMetrics, services, openPorts, networkConnections, installedSoftware, configData, securityFindings, collectedAt } = parsed.data;
 
+      // Platform validation - cross-check incoming platform against registered agent
+      if (systemInfo && req.agent.platform) {
+        const incomingPlatform = (systemInfo as any).platform || (systemInfo as any).os;
+        if (incomingPlatform) {
+          const normalizedIncoming = normalizePlatform(incomingPlatform);
+          const normalizedRegistered = normalizePlatform(req.agent.platform);
+          
+          if (normalizedIncoming !== normalizedRegistered) {
+            console.warn(`[Platform Mismatch] Agent ${req.agent.id} (${req.agent.agentName}): ` +
+              `Registered as '${req.agent.platform}' but telemetry reports '${incomingPlatform}'. ` +
+              `Telemetry rejected.`);
+            return res.status(400).json({ 
+              error: "Platform mismatch",
+              details: `Agent registered as ${req.agent.platform} but telemetry reports ${incomingPlatform}`
+            });
+          }
+        }
+      }
+
       const telemetry = await storage.createAgentTelemetry({
         agentId: req.agent.id,
         organizationId: req.agent.organizationId,
@@ -2718,6 +2768,24 @@ export async function registerRoutes(
           // Include network info in systemInfo for display
           const systemInfo = event.payload.system || event.payload.systemInfo || {};
           const networkInfo = event.payload.network || null;
+          
+          // Platform validation - cross-check incoming platform against registered agent
+          const incomingPlatform = systemInfo.platform || systemInfo.os;
+          const registeredPlatform = req.agent.platform;
+          
+          if (incomingPlatform && registeredPlatform) {
+            const normalizedIncoming = normalizePlatform(incomingPlatform);
+            const normalizedRegistered = normalizePlatform(registeredPlatform);
+            
+            if (normalizedIncoming !== normalizedRegistered) {
+              console.warn(`[Platform Mismatch] Agent ${req.agent.id} (${req.agent.agentName}): ` +
+                `Registered as '${registeredPlatform}' but telemetry reports '${incomingPlatform}'. ` +
+                `Event quarantined.`);
+              validationErrors.push(`Event ${i}: Platform mismatch - agent registered as ${registeredPlatform} but telemetry reports ${incomingPlatform}`);
+              skippedCount++;
+              continue; // Skip this event to prevent cross-platform data contamination
+            }
+          }
           
           // Merge network info into systemInfo for easy display
           if (networkInfo) {
