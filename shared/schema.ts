@@ -1070,6 +1070,11 @@ export const aevResults = pgTable("aev_results", {
   evidenceArtifacts: jsonb("evidence_artifacts").$type<EvidenceArtifact[]>(),
   intelligentScore: jsonb("intelligent_score").$type<IntelligentScore>(),
   remediationGuidance: jsonb("remediation_guidance").$type<RemediationGuidance>(),
+  
+  // LLM Judge Validation - automated AI-based finding validation  
+  llmValidation: jsonb("llm_validation").$type<LLMValidationResult>(),
+  llmValidationVerdict: varchar("llm_validation_verdict"), // One of llmValidationVerdicts - denormalized for filtering
+  
   duration: integer("duration"), // milliseconds
   completedAt: timestamp("completed_at"),
 });
@@ -2513,6 +2518,21 @@ export type AgentFindingStatus = typeof agentFindingStatuses[number];
 export const findingVerificationStatuses = ["unverified", "verified_exploitable", "verified_false_positive", "needs_review"] as const;
 export type FindingVerificationStatus = typeof findingVerificationStatuses[number];
 
+// LLM Judge validation verdicts - automated AI-based finding validation
+export const llmValidationVerdicts = ["confirmed", "noise", "needs_review", "error"] as const;
+export type LLMValidationVerdict = typeof llmValidationVerdicts[number];
+
+// LLM Judge validation result structure
+export interface LLMValidationResult {
+  verdict: LLMValidationVerdict;
+  confidence: number; // 0-100
+  reason: string;
+  missingEvidence?: string[];
+  suggestedActions?: string[];
+  validatedAt: string; // ISO timestamp
+  model: string; // e.g., "gpt-4o-mini"
+}
+
 export const agentFindings = pgTable("agent_findings", {
   id: varchar("id").primaryKey(),
   agentId: varchar("agent_id").notNull(),
@@ -2549,6 +2569,10 @@ export const agentFindings = pgTable("agent_findings", {
   verifiedBy: varchar("verified_by"), // User ID who verified
   verifiedAt: timestamp("verified_at"),
   verificationNotes: text("verification_notes"),
+  
+  // LLM Judge Validation - automated AI-based finding validation
+  llmValidation: jsonb("llm_validation").$type<LLMValidationResult>(),
+  llmValidationVerdict: varchar("llm_validation_verdict"), // One of llmValidationVerdicts - denormalized for filtering
   
   // Remediation
   recommendation: text("recommendation"),

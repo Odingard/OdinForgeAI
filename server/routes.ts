@@ -3383,7 +3383,13 @@ export async function registerRoutes(
   // Get agent findings
   app.get("/api/agents/:id/findings", async (req, res) => {
     try {
-      const findings = await storage.getAgentFindings(req.params.id);
+      const includeNoise = req.query.includeNoise === "true";
+      let findings = await storage.getAgentFindings(req.params.id);
+      
+      if (!includeNoise) {
+        findings = findings.filter(f => f.llmValidationVerdict !== "noise");
+      }
+      
       res.json(findings);
     } catch (error) {
       console.error("Error fetching agent findings:", error);
@@ -3425,7 +3431,13 @@ export async function registerRoutes(
   // Get all agent findings
   app.get("/api/agent-findings", async (req, res) => {
     try {
-      const findings = await storage.getAgentFindings();
+      const includeNoise = req.query.includeNoise === "true";
+      let findings = await storage.getAgentFindings();
+      
+      if (!includeNoise) {
+        findings = findings.filter(f => f.llmValidationVerdict !== "noise");
+      }
+      
       res.json(findings);
     } catch (error) {
       console.error("Error fetching agent findings:", error);
