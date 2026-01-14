@@ -6,6 +6,11 @@ import { handleReportGenerationJob } from "./report-generation-handler";
 import { handleAISimulationJob } from "./ai-simulation-handler";
 import { handleEvaluationJob } from "./evaluation-handler";
 import { handleFullAssessmentJob } from "./full-assessment-handler";
+import { handleExploitValidationJob } from "./exploit-validation-handler";
+import { handleApiScanJob } from "./api-scan-handler";
+import { handleAuthScanJob } from "./auth-scan-handler";
+import { handleRemediationJob } from "./remediation-handler";
+import { handleAgentDeploymentJob } from "./agent-deployment-handler";
 
 export function registerJobHandlers(): void {
   console.log("[Queue] Registering job handlers...");
@@ -17,8 +22,13 @@ export function registerJobHandlers(): void {
   queueService.registerHandler("ai_simulation", handleAISimulationJob as JobHandler);
   queueService.registerHandler("evaluation", handleEvaluationJob as JobHandler);
   queueService.registerHandler("full_assessment", handleFullAssessmentJob as JobHandler);
+  queueService.registerHandler("exploit_validation", handleExploitValidationJob as JobHandler);
+  queueService.registerHandler("api_scan", handleApiScanJob as JobHandler);
+  queueService.registerHandler("auth_scan", handleAuthScanJob as JobHandler);
+  queueService.registerHandler("remediation", handleRemediationJob as JobHandler);
+  queueService.registerHandler("agent_deployment", handleAgentDeploymentJob as JobHandler);
   
-  console.log("[Queue] Job handlers registered: network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment");
+  console.log("[Queue] Job handlers registered (12 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment");
 }
 
 export { 
@@ -29,4 +39,9 @@ export {
   handleAISimulationJob,
   handleEvaluationJob,
   handleFullAssessmentJob,
+  handleExploitValidationJob,
+  handleApiScanJob,
+  handleAuthScanJob,
+  handleRemediationJob,
+  handleAgentDeploymentJob,
 };
