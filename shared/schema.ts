@@ -411,6 +411,97 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+// ============================================================================
+// MULTI-TENANT ISOLATION
+// Core tenant management for organization separation
+// ============================================================================
+
+export const tenantStatuses = [
+  "active",
+  "suspended",
+  "trial",
+  "pending_verification",
+  "deleted",
+] as const;
+export type TenantStatus = typeof tenantStatuses[number];
+
+export const tenantTiers = [
+  "free",
+  "starter",
+  "professional",
+  "enterprise",
+  "unlimited",
+] as const;
+export type TenantTier = typeof tenantTiers[number];
+
+export const tenants = pgTable("tenants", {
+  id: varchar("id").primaryKey(),
+  
+  // Tenant identification
+  name: varchar("name").notNull(),
+  slug: varchar("slug").notNull().unique(), // URL-safe identifier
+  
+  // Status and tier
+  status: varchar("status").notNull().default("active"), // One of tenantStatuses
+  tier: varchar("tier").notNull().default("starter"), // One of tenantTiers
+  
+  // Trial management
+  trialEndsAt: timestamp("trial_ends_at"),
+  
+  // Feature limits (based on tier)
+  maxUsers: integer("max_users").default(5),
+  maxAgents: integer("max_agents").default(10),
+  maxEvaluationsPerDay: integer("max_evaluations_per_day").default(100),
+  maxConcurrentScans: integer("max_concurrent_scans").default(3),
+  
+  // Feature flags (tenant-specific overrides)
+  features: jsonb("features").$type<{
+    liveScanning?: boolean;
+    cloudIntegration?: boolean;
+    apiAccess?: boolean;
+    customReports?: boolean;
+    aiSimulations?: boolean;
+    externalRecon?: boolean;
+    complianceFrameworks?: string[];
+  }>().default({}),
+  
+  // Security settings
+  allowedIpRanges: jsonb("allowed_ip_ranges").$type<string[]>().default([]),
+  enforceIpAllowlist: boolean("enforce_ip_allowlist").default(false),
+  
+  // Metadata
+  billingEmail: varchar("billing_email"),
+  technicalContact: varchar("technical_contact"),
+  industry: varchar("industry"),
+  
+  // Parent tenant for hierarchical multi-tenancy
+  parentTenantId: varchar("parent_tenant_id"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+});
+
+export const insertTenantSchema = createInsertSchema(tenants).omit({
+  createdAt: true,
+  updatedAt: true,
+  deletedAt: true,
+});
+
+export type InsertTenant = z.infer<typeof insertTenantSchema>;
+export type Tenant = typeof tenants.$inferSelect;
+
+// Tenant context passed through request pipeline
+export interface TenantContext {
+  tenantId: string;
+  organizationId: string;
+  userId?: string;
+  userRole?: UserRole;
+  tier: TenantTier;
+  features: Tenant["features"];
+}
+
 // Exposure Types - Multi-Vector Coverage
 export const exposureTypes = [
   "cve",                    // CVE exploitation (safe mode)
