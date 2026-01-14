@@ -11,6 +11,7 @@ import { reportGenerator } from "./services/report-generator";
 import { unifiedAuthService } from "./services/unified-auth";
 import { mtlsAuthService } from "./services/mtls-auth";
 import { jwtAuthService } from "./services/jwt-auth";
+import { queueService, JobType } from "./services/queue";
 import { 
   apiRateLimiter, 
   authRateLimiter, 
@@ -1062,6 +1063,9 @@ export async function registerRoutes(
 
   // ========== REPORT V2 NARRATIVE ENDPOINTS ==========
   registerReportV2Routes(app);
+
+  // ========== JOB QUEUE ENDPOINTS ==========
+  registerJobQueueRoutes(app);
 
   // ========== EVIDENCE EXPORT ENDPOINT ==========
   
@@ -4961,4 +4965,304 @@ async function runAiSimulation(simulationId: string) {
       completedAt: new Date(),
     });
   }
+}
+
+// ========== JOB QUEUE API ROUTES ==========
+
+function registerJobQueueRoutes(app: Express) {
+  // Get queue stats
+  app.get("/api/jobs/stats", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const stats = await queueService.getQueueStats();
+      res.json({
+        ...stats,
+        usingRedis: queueService.isUsingRedis(),
+      });
+    } catch (error) {
+      console.error("Failed to get queue stats:", error);
+      res.status(500).json({ error: "Failed to get queue statistics" });
+    }
+  });
+
+  // List jobs for tenant
+  app.get("/api/jobs", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const status = req.query.status as string | undefined;
+      const type = req.query.type as JobType | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      const jobs = await queueService.getJobsByTenant(tenantId, {
+        status: status as any,
+        type,
+        limit,
+        offset,
+      });
+
+      res.json({ jobs, total: jobs.length });
+    } catch (error) {
+      console.error("Failed to list jobs:", error);
+      res.status(500).json({ error: "Failed to list jobs" });
+    }
+  });
+
+  // Get single job
+  app.get("/api/jobs/:jobId", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const job = await queueService.getJob(req.params.jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      // Verify tenant access
+      const tenantId = req.uiUser?.tenantId || "default";
+      if (job.tenantId !== tenantId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      res.json(job);
+    } catch (error) {
+      console.error("Failed to get job:", error);
+      res.status(500).json({ error: "Failed to get job" });
+    }
+  });
+
+  // Cancel job
+  app.post("/api/jobs/:jobId/cancel", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const job = await queueService.getJob(req.params.jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      const tenantId = req.uiUser?.tenantId || "default";
+      if (job.tenantId !== tenantId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const success = await queueService.cancelJob(req.params.jobId);
+      if (success) {
+        res.json({ success: true, message: "Job cancelled" });
+      } else {
+        res.status(400).json({ error: "Unable to cancel job" });
+      }
+    } catch (error) {
+      console.error("Failed to cancel job:", error);
+      res.status(500).json({ error: "Failed to cancel job" });
+    }
+  });
+
+  // Retry failed job
+  app.post("/api/jobs/:jobId/retry", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const job = await queueService.getJob(req.params.jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      const tenantId = req.uiUser?.tenantId || "default";
+      if (job.tenantId !== tenantId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const success = await queueService.retryJob(req.params.jobId);
+      if (success) {
+        res.json({ success: true, message: "Job queued for retry" });
+      } else {
+        res.status(400).json({ error: "Unable to retry job" });
+      }
+    } catch (error) {
+      console.error("Failed to retry job:", error);
+      res.status(500).json({ error: "Failed to retry job" });
+    }
+  });
+
+  // Submit evaluation job via queue
+  app.post("/api/jobs/evaluation", uiAuthMiddleware, evaluationRateLimiter, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
+      const userId = req.uiUser?.userId;
+
+      const { assetId, exposureType, priority, description, executionMode } = req.body;
+
+      // Create evaluation record first
+      const evaluation = await storage.createEvaluation({
+        assetId,
+        exposureType,
+        priority: priority || "medium",
+        description,
+        organizationId,
+        executionMode: executionMode || "safe",
+      });
+
+      // Queue the job
+      const jobId = await queueService.addJob("evaluation", {
+        type: "evaluation",
+        tenantId,
+        organizationId,
+        userId,
+        evaluationId: evaluation.id,
+        executionMode: executionMode || "safe",
+        assetId,
+        exposureData: { exposureType, priority, description },
+      });
+
+      res.status(201).json({
+        jobId,
+        evaluationId: evaluation.id,
+        message: "Evaluation job queued successfully",
+      });
+    } catch (error) {
+      console.error("Failed to queue evaluation:", error);
+      res.status(500).json({ error: "Failed to queue evaluation job" });
+    }
+  });
+
+  // Submit network scan job
+  app.post("/api/jobs/network-scan", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
+      const userId = req.uiUser?.userId;
+
+      const { targets, portRange, scanType } = req.body;
+
+      if (!targets || !Array.isArray(targets) || targets.length === 0) {
+        return res.status(400).json({ error: "targets array is required" });
+      }
+
+      const scanId = `scan-${randomUUID().slice(0, 8)}`;
+
+      const jobId = await queueService.addJob("network_scan", {
+        type: "network_scan",
+        tenantId,
+        organizationId,
+        userId,
+        scanId,
+        targets,
+        portRange,
+        scanType,
+      });
+
+      res.status(201).json({
+        jobId,
+        scanId,
+        message: "Network scan job queued successfully",
+      });
+    } catch (error) {
+      console.error("Failed to queue network scan:", error);
+      res.status(500).json({ error: "Failed to queue network scan job" });
+    }
+  });
+
+  // Submit external recon job
+  app.post("/api/jobs/external-recon", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
+      const userId = req.uiUser?.userId;
+
+      const { target, modules } = req.body;
+
+      if (!target) {
+        return res.status(400).json({ error: "target is required" });
+      }
+
+      const reconId = `recon-${randomUUID().slice(0, 8)}`;
+
+      const jobId = await queueService.addJob("external_recon", {
+        type: "external_recon",
+        tenantId,
+        organizationId,
+        userId,
+        reconId,
+        target,
+        modules,
+      });
+
+      res.status(201).json({
+        jobId,
+        reconId,
+        message: "External recon job queued successfully",
+      });
+    } catch (error) {
+      console.error("Failed to queue external recon:", error);
+      res.status(500).json({ error: "Failed to queue external recon job" });
+    }
+  });
+
+  // Submit report generation job
+  app.post("/api/jobs/report", uiAuthMiddleware, reportRateLimiter, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
+      const userId = req.uiUser?.userId;
+
+      const { evaluationIds, format, reportType } = req.body;
+
+      if (!evaluationIds || !Array.isArray(evaluationIds) || evaluationIds.length === 0) {
+        return res.status(400).json({ error: "evaluationIds array is required" });
+      }
+
+      const reportId = `rpt-${randomUUID().slice(0, 8)}`;
+
+      const jobId = await queueService.addJob("report_generation", {
+        type: "report_generation",
+        tenantId,
+        organizationId,
+        userId,
+        reportId,
+        evaluationIds,
+        format,
+        reportType,
+      });
+
+      res.status(201).json({
+        jobId,
+        reportId,
+        message: "Report generation job queued successfully",
+      });
+    } catch (error) {
+      console.error("Failed to queue report generation:", error);
+      res.status(500).json({ error: "Failed to queue report generation job" });
+    }
+  });
+
+  // Submit AI simulation job
+  app.post("/api/jobs/ai-simulation", uiAuthMiddleware, simulationRateLimiter, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
+      const userId = req.uiUser?.userId;
+
+      const { scenario, rounds } = req.body;
+
+      if (!scenario) {
+        return res.status(400).json({ error: "scenario is required" });
+      }
+
+      const simulationId = `sim-${randomUUID().slice(0, 8)}`;
+
+      const jobId = await queueService.addJob("ai_simulation", {
+        type: "ai_simulation",
+        tenantId,
+        organizationId,
+        userId,
+        simulationId,
+        scenario,
+        rounds,
+      });
+
+      res.status(201).json({
+        jobId,
+        simulationId,
+        message: "AI simulation job queued successfully",
+      });
+    } catch (error) {
+      console.error("Failed to queue AI simulation:", error);
+      res.status(500).json({ error: "Failed to queue AI simulation job" });
+    }
+  });
 }
