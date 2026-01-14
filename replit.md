@@ -126,6 +126,21 @@ All documentation is consolidated under the `docs/` directory:
 - **Pre-registration**: Agents are pre-registered in pending state before cloud deployment, appearing immediately in the Agents list.
 - **Status Tracking**: Deployment status tracked per cloud asset (pending, deploying, success, failed).
 
+### AEV Evidence Collection (Phase 1 Foundation)
+- **Database Schema**: `validationEvidenceArtifacts` table stores raw HTTP request/response, timing data, verdict classifications, and tenant scoping.
+- **ValidationVerdict Types**: `confirmed`, `likely`, `theoretical`, `false_positive`, `error` - with confidence scoring (0-100).
+- **ValidatingHttpClient** (`server/services/validation/validating-http-client.ts`): Wraps fetch to capture full request/response with timing, sanitizes sensitive headers, truncates large bodies.
+- **EvidenceStorageService** (`server/services/validation/evidence-storage-service.ts`): Manages evidence persistence with retention policies (default 90 days), per-evaluation artifact limits (max 100), automatic cleanup of theoretical/false-positive findings.
+- **Tenant Isolation**: All evidence queries enforce organizationId at storage layer for cross-tenant protection.
+- **API Endpoints**:
+  - `GET /api/evidence` - List evidence artifacts for organization
+  - `GET /api/evidence/summary` - Statistics (counts by verdict, total size)
+  - `GET /api/evidence/:id` - Get single artifact with org verification
+  - `GET /api/evaluations/:evaluationId/evidence` - Evidence by evaluation
+  - `GET /api/findings/:findingId/evidence` - Evidence by finding
+  - `DELETE /api/evidence/:id` - Delete artifact with org verification
+  - `POST /api/evidence/cleanup` - Trigger retention policy cleanup
+
 ### AI Integration
 - Uses OpenAI API for analyzing security exposures, determining exploitability, and generating attack paths and remediation.
 
