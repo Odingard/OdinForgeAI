@@ -64,11 +64,20 @@ All documentation is consolidated under the `docs/` directory:
 - **Feature Gating**: `requireTier()` and `requireFeature()` middleware enforce feature access based on tenant configuration.
 - **Default Tenant**: System seeds a "default" tenant on startup with enterprise-level access for development/single-tenant deployments.
 
+### Scheduled Scan Scheduler
+- **Automatic Execution**: node-cron scheduler checks for due scans every minute.
+- **Scan Frequencies**: Supports once, daily, weekly, monthly, and quarterly schedules.
+- **Next Run Calculation**: Automatically computes nextRunAt based on frequency and time settings.
+- **Batch Job Creation**: Due scans create batch jobs with all configured assets.
+- **Manual Trigger**: `POST /api/scheduled-scans/:id/trigger` for on-demand execution.
+- **One-time Scans**: Automatically disabled after execution.
+
 ### Job Queue Infrastructure
 - **BullMQ Integration**: Redis-backed job queue with in-memory fallback when Redis is unavailable.
 - **Job Types**: Evaluation, network scan, cloud discovery, external recon, report generation, AI simulation, and more.
 - **API Routes**: `/api/jobs/*` endpoints for job submission, status, and management.
 - **Graceful Degradation**: Queue service automatically detects Redis availability and falls back to in-memory processing.
+- **Database Persistence**: All scan/validation results persisted to dedicated tables (apiScanResults, authScanResults, exploitValidationResults, remediationResults).
 - **Registered Handlers** (12 total):
   - `network_scan`: Real TCP port scanning with banner grabbing and vulnerability detection.
   - `cloud_discovery`: Multi-cloud asset discovery (AWS/Azure/GCP) via CloudIntegrationService.

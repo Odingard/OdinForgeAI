@@ -7,6 +7,7 @@ import { seedSystemRoles, seedDefaultUIUsers } from "./services/ui-auth";
 import { ensureAgentBinaries } from "./services/agent-builder";
 import { queueService } from "./services/queue";
 import { registerJobHandlers } from "./services/queue/handlers";
+import { initScheduler } from "./services/scheduler/scan-scheduler";
 import { gunzipSync, inflateSync } from "zlib";
 
 const app = express();
@@ -190,6 +191,31 @@ app.use((req, res, next) => {
     console.log(`Job queue initialized (using ${queueService.isUsingRedis() ? "Redis" : "in-memory fallback"})`);
   } catch (error) {
     console.warn("Job queue initialization failed:", error instanceof Error ? error.message : error);
+  }
+  
+  // Initialize scheduled scan scheduler
+  try {
+    initScheduler();
+  } catch (error) {
+    console.warn("Scheduler initialization failed:", error instanceof Error ? error.message : error);
+  }
+  
+  // Production environment warnings
+  if (process.env.NODE_ENV === "production") {
+    const warnings: string[] = [];
+    if (!process.env.REDIS_URL) {
+      warnings.push("REDIS_URL not set - using in-memory queue (not recommended for production)");
+    }
+    if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === "dev-secret-change-in-production") {
+      warnings.push("SESSION_SECRET not set or using default - set a strong secret for production");
+    }
+    if (!process.env.ADMIN_API_KEY) {
+      warnings.push("ADMIN_API_KEY not set - admin endpoints are less secure");
+    }
+    if (warnings.length > 0) {
+      console.warn("[Production] Environment configuration warnings:");
+      warnings.forEach(w => console.warn(`  - ${w}`));
+    }
   }
   
   await registerRoutes(httpServer, app);
