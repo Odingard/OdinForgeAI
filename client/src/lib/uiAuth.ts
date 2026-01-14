@@ -120,6 +120,23 @@ export async function login(email: string, password: string, tenantId: string = 
   return data;
 }
 
+export async function register(email: string, password: string, displayName?: string): Promise<LoginResponse> {
+  const response = await fetch("/ui/api/auth/signup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, displayName }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Registration failed");
+  }
+
+  const data = await response.json();
+  storeAuthData(data);
+  return data;
+}
+
 export async function refreshTokens(): Promise<LoginResponse | null> {
   const { refreshToken } = getStoredTokens();
   if (!refreshToken) return null;

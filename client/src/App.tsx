@@ -23,6 +23,7 @@ import Simulations from "@/pages/Simulations";
 import UserManagement from "@/pages/UserManagement";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
 import FullAssessment from "@/pages/FullAssessment";
 import { ExternalRecon } from "@/components/ExternalRecon";
 import NotFound from "@/pages/not-found";
@@ -166,8 +167,9 @@ function AppLayout() {
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useUIAuth();
   const [, forceUpdate] = useState(0);
+  const [location] = useLocation();
   
-  const handleLoginSuccess = useCallback(() => {
+  const handleAuthSuccess = useCallback(() => {
     forceUpdate(x => x + 1);
   }, []);
 
@@ -183,7 +185,10 @@ function AuthenticatedApp() {
   }
 
   if (!isAuthenticated) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    if (location === "/signup") {
+      return <Signup onSignupSuccess={handleAuthSuccess} />;
+    }
+    return <Login onLoginSuccess={handleAuthSuccess} />;
   }
 
   return (
