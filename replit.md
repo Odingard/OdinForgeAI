@@ -69,12 +69,14 @@ All documentation is consolidated under the `docs/` directory:
 - **Job Types**: Evaluation, network scan, cloud discovery, external recon, report generation, AI simulation, and more.
 - **API Routes**: `/api/jobs/*` endpoints for job submission, status, and management.
 - **Graceful Degradation**: Queue service automatically detects Redis availability and falls back to in-memory processing.
-- **Registered Handlers** (5 total):
+- **Registered Handlers** (7 total):
   - `network_scan`: Real TCP port scanning with banner grabbing and vulnerability detection.
   - `cloud_discovery`: Multi-cloud asset discovery (AWS/Azure/GCP) via CloudIntegrationService.
   - `external_recon`: External reconnaissance using fullRecon service (port scan, SSL check, HTTP fingerprinting, DNS enumeration).
   - `report_generation`: Report generation via ReportGenerator (executive, technical, compliance reports).
   - `ai_simulation`: AI vs AI purple team simulations via runAISimulation with iterative attack/defense rounds.
+  - `evaluation`: Single AI-powered security evaluation using agent orchestrator with multi-agent analysis.
+  - `full_assessment`: Multi-phase penetration testing across multiple systems with unified attack graphs.
 
 ### Live Network Testing (Phase 2A Complete)
 - **Real TCP Port Scanning**: Uses Node.js net module for actual network connectivity testing.
