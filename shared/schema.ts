@@ -3181,3 +3181,125 @@ export const insertRemediationResultSchema = createInsertSchema(remediationResul
 
 export type InsertRemediationResult = z.infer<typeof insertRemediationResultSchema>;
 export type RemediationResult = typeof remediationResults.$inferSelect;
+
+// ============================================================================
+// VALIDATION EVIDENCE ARTIFACTS
+// Raw HTTP request/response pairs for true AEV (Adversarial Exposure Validation)
+// ============================================================================
+
+export const validationVerdicts = [
+  "confirmed",      // Exploit executed successfully, evidence captured
+  "likely",         // Behavioral indicators present, partial validation
+  "theoretical",    // AI analysis only, no execution attempted
+  "false_positive", // Validation attempted, not exploitable
+  "error",          // Validation failed due to error
+] as const;
+export type ValidationVerdict = typeof validationVerdicts[number];
+
+export const evidenceTypes = [
+  "http_request_response",  // Full HTTP transaction capture
+  "timing_analysis",        // Time-based detection evidence
+  "callback_received",      // Out-of-band callback (canary token, DNS)
+  "error_based",            // Error message differential
+  "screenshot",             // Visual evidence capture
+  "banner_grab",            // Network service banner
+  "configuration",          // Configuration file or setting
+  "credential",             // Credential exposure (redacted)
+] as const;
+export type EvidenceType = typeof evidenceTypes[number];
+
+export interface HttpRequestCapture {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body?: string;
+  timestamp: string;
+}
+
+export interface HttpResponseCapture {
+  statusCode: number;
+  statusText: string;
+  headers: Record<string, string>;
+  body?: string;
+  bodyTruncated?: boolean;
+  timestamp: string;
+}
+
+export interface TimingData {
+  requestSentAt: string;
+  responseReceivedAt: string;
+  durationMs: number;
+  expectedDurationMs?: number;
+  deviation?: number;
+}
+
+export const validationEvidenceArtifacts = pgTable("validation_evidence_artifacts", {
+  id: varchar("id").primaryKey(),
+  
+  // Associations
+  tenantId: varchar("tenant_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  findingId: varchar("finding_id"),
+  validationId: varchar("validation_id"),
+  scanId: varchar("scan_id"),
+  
+  // Evidence classification
+  evidenceType: varchar("evidence_type").notNull(), // http_request_response, timing_analysis, etc.
+  verdict: varchar("verdict").notNull().default("theoretical"), // confirmed, likely, theoretical, false_positive
+  confidenceScore: integer("confidence_score"), // 0-100
+  
+  // Vulnerability context
+  vulnerabilityType: varchar("vulnerability_type"), // sqli, xss, auth_bypass, etc.
+  targetUrl: varchar("target_url"),
+  targetHost: varchar("target_host"),
+  targetPort: integer("target_port"),
+  
+  // Raw HTTP evidence (for http_request_response type)
+  httpRequest: jsonb("http_request").$type<HttpRequestCapture>(),
+  httpResponse: jsonb("http_response").$type<HttpResponseCapture>(),
+  
+  // Timing evidence (for timing_analysis type)
+  timingData: jsonb("timing_data").$type<TimingData>(),
+  
+  // Payload used for testing
+  payloadUsed: text("payload_used"),
+  payloadType: varchar("payload_type"), // sqli_time_based, xss_reflected, etc.
+  
+  // Analysis results
+  observedBehavior: text("observed_behavior"), // What happened when payload was sent
+  expectedBehavior: text("expected_behavior"), // What we expected to see
+  differentialAnalysis: text("differential_analysis"), // How response differed from baseline
+  
+  // Callback evidence (for out-of-band)
+  callbackReceived: boolean("callback_received").default(false),
+  callbackDetails: jsonb("callback_details").$type<{
+    receivedAt?: string;
+    sourceIp?: string;
+    requestData?: string;
+    tokenId?: string;
+  }>(),
+  
+  // Screenshot/binary evidence
+  screenshotUrl: varchar("screenshot_url"),
+  rawDataBase64: text("raw_data_base64"), // For binary evidence (limited size)
+  
+  // Validation metadata
+  validationMethod: varchar("validation_method"), // manual, automated, agent_based
+  executionMode: varchar("execution_mode"), // safe, simulation, live
+  
+  // Size tracking (for cleanup policies)
+  artifactSizeBytes: integer("artifact_size_bytes"),
+  
+  // Timestamps
+  capturedAt: timestamp("captured_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertValidationEvidenceArtifactSchema = createInsertSchema(validationEvidenceArtifacts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertValidationEvidenceArtifact = z.infer<typeof insertValidationEvidenceArtifactSchema>;
+export type ValidationEvidenceArtifact = typeof validationEvidenceArtifacts.$inferSelect;

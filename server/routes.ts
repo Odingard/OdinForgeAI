@@ -1339,6 +1339,104 @@ export async function registerRoutes(
     }
   });
 
+  // ========== VALIDATION EVIDENCE ENDPOINTS ==========
+  // Tenant context provided by global tenantMiddleware; enforce org scoping per route
+  
+  app.get("/api/evidence", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const organizationId = req.tenant!.organizationId;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+      const artifacts = await evidenceStorageService.queryEvidence({ organizationId, limit });
+      res.json(artifacts);
+    } catch (error) {
+      console.error("Error fetching evidence artifacts:", error);
+      res.status(500).json({ error: "Failed to fetch evidence artifacts" });
+    }
+  });
+
+  app.get("/api/evidence/summary", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const organizationId = req.tenant!.organizationId;
+      const summary = await evidenceStorageService.getSummary(organizationId);
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching evidence summary:", error);
+      res.status(500).json({ error: "Failed to fetch evidence summary" });
+    }
+  });
+
+  app.get("/api/evidence/:id", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const artifact = await evidenceStorageService.getEvidence(req.params.id);
+      if (!artifact) {
+        return res.status(404).json({ error: "Evidence artifact not found" });
+      }
+      if (artifact.organizationId !== req.tenant!.organizationId) {
+        return res.status(403).json({ error: "Access denied to this evidence" });
+      }
+      res.json(artifact);
+    } catch (error) {
+      console.error("Error fetching evidence artifact:", error);
+      res.status(500).json({ error: "Failed to fetch evidence artifact" });
+    }
+  });
+
+  app.get("/api/evaluations/:evaluationId/evidence", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const organizationId = req.tenant!.organizationId;
+      const artifacts = await evidenceStorageService.getEvidenceForEvaluation(req.params.evaluationId, organizationId);
+      res.json(artifacts);
+    } catch (error) {
+      console.error("Error fetching evidence for evaluation:", error);
+      res.status(500).json({ error: "Failed to fetch evidence for evaluation" });
+    }
+  });
+
+  app.get("/api/findings/:findingId/evidence", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const organizationId = req.tenant!.organizationId;
+      const artifacts = await evidenceStorageService.getEvidenceForFinding(req.params.findingId, organizationId);
+      res.json(artifacts);
+    } catch (error) {
+      console.error("Error fetching evidence for finding:", error);
+      res.status(500).json({ error: "Failed to fetch evidence for finding" });
+    }
+  });
+
+  app.delete("/api/evidence/:id", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const artifact = await evidenceStorageService.getEvidence(req.params.id);
+      if (!artifact) {
+        return res.status(404).json({ error: "Evidence artifact not found" });
+      }
+      if (artifact.organizationId !== req.tenant!.organizationId) {
+        return res.status(403).json({ error: "Access denied to delete this evidence" });
+      }
+      await evidenceStorageService.deleteEvidence(req.params.id);
+      res.json({ success: true, message: "Evidence artifact deleted" });
+    } catch (error) {
+      console.error("Error deleting evidence artifact:", error);
+      res.status(500).json({ error: "Failed to delete evidence artifact" });
+    }
+  });
+
+  app.post("/api/evidence/cleanup", async (req, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const result = await evidenceStorageService.cleanupOldArtifacts();
+      res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (error) {
+      console.error("Error cleaning up evidence artifacts:", error);
+      res.status(500).json({ error: "Failed to clean up evidence artifacts" });
+    }
+  });
+
   // ========== GOVERNANCE ENDPOINTS ==========
   
   // Rate Limit Status - MUST come before :organizationId route

@@ -57,6 +57,8 @@ import {
   type InsertLiveScanResult,
   type Tenant,
   type InsertTenant,
+  type ValidationEvidenceArtifact,
+  type InsertValidationEvidenceArtifact,
   type SystemRoleId,
   systemRoleIds,
   uiRoles,
@@ -102,6 +104,7 @@ import {
   fullAssessments,
   reconScans,
   tenants,
+  validationEvidenceArtifacts,
   type ReconScan,
   type InsertReconScan,
 } from "@shared/schema";
@@ -186,6 +189,17 @@ export interface IStorage {
   getTenants(): Promise<Tenant[]>;
   updateTenant(id: string, updates: Partial<Tenant>): Promise<void>;
   deleteTenant(id: string): Promise<void>;
+  
+  // Validation Evidence Artifact operations (all queries enforce organizationId for tenant isolation)
+  createValidationEvidenceArtifact(data: InsertValidationEvidenceArtifact): Promise<ValidationEvidenceArtifact>;
+  getValidationEvidenceArtifact(id: string): Promise<ValidationEvidenceArtifact | undefined>;
+  getValidationEvidenceArtifactsByEvaluationId(evaluationId: string, organizationId: string): Promise<ValidationEvidenceArtifact[]>;
+  getValidationEvidenceArtifactsByFindingId(findingId: string, organizationId: string): Promise<ValidationEvidenceArtifact[]>;
+  getValidationEvidenceArtifactsByScanId(scanId: string, organizationId: string): Promise<ValidationEvidenceArtifact[]>;
+  getValidationEvidenceArtifacts(organizationId: string, limit?: number): Promise<ValidationEvidenceArtifact[]>;
+  updateValidationEvidenceArtifact(id: string, updates: Partial<ValidationEvidenceArtifact>): Promise<void>;
+  deleteValidationEvidenceArtifact(id: string): Promise<void>;
+  deleteOldValidationEvidenceArtifacts(beforeDate: Date): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1666,6 +1680,90 @@ export class DatabaseStorage implements IStorage {
       .update(tenants)
       .set({ deletedAt: new Date(), status: "deleted" })
       .where(eq(tenants.id, id));
+  }
+
+  // Validation Evidence Artifact operations
+  async createValidationEvidenceArtifact(data: InsertValidationEvidenceArtifact): Promise<ValidationEvidenceArtifact> {
+    const id = `evidence-${randomUUID().slice(0, 12)}`;
+    const [result] = await db
+      .insert(validationEvidenceArtifacts)
+      .values({ ...data, id } as typeof validationEvidenceArtifacts.$inferInsert)
+      .returning();
+    return result;
+  }
+
+  async getValidationEvidenceArtifact(id: string): Promise<ValidationEvidenceArtifact | undefined> {
+    const [result] = await db
+      .select()
+      .from(validationEvidenceArtifacts)
+      .where(eq(validationEvidenceArtifacts.id, id));
+    return result;
+  }
+
+  async getValidationEvidenceArtifactsByEvaluationId(evaluationId: string, organizationId: string): Promise<ValidationEvidenceArtifact[]> {
+    return db
+      .select()
+      .from(validationEvidenceArtifacts)
+      .where(and(
+        eq(validationEvidenceArtifacts.evaluationId, evaluationId),
+        eq(validationEvidenceArtifacts.organizationId, organizationId)
+      ))
+      .orderBy(desc(validationEvidenceArtifacts.capturedAt));
+  }
+
+  async getValidationEvidenceArtifactsByFindingId(findingId: string, organizationId: string): Promise<ValidationEvidenceArtifact[]> {
+    return db
+      .select()
+      .from(validationEvidenceArtifacts)
+      .where(and(
+        eq(validationEvidenceArtifacts.findingId, findingId),
+        eq(validationEvidenceArtifacts.organizationId, organizationId)
+      ))
+      .orderBy(desc(validationEvidenceArtifacts.capturedAt));
+  }
+
+  async getValidationEvidenceArtifactsByScanId(scanId: string, organizationId: string): Promise<ValidationEvidenceArtifact[]> {
+    return db
+      .select()
+      .from(validationEvidenceArtifacts)
+      .where(and(
+        eq(validationEvidenceArtifacts.scanId, scanId),
+        eq(validationEvidenceArtifacts.organizationId, organizationId)
+      ))
+      .orderBy(desc(validationEvidenceArtifacts.capturedAt));
+  }
+
+  async getValidationEvidenceArtifacts(organizationId: string, limit?: number): Promise<ValidationEvidenceArtifact[]> {
+    let query = db
+      .select()
+      .from(validationEvidenceArtifacts)
+      .where(eq(validationEvidenceArtifacts.organizationId, organizationId))
+      .orderBy(desc(validationEvidenceArtifacts.capturedAt));
+    
+    if (limit) {
+      query = query.limit(limit) as typeof query;
+    }
+    return query;
+  }
+
+  async updateValidationEvidenceArtifact(id: string, updates: Partial<ValidationEvidenceArtifact>): Promise<void> {
+    await db
+      .update(validationEvidenceArtifacts)
+      .set(updates)
+      .where(eq(validationEvidenceArtifacts.id, id));
+  }
+
+  async deleteValidationEvidenceArtifact(id: string): Promise<void> {
+    await db
+      .delete(validationEvidenceArtifacts)
+      .where(eq(validationEvidenceArtifacts.id, id));
+  }
+
+  async deleteOldValidationEvidenceArtifacts(beforeDate: Date): Promise<number> {
+    const result = await db
+      .delete(validationEvidenceArtifacts)
+      .where(lte(validationEvidenceArtifacts.createdAt, beforeDate));
+    return result.rowCount || 0;
   }
 }
 
