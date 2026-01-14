@@ -6,6 +6,7 @@ import { createDatabaseIndexes } from "./db-indexes";
 import { seedSystemRoles, seedDefaultUIUsers } from "./services/ui-auth";
 import { ensureAgentBinaries } from "./services/agent-builder";
 import { queueService } from "./services/queue";
+import { registerJobHandlers } from "./services/queue/handlers";
 import { gunzipSync, inflateSync } from "zlib";
 
 const app = express();
@@ -185,6 +186,7 @@ app.use((req, res, next) => {
   // Initialize job queue service
   try {
     await queueService.initialize();
+    registerJobHandlers();
     console.log(`Job queue initialized (using ${queueService.isUsingRedis() ? "Redis" : "in-memory fallback"})`);
   } catch (error) {
     console.warn("Job queue initialization failed:", error instanceof Error ? error.message : error);

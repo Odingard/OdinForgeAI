@@ -5168,6 +5168,40 @@ function registerJobQueueRoutes(app: Express) {
     }
   });
 
+  // Get all scan results for the organization
+  app.get("/api/scans", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.uiUser?.organizationId || "default";
+      const results = await storage.getLiveScanResults(organizationId);
+      res.json(results);
+    } catch (error) {
+      console.error("Failed to fetch scan results:", error);
+      res.status(500).json({ error: "Failed to fetch scan results" });
+    }
+  });
+
+  // Get scan results by scan ID
+  app.get("/api/scans/:scanId", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { scanId } = req.params;
+      const organizationId = req.uiUser?.organizationId || "default";
+      const result = await storage.getLiveScanResultByEvaluationId(scanId);
+      
+      if (!result) {
+        return res.status(404).json({ error: "Scan not found" });
+      }
+      
+      if (result.organizationId !== organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to fetch scan result:", error);
+      res.status(500).json({ error: "Failed to fetch scan result" });
+    }
+  });
+
   // Submit external recon job
   app.post("/api/jobs/external-recon", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
