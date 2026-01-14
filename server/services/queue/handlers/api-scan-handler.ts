@@ -356,7 +356,7 @@ export async function handleApiScanJob(
         specUrl: specUrl || null,
         endpoints: discoveredEndpoints.map(e => ({
           path: e.path,
-          method: e.methods.join(","),
+          methods: e.methods,
           authenticated: e.authenticated || false,
           parameters: e.parameters,
         })),
