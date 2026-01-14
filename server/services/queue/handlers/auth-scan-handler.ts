@@ -3,6 +3,8 @@ import { randomUUID } from "crypto";
 import * as https from "https";
 import * as http from "http";
 import { storage } from "../../../storage";
+import { db } from "../../../db";
+import { authScanResults } from "@shared/schema";
 import {
   AuthScanJobData,
   JobResult,
@@ -427,6 +429,43 @@ export async function handleAuthScanJob(
       low: authIssues.filter(i => i.severity === "low").length,
       info: authIssues.filter(i => i.severity === "info").length,
     };
+
+    await job.updateProgress?.({
+      percent: 95,
+      stage: "persisting",
+      message: "Saving scan results...",
+    } as JobProgress);
+
+    try {
+      await db.insert(authScanResults).values({
+        id: randomUUID(),
+        scanId,
+        tenantId,
+        organizationId,
+        targetUrl,
+        authType,
+        testResults: authIssues.map(issue => ({
+          testName: issue.type,
+          passed: issue.severity === "info",
+          severity: issue.severity,
+          details: issue.description,
+          evidence: issue.evidence ? { raw: issue.evidence } : undefined,
+        })),
+        vulnerabilities: authIssues.filter(i => i.severity !== "info").map(i => ({
+          type: i.type,
+          severity: i.severity,
+          description: i.description,
+          evidence: i.evidence,
+        })),
+        overallScore: Math.max(0, 100 - (severityCounts.critical * 25 + severityCounts.high * 15 + severityCounts.medium * 10 + severityCounts.low * 5)),
+        status: "completed",
+        scanStarted: new Date(startTime),
+        scanCompleted: new Date(),
+      });
+      console.log(`[AuthScan] Results persisted to database for ${scanId}`);
+    } catch (dbError) {
+      console.warn(`[AuthScan] Failed to persist results:`, dbError instanceof Error ? dbError.message : "Unknown error");
+    }
 
     await job.updateProgress?.({
       percent: 100,
