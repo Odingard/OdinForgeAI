@@ -346,11 +346,18 @@ export async function createInitialAdminUser(
   });
 }
 
-// Default admin credentials - hardcoded for development/demo
+// Default admin credentials - password from environment secret
 const DEFAULT_ADMIN_EMAIL = "admin@odinforge.local";
-const DEFAULT_ADMIN_PASSWORD = "SecureAdmin123!";
 const DEFAULT_TENANT_ID = "default";
 const DEFAULT_ORG_ID = "default";
+
+function getAdminPassword(): string {
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) {
+    throw new Error("ADMIN_PASSWORD environment variable is required");
+  }
+  return password;
+}
 
 // The 6 immutable system roles with their permissions
 const SYSTEM_ROLES: InsertUIRole[] = [
@@ -484,12 +491,13 @@ export async function seedSystemRoles(): Promise<void> {
 
 export async function seedDefaultUIUsers(): Promise<void> {
   try {
+    const adminPassword = getAdminPassword();
     const existingUsers = await storage.getUIUsers(DEFAULT_TENANT_ID);
     
     if (existingUsers.length === 0) {
       // No users exist - create default admin
       console.log("[UI Auth] Seeding default admin user...");
-      const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+      const passwordHash = await hashPassword(adminPassword);
       await storage.createUIUser({
         tenantId: DEFAULT_TENANT_ID,
         organizationId: DEFAULT_ORG_ID,
@@ -499,14 +507,14 @@ export async function seedDefaultUIUsers(): Promise<void> {
         roleId: "org_owner",
         status: "active",
       });
-      console.log(`[UI Auth] Default admin created: ${DEFAULT_ADMIN_EMAIL} / ${DEFAULT_ADMIN_PASSWORD}`);
+      console.log(`[UI Auth] Default admin created: ${DEFAULT_ADMIN_EMAIL}`);
     } else {
-      // Check if admin user exists and reset password to known value
+      // Check if admin user exists and reset password to environment value
       const adminUser = await storage.getUIUserByEmail(DEFAULT_ADMIN_EMAIL, DEFAULT_TENANT_ID);
       if (adminUser) {
-        const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+        const passwordHash = await hashPassword(adminPassword);
         await storage.updateUIUser(adminUser.id, { passwordHash });
-        console.log(`[UI Auth] Admin password reset: ${DEFAULT_ADMIN_EMAIL} / ${DEFAULT_ADMIN_PASSWORD}`);
+        console.log(`[UI Auth] Admin password synced from environment: ${DEFAULT_ADMIN_EMAIL}`);
       }
     }
   } catch (error) {
@@ -517,7 +525,7 @@ export async function seedDefaultUIUsers(): Promise<void> {
 export function getDefaultCredentials() {
   return {
     email: DEFAULT_ADMIN_EMAIL,
-    password: DEFAULT_ADMIN_PASSWORD,
+    password: getAdminPassword(),
   };
 }
 
