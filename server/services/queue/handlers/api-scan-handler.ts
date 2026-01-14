@@ -1,6 +1,8 @@
 import { Job } from "bullmq";
 import { randomUUID } from "crypto";
 import { storage } from "../../../storage";
+import { db } from "../../../db";
+import { apiScanResults } from "@shared/schema";
 import {
   ApiScanJobData,
   JobResult,
@@ -337,6 +339,44 @@ export async function handleApiScanJob(
       low: vulnerabilities.filter(v => v.severity === "low").length,
       info: vulnerabilities.filter(v => v.severity === "info").length,
     };
+
+    await job.updateProgress?.({
+      percent: 95,
+      stage: "persisting",
+      message: "Saving scan results...",
+    } as JobProgress);
+
+    try {
+      await db.insert(apiScanResults).values({
+        id: randomUUID(),
+        scanId,
+        tenantId,
+        organizationId,
+        baseUrl,
+        specUrl: specUrl || null,
+        endpoints: discoveredEndpoints.map(e => ({
+          path: e.path,
+          method: e.methods.join(","),
+          authenticated: e.authenticated || false,
+          parameters: e.parameters,
+        })),
+        vulnerabilities: vulnerabilities.map(v => ({
+          type: v.type,
+          endpoint: v.endpoint,
+          severity: v.severity,
+          description: v.description,
+          evidence: undefined,
+          remediation: v.recommendation,
+        })),
+        aiFindings,
+        status: "completed",
+        scanStarted: new Date(startTime),
+        scanCompleted: new Date(),
+      });
+      console.log(`[ApiScan] Results persisted to database for ${scanId}`);
+    } catch (dbError) {
+      console.warn(`[ApiScan] Failed to persist results:`, dbError instanceof Error ? dbError.message : "Unknown error");
+    }
 
     await job.updateProgress?.({
       percent: 100,

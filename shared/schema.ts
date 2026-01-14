@@ -2997,3 +2997,187 @@ export const insertReconScanSchema = createInsertSchema(reconScans).omit({
 
 export type InsertReconScan = z.infer<typeof insertReconScanSchema>;
 export type ReconScan = typeof reconScans.$inferSelect;
+
+// ============================================================================
+// API SCAN RESULTS
+// ============================================================================
+
+export interface ApiEndpointResult {
+  path: string;
+  method: string;
+  authenticated: boolean;
+  parameters?: string[];
+  responseType?: string;
+}
+
+export interface ApiVulnerability {
+  type: string;
+  endpoint: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  description: string;
+  evidence?: string;
+  remediation?: string;
+}
+
+export const apiScanResults = pgTable("api_scan_results", {
+  id: varchar("id").primaryKey(),
+  scanId: varchar("scan_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  baseUrl: varchar("base_url").notNull(),
+  specUrl: varchar("spec_url"),
+  endpoints: jsonb("endpoints").$type<ApiEndpointResult[]>().default([]),
+  vulnerabilities: jsonb("vulnerabilities").$type<ApiVulnerability[]>().default([]),
+  aiFindings: jsonb("ai_findings").$type<string[]>().default([]),
+  status: varchar("status").default("pending"),
+  scanStarted: timestamp("scan_started"),
+  scanCompleted: timestamp("scan_completed"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertApiScanResultSchema = createInsertSchema(apiScanResults).omit({
+  createdAt: true,
+});
+
+export type InsertApiScanResult = z.infer<typeof insertApiScanResultSchema>;
+export type ApiScanResult = typeof apiScanResults.$inferSelect;
+
+// ============================================================================
+// AUTH SCAN RESULTS
+// ============================================================================
+
+export interface AuthTestResult {
+  testName: string;
+  passed: boolean;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  details: string;
+  evidence?: Record<string, any>;
+}
+
+export const authScanResults = pgTable("auth_scan_results", {
+  id: varchar("id").primaryKey(),
+  scanId: varchar("scan_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  targetUrl: varchar("target_url").notNull(),
+  authType: varchar("auth_type").notNull(),
+  testResults: jsonb("test_results").$type<AuthTestResult[]>().default([]),
+  vulnerabilities: jsonb("vulnerabilities").$type<Array<{
+    type: string;
+    severity: string;
+    description: string;
+    evidence?: string;
+  }>>().default([]),
+  overallScore: integer("overall_score"),
+  status: varchar("status").default("pending"),
+  scanStarted: timestamp("scan_started"),
+  scanCompleted: timestamp("scan_completed"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAuthScanResultSchema = createInsertSchema(authScanResults).omit({
+  createdAt: true,
+});
+
+export type InsertAuthScanResult = z.infer<typeof insertAuthScanResultSchema>;
+export type AuthScanResult = typeof authScanResults.$inferSelect;
+
+// ============================================================================
+// EXPLOIT VALIDATION RESULTS
+// ============================================================================
+
+export const exploitValidationResults = pgTable("exploit_validation_results", {
+  id: varchar("id").primaryKey(),
+  validationId: varchar("validation_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  findingId: varchar("finding_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  exploitType: varchar("exploit_type").notNull(),
+  safeMode: boolean("safe_mode").default(true),
+  verdict: varchar("verdict"), // confirmed, noise, needs_review
+  exploitable: boolean("exploitable"),
+  confidence: integer("confidence"),
+  validationStats: jsonb("validation_stats").$type<{
+    total: number;
+    confirmed: number;
+    noise: number;
+    needsReview: number;
+  }>(),
+  evidence: jsonb("evidence").$type<string[]>().default([]),
+  attackPath: jsonb("attack_path").$type<Array<{
+    phase: string;
+    action: string;
+    tools?: string[];
+  }>>(),
+  status: varchar("status").default("pending"),
+  validationStarted: timestamp("validation_started"),
+  validationCompleted: timestamp("validation_completed"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertExploitValidationResultSchema = createInsertSchema(exploitValidationResults).omit({
+  createdAt: true,
+});
+
+export type InsertExploitValidationResult = z.infer<typeof insertExploitValidationResultSchema>;
+export type ExploitValidationResult = typeof exploitValidationResults.$inferSelect;
+
+// ============================================================================
+// REMEDIATION RESULTS
+// ============================================================================
+
+export interface RemediationActionResult {
+  id: string;
+  type: string;
+  target: string;
+  status: "pending" | "executed" | "verified" | "failed" | "skipped";
+  result?: string;
+  error?: string;
+  executedAt?: string;
+}
+
+export const remediationResults = pgTable("remediation_results", {
+  id: varchar("id").primaryKey(),
+  remediationId: varchar("remediation_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  findingIds: jsonb("finding_ids").$type<string[]>().default([]),
+  dryRun: boolean("dry_run").default(true),
+  actions: jsonb("actions").$type<RemediationActionResult[]>().default([]),
+  guidance: jsonb("guidance").$type<{
+    prioritizedActions?: Array<{
+      priority: number;
+      action: string;
+      impact: string;
+      effort: string;
+    }>;
+    codeFixes?: Record<string, string>;
+    wafRules?: string[];
+    iamPolicies?: string[];
+    networkControls?: string[];
+  }>(),
+  summary: jsonb("summary").$type<{
+    total: number;
+    executed: number;
+    verified: number;
+    failed: number;
+    skipped: number;
+  }>(),
+  status: varchar("status").default("pending"),
+  remediationStarted: timestamp("remediation_started"),
+  remediationCompleted: timestamp("remediation_completed"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertRemediationResultSchema = createInsertSchema(remediationResults).omit({
+  createdAt: true,
+});
+
+export type InsertRemediationResult = z.infer<typeof insertRemediationResultSchema>;
+export type RemediationResult = typeof remediationResults.$inferSelect;

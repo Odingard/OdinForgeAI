@@ -2,6 +2,18 @@ import Redis from "ioredis";
 
 let redisConnection: Redis | null = null;
 let connectionFailed = false;
+let reconnectAttempts = 0;
+
+const REDIS_CONFIG = {
+  maxRetriesPerRequest: 3,
+  enableReadyCheck: true,
+  connectTimeout: parseInt(process.env.REDIS_CONNECT_TIMEOUT || "5000", 10),
+  commandTimeout: parseInt(process.env.REDIS_COMMAND_TIMEOUT || "5000", 10),
+  lazyConnect: true,
+  keepAlive: 10000,
+  family: 4,
+  maxRetriesOnStartup: parseInt(process.env.REDIS_MAX_RETRIES || "3", 10),
+};
 
 export function getRedisConnection(): Redis {
   if (connectionFailed) {
@@ -10,18 +22,24 @@ export function getRedisConnection(): Redis {
   
   if (!redisConnection) {
     const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    const maxRetries = REDIS_CONFIG.maxRetriesOnStartup;
     
     redisConnection = new Redis(redisUrl, {
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: false,
-      connectTimeout: 5000,
-      lazyConnect: true,
+      ...REDIS_CONFIG,
       retryStrategy(times) {
-        if (times > 3) {
+        reconnectAttempts = times;
+        if (times > maxRetries) {
           connectionFailed = true;
+          console.warn(`[Redis] Max reconnection attempts (${maxRetries}) reached, giving up`);
           return null;
         }
-        return Math.min(times * 100, 1000);
+        const delay = Math.min(times * 200, 2000);
+        console.log(`[Redis] Reconnection attempt ${times}/${maxRetries} in ${delay}ms`);
+        return delay;
+      },
+      reconnectOnError(err) {
+        const targetErrors = ["READONLY", "ECONNRESET", "ETIMEDOUT"];
+        return targetErrors.some(e => err.message.includes(e));
       },
     });
 
@@ -32,7 +50,18 @@ export function getRedisConnection(): Redis {
     });
 
     redisConnection.on("connect", () => {
-      console.log("Redis connected successfully");
+      reconnectAttempts = 0;
+      console.log("[Redis] Connected successfully");
+    });
+
+    redisConnection.on("ready", () => {
+      console.log("[Redis] Ready to accept commands");
+    });
+
+    redisConnection.on("close", () => {
+      if (!connectionFailed) {
+        console.log("[Redis] Connection closed");
+      }
     });
   }
 

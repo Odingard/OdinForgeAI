@@ -1,6 +1,8 @@
 import { Job } from "bullmq";
 import { randomUUID } from "crypto";
 import { storage } from "../../../storage";
+import { db } from "../../../db";
+import { remediationResults } from "@shared/schema";
 import {
   RemediationJobData,
   JobResult,
@@ -302,6 +304,57 @@ export async function handleRemediationJob(
     const pendingCount = actionResults.filter(r => r.status === "pending").length;
     const failedCount = actionResults.filter(r => r.status === "failed").length;
     const skippedCount = actionResults.filter(r => r.status === "skipped").length;
+
+    await job.updateProgress?.({
+      percent: 95,
+      stage: "persisting",
+      message: "Saving remediation results...",
+    } as JobProgress);
+
+    try {
+      await db.insert(remediationResults).values({
+        id: randomUUID(),
+        remediationId,
+        tenantId,
+        organizationId,
+        evaluationId: evaluationId || null,
+        findingIds,
+        dryRun,
+        actions: actionResults.map(r => ({
+          id: r.actionId,
+          type: r.type,
+          target: r.target,
+          status: r.status === "success" ? "executed" : r.status === "pending" ? "pending" : r.status === "failed" ? "failed" : "skipped",
+          result: r.message,
+          error: r.status === "failed" ? r.message : undefined,
+        })),
+        guidance: guidance ? {
+          prioritizedActions: guidance.prioritizedActions?.map(pa => ({
+            priority: pa.priority,
+            action: pa.action,
+            impact: pa.impact,
+            effort: pa.effort,
+          })),
+          codeFixes: guidance.codeFixes,
+          wafRules: guidance.wafRules,
+          iamPolicies: guidance.iamPolicies,
+          networkControls: guidance.networkControls,
+        } : undefined,
+        summary: {
+          total: allActions.length,
+          executed: successCount,
+          verified: 0,
+          failed: failedCount,
+          skipped: skippedCount,
+        },
+        status: failedCount === 0 ? "completed" : "failed",
+        remediationStarted: new Date(startTime),
+        remediationCompleted: new Date(),
+      });
+      console.log(`[Remediation] Results persisted to database for ${remediationId}`);
+    } catch (dbError) {
+      console.warn(`[Remediation] Failed to persist results:`, dbError instanceof Error ? dbError.message : "Unknown error");
+    }
 
     await job.updateProgress?.({
       percent: 100,
