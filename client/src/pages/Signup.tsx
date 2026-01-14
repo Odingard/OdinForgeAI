@@ -7,49 +7,58 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { Shield, Lock, Mail, AlertCircle } from "lucide-react";
+import { Shield, Lock, Mail, User, AlertCircle } from "lucide-react";
 import { useUIAuth } from "@/contexts/UIAuthContext";
+import { Link } from "wouter";
 
-const loginSchema = z.object({
+const signupSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
+  displayName: z.string().min(2, "Display name must be at least 2 characters").max(128),
   password: z.string().min(8, "Password must be at least 8 characters"),
+  confirmPassword: z.string().min(8, "Please confirm your password"),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
 });
 
-type LoginFormData = z.infer<typeof loginSchema>;
+type SignupFormData = z.infer<typeof signupSchema>;
 
-interface LoginProps {
-  onLoginSuccess: () => void;
+interface SignupProps {
+  onSignupSuccess: () => void;
 }
 
-export default function Login({ onLoginSuccess }: LoginProps) {
+export default function Signup({ onSignupSuccess }: SignupProps) {
   const { toast } = useToast();
-  const { login } = useUIAuth();
+  const { register } = useUIAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const form = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
+  const form = useForm<SignupFormData>({
+    resolver: zodResolver(signupSchema),
     defaultValues: {
       email: "",
+      displayName: "",
       password: "",
+      confirmPassword: "",
     },
   });
 
-  async function onSubmit(data: LoginFormData) {
+  async function onSubmit(data: SignupFormData) {
     setIsSubmitting(true);
     setError(null);
 
     try {
-      await login(data.email, data.password);
+      await register(data.email, data.password, data.displayName);
       toast({
-        title: "Welcome back",
-        description: "You have successfully signed in.",
+        title: "Account created",
+        description: "Welcome to OdinForge AEV!",
       });
+      onSignupSuccess();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Login failed";
+      const message = err instanceof Error ? err.message : "Registration failed";
       setError(message);
       toast({
-        title: "Authentication failed",
+        title: "Registration failed",
         description: message,
         variant: "destructive",
       });
@@ -71,9 +80,9 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
         <Card>
           <CardHeader className="space-y-1">
-            <CardTitle className="text-xl">Sign in</CardTitle>
+            <CardTitle className="text-xl">Create an account</CardTitle>
             <CardDescription>
-              Enter your credentials to access the control plane
+              Register to access the control plane
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -97,10 +106,34 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
                             type="email"
-                            placeholder="admin@example.com"
+                            placeholder="you@example.com"
                             className="pl-10"
                             autoComplete="email"
                             data-testid="input-email"
+                            {...field}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="displayName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Display Name</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="text"
+                            placeholder="Your name"
+                            className="pl-10"
+                            autoComplete="name"
+                            data-testid="input-display-name"
                             {...field}
                           />
                         </div>
@@ -121,10 +154,34 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
                             type="password"
-                            placeholder="Enter your password"
+                            placeholder="Create a password"
                             className="pl-10"
-                            autoComplete="current-password"
+                            autoComplete="new-password"
                             data-testid="input-password"
+                            {...field}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="confirmPassword"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Confirm Password</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            type="password"
+                            placeholder="Confirm your password"
+                            className="pl-10"
+                            autoComplete="new-password"
+                            data-testid="input-confirm-password"
                             {...field}
                           />
                         </div>
@@ -138,24 +195,24 @@ export default function Login({ onLoginSuccess }: LoginProps) {
                   type="submit"
                   className="w-full"
                   disabled={isSubmitting}
-                  data-testid="button-login"
+                  data-testid="button-signup"
                 >
-                  {isSubmitting ? "Signing in..." : "Sign in"}
+                  {isSubmitting ? "Creating account..." : "Create account"}
                 </Button>
               </form>
             </Form>
 
             <div className="mt-4 text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <a href="/signup" className="text-primary hover:underline" data-testid="link-signup">
-                Sign up
-              </a>
+              Already have an account?{" "}
+              <Link href="/login" className="text-primary hover:underline" data-testid="link-login">
+                Sign in
+              </Link>
             </div>
           </CardContent>
         </Card>
 
         <p className="text-center text-xs text-muted-foreground mt-6">
-          Control Plane Authentication
+          Control Plane Registration
         </p>
       </div>
     </div>

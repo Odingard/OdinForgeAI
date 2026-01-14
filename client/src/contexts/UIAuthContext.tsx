@@ -6,6 +6,7 @@ import {
   isTokenExpired,
   login as apiLogin,
   logout as apiLogout,
+  register as apiRegister,
   refreshTokens,
   fetchSession,
 } from "@/lib/uiAuth";
@@ -15,6 +16,7 @@ interface UIAuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
   getAccessToken: () => string | null;
   refreshSession: () => Promise<boolean>;
@@ -107,6 +109,12 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
     scheduleTokenRefresh(new Date(result.accessTokenExpiresAt));
   };
 
+  const register = async (email: string, password: string, displayName?: string) => {
+    const result = await apiRegister(email, password, displayName);
+    setUser(result.user);
+    scheduleTokenRefresh(new Date(result.accessTokenExpiresAt));
+  };
+
   const logout = async () => {
     const { accessToken } = getStoredTokens();
     if (refreshTimerRef.current) {
@@ -139,6 +147,7 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!user,
         isLoading,
         login,
+        register,
         logout,
         getAccessToken,
         refreshSession,

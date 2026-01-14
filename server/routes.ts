@@ -253,6 +253,72 @@ export async function registerRoutes(
     }
   });
 
+  // Public signup endpoint - allows new users to register
+  app.post("/ui/api/auth/signup", authRateLimiter, async (req, res) => {
+    try {
+      const signupSchema = z.object({
+        email: z.string().email(),
+        password: z.string().min(8).max(128),
+        displayName: z.string().max(128).optional(),
+      });
+
+      const parsed = signupSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      }
+
+      const { email, password, displayName } = parsed.data;
+      const tenantId = "default";
+      const organizationId = "default";
+
+      const existing = await storage.getUIUserByEmail(email, tenantId);
+      if (existing) {
+        return res.status(409).json({ error: "An account with this email already exists" });
+      }
+
+      const passwordHash = await hashPassword(password);
+      const user = await storage.createUIUser({
+        email,
+        passwordHash,
+        displayName: displayName || email.split("@")[0],
+        tenantId,
+        organizationId,
+        roleId: "security_analyst", // Default role for new signups
+        status: "active",
+      });
+
+      // Auto-login after signup
+      const loginResult = await loginUser(email, password, tenantId, req);
+      if (!loginResult.success) {
+        return res.status(201).json({ 
+          success: true, 
+          message: "Account created. Please log in.",
+          user: { id: user.id, email: user.email }
+        });
+      }
+
+      const role = await storage.getUIRole(user.roleId);
+      res.status(201).json({
+        user: {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          roleId: user.roleId,
+          role: role || undefined,
+          tenantId: user.tenantId,
+          organizationId: user.organizationId,
+        },
+        accessToken: loginResult.tokens.accessToken,
+        refreshToken: loginResult.tokens.refreshToken,
+        accessTokenExpiresAt: loginResult.tokens.accessTokenExpiresAt,
+        refreshTokenExpiresAt: loginResult.tokens.refreshTokenExpiresAt,
+      });
+    } catch (error) {
+      console.error("Signup error:", error);
+      res.status(500).json({ error: "Registration failed" });
+    }
+  });
+
   app.post("/ui/api/auth/refresh", async (req, res) => {
     try {
       const parsed = refreshTokenSchema.safeParse(req.body);
