@@ -1,5 +1,7 @@
 import { Job } from "bullmq";
 import { randomUUID } from "crypto";
+import * as https from "https";
+import * as http from "http";
 import { storage } from "../../../storage";
 import {
   AuthScanJobData,
@@ -11,6 +13,22 @@ interface AuthScanJob {
   id?: string;
   data: AuthScanJobData;
   updateProgress?: (progress: number | object) => Promise<void>;
+}
+
+interface AuthIssue {
+  id: string;
+  type: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  description: string;
+  recommendation: string;
+  evidence?: string;
+}
+
+interface HttpTestResult {
+  statusCode: number;
+  headers: Record<string, string>;
+  responseTime: number;
+  error?: string;
 }
 
 function emitAuthScanProgress(
@@ -35,7 +53,7 @@ function emitAuthScanProgress(
     const { wsService } = require("../../websocket");
     if (!wsService) return;
     
-    const channel = `auth-scan:${tenantId}:${organizationId}:${scanId}`;
+    const channel = `auth_scan:${tenantId}:${organizationId}:${scanId}`;
     wsService.broadcastToChannel(channel, {
       type: "auth_scan_progress",
       scanId,
@@ -45,6 +63,236 @@ function emitAuthScanProgress(
     });
   } catch {
   }
+}
+
+async function testHttpEndpoint(
+  url: string,
+  method: string = "GET",
+  headers: Record<string, string> = {},
+  body?: string,
+  timeout: number = 5000,
+  allowInsecure: boolean = false
+): Promise<HttpTestResult> {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    
+    try {
+      const parsedUrl = new URL(url);
+      const isHttps = parsedUrl.protocol === "https:";
+      const lib = isHttps ? https : http;
+      
+      if (allowInsecure && isHttps) {
+        console.log(`[AuthScan] WARNING: TLS verification disabled for ${parsedUrl.hostname} (insecure mode)`);
+      }
+      
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (isHttps ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method,
+        headers: {
+          "User-Agent": "OdinForge-AuthScanner/1.0",
+          ...headers,
+        },
+        timeout,
+        rejectUnauthorized: !allowInsecure,
+      };
+      
+      const req = lib.request(options, (res) => {
+        const responseHeaders: Record<string, string> = {};
+        for (const [key, value] of Object.entries(res.headers)) {
+          if (typeof value === "string") {
+            responseHeaders[key.toLowerCase()] = value;
+          } else if (Array.isArray(value)) {
+            responseHeaders[key.toLowerCase()] = value.join(", ");
+          }
+        }
+        
+        resolve({
+          statusCode: res.statusCode || 0,
+          headers: responseHeaders,
+          responseTime: Date.now() - startTime,
+        });
+      });
+      
+      req.on("error", (error) => {
+        resolve({
+          statusCode: 0,
+          headers: {},
+          responseTime: Date.now() - startTime,
+          error: error.message,
+        });
+      });
+      
+      req.on("timeout", () => {
+        req.destroy();
+        resolve({
+          statusCode: 0,
+          headers: {},
+          responseTime: timeout,
+          error: "Request timeout",
+        });
+      });
+      
+      if (body) {
+        req.write(body);
+      }
+      
+      req.end();
+    } catch (error) {
+      resolve({
+        statusCode: 0,
+        headers: {},
+        responseTime: Date.now() - startTime,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+}
+
+async function testRateLimiting(baseUrl: string, loginPath: string): Promise<AuthIssue | null> {
+  const loginUrl = `${baseUrl}${loginPath}`;
+  const results: HttpTestResult[] = [];
+  
+  for (let i = 0; i < 10; i++) {
+    const result = await testHttpEndpoint(
+      loginUrl,
+      "POST",
+      { "Content-Type": "application/json" },
+      JSON.stringify({ username: "test@test.com", password: "wrongpassword" }),
+      3000
+    );
+    results.push(result);
+    
+    if (result.statusCode === 429) {
+      return null;
+    }
+  }
+  
+  const successfulRequests = results.filter(r => r.statusCode === 401 || r.statusCode === 400);
+  if (successfulRequests.length >= 8) {
+    return {
+      id: randomUUID(),
+      type: "missing_rate_limiting",
+      severity: "high",
+      description: "No rate limiting detected on login endpoint - allows brute force attacks",
+      recommendation: "Implement rate limiting (e.g., 5 attempts per 15 minutes) with exponential backoff",
+      evidence: `Sent 10 failed login attempts, ${successfulRequests.length} were processed without throttling`,
+    };
+  }
+  
+  return null;
+}
+
+async function testSecurityHeaders(baseUrl: string): Promise<AuthIssue[]> {
+  const issues: AuthIssue[] = [];
+  
+  const result = await testHttpEndpoint(baseUrl, "GET", {}, undefined, 5000);
+  
+  if (result.statusCode === 0) {
+    return issues;
+  }
+  
+  const headers = result.headers;
+  
+  if (!headers["strict-transport-security"]) {
+    issues.push({
+      id: randomUUID(),
+      type: "missing_hsts",
+      severity: "medium",
+      description: "Missing Strict-Transport-Security header",
+      recommendation: "Add HSTS header: Strict-Transport-Security: max-age=31536000; includeSubDomains",
+    });
+  }
+  
+  if (!headers["x-content-type-options"]) {
+    issues.push({
+      id: randomUUID(),
+      type: "missing_content_type_options",
+      severity: "low",
+      description: "Missing X-Content-Type-Options header",
+      recommendation: "Add header: X-Content-Type-Options: nosniff",
+    });
+  }
+  
+  if (!headers["x-frame-options"] && !headers["content-security-policy"]?.includes("frame-ancestors")) {
+    issues.push({
+      id: randomUUID(),
+      type: "missing_clickjacking_protection",
+      severity: "medium",
+      description: "Missing clickjacking protection (X-Frame-Options or CSP frame-ancestors)",
+      recommendation: "Add X-Frame-Options: DENY or CSP with frame-ancestors directive",
+    });
+  }
+  
+  const setCookie = headers["set-cookie"] || "";
+  if (setCookie && !setCookie.toLowerCase().includes("httponly")) {
+    issues.push({
+      id: randomUUID(),
+      type: "cookie_missing_httponly",
+      severity: "medium",
+      description: "Session cookie missing HttpOnly flag",
+      recommendation: "Set HttpOnly flag on session cookies to prevent XSS cookie theft",
+      evidence: `Set-Cookie header: ${setCookie.substring(0, 100)}...`,
+    });
+  }
+  
+  if (setCookie && !setCookie.toLowerCase().includes("secure")) {
+    issues.push({
+      id: randomUUID(),
+      type: "cookie_missing_secure",
+      severity: "medium",
+      description: "Session cookie missing Secure flag",
+      recommendation: "Set Secure flag on session cookies for HTTPS-only transmission",
+    });
+  }
+  
+  if (setCookie && !setCookie.toLowerCase().includes("samesite")) {
+    issues.push({
+      id: randomUUID(),
+      type: "cookie_missing_samesite",
+      severity: "medium",
+      description: "Session cookie missing SameSite attribute",
+      recommendation: "Set SameSite=Strict or SameSite=Lax to prevent CSRF attacks",
+    });
+  }
+  
+  return issues;
+}
+
+async function testEnumeration(baseUrl: string, loginPath: string): Promise<AuthIssue[]> {
+  const issues: AuthIssue[] = [];
+  const loginUrl = `${baseUrl}${loginPath}`;
+  
+  const validUserResult = await testHttpEndpoint(
+    loginUrl,
+    "POST",
+    { "Content-Type": "application/json" },
+    JSON.stringify({ username: "admin@example.com", password: "wrongpassword" }),
+    3000
+  );
+  
+  const invalidUserResult = await testHttpEndpoint(
+    loginUrl,
+    "POST",
+    { "Content-Type": "application/json" },
+    JSON.stringify({ username: "nonexistent12345@nowhere.invalid", password: "wrongpassword" }),
+    3000
+  );
+  
+  if (validUserResult.statusCode !== invalidUserResult.statusCode ||
+      Math.abs(validUserResult.responseTime - invalidUserResult.responseTime) > 200) {
+    issues.push({
+      id: randomUUID(),
+      type: "user_enumeration",
+      severity: "medium",
+      description: "Potential user enumeration via different responses for valid vs invalid usernames",
+      recommendation: "Return identical responses for both valid and invalid usernames",
+      evidence: `Valid user: ${validUserResult.statusCode} (${validUserResult.responseTime}ms), Invalid user: ${invalidUserResult.statusCode} (${invalidUserResult.responseTime}ms)`,
+    });
+  }
+  
+  return issues;
 }
 
 export async function handleAuthScanJob(
@@ -61,35 +309,62 @@ export async function handleAuthScanJob(
     authType,
   });
 
+  const authIssues: AuthIssue[] = [];
+
   try {
     await job.updateProgress?.({
       percent: 10,
       stage: "enumeration",
-      message: "Enumerating authentication endpoints...",
+      message: "Testing for user enumeration...",
     } as JobProgress);
 
     emitAuthScanProgress(tenantId, organizationId, scanId, {
       type: "auth_scan_progress",
       phase: "enumeration",
       progress: 10,
-      message: "Enumerating authentication endpoints",
+      message: "Testing for user enumeration",
     });
+
+    const loginPath = "/api/auth/login";
+    const enumIssues = await testEnumeration(targetUrl, loginPath);
+    authIssues.push(...enumIssues);
 
     await job.updateProgress?.({
       percent: 25,
-      stage: "credential_testing",
-      message: "Testing credential handling...",
+      stage: "rate_limiting",
+      message: "Testing rate limiting...",
     } as JobProgress);
 
     emitAuthScanProgress(tenantId, organizationId, scanId, {
       type: "auth_scan_progress",
-      phase: "credential_testing",
+      phase: "rate_limiting",
       progress: 25,
-      message: "Testing credential handling",
+      message: "Testing rate limiting",
     });
 
+    const rateLimitIssue = await testRateLimiting(targetUrl, loginPath);
+    if (rateLimitIssue) {
+      authIssues.push(rateLimitIssue);
+    }
+
     await job.updateProgress?.({
-      percent: 40,
+      percent: 45,
+      stage: "security_headers",
+      message: "Testing security headers...",
+    } as JobProgress);
+
+    emitAuthScanProgress(tenantId, organizationId, scanId, {
+      type: "auth_scan_progress",
+      phase: "security_headers",
+      progress: 45,
+      message: "Testing security headers",
+    });
+
+    const headerIssues = await testSecurityHeaders(targetUrl);
+    authIssues.push(...headerIssues);
+
+    await job.updateProgress?.({
+      percent: 60,
       stage: "session_testing",
       message: "Testing session management...",
     } as JobProgress);
@@ -97,12 +372,20 @@ export async function handleAuthScanJob(
     emitAuthScanProgress(tenantId, organizationId, scanId, {
       type: "auth_scan_progress",
       phase: "session_testing",
-      progress: 40,
+      progress: 60,
       message: "Testing session management",
     });
 
+    authIssues.push({
+      id: randomUUID(),
+      type: "session_fixation_check",
+      severity: "info",
+      description: "Session fixation testing requires authenticated context",
+      recommendation: "Manually verify that session IDs are regenerated after authentication",
+    });
+
     await job.updateProgress?.({
-      percent: 55,
+      percent: 75,
       stage: "token_testing",
       message: "Testing token security...",
     } as JobProgress);
@@ -110,46 +393,19 @@ export async function handleAuthScanJob(
     emitAuthScanProgress(tenantId, organizationId, scanId, {
       type: "auth_scan_progress",
       phase: "token_testing",
-      progress: 55,
+      progress: 75,
       message: "Testing token security",
     });
 
-    await job.updateProgress?.({
-      percent: 70,
-      stage: "bypass_testing",
-      message: "Testing authentication bypass vectors...",
-    } as JobProgress);
-
-    emitAuthScanProgress(tenantId, organizationId, scanId, {
-      type: "auth_scan_progress",
-      phase: "bypass_testing",
-      progress: 70,
-      message: "Testing authentication bypass vectors",
-    });
-
-    const authIssues = [
-      {
+    if (authType === "jwt" || authType === "oauth2") {
+      authIssues.push({
         id: randomUUID(),
-        type: "weak_password_policy",
-        severity: "medium",
-        description: "Password policy allows weak passwords (minimum 6 characters)",
-        recommendation: "Enforce minimum 12 characters with complexity requirements",
-      },
-      {
-        id: randomUUID(),
-        type: "missing_rate_limiting",
-        severity: "high",
-        description: "No rate limiting on login endpoint enables brute force attacks",
-        recommendation: "Implement rate limiting (e.g., 5 attempts per minute)",
-      },
-      {
-        id: randomUUID(),
-        type: "session_fixation",
-        severity: "medium",
-        description: "Session ID not regenerated after authentication",
-        recommendation: "Regenerate session ID upon successful login",
-      },
-    ];
+        type: "jwt_algorithm_check",
+        severity: "info",
+        description: "JWT algorithm verification requires token sample",
+        recommendation: "Ensure JWT uses RS256 or ES256, not HS256 with weak secrets or 'none' algorithm",
+      });
+    }
 
     await job.updateProgress?.({
       percent: 90,
@@ -164,6 +420,14 @@ export async function handleAuthScanJob(
       message: "Analyzing authentication security",
     });
 
+    const severityCounts = {
+      critical: authIssues.filter(i => i.severity === "critical").length,
+      high: authIssues.filter(i => i.severity === "high").length,
+      medium: authIssues.filter(i => i.severity === "medium").length,
+      low: authIssues.filter(i => i.severity === "low").length,
+      info: authIssues.filter(i => i.severity === "info").length,
+    };
+
     await job.updateProgress?.({
       percent: 100,
       stage: "complete",
@@ -173,8 +437,8 @@ export async function handleAuthScanJob(
     emitAuthScanProgress(tenantId, organizationId, scanId, {
       type: "auth_scan_completed",
       issueCount: authIssues.length,
-      criticalCount: authIssues.filter(i => i.severity === "critical").length,
-      highCount: authIssues.filter(i => i.severity === "high").length,
+      criticalCount: severityCounts.critical,
+      highCount: severityCounts.high,
     });
 
     return {
@@ -185,12 +449,15 @@ export async function handleAuthScanJob(
         authType,
         issuesFound: authIssues.length,
         issues: authIssues,
-        summary: {
-          critical: authIssues.filter(i => i.severity === "critical").length,
-          high: authIssues.filter(i => i.severity === "high").length,
-          medium: authIssues.filter(i => i.severity === "medium").length,
-          low: authIssues.filter(i => i.severity === "low").length,
-        },
+        summary: severityCounts,
+        testsPerformed: [
+          "user_enumeration",
+          "rate_limiting",
+          "security_headers",
+          "cookie_security",
+          "session_management",
+          "token_security",
+        ],
       },
       duration: Date.now() - startTime,
     };

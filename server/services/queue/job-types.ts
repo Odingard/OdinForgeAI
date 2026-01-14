@@ -105,6 +105,7 @@ export const exploitValidationJobDataSchema = baseJobDataSchema.extend({
   findingId: z.string(),
   exploitType: z.string(),
   safeMode: z.boolean().default(true),
+  evaluationId: z.string().optional(),
 });
 
 export const apiScanJobDataSchema = baseJobDataSchema.extend({
@@ -119,7 +120,7 @@ export const authScanJobDataSchema = baseJobDataSchema.extend({
   type: z.literal("auth_scan"),
   scanId: z.string(),
   targetUrl: z.string(),
-  authType: z.enum(["basic", "bearer", "oauth", "session"]),
+  authType: z.enum(["basic", "bearer", "oauth", "oauth2", "session", "jwt", "api_key"]),
   credentials: z.any().optional(),
 });
 
@@ -130,8 +131,10 @@ export const remediationJobDataSchema = baseJobDataSchema.extend({
   actions: z.array(z.object({
     type: z.string(),
     target: z.string(),
-    params: z.record(z.any()).optional(),
+    parameters: z.record(z.any()).optional(),
   })),
+  evaluationId: z.string().optional(),
+  dryRun: z.boolean().default(true),
 });
 
 export const agentDeploymentJobDataSchema = baseJobDataSchema.extend({
