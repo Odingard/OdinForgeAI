@@ -30,7 +30,7 @@ interface SimulationProgressEvent {
 interface ReconProgressEvent {
   type: "recon_progress";
   scanId: string;
-  phase: "dns" | "ports" | "ssl" | "http" | "complete";
+  phase: "dns" | "ports" | "ssl" | "http" | "complete" | "error";
   progress: number;
   message: string;
   portsFound?: number;
@@ -54,6 +54,7 @@ interface ClientInfo {
   authenticated: boolean;
   userId?: string;
   organizationId?: string;
+  tenantId?: string;
 }
 
 interface WebSocketConfig {
@@ -145,6 +146,7 @@ class WebSocketService {
     let authenticated = !this.config.requireAuth;
     let userId: string | undefined;
     let organizationId: string | undefined;
+    let tenantId: string | undefined;
     
     if (this.config.requireAuth && !token) {
       console.warn(`[WS] Connection rejected: authentication required from ${ip}`);
@@ -161,7 +163,8 @@ class WebSocketService {
           authenticated = true;
           userId = validation.payload.sub;
           organizationId = validation.payload.organizationId;
-          console.log(`[WS] Token validated for user ${userId}, org ${organizationId}`);
+          tenantId = validation.payload.tenantId;
+          console.log(`[WS] Token validated for user ${userId}, tenant ${tenantId}, org ${organizationId}`);
         } else if (this.config.requireAuth) {
           console.warn(`[WS] Connection rejected: invalid token from ${ip} - ${validation.error}`);
           ws.close(1008, "Invalid token");
@@ -188,6 +191,7 @@ class WebSocketService {
       authenticated,
       userId: userId || undefined,
       organizationId: organizationId || undefined,
+      tenantId: tenantId || undefined,
     };
     
     this.clients.set(ws, clientInfo);
@@ -227,8 +231,32 @@ class WebSocketService {
       const message = JSON.parse(data.toString());
       
       if (message.type === "subscribe" && typeof message.channel === "string") {
-        client.subscriptions.add(message.channel);
-        console.log(`[WS] Client subscribed to: ${message.channel}`);
+        const channel = message.channel;
+        
+        // Validate tenant-scoped channel subscriptions
+        if (channel.startsWith("network-scan:") || channel.startsWith("scan:")) {
+          // Format: network-scan:{tenantId}:{organizationId}:{scanId} or scan:{tenantId}:{organizationId}:{scanId}
+          const parts = channel.split(":");
+          if (parts.length >= 3) {
+            const [, channelTenantId, channelOrgId] = parts;
+            
+            // Reject if client's tenant/org doesn't match channel's tenant/org
+            if (!client.tenantId || !client.organizationId ||
+                client.tenantId !== channelTenantId || 
+                client.organizationId !== channelOrgId) {
+              console.warn(`[WS] Subscription denied: client tenant/org mismatch for channel ${channel}`);
+              this.sendToClient(ws, { type: "heartbeat", timestamp: Date.now() }); // Ack without subscribing
+              return;
+            }
+          } else {
+            // Legacy format without tenant scope - deny for security
+            console.warn(`[WS] Subscription denied: insecure channel format ${channel}`);
+            return;
+          }
+        }
+        
+        client.subscriptions.add(channel);
+        console.log(`[WS] Client subscribed to: ${channel}`);
       }
       
       if (message.type === "unsubscribe" && typeof message.channel === "string") {
@@ -332,10 +360,10 @@ class WebSocketService {
     });
   }
 
-  broadcastToChannel(channel: string, event: WebSocketEvent): void {
+  broadcastToChannel(channel: string, event: WebSocketEvent | Record<string, any>): void {
     this.clients.forEach((client, ws) => {
       if (client.subscriptions.has(channel)) {
-        this.sendToClient(ws, event);
+        this.sendToClient(ws, event as WebSocketEvent);
       }
     });
   }
@@ -392,6 +420,35 @@ class WebSocketService {
     
     this.broadcast(event);
     this.broadcastToChannel(`recon:${scanId}`, event);
+  }
+
+  sendNetworkScanProgress(
+    tenantId: string,
+    organizationId: string,
+    scanId: string,
+    phase: "ports" | "vulnerabilities" | "complete" | "error",
+    progress: number,
+    message: string,
+    portsFound?: number,
+    vulnerabilitiesFound?: number
+  ): void {
+    // Map input phases to ReconProgressEvent phases (error is preserved as-is)
+    const mappedPhase: ReconProgressEvent["phase"] = 
+      phase === "vulnerabilities" ? "http" : phase;
+    
+    const event: ReconProgressEvent = {
+      type: "recon_progress",
+      scanId,
+      phase: mappedPhase,
+      progress,
+      message,
+      portsFound,
+      vulnerabilitiesFound,
+    };
+    
+    // Broadcast only to tenant-scoped channel for security
+    const channel = `network-scan:${tenantId}:${organizationId}:${scanId}`;
+    this.broadcastToChannel(channel, event);
   }
 
   getStats(): {

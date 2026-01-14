@@ -33,7 +33,7 @@ interface QueuedJob {
   organizationId: string;
 }
 
-type JobHandler = (job: Job<AnyJobData>) => Promise<JobResult>;
+export type JobHandler = (job: Job<AnyJobData>) => Promise<JobResult>;
 
 class QueueService extends EventEmitter {
   private queue: Queue<AnyJobData> | null = null;

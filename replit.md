@@ -70,6 +70,17 @@ All documentation is consolidated under the `docs/` directory:
 - **API Routes**: `/api/jobs/*` endpoints for job submission, status, and management.
 - **Graceful Degradation**: Queue service automatically detects Redis availability and falls back to in-memory processing.
 
+### Live Network Testing (Phase 2A Complete)
+- **Real TCP Port Scanning**: Uses Node.js net module for actual network connectivity testing.
+- **Banner Grabbing**: Captures service banners from open ports for fingerprinting.
+- **Service Detection**: Identifies running services (SSH, HTTP, FTP, etc.) from banners.
+- **Vulnerability Pattern Matching**: Detects known vulnerable versions and misconfigurations.
+- **Job Handler**: `network-scan-handler.ts` processes scan jobs via the queue system.
+- **Database Persistence**: Scan results stored in `liveScanResults` table with organization scoping.
+- **REST API**: `/api/scans` endpoints for submitting scans and retrieving results with tenant isolation.
+- **Secure WebSocket Progress**: Tenant-scoped channels (`network-scan:${tenantId}:${organizationId}:${scanId}`) with server-side subscription authorization.
+- **Failure Visibility**: WebSocket events include `phase: "error"` for failed scans/targets.
+
 ### Endpoint Agent System
 - Live agent deployment for real-time monitoring.
 - Features agent registration, telemetry ingestion, auto-evaluation triggers for critical findings, and deduplication.
