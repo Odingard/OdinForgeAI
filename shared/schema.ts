@@ -3004,7 +3004,7 @@ export type ReconScan = typeof reconScans.$inferSelect;
 
 export interface ApiEndpointResult {
   path: string;
-  method: string;
+  methods: string[];
   authenticated: boolean;
   parameters?: string[];
   responseType?: string;
