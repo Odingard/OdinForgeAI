@@ -1202,6 +1202,57 @@ export async function registerRoutes(
 
   // ========== SCHEDULED SCAN ENDPOINTS ==========
   
+  function calculateInitialNextRunAt(data: {
+    frequency: string;
+    timeOfDay?: string | null;
+    dayOfWeek?: number | null;
+    dayOfMonth?: number | null;
+  }): Date {
+    const now = new Date();
+    let nextRun = new Date(now);
+    const [hours, minutes] = (data.timeOfDay || "00:00").split(":").map(Number);
+    nextRun.setHours(hours, minutes, 0, 0);
+
+    switch (data.frequency) {
+      case "once":
+        if (nextRun <= now) {
+          nextRun.setDate(nextRun.getDate() + 1);
+        }
+        break;
+      case "daily":
+        if (nextRun <= now) {
+          nextRun.setDate(nextRun.getDate() + 1);
+        }
+        break;
+      case "weekly":
+        const targetDay = data.dayOfWeek ?? 0;
+        const currentDay = now.getDay();
+        let daysUntilTarget = targetDay - currentDay;
+        if (daysUntilTarget < 0 || (daysUntilTarget === 0 && nextRun <= now)) {
+          daysUntilTarget += 7;
+        }
+        nextRun.setDate(now.getDate() + daysUntilTarget);
+        break;
+      case "monthly":
+        nextRun.setDate(data.dayOfMonth ?? 1);
+        if (nextRun <= now) {
+          nextRun.setMonth(nextRun.getMonth() + 1);
+        }
+        break;
+      case "quarterly":
+        const currentQuarter = Math.floor(now.getMonth() / 3);
+        nextRun = new Date(now.getFullYear(), (currentQuarter + 1) * 3, data.dayOfMonth ?? 1);
+        nextRun.setHours(hours, minutes, 0, 0);
+        if (nextRun <= now) {
+          nextRun.setMonth(nextRun.getMonth() + 3);
+        }
+        break;
+      default:
+        nextRun.setDate(nextRun.getDate() + 1);
+    }
+    return nextRun;
+  }
+  
   app.post("/api/scheduled-scans", async (req, res) => {
     try {
       const parsed = insertScheduledScanSchema.safeParse(req.body);
@@ -1209,7 +1260,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid request body", details: parsed.error });
       }
       
-      const scan = await storage.createScheduledScan(parsed.data);
+      const nextRunAt = parsed.data.nextRunAt || calculateInitialNextRunAt(parsed.data);
+      const scan = await storage.createScheduledScan({
+        ...parsed.data,
+        nextRunAt,
+      });
       res.json(scan);
     } catch (error) {
       console.error("Error creating scheduled scan:", error);
@@ -1267,6 +1322,20 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting scheduled scan:", error);
       res.status(500).json({ error: "Failed to delete scheduled scan" });
+    }
+  });
+
+  app.post("/api/scheduled-scans/:id/trigger", async (req, res) => {
+    try {
+      const { triggerImmediateScan } = await import("./services/scheduler/scan-scheduler");
+      const result = await triggerImmediateScan(req.params.id);
+      if (!result) {
+        return res.status(404).json({ error: "Scheduled scan not found" });
+      }
+      res.json({ success: true, batchJobId: result.batchJobId, message: "Scan triggered successfully" });
+    } catch (error) {
+      console.error("Error triggering scheduled scan:", error);
+      res.status(500).json({ error: "Failed to trigger scheduled scan" });
     }
   });
 
