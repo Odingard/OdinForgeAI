@@ -57,6 +57,19 @@ All documentation is consolidated under the `docs/` directory:
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Schema**: Shared `shared/schema.ts` defining tables for users, evaluations, results, reports, agents, and simulations.
 
+### Multi-Tenant Isolation
+- **Tenants Table**: Core tenant management with tier-based feature limits, IP allowlisting, and hierarchical multi-tenancy support.
+- **Tenant Middleware** (`server/middleware/tenant.ts`): Extracts tenant context from session/headers, validates tenant status, enforces IP allowlists.
+- **Tenant Context**: Every request includes `TenantContext` with tenantId, organizationId, tier, and enabled features.
+- **Feature Gating**: `requireTier()` and `requireFeature()` middleware enforce feature access based on tenant configuration.
+- **Default Tenant**: System seeds a "default" tenant on startup with enterprise-level access for development/single-tenant deployments.
+
+### Job Queue Infrastructure
+- **BullMQ Integration**: Redis-backed job queue with in-memory fallback when Redis is unavailable.
+- **Job Types**: Evaluation, network scan, cloud discovery, external recon, report generation, and more.
+- **API Routes**: `/api/jobs/*` endpoints for job submission, status, and management.
+- **Graceful Degradation**: Queue service automatically detects Redis availability and falls back to in-memory processing.
+
 ### Endpoint Agent System
 - Live agent deployment for real-time monitoring.
 - Features agent registration, telemetry ingestion, auto-evaluation triggers for critical findings, and deduplication.

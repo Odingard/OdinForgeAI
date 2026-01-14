@@ -55,6 +55,8 @@ import {
   type InsertFullAssessment,
   type LiveScanResult,
   type InsertLiveScanResult,
+  type Tenant,
+  type InsertTenant,
   type SystemRoleId,
   systemRoleIds,
   uiRoles,
@@ -99,6 +101,7 @@ import {
   uiRefreshTokens,
   fullAssessments,
   reconScans,
+  tenants,
   type ReconScan,
   type InsertReconScan,
 } from "@shared/schema";
@@ -175,6 +178,14 @@ export interface IStorage {
   createReconScan(data: InsertReconScan): Promise<ReconScan>;
   getReconScan(id: string): Promise<ReconScan | undefined>;
   updateReconScan(id: string, updates: Partial<ReconScan>): Promise<void>;
+  
+  // Tenant operations
+  createTenant(data: InsertTenant): Promise<Tenant>;
+  getTenant(id: string): Promise<Tenant | null>;
+  getTenantBySlug(slug: string): Promise<Tenant | null>;
+  getTenants(): Promise<Tenant[]>;
+  updateTenant(id: string, updates: Partial<Tenant>): Promise<void>;
+  deleteTenant(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1607,6 +1618,54 @@ export class DatabaseStorage implements IStorage {
       .update(reconScans)
       .set(updates)
       .where(eq(reconScans.id, id));
+  }
+
+  // Tenant operations
+  async createTenant(data: InsertTenant): Promise<Tenant> {
+    const id = data.id || `tenant-${randomUUID().slice(0, 8)}`;
+    const [tenant] = await db
+      .insert(tenants)
+      .values({ ...data, id })
+      .returning();
+    return tenant;
+  }
+
+  async getTenant(id: string): Promise<Tenant | null> {
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.id, id));
+    return tenant || null;
+  }
+
+  async getTenantBySlug(slug: string): Promise<Tenant | null> {
+    const [tenant] = await db
+      .select()
+      .from(tenants)
+      .where(eq(tenants.slug, slug));
+    return tenant || null;
+  }
+
+  async getTenants(): Promise<Tenant[]> {
+    return db
+      .select()
+      .from(tenants)
+      .where(sql`${tenants.deletedAt} IS NULL`)
+      .orderBy(desc(tenants.createdAt));
+  }
+
+  async updateTenant(id: string, updates: Partial<Tenant>): Promise<void> {
+    await db
+      .update(tenants)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(tenants.id, id));
+  }
+
+  async deleteTenant(id: string): Promise<void> {
+    await db
+      .update(tenants)
+      .set({ deletedAt: new Date(), status: "deleted" })
+      .where(eq(tenants.id, id));
   }
 }
 

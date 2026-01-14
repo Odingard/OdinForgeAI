@@ -41,6 +41,8 @@ import { calculateDefensivePosture, calculateAttackPredictions } from "./service
 import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases";
 import { fullRecon, reconToExposures, type ReconResult } from "./services/external-recon";
 import { runFullAssessment } from "./services/full-assessment";
+import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
+import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
 
 // Helper function to normalize platform strings for comparison
@@ -132,6 +134,15 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   wsService.initialize(httpServer);
+  
+  // Seed default tenant on startup
+  await seedDefaultTenant();
+  
+  // Apply tenant middleware globally (after session/auth middleware)
+  app.use(tenantMiddleware);
+  
+  // Register tenant routes
+  registerTenantRoutes(app);
   
   // ========== AGENT BINARY DOWNLOADS ==========
   // Serve agent binaries from public/agents directory (no auth required for download)
