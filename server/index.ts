@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { createDatabaseIndexes } from "./db-indexes";
 import { seedSystemRoles, seedDefaultUIUsers } from "./services/ui-auth";
 import { ensureAgentBinaries } from "./services/agent-builder";
+import { queueService } from "./services/queue";
 import { gunzipSync, inflateSync } from "zlib";
 
 const app = express();
@@ -179,6 +180,14 @@ app.use((req, res, next) => {
     await ensureAgentBinaries();
   } catch (error) {
     console.warn("Agent binary build skipped:", error instanceof Error ? error.message : error);
+  }
+  
+  // Initialize job queue service
+  try {
+    await queueService.initialize();
+    console.log(`Job queue initialized (using ${queueService.isUsingRedis() ? "Redis" : "in-memory fallback"})`);
+  } catch (error) {
+    console.warn("Job queue initialization failed:", error instanceof Error ? error.message : error);
   }
   
   await registerRoutes(httpServer, app);
