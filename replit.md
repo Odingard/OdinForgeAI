@@ -38,6 +38,8 @@ This feature provides real TCP port scanning with banner grabbing, service detec
 ### Endpoint Agent System
 Supports live agent deployment for real-time monitoring, including agent registration, telemetry ingestion, auto-evaluation triggers, and deduplication. Pre-compiled Go agents are provided for multiple platforms. Agent status is dynamically calculated based on heartbeat, with support for force check-ins and cross-platform data validation.
 
+**Agent Registration Token System**: Supports single-use registration tokens as a secure alternative to embedding permanent tokens. Admins can generate time-limited, one-time tokens via `/api/agents/registration-tokens` that are consumed after successful agent registration. Tokens are stored as SHA256 hashes with configurable expiration (default 24 hours). Install scripts can optionally have tokens embedded via `?token=` query parameter.
+
 ### Validation Agent Heartbeat System
 Tracks the progress of long-running AI validation agents, detecting and recovering from stalled agents through retries and timeouts. WebSocket events provide real-time monitoring of agent status.
 
