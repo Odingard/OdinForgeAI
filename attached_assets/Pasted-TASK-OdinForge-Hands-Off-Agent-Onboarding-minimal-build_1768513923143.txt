@@ -1,0 +1,124 @@
+TASK: OdinForge Hands-Off Agent Onboarding (minimal build, enterprise-ready)
+
+ASSUMPTIONS:
+Backend = Node.js + Hono + Postgres/Drizzle
+Frontend = React/TS
+Agent already exists and sends telemetry. We are simplifying onboarding and reducing manual labor.
+
+NON-NEGOTIABLE UI RULE:
+The UI must show ONLY TWO install methods:
+1) Host Install (Windows/Linux)
+2) Container Install (K8s/Containers)
+No third install method is allowed.
+
+GOAL:
+Implement a “Coverage Autopilot” section that:
+- creates tenant-scoped enrollment tokens (short-lived)
+- generates copy/paste bootstrap scripts for AWS/Azure/GCP + Kubernetes
+- shows coverage numbers (discovered assets vs agents registered)
+- includes a Kubernetes post-deploy verification command
+
+===========================
+PHASE 1 (REQUIRED MINIMUM)
+===========================
+
+A) ENROLLMENT TOKENS (REQUIRED)
+1. Add DB table enrollment_tokens:
+   - id (uuid)
+   - org_id
+   - token_hash (sha256)
+   - token_hint (last 6 chars)
+   - expires_at
+   - created_at
+   - revoked (bool)
+
+2. Add endpoint:
+   POST /api/enrollment/token
+   - creates a new token for the org (expires in 60 minutes)
+   - returns RAW token ONCE + expiresAt
+   - store ONLY the hash in DB
+
+3. Add endpoint:
+   GET /api/enrollment/tokens
+   - returns active tokens (no raw)
+
+B) BOOTSTRAP GENERATOR (REQUIRED)
+Add endpoint:
+GET /api/bootstrap?token=<enrollToken>
+
+It must return JSON containing:
+- host.linux: copy/paste command
+- host.windows: copy/paste command
+- cloud.aws.userDataLinux + userDataWindows
+- cloud.azure.vmssLinux + vmssWindows
+- cloud.gcp.startupLinux + startupWindows
+- k8s.apply: ONE kubectl apply command using raw manifests (NO HELM)
+- k8s.verify: ONE post-deploy verification command
+
+ENV VARS:
+- PUBLIC_ODINFORGE_URL required
+- ODINFORGE_AGENT_IMAGE optional (default "ghcr.io/sixsensees/odinforge-agent:latest")
+
+K8S RAW MANIFEST:
+- Create ONE file: public/k8s/odinforge-agent-daemonset.yaml
+- Use placeholders: __SERVER_URL__, __TENANT_ID__, __ENROLL_TOKEN__, __AGENT_IMAGE__
+- Must include Namespace, ServiceAccount+RBAC, ConfigMap(agent.yaml), DaemonSet
+- imagePullPolicy: Always
+- hostPath /var/lib/odinforge for queue persistence
+- readonly rootfs + /tmp emptyDir
+
+k8s.apply must:
+- curl the manifest
+- sed replace placeholders
+- kubectl apply -f -
+
+k8s.verify must be:
+kubectl -n odinforge get ds odinforge-agent && kubectl -n odinforge rollout status ds/odinforge-agent --timeout=120s && kubectl -n odinforge get pods -o wide
+
+C) COVERAGE AUTOPILOT (MINIMAL + HONEST)
+1. Add DB table cloud_assets:
+   - id
+   - org_id
+   - provider (aws|azure|gcp|k8s)
+   - asset_type (vm|cluster|nodepool)
+   - name/region/account_id
+   - metadata JSON
+   - last_seen_at
+
+2. Add ingestion endpoint (so we don’t rebuild cloud discovery right now):
+   POST /api/inventory/assets
+   Body: { provider: "aws|azure|gcp|k8s", assets: [...] }
+   This stores discovered assets.
+
+3. Add endpoint:
+   GET /api/coverage
+   Returns:
+   - totalAssets (from cloud_assets)
+   - agentCount (from agents table)
+   - missingAssets = max(totalAssets - agentCount, 0)
+   - byProvider totals
+
+No complex mapping needed in Phase 1.
+
+D) FRONTEND (MINIMAL)
+Add one component “Coverage Autopilot” that:
+- calls POST /api/enrollment/token
+- calls GET /api/bootstrap?token=...
+- calls GET /api/coverage
+- shows copy buttons for:
+  - Host Linux/Windows install
+  - AWS/Azure/GCP bootstrap scripts
+  - K8s apply command
+  - K8s verification command
+
+UI MUST still show only two install method buttons; this section is for “Autopilot coverage + bootstrap.”
+
+===========================
+ACCEPTANCE CRITERIA
+===========================
+- New tenant can mint an enrollment token.
+- OdinForge generates copy/paste bootstrap scripts for AWS/Azure/GCP + K8s.
+- Kubernetes deploy is one command (kubectl apply) and no Helm exists anywhere.
+- Kubernetes verify is one command.
+- Coverage page shows discovered assets vs agent count.
+- Only two install methods are visible in UI (Host + Container).
