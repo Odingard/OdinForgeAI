@@ -114,6 +114,9 @@ import {
   validationEvidenceArtifacts,
   type ReconScan,
   type InsertReconScan,
+  type AgentRegistrationToken,
+  type InsertAgentRegistrationToken,
+  agentRegistrationTokens,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -226,6 +229,14 @@ export interface IStorage {
   getPendingApprovalRequests(organizationId: string, requiredLevel?: ApprovalLevel): Promise<ApprovalRequest[]>;
   updateApprovalRequest(id: string, updates: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
   expireOldApprovalRequests(): Promise<number>;
+  
+  // Agent Registration Token operations
+  createAgentRegistrationToken(data: InsertAgentRegistrationToken & { id: string, tokenHash: string }): Promise<AgentRegistrationToken>;
+  getAgentRegistrationTokenByHash(tokenHash: string): Promise<AgentRegistrationToken | undefined>;
+  getAgentRegistrationTokens(organizationId: string): Promise<AgentRegistrationToken[]>;
+  consumeAgentRegistrationToken(id: string, agentId: string): Promise<boolean>;
+  deleteAgentRegistrationToken(id: string): Promise<void>;
+  cleanupExpiredAgentRegistrationTokens(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1901,6 +1912,54 @@ export class DatabaseStorage implements IStorage {
         eq(approvalRequests.status, "pending"),
         lte(approvalRequests.expiresAt, new Date())
       ));
+    return result.rowCount || 0;
+  }
+
+  // Agent Registration Token operations
+  async createAgentRegistrationToken(data: InsertAgentRegistrationToken & { id: string, tokenHash: string }): Promise<AgentRegistrationToken> {
+    const [token] = await db
+      .insert(agentRegistrationTokens)
+      .values(data as typeof agentRegistrationTokens.$inferInsert)
+      .returning();
+    return token;
+  }
+
+  async getAgentRegistrationTokenByHash(tokenHash: string): Promise<AgentRegistrationToken | undefined> {
+    const [token] = await db
+      .select()
+      .from(agentRegistrationTokens)
+      .where(eq(agentRegistrationTokens.tokenHash, tokenHash));
+    return token;
+  }
+
+  async getAgentRegistrationTokens(organizationId: string): Promise<AgentRegistrationToken[]> {
+    return db
+      .select()
+      .from(agentRegistrationTokens)
+      .where(eq(agentRegistrationTokens.organizationId, organizationId))
+      .orderBy(desc(agentRegistrationTokens.createdAt));
+  }
+
+  async consumeAgentRegistrationToken(id: string, agentId: string): Promise<boolean> {
+    const result = await db
+      .update(agentRegistrationTokens)
+      .set({ usedAt: new Date(), usedByAgentId: agentId })
+      .where(and(
+        eq(agentRegistrationTokens.id, id),
+        sql`${agentRegistrationTokens.usedAt} IS NULL`,
+        gte(agentRegistrationTokens.expiresAt, new Date())
+      ));
+    return (result.rowCount || 0) > 0;
+  }
+
+  async deleteAgentRegistrationToken(id: string): Promise<void> {
+    await db.delete(agentRegistrationTokens).where(eq(agentRegistrationTokens.id, id));
+  }
+
+  async cleanupExpiredAgentRegistrationTokens(): Promise<number> {
+    const result = await db
+      .delete(agentRegistrationTokens)
+      .where(sql`${agentRegistrationTokens.usedAt} IS NOT NULL OR ${agentRegistrationTokens.expiresAt} < NOW()`);
     return result.rowCount || 0;
   }
 }
