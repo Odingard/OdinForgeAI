@@ -2578,6 +2578,40 @@ export const insertEndpointAgentSchema = createInsertSchema(endpointAgents).omit
 export type InsertEndpointAgent = z.infer<typeof insertEndpointAgentSchema>;
 export type EndpointAgent = typeof endpointAgents.$inferSelect;
 
+// Agent Registration Tokens - Single-use tokens for agent auto-registration
+export const agentRegistrationTokens = pgTable("agent_registration_tokens", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Token (stored as hash for security)
+  tokenHash: varchar("token_hash").notNull(),
+  
+  // Metadata
+  name: text("name"), // Optional friendly name for the token
+  description: text("description"),
+  
+  // Usage tracking
+  usedAt: timestamp("used_at"),
+  usedByAgentId: varchar("used_by_agent_id"),
+  
+  // Expiration
+  expiresAt: timestamp("expires_at").notNull(),
+  
+  // Audit
+  createdByUserId: varchar("created_by_user_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAgentRegistrationTokenSchema = createInsertSchema(agentRegistrationTokens).omit({
+  id: true,
+  createdAt: true,
+  usedAt: true,
+  usedByAgentId: true,
+});
+
+export type InsertAgentRegistrationToken = z.infer<typeof insertAgentRegistrationTokenSchema>;
+export type AgentRegistrationToken = typeof agentRegistrationTokens.$inferSelect;
+
 // Agent Commands - Queued commands for agents to execute
 export const agentCommandStatuses = ["pending", "acknowledged", "executed", "failed", "expired"] as const;
 export type AgentCommandStatus = typeof agentCommandStatuses[number];
