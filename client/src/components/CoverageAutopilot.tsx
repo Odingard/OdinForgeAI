@@ -18,7 +18,8 @@ import {
   AlertTriangle,
   CheckCircle2
 } from "lucide-react";
-import { SiAmazon, SiMicrosoft, SiGooglecloud, SiKubernetes } from "react-icons/si";
+import { SiGooglecloud, SiKubernetes } from "react-icons/si";
+import { FaAws, FaMicrosoft } from "react-icons/fa";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface BootstrapCommands {
@@ -308,11 +309,11 @@ export function CoverageAutopilot() {
                   <Tabs defaultValue="aws">
                     <TabsList>
                       <TabsTrigger value="aws" className="gap-2">
-                        <SiAmazon className="h-4 w-4" />
+                        <FaAws className="h-4 w-4" />
                         AWS
                       </TabsTrigger>
                       <TabsTrigger value="azure" className="gap-2">
-                        <SiMicrosoft className="h-4 w-4" />
+                        <FaMicrosoft className="h-4 w-4" />
                         Azure
                       </TabsTrigger>
                       <TabsTrigger value="gcp" className="gap-2">
@@ -324,13 +325,13 @@ export function CoverageAutopilot() {
                       <CommandBlock
                         title="AWS User Data (Linux)"
                         command={bootstrapQuery.data.cloud.aws.userDataLinux}
-                        icon={SiAmazon}
+                        icon={FaAws}
                         testId="cmd-aws-linux"
                       />
                       <CommandBlock
                         title="AWS User Data (Windows)"
                         command={bootstrapQuery.data.cloud.aws.userDataWindows}
-                        icon={SiAmazon}
+                        icon={FaAws}
                         testId="cmd-aws-windows"
                       />
                     </TabsContent>
@@ -338,13 +339,13 @@ export function CoverageAutopilot() {
                       <CommandBlock
                         title="Azure VMSS (Linux)"
                         command={bootstrapQuery.data.cloud.azure.vmssLinux}
-                        icon={SiMicrosoft}
+                        icon={FaMicrosoft}
                         testId="cmd-azure-linux"
                       />
                       <CommandBlock
                         title="Azure VMSS (Windows)"
                         command={bootstrapQuery.data.cloud.azure.vmssWindows}
-                        icon={SiMicrosoft}
+                        icon={FaMicrosoft}
                         testId="cmd-azure-windows"
                       />
                     </TabsContent>
