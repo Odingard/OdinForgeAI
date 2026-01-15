@@ -21,11 +21,25 @@ export function getRedisConnection(): Redis {
   }
   
   if (!redisConnection) {
-    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+    let redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
     const maxRetries = REDIS_CONFIG.maxRetriesOnStartup;
+    
+    // Validate URL format - Upstash REST API URLs (https://) won't work with ioredis
+    if (redisUrl.startsWith("https://")) {
+      console.error("[Redis] Invalid REDIS_URL: REST API URL (https://) provided. Need Redis protocol URL (rediss://)");
+      console.error("[Redis] Go to Upstash dashboard → your database → 'Connect to your database' → look for rediss:// URL");
+      connectionFailed = true;
+      throw new Error("Invalid REDIS_URL: Use rediss:// protocol URL, not https:// REST API URL");
+    }
+    
+    // Log connection attempt (without exposing full credentials)
+    const urlParts = new URL(redisUrl);
+    console.log(`[Redis] Connecting to ${urlParts.hostname}:${urlParts.port} (TLS: ${redisUrl.startsWith("rediss://")})`);
     
     redisConnection = new Redis(redisUrl, {
       ...REDIS_CONFIG,
+      // Upstash requires TLS - ioredis handles this automatically with rediss:// URLs
+      tls: redisUrl.startsWith("rediss://") ? {} : undefined,
       retryStrategy(times) {
         reconnectAttempts = times;
         if (times > maxRetries) {
