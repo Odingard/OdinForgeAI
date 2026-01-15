@@ -10,6 +10,8 @@ import {
 } from "../job-types";
 import { runReconAgent } from "../../agents/recon";
 import type { AgentMemory } from "../../agents/types";
+import { ValidatingHttpClient } from "../../validation/validating-http-client";
+import type { ValidationVerdict } from "@shared/schema";
 
 interface ApiScanJob {
   id?: string;
@@ -161,6 +163,50 @@ function analyzeEndpointVulnerabilities(endpoints: ApiEndpoint[], baseUrl: strin
   return vulnerabilities;
 }
 
+async function captureApiEvidence(
+  baseUrl: string,
+  endpoint: ApiEndpoint,
+  vulnerability: ApiVulnerability,
+  context: { tenantId: string; organizationId: string; scanId: string }
+): Promise<{ evidenceId: string | null; verdict: ValidationVerdict }> {
+  const client = new ValidatingHttpClient();
+  const fullUrl = `${baseUrl}${endpoint.path.replace(/\{[^}]+\}/g, "1")}`;
+  
+  try {
+    const method = endpoint.methods[0] || "GET";
+    const { response, evidence } = await client.request({ url: fullUrl, method });
+    
+    const verdict: ValidationVerdict = response.statusCode >= 400 ? "theoretical" : "likely";
+    const confidenceScore = response.statusCode >= 400 ? 40 : 60;
+    
+    const evidenceId = await client.saveEvidence(
+      evidence,
+      {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        evaluationId: context.scanId,
+        scanId: context.scanId,
+        findingId: vulnerability.id,
+        vulnerabilityType: vulnerability.type,
+        expectedBehavior: "Secure endpoint should require authentication and authorization",
+      },
+      {
+        verdict,
+        confidenceScore,
+        observedBehavior: `${method} ${endpoint.path} returned ${response.statusCode} - ${vulnerability.description}`,
+        differentialAnalysis: `Endpoint behavior suggests ${vulnerability.type} vulnerability pattern`,
+      }
+    );
+    
+    console.log(`[ApiScan] Captured evidence ${evidenceId} for ${vulnerability.type} on ${endpoint.path}`);
+    
+    return { evidenceId, verdict };
+  } catch (error) {
+    console.log(`[ApiScan] Failed to capture evidence for ${endpoint.path}: ${error instanceof Error ? error.message : "Unknown"}`);
+    return { evidenceId: null, verdict: "error" };
+  }
+}
+
 export async function handleApiScanJob(
   job: Job<ApiScanJobData> | ApiScanJob
 ): Promise<JobResult> {
@@ -218,13 +264,12 @@ export async function handleApiScanJob(
     
     const memory: AgentMemory = {
       context: {
+        evaluationId: scanId,
         assetId: baseUrl,
         exposureType: "api_security",
         priority: "high",
         description: `API security scan for ${baseUrl}. ${specContent ? 'OpenAPI spec provided.' : 'No spec provided - perform reconnaissance.'}`,
       },
-      findings: {},
-      attackGraph: [],
     };
 
     await job.updateProgress?.({
@@ -318,6 +363,28 @@ export async function handleApiScanJob(
         recommendation: "Review and validate this AI-detected potential vulnerability",
       });
     }
+
+    emitApiScanProgress(tenantId, organizationId, scanId, {
+      type: "api_scan_progress",
+      phase: "evidence",
+      progress: 70,
+      message: "Capturing validation evidence",
+    });
+
+    const evidenceIds: string[] = [];
+    const highSeverityVulns = vulnerabilities.filter(v => v.severity === "critical" || v.severity === "high");
+    
+    for (const vuln of highSeverityVulns.slice(0, 5)) {
+      const endpoint = discoveredEndpoints.find(e => e.path === vuln.endpoint);
+      if (endpoint) {
+        const result = await captureApiEvidence(baseUrl, endpoint, vuln, { tenantId, organizationId, scanId });
+        if (result.evidenceId) {
+          evidenceIds.push(result.evidenceId);
+        }
+      }
+    }
+
+    console.log(`[ApiScan] Captured ${evidenceIds.length} evidence artifacts`);
 
     await job.updateProgress?.({
       percent: 85,

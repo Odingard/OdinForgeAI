@@ -98,6 +98,27 @@ export interface ComputedTechnicalReport {
     attackPathSummary: string;
     mitreTechniques: string[];
     cweIds: string[];
+    evidenceArtifacts?: Array<{
+      id: string;
+      evidenceType: string;
+      verdict: string;
+      confidenceScore: number;
+      targetUrl: string;
+      observedBehavior: string;
+      capturedAt: Date;
+      httpRequest?: {
+        method: string;
+        url: string;
+        headers: Record<string, string>;
+      };
+      httpResponse?: {
+        statusCode: number;
+        statusText: string;
+        headers: Record<string, string>;
+        body?: string;
+        bodyTruncated?: boolean;
+      };
+    }>;
   }>;
   remediationPlan: Array<{
     vulnerabilityType: ExposureType;
@@ -306,9 +327,34 @@ export function computeExecutiveSummary(
   };
 }
 
+export interface EvidenceArtifactData {
+  id: string;
+  evaluationId?: string;
+  findingId?: string;
+  evidenceType: string;
+  verdict: string;
+  confidenceScore: number;
+  targetUrl: string;
+  observedBehavior: string;
+  capturedAt: Date;
+  httpRequest?: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+  };
+  httpResponse?: {
+    statusCode: number;
+    statusText: string;
+    headers: Record<string, string>;
+    body?: string;
+    bodyTruncated?: boolean;
+  };
+}
+
 export function computeTechnicalReport(
   evaluations: EvaluationData[],
-  results: Map<string, ResultData>
+  results: Map<string, ResultData>,
+  evidenceArtifacts?: EvidenceArtifactData[]
 ): ComputedTechnicalReport {
   const vulnerabilityMap = new Map<ExposureType, {
     count: number;
@@ -397,6 +443,20 @@ export function computeTechnicalReport(
       attackPathSummary = `${result.attackPath.length}-step attack chain: ${result.attackPath.map(s => s.title).join(" → ")}`;
     }
     
+    const matchingEvidence = evidenceArtifacts?.filter(
+      artifact => artifact.evaluationId === eval_.id
+    ).map(artifact => ({
+      id: artifact.id,
+      evidenceType: artifact.evidenceType,
+      verdict: artifact.verdict,
+      confidenceScore: artifact.confidenceScore,
+      targetUrl: artifact.targetUrl,
+      observedBehavior: artifact.observedBehavior,
+      capturedAt: artifact.capturedAt,
+      httpRequest: artifact.httpRequest,
+      httpResponse: artifact.httpResponse,
+    }));
+    
     return {
       evaluationId: eval_.id,
       assetId: eval_.assetId,
@@ -408,7 +468,8 @@ export function computeTechnicalReport(
       technicalDescription: result?.impact || eval_.description,
       attackPathSummary,
       mitreTechniques: vulnInfo.mitreTechniques,
-      cweIds: vulnInfo.cweIds
+      cweIds: vulnInfo.cweIds,
+      evidenceArtifacts: matchingEvidence && matchingEvidence.length > 0 ? matchingEvidence : undefined,
     };
   });
   

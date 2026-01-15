@@ -10,6 +10,8 @@ import {
   JobResult,
   JobProgress,
 } from "../job-types";
+import { ValidatingHttpClient } from "../../validation/validating-http-client";
+import type { ValidationVerdict } from "@shared/schema";
 
 interface AuthScanJob {
   id?: string;
@@ -297,6 +299,47 @@ async function testEnumeration(baseUrl: string, loginPath: string): Promise<Auth
   return issues;
 }
 
+async function captureAuthEvidence(
+  targetUrl: string,
+  issue: AuthIssue,
+  context: { tenantId: string; organizationId: string; scanId: string }
+): Promise<string | null> {
+  const client = new ValidatingHttpClient();
+  
+  try {
+    const { response, evidence } = await client.request({ url: targetUrl, method: "GET" });
+    
+    const verdict: ValidationVerdict = issue.severity === "high" || issue.severity === "critical" ? "likely" : "theoretical";
+    const confidenceScore = issue.severity === "high" || issue.severity === "critical" ? 60 : 45;
+    
+    const evidenceId = await client.saveEvidence(
+      evidence,
+      {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        evaluationId: context.scanId,
+        scanId: context.scanId,
+        findingId: issue.id,
+        vulnerabilityType: issue.type,
+        expectedBehavior: "Secure authentication with proper headers and protections",
+      },
+      {
+        verdict,
+        confidenceScore,
+        observedBehavior: issue.description + (issue.evidence ? ` Evidence: ${issue.evidence}` : ""),
+        differentialAnalysis: `Authentication issue detected: ${issue.type}. Recommendation: ${issue.recommendation}`,
+      }
+    );
+    
+    console.log(`[AuthScan] Captured evidence ${evidenceId} for ${issue.type}`);
+    
+    return evidenceId;
+  } catch (error) {
+    console.log(`[AuthScan] Failed to capture evidence for ${issue.type}: ${error instanceof Error ? error.message : "Unknown"}`);
+    return null;
+  }
+}
+
 export async function handleAuthScanJob(
   job: Job<AuthScanJobData> | AuthScanJob
 ): Promise<JobResult> {
@@ -408,6 +451,29 @@ export async function handleAuthScanJob(
         recommendation: "Ensure JWT uses RS256 or ES256, not HS256 with weak secrets or 'none' algorithm",
       });
     }
+
+    emitAuthScanProgress(tenantId, organizationId, scanId, {
+      type: "auth_scan_progress",
+      phase: "evidence",
+      progress: 80,
+      message: "Capturing validation evidence",
+    });
+
+    const evidenceIds: string[] = [];
+    const highSeverityIssues = authIssues.filter(i => i.severity === "critical" || i.severity === "high");
+    
+    for (const issue of highSeverityIssues.slice(0, 5)) {
+      const evidenceId = await captureAuthEvidence(
+        targetUrl,
+        issue,
+        { tenantId, organizationId, scanId }
+      );
+      if (evidenceId) {
+        evidenceIds.push(evidenceId);
+      }
+    }
+
+    console.log(`[AuthScan] Captured ${evidenceIds.length} evidence artifacts`);
 
     await job.updateProgress?.({
       percent: 90,
