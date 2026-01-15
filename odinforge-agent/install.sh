@@ -139,12 +139,16 @@ echo "Installing agent..."
 chmod +x /tmp/odinforge-agent
 mv /tmp/odinforge-agent /usr/local/bin/odinforge-agent
 
-# Create configuration directory
+# Create configuration and data directories
 mkdir -p /etc/odinforge
+mkdir -p /var/lib/odinforge-agent
 
-# Store the API key
-echo -n "$TOKEN" > /etc/odinforge/api_key
-chmod 600 /etc/odinforge/api_key
+# Store credentials in a secure environment file (readable only by root)
+cat > /etc/odinforge/agent.env << EOF
+ODINFORGE_SERVER_URL=${SERVER_URL}
+ODINFORGE_REGISTRATION_TOKEN=${TOKEN}
+EOF
+chmod 600 /etc/odinforge/agent.env
 
 # Platform-specific service installation
 if [ "$PLATFORM" = "linux" ]; then
@@ -158,7 +162,7 @@ After=network.target
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/odinforge-agent
-Environment=ODINFORGE_SERVER_URL=${SERVER_URL}
+EnvironmentFile=/etc/odinforge/agent.env
 Restart=always
 RestartSec=10
 User=root
@@ -193,6 +197,8 @@ elif [ "$PLATFORM" = "darwin" ]; then
     <dict>
         <key>ODINFORGE_SERVER_URL</key>
         <string>${SERVER_URL}</string>
+        <key>ODINFORGE_REGISTRATION_TOKEN</key>
+        <string>${TOKEN}</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
