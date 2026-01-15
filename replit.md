@@ -40,7 +40,11 @@ Supports live agent deployment for real-time monitoring, including agent registr
 
 **Agent Registration Token System**: Supports single-use registration tokens as a secure alternative to embedding permanent tokens. Admins can generate time-limited, one-time tokens via `/api/agents/registration-tokens` that are consumed after successful agent registration. Tokens are stored as SHA256 hashes with configurable expiration (default 24 hours).
 
-**Zero-Interaction Agent Installation**: The primary endpoint for automated deployment is `POST /api/agents/install-command`, which generates a complete one-liner command with embedded server URL and single-use token. Admins simply call this endpoint and receive a ready-to-use `curl | bash` (Linux) or `irm | iex` (Windows) command that requires no user interaction when executed on target machines.
+**Zero-Interaction Agent Installation**: Only 2 deployment methods are supported for simplicity:
+
+1. **Host Install** (Linux/Windows): The `POST /api/agents/install-command` endpoint generates a one-liner command with embedded server URL and single-use token. Scripts (`odinforge-agent/install.sh` and `install.ps1`) support CLI args (`--server-url`, `--api-key`, `--tenant-id`, `--dry-run`, `--force`), commands (`install|uninstall|status`), and automatic service installation with security hardening.
+
+2. **Container Install** (Docker/Kubernetes): Docker deployment via `docker run` with environment variables (`ODINFORGE_SERVER_URL`, `ODINFORGE_API_KEY`, `ODINFORGE_TENANT_ID`). Kubernetes deployment via Helm chart at `odinforge-agent/deploy/helm/` with DaemonSet, RBAC, ServiceAccount, and optional mTLS configuration in `values.yaml`.
 
 ### Validation Agent Heartbeat System
 Tracks the progress of long-running AI validation agents, detecting and recovering from stalled agents through retries and timeouts. WebSocket events provide real-time monitoring of agent status.
