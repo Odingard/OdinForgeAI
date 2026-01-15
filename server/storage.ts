@@ -1154,6 +1154,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteEndpointAgent(id: string): Promise<void> {
+    await db.delete(agentCommands).where(eq(agentCommands.agentId, id));
     await db.delete(agentFindings).where(eq(agentFindings.agentId, id));
     await db.delete(agentTelemetry).where(eq(agentTelemetry.agentId, id));
     await db.delete(endpointAgents).where(eq(endpointAgents.id, id));
@@ -1174,6 +1175,7 @@ export class DatabaseStorage implements IStorage {
     
     // Delete each stale agent and its related data
     for (const agent of staleAgents) {
+      await db.delete(agentCommands).where(eq(agentCommands.agentId, agent.id));
       await db.delete(agentFindings).where(eq(agentFindings.agentId, agent.id));
       await db.delete(agentTelemetry).where(eq(agentTelemetry.agentId, agent.id));
       await db.delete(endpointAgents).where(eq(endpointAgents.id, agent.id));
