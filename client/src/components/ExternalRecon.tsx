@@ -220,9 +220,11 @@ function EvaluationSuccess({ openPorts, exposuresCount }: { openPorts: number; e
 
 interface ResultsResponse {
   scanId: string;
+  status?: "completed" | "failed";
   result: ReconResult;
   exposures: Exposure[];
   canCreateEvaluation: boolean;
+  error?: string;
 }
 
 export function ExternalRecon() {
@@ -393,13 +395,40 @@ export function ExternalRecon() {
     const pollInterval = setInterval(async () => {
       try {
         const response = await fetch(`/api/recon/results/${scanId}`);
+        const data = await response.json();
+        
+        // 202 means still pending - continue polling
+        if (response.status === 202) {
+          return;
+        }
+        
+        // 404 means scan not found
+        if (response.status === 404) {
+          setPolling(false);
+          toast({
+            title: "Scan Not Found",
+            description: "The scan was not found. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // 200 means completed or failed - check status field
         if (response.ok) {
-          const data = await response.json();
           setResults(data);
           setPolling(false);
+          
+          // Show toast for failed scans
+          if (data.status === "failed") {
+            toast({
+              title: "Scan Failed",
+              description: data.error || "The scan encountered an error. Partial results may be available.",
+              variant: "destructive",
+            });
+          }
         }
       } catch {
-        // Still scanning, continue polling
+        // Network error, continue polling
       }
     }, 2000);
 
@@ -535,13 +564,41 @@ export function ExternalRecon() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
+              {results.status === "failed" ? (
+                <XCircle className="h-5 w-5 text-red-500" />
+              ) : (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              )}
               Scan Results: {results.result.target}
             </CardTitle>
             <CardDescription>
               Scanned at {new Date(results.result.scanTime).toLocaleString()}
+              {results.status === "failed" && (
+                <span className="text-red-400 ml-2">(Scan failed)</span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {results.status === "failed" && (
+              <div className="mb-4 p-4 rounded-md bg-red-500/10 border border-red-500/30" data-testid="scan-failed-alert">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-red-400 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-red-400">Scan Failed</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {results.error || "The scan encountered an error. This may be due to network restrictions or an unreachable target."}
+                    </p>
+                    {results.result.errors && results.result.errors.length > 0 && (
+                      <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside">
+                        {results.result.errors.map((err, i) => (
+                          <li key={i}>{err}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
             <Tabs defaultValue="findings" className="w-full">
               <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="findings" data-testid="tab-findings">
