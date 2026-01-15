@@ -1,16 +1,34 @@
 # OdinForge Agent Installer for Windows
-# Usage: 
-#   $env:ODINFORGE_SERVER = "https://your-server.com"
-#   $env:ODINFORGE_REGISTRATION_TOKEN = "your-token"
-#   iex ((New-Object System.Net.WebClient).DownloadString("$env:ODINFORGE_SERVER/api/agents/install.ps1"))
+# Usage: irm https://YOUR_SERVER/api/agents/install.ps1 | iex
+# Or with parameters saved to script: .\install.ps1 -ServerUrl "https://YOUR_SERVER" -RegistrationToken "YOUR_TOKEN"
+
+param(
+    [string]$ServerUrl = "",
+    [string]$RegistrationToken = "",
+    [string]$Token = "",
+    [switch]$Help
+)
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "OdinForge Agent Installer" -ForegroundColor Cyan
-Write-Host "================================" -ForegroundColor Cyan
+Write-Host "OdinForge Agent Installer" -ForegroundColor Green
+Write-Host "================================"
 Write-Host ""
 
-# Check for admin privileges
+if ($Help) {
+    Write-Host @"
+Usage: install.ps1 [OPTIONS]
+
+Options:
+  -ServerUrl URL              OdinForge server URL
+  -RegistrationToken TOKEN    Registration token for auto-registration
+  -Token TOKEN                Alias for -RegistrationToken
+  -Help                       Show this help message
+"@
+    exit 0
+}
+
+# Check for Administrator privileges
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "Error: This script must be run as Administrator" -ForegroundColor Red
@@ -20,105 +38,130 @@ if (-not $isAdmin) {
 
 # Detect architecture
 $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "386" }
-$platform = "windows-${arch}"
-$binaryName = "odinforge-agent-${platform}.exe"
-
-Write-Host "Detected platform: $platform" -ForegroundColor Green
+$binaryName = "odinforge-agent-windows-$arch.exe"
+Write-Host "Detected platform: windows-$arch" -ForegroundColor Green
 
 # Default server URL - automatically embedded when downloaded from server
-# When served via the API, this is replaced with the actual server URL
 $defaultServerUrl = "__SERVER_URL_PLACEHOLDER__"
 
-# Get server URL - check environment variables, default, or prompt
-$serverUrl = $env:ODINFORGE_SERVER
-if (-not $serverUrl) { $serverUrl = $env:ODINFORGE_SERVER_URL }
-if (-not $serverUrl) { $serverUrl = $env:SERVER_URL }
-# Check if URL was embedded (starts with http)
-if (-not $serverUrl -and $defaultServerUrl -and $defaultServerUrl -match "^https?://") {
-    $serverUrl = $defaultServerUrl
-    Write-Host "Using server: $serverUrl" -ForegroundColor Green
+# Get server URL from parameters, environment, default, or prompt
+if ($ServerUrl) {
+    $server = $ServerUrl
+} elseif ($env:ODINFORGE_SERVER_URL) {
+    $server = $env:ODINFORGE_SERVER_URL
+} elseif ($env:SERVER_URL) {
+    $server = $env:SERVER_URL
+} elseif ($defaultServerUrl -match "^https?://") {
+    $server = $defaultServerUrl
+    Write-Host "Using server: $server" -ForegroundColor Green
+} else {
+    $server = Read-Host "Enter OdinForge server URL"
 }
-if (-not $serverUrl) {
-    $serverUrl = Read-Host "Enter OdinForge server URL (e.g., https://odinforgeai.replit.app)"
-}
-$serverUrl = $serverUrl.TrimEnd('/')
+$server = $server.TrimEnd('/')
 
-# Get registration token - check multiple environment variable names
-$token = $env:ODINFORGE_REGISTRATION_TOKEN
-if (-not $token) { $token = $env:ODINFORGE_TOKEN }
-if (-not $token) { $token = $env:TOKEN }
-if (-not $token) {
-    $token = Read-Host "Enter registration token"
+# Get registration token from parameters, environment, or prompt
+if ($RegistrationToken) {
+    $regToken = $RegistrationToken
+} elseif ($Token) {
+    $regToken = $Token
+} elseif ($env:ODINFORGE_REGISTRATION_TOKEN) {
+    $regToken = $env:ODINFORGE_REGISTRATION_TOKEN
+} elseif ($env:ODINFORGE_TOKEN) {
+    $regToken = $env:ODINFORGE_TOKEN
+} elseif ($env:TOKEN) {
+    $regToken = $env:TOKEN
+} else {
+    $regToken = Read-Host "Enter registration token"
 }
 
 Write-Host ""
-Write-Host "Configuration:" -ForegroundColor Yellow
-Write-Host "  Server: $serverUrl"
-Write-Host "  Token: $($token.Substring(0, [Math]::Min(8, $token.Length)))..."
-Write-Host ""
-
-# Stop and remove existing service if present
-Write-Host "Stopping existing OdinForge service..." -ForegroundColor Yellow
-sc.exe stop odinforge-agent 2>$null | Out-Null
-Start-Sleep -Seconds 1
-
-Write-Host "Removing existing OdinForge service..." -ForegroundColor Yellow
-sc.exe delete odinforge-agent 2>$null | Out-Null
-Start-Sleep -Seconds 1
 
 # Create installation directories
 Write-Host "Creating installation directories..." -ForegroundColor Yellow
-$installDir = "C:\ProgramData\OdinForge"
-$dataDir = "$installDir\data"
+$installDir = "C:\Program Files\OdinForge"
+$dataDir = "C:\ProgramData\OdinForge"
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 
 # Download the agent binary
-Write-Host "Downloading OdinForge agent..." -ForegroundColor Yellow
-$downloadUrl = "${serverUrl}/agents/${binaryName}"
+Write-Host "Downloading agent binary..." -ForegroundColor Yellow
+$downloadUrl = "$server/agents/$binaryName"
 $binaryPath = "$installDir\odinforge-agent.exe"
 
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $webClient = New-Object System.Net.WebClient
-    $webClient.DownloadFile($downloadUrl, $binaryPath)
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $binaryPath -UseBasicParsing
     Write-Host "  Downloaded to: $binaryPath" -ForegroundColor Green
 } catch {
-    Write-Host "Error: Failed to download agent from ${downloadUrl}" -ForegroundColor Red
+    Write-Host "Error: Failed to download agent from $downloadUrl" -ForegroundColor Red
     Write-Host $_.Exception.Message -ForegroundColor Red
     exit 1
 }
 
-# Run the self-installing binary with install subcommand and flags
-Write-Host "Installing OdinForge agent as Windows service..." -ForegroundColor Yellow
+# Store credentials in environment file (for reference/debugging)
+$envFilePath = "$dataDir\agent.env"
+@"
+ODINFORGE_SERVER_URL=$server
+ODINFORGE_REGISTRATION_TOKEN=$regToken
+"@ | Out-File -FilePath $envFilePath -Encoding UTF8 -Force
 
-# Build the install command arguments
-$installArgs = "install --server-url `"$serverUrl`" --registration-token `"$token`" --tenant-id default --force"
+# Set restrictive permissions on env file
+$acl = Get-Acl $envFilePath
+$acl.SetAccessRuleProtection($true, $false)
+$adminRule = New-Object System.Security.AccessControl.FileSystemAccessRule("Administrators", "FullControl", "Allow")
+$systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule("SYSTEM", "FullControl", "Allow")
+$acl.SetAccessRule($adminRule)
+$acl.SetAccessRule($systemRule)
+Set-Acl -Path $envFilePath -AclObject $acl
 
-Write-Host "  Running: odinforge-agent.exe $installArgs" -ForegroundColor Gray
+# Stop and remove existing service if present
+Write-Host "Checking for existing service..." -ForegroundColor Yellow
+$existingService = Get-Service -Name "odinforge-agent" -ErrorAction SilentlyContinue
+if ($existingService) {
+    Write-Host "  Stopping existing service..." -ForegroundColor Yellow
+    Stop-Service -Name "odinforge-agent" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    sc.exe delete "odinforge-agent" | Out-Null
+    Start-Sleep -Seconds 2
+}
 
-# Run the install command
-$process = Start-Process -FilePath $binaryPath -ArgumentList $installArgs -Wait -PassThru -NoNewWindow
-$exitCode = $process.ExitCode
+# Create the Windows service
+Write-Host "Installing Windows Service..." -ForegroundColor Yellow
+sc.exe create "odinforge-agent" binPath= "`"$binaryPath`"" start= auto DisplayName= "OdinForge Security Agent" | Out-Null
+sc.exe description "odinforge-agent" "OdinForge Security Agent for endpoint monitoring and security assessments" | Out-Null
 
-if ($exitCode -eq 0) {
+# Set environment variables for the service via registry
+$regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\odinforge-agent"
+New-ItemProperty -Path $regPath -Name "Environment" -PropertyType MultiString -Value @(
+    "ODINFORGE_SERVER_URL=$server",
+    "ODINFORGE_REGISTRATION_TOKEN=$regToken",
+    "ODINFORGE_TENANT_ID=default"
+) -Force | Out-Null
+
+# Configure service recovery options (restart on failure)
+sc.exe failure "odinforge-agent" reset= 86400 actions= restart/10000/restart/10000/restart/10000 | Out-Null
+
+# Start the service
+Write-Host "Starting service..." -ForegroundColor Yellow
+Start-Service -Name "odinforge-agent"
+Start-Sleep -Seconds 2
+
+# Verify service is running
+$service = Get-Service -Name "odinforge-agent" -ErrorAction SilentlyContinue
+if ($service -and $service.Status -eq "Running") {
     Write-Host ""
     Write-Host "========================================" -ForegroundColor Green
-    Write-Host "OdinForge agent installed successfully!" -ForegroundColor Green
+    Write-Host "Agent installed and started successfully!" -ForegroundColor Green
     Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "The agent is now running as a Windows service." -ForegroundColor Cyan
     Write-Host "Check status: sc.exe query odinforge-agent" -ForegroundColor Cyan
-    Write-Host "View logs: Get-EventLog -LogName Application -Source odinforge-agent" -ForegroundColor Cyan
+    Write-Host "Stop service: sc.exe stop odinforge-agent" -ForegroundColor Cyan
+    Write-Host "Start service: sc.exe start odinforge-agent" -ForegroundColor Cyan
 } else {
     Write-Host ""
-    Write-Host "Installation failed with exit code: $exitCode" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Troubleshooting:" -ForegroundColor Yellow
-    Write-Host "  1. Ensure you're running as Administrator" -ForegroundColor Yellow
-    Write-Host "  2. Check if the server URL is reachable: $serverUrl" -ForegroundColor Yellow
-    Write-Host "  3. Verify the registration token is correct" -ForegroundColor Yellow
-    exit $exitCode
+    Write-Host "Warning: Service installed but may not be running" -ForegroundColor Yellow
+    Write-Host "Check status: sc.exe query odinforge-agent" -ForegroundColor Cyan
 }
 
 Write-Host ""
+Write-Host "Installation complete!" -ForegroundColor Green
