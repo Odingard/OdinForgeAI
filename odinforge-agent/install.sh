@@ -2,7 +2,7 @@
 set -e
 
 # OdinForge Agent Installer
-# Usage: curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash
+# Usage: curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash -s -- --server-url https://YOUR_SERVER --registration-token YOUR_TOKEN
 # Or with env vars: curl -sSL https://YOUR_SERVER/api/agents/install.sh | SERVER_URL=https://YOUR_SERVER TOKEN=YOUR_TOKEN sudo -E bash
 
 # Colors for output
@@ -13,6 +13,37 @@ NC='\033[0m'
 
 echo -e "${GREEN}OdinForge Agent Installer${NC}"
 echo "================================"
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --server-url)
+            CLI_SERVER_URL="$2"
+            shift 2
+            ;;
+        --registration-token)
+            CLI_TOKEN="$2"
+            shift 2
+            ;;
+        --token)
+            CLI_TOKEN="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: install.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --server-url URL         OdinForge server URL"
+            echo "  --registration-token TOKEN   Registration token for auto-registration"
+            echo "  --token TOKEN            Alias for --registration-token"
+            echo "  -h, --help               Show this help message"
+            exit 0
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # Check for root privileges
 if [ "$EUID" -ne 0 ]; then
@@ -65,8 +96,10 @@ url_is_embedded() {
     esac
 }
 
-# Get server URL from environment, default, or prompt
-if [ -n "$ODINFORGE_SERVER_URL" ]; then
+# Get server URL from CLI args, environment, default, or prompt (in priority order)
+if [ -n "$CLI_SERVER_URL" ]; then
+    SERVER_URL="$CLI_SERVER_URL"
+elif [ -n "$ODINFORGE_SERVER_URL" ]; then
     SERVER_URL="$ODINFORGE_SERVER_URL"
 elif [ -n "$SERVER_URL" ]; then
     SERVER_URL="$SERVER_URL"
@@ -81,12 +114,16 @@ fi
 # Remove trailing slash
 SERVER_URL="${SERVER_URL%/}"
 
-# Get registration token from environment or prompt
-if [ -z "$ODINFORGE_TOKEN" ] && [ -z "$TOKEN" ]; then
+# Get registration token from CLI args, environment, or prompt (in priority order)
+if [ -n "$CLI_TOKEN" ]; then
+    TOKEN="$CLI_TOKEN"
+elif [ -n "$ODINFORGE_TOKEN" ]; then
+    TOKEN="$ODINFORGE_TOKEN"
+elif [ -n "$TOKEN" ]; then
+    TOKEN="$TOKEN"
+else
     echo -e "${YELLOW}Enter registration token:${NC}"
     read -r TOKEN < /dev/tty
-else
-    TOKEN="${ODINFORGE_TOKEN:-$TOKEN}"
 fi
 
 # Download the agent binary
