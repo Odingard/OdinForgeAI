@@ -1,0 +1,1049 @@
+/**
+ * Chain Orchestrator - True AEV Exploit Chain Execution
+ * 
+ * Orchestrates multi-step attack sequences with:
+ * - Playbook-based execution
+ * - Evidence collection at each step
+ * - Confidence-gated progression
+ * - Mode-aware safety controls
+ */
+
+import { ValidatingHttpClient, type ValidationContext } from "../validation/validating-http-client";
+import { executionModeEnforcer, type ExecutionMode } from "../validation/execution-modes";
+import { executeSandboxed, type SandboxedOperationType } from "../validation/sandbox-executor";
+import { auditService } from "../validation/audit-service";
+import type { ValidationVerdict } from "@shared/schema";
+
+// ============================================================================
+// PLAYBOOK SCHEMA TYPES
+// ============================================================================
+
+export type ExploitCategory = 
+  | "sqli" 
+  | "xss" 
+  | "command_injection" 
+  | "path_traversal" 
+  | "ssrf" 
+  | "auth_bypass"
+  | "jwt_attack"
+  | "session_attack"
+  | "business_logic"
+  | "lateral_movement"
+  | "credential_attack";
+
+export type StepType = 
+  | "validate"      // Initial vulnerability validation
+  | "exploit"       // Active exploitation attempt
+  | "exfiltrate"    // Data extraction proof
+  | "escalate"      // Privilege escalation
+  | "pivot"         // Lateral movement
+  | "persist"       // Persistence mechanism
+  | "cleanup";      // Post-exploitation cleanup
+
+export interface PlaybookStep {
+  id: string;
+  name: string;
+  description: string;
+  type: StepType;
+  category: ExploitCategory;
+  
+  // Execution control
+  requiredMode: ExecutionMode;
+  requiresApproval: boolean;
+  timeout: number;                    // ms
+  maxRetries: number;
+  
+  // Preconditions
+  dependsOn?: string[];               // Step IDs that must succeed first
+  requiredConfidence?: number;        // Min confidence from prior step (0-100)
+  requiredEvidence?: string[];        // Evidence types required from prior steps
+  
+  // Safety controls
+  safeMode?: {
+    enabled: boolean;
+    maxPayloads?: number;
+    allowedTargets?: string[];
+    blockedPatterns?: string[];
+  };
+  
+  // Step-specific config
+  config: Record<string, any>;
+}
+
+export interface Playbook {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  category: ExploitCategory;
+  
+  // Metadata
+  author?: string;
+  mitreAttackIds?: string[];
+  riskLevel: "low" | "medium" | "high" | "critical";
+  
+  // Execution requirements
+  minimumMode: ExecutionMode;
+  estimatedDuration: number;          // ms
+  
+  // Steps
+  steps: PlaybookStep[];
+  
+  // Abort conditions
+  abortOn?: {
+    stepFailures?: number;            // Max consecutive failures
+    confidenceBelow?: number;         // Min confidence to continue
+    patterns?: string[];              // Response patterns that trigger abort
+  };
+}
+
+// ============================================================================
+// EXECUTION RESULT TYPES
+// ============================================================================
+
+export interface StepEvidence {
+  type: string;
+  data: any;
+  hash?: string;
+  capturedAt: Date;
+  redacted?: boolean;
+}
+
+export interface StepResult {
+  stepId: string;
+  stepName: string;
+  status: "success" | "failed" | "skipped" | "aborted" | "blocked";
+  
+  // Outcome
+  verdict?: ValidationVerdict;
+  confidence: number;                 // 0-100
+  evidence: StepEvidence[];
+  
+  // Execution metadata
+  startedAt: Date;
+  completedAt: Date;
+  durationMs: number;
+  retryCount: number;
+  
+  // Error info
+  error?: string;
+  blockedReason?: string;
+  
+  // Chain context
+  chainedFrom?: string;               // Previous step ID
+  enabledSteps?: string[];            // Steps now unlocked
+}
+
+export interface ChainExecutionResult {
+  playbookId: string;
+  playbookName: string;
+  
+  // Overall status
+  status: "completed" | "partial" | "failed" | "aborted";
+  overallConfidence: number;
+  overallVerdict: ValidationVerdict;
+  
+  // Step results
+  stepsExecuted: number;
+  stepsSucceeded: number;
+  stepsFailed: number;
+  stepsSkipped: number;
+  stepResults: StepResult[];
+  
+  // Execution metadata
+  executionMode: ExecutionMode;
+  startedAt: Date;
+  completedAt: Date;
+  totalDurationMs: number;
+  
+  // Evidence summary
+  criticalFindings: string[];
+  proofArtifacts: StepEvidence[];
+  
+  // Attack chain visualization
+  attackPath: {
+    nodeId: string;
+    technique: string;
+    status: "success" | "failed" | "skipped";
+    confidence: number;
+  }[];
+}
+
+// ============================================================================
+// CHAIN ORCHESTRATOR
+// ============================================================================
+
+export interface ChainOrchestratorConfig {
+  maxConcurrentSteps: number;
+  defaultTimeout: number;
+  confidenceThreshold: number;
+  collectAllEvidence: boolean;
+  redactSensitiveData: boolean;
+}
+
+const DEFAULT_CONFIG: ChainOrchestratorConfig = {
+  maxConcurrentSteps: 1,              // Sequential by default for safety
+  defaultTimeout: 30000,
+  confidenceThreshold: 50,
+  collectAllEvidence: true,
+  redactSensitiveData: true,
+};
+
+export class ChainOrchestrator {
+  private config: ChainOrchestratorConfig;
+  private httpClient: ValidatingHttpClient;
+  private stepHandlers: Map<string, StepHandler>;
+  private activeChains: Map<string, ChainExecutionContext>;
+  
+  constructor(config?: Partial<ChainOrchestratorConfig>) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.httpClient = new ValidatingHttpClient({ timeout: this.config.defaultTimeout });
+    this.stepHandlers = new Map();
+    this.activeChains = new Map();
+    
+    this.registerBuiltinHandlers();
+  }
+  
+  // ---------------------------------------------------------------------------
+  // PLAYBOOK EXECUTION
+  // ---------------------------------------------------------------------------
+  
+  async executePlaybook(
+    playbook: Playbook,
+    target: string,
+    context: {
+      tenantId: string;
+      organizationId: string;
+      evaluationId?: string;
+      userId?: string;
+      approvalId?: string;
+    },
+    onProgress?: (stepId: string, status: string, progress: number) => void
+  ): Promise<ChainExecutionResult> {
+    const executionId = `chain-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const startTime = Date.now();
+    
+    // Check execution mode
+    const currentMode = executionModeEnforcer.getMode(context.tenantId);
+    if (this.getModeLevel(currentMode) < this.getModeLevel(playbook.minimumMode)) {
+      return this.createBlockedResult(playbook, currentMode, 
+        `Playbook requires ${playbook.minimumMode} mode, current mode is ${currentMode}`);
+    }
+    
+    // Create execution context
+    const execContext: ChainExecutionContext = {
+      executionId,
+      playbook,
+      target,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      evaluationId: context.evaluationId,
+      userId: context.userId,
+      approvalId: context.approvalId,
+      mode: currentMode,
+      stepResults: new Map(),
+      collectedEvidence: [],
+      aborted: false,
+    };
+    
+    this.activeChains.set(executionId, execContext);
+    
+    // Log chain start
+    await auditService.logValidationAction(
+      "chain_executed",
+      currentMode,
+      {
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        evaluationId: context.evaluationId,
+        requestedBy: context.userId,
+      },
+      {
+        targetHost: target,
+        probeType: "exploit_chain",
+        resultStatus: "success",
+        metadata: {
+          playbookId: playbook.id,
+          playbookName: playbook.name,
+          stepCount: playbook.steps.length,
+          action: "chain_started",
+        },
+      }
+    );
+    
+    const stepResults: StepResult[] = [];
+    let consecutiveFailures = 0;
+    
+    try {
+      // Execute steps in dependency order
+      const executionOrder = this.resolveStepOrder(playbook.steps);
+      
+      for (let i = 0; i < executionOrder.length; i++) {
+        if (execContext.aborted) {
+          break;
+        }
+        
+        const step = executionOrder[i];
+        onProgress?.(step.id, "starting", (i / executionOrder.length) * 100);
+        
+        // Check if step should be skipped
+        const skipReason = this.shouldSkipStep(step, execContext);
+        if (skipReason) {
+          const skipResult = this.createSkippedResult(step, skipReason);
+          stepResults.push(skipResult);
+          execContext.stepResults.set(step.id, skipResult);
+          continue;
+        }
+        
+        // Check mode requirements
+        if (this.getModeLevel(currentMode) < this.getModeLevel(step.requiredMode)) {
+          const blockedResult = this.createBlockedResult2(step, 
+            `Step requires ${step.requiredMode} mode`);
+          stepResults.push(blockedResult);
+          execContext.stepResults.set(step.id, blockedResult);
+          continue;
+        }
+        
+        // Execute step with sandboxing
+        const stepResult = await this.executeStep(step, execContext, onProgress);
+        stepResults.push(stepResult);
+        execContext.stepResults.set(step.id, stepResult);
+        
+        // Track failures for abort condition
+        if (stepResult.status === "failed") {
+          consecutiveFailures++;
+          if (playbook.abortOn?.stepFailures && 
+              consecutiveFailures >= playbook.abortOn.stepFailures) {
+            execContext.aborted = true;
+            break;
+          }
+        } else {
+          consecutiveFailures = 0;
+        }
+        
+        // Check confidence abort condition
+        if (playbook.abortOn?.confidenceBelow && 
+            stepResult.confidence < playbook.abortOn.confidenceBelow) {
+          execContext.aborted = true;
+          break;
+        }
+        
+        onProgress?.(step.id, stepResult.status, ((i + 1) / executionOrder.length) * 100);
+      }
+    } finally {
+      this.activeChains.delete(executionId);
+    }
+    
+    // Build result
+    const result = this.buildChainResult(playbook, execContext, stepResults, startTime);
+    
+    // Log chain completion
+    await auditService.logValidationAction(
+      "chain_executed",
+      currentMode,
+      {
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        evaluationId: context.evaluationId,
+        requestedBy: context.userId,
+      },
+      {
+        targetHost: target,
+        probeType: "exploit_chain",
+        resultStatus: result.status === "completed" || result.status === "partial" ? "success" : "failure",
+        confidenceScore: result.overallConfidence,
+        metadata: {
+          playbookId: playbook.id,
+          status: result.status,
+          stepsExecuted: result.stepsExecuted,
+          stepsSucceeded: result.stepsSucceeded,
+          criticalFindings: result.criticalFindings,
+          action: "chain_completed",
+        },
+      }
+    );
+    
+    return result;
+  }
+  
+  // ---------------------------------------------------------------------------
+  // STEP EXECUTION
+  // ---------------------------------------------------------------------------
+  
+  private async executeStep(
+    step: PlaybookStep,
+    context: ChainExecutionContext,
+    onProgress?: (stepId: string, status: string, progress: number) => void
+  ): Promise<StepResult> {
+    const startTime = Date.now();
+    let retryCount = 0;
+    
+    while (retryCount <= step.maxRetries) {
+      try {
+        // Execute within sandbox
+        const sandboxResult = await executeSandboxed<StepResult>(
+          this.mapStepTypeToOperation(step.type),
+          context.target,
+          async (signal) => {
+            const handler = this.stepHandlers.get(`${step.category}:${step.type}`);
+            if (!handler) {
+              throw new Error(`No handler for ${step.category}:${step.type}`);
+            }
+            
+            return handler.execute(step, context, this.httpClient, signal);
+          },
+          {
+            tenantId: context.tenantId,
+            organizationId: context.organizationId,
+            executionMode: context.mode,
+            timeoutMs: step.timeout || this.config.defaultTimeout,
+            approvalId: context.approvalId,
+          }
+        );
+        
+        if (!sandboxResult.success) {
+          throw new Error(sandboxResult.error || "Sandbox execution failed");
+        }
+        
+        const result = sandboxResult.result!;
+        
+        // Collect evidence
+        if (this.config.collectAllEvidence) {
+          context.collectedEvidence.push(...result.evidence);
+        }
+        
+        // Redact sensitive data if needed
+        if (this.config.redactSensitiveData) {
+          result.evidence = result.evidence.map(e => this.redactEvidence(e));
+        }
+        
+        return result;
+        
+      } catch (error) {
+        retryCount++;
+        if (retryCount > step.maxRetries) {
+          return {
+            stepId: step.id,
+            stepName: step.name,
+            status: "failed",
+            confidence: 0,
+            evidence: [],
+            startedAt: new Date(startTime),
+            completedAt: new Date(),
+            durationMs: Date.now() - startTime,
+            retryCount,
+            error: error instanceof Error ? error.message : "Unknown error",
+          };
+        }
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
+    
+    // Should never reach here
+    return this.createFailedResult(step, startTime, "Max retries exceeded", retryCount);
+  }
+  
+  // ---------------------------------------------------------------------------
+  // STEP HANDLERS
+  // ---------------------------------------------------------------------------
+  
+  registerHandler(category: ExploitCategory, type: StepType, handler: StepHandler): void {
+    this.stepHandlers.set(`${category}:${type}`, handler);
+  }
+  
+  private registerBuiltinHandlers(): void {
+    // SQLi handlers
+    this.registerHandler("sqli", "validate", new SqliValidateHandler());
+    this.registerHandler("sqli", "exploit", new SqliExploitHandler());
+    this.registerHandler("sqli", "exfiltrate", new SqliExfiltrateHandler());
+    
+    // Path traversal handlers
+    this.registerHandler("path_traversal", "validate", new PathTraversalValidateHandler());
+    this.registerHandler("path_traversal", "exfiltrate", new PathTraversalExfiltrateHandler());
+    
+    // Command injection handlers
+    this.registerHandler("command_injection", "validate", new CommandInjectionValidateHandler());
+    this.registerHandler("command_injection", "exploit", new CommandInjectionExploitHandler());
+    
+    // Auth bypass handlers
+    this.registerHandler("auth_bypass", "validate", new AuthBypassValidateHandler());
+    this.registerHandler("auth_bypass", "escalate", new AuthBypassEscalateHandler());
+    
+    // SSRF handlers
+    this.registerHandler("ssrf", "validate", new SsrfValidateHandler());
+    this.registerHandler("ssrf", "pivot", new SsrfPivotHandler());
+  }
+  
+  // ---------------------------------------------------------------------------
+  // HELPER METHODS
+  // ---------------------------------------------------------------------------
+  
+  private resolveStepOrder(steps: PlaybookStep[]): PlaybookStep[] {
+    // Topological sort based on dependencies
+    const resolved: PlaybookStep[] = [];
+    const unresolved = new Set(steps.map(s => s.id));
+    const stepMap = new Map(steps.map(s => [s.id, s]));
+    
+    while (unresolved.size > 0) {
+      let progress = false;
+      
+      const unresolvedIds = Array.from(unresolved);
+      for (const id of unresolvedIds) {
+        const step = stepMap.get(id)!;
+        const deps = step.dependsOn || [];
+        
+        if (deps.every(d => !unresolved.has(d))) {
+          resolved.push(step);
+          unresolved.delete(id);
+          progress = true;
+        }
+      }
+      
+      if (!progress) {
+        // Circular dependency - just add remaining in order
+        const remaining = Array.from(unresolved);
+        for (const id of remaining) {
+          resolved.push(stepMap.get(id)!);
+        }
+        break;
+      }
+    }
+    
+    return resolved;
+  }
+  
+  private shouldSkipStep(step: PlaybookStep, context: ChainExecutionContext): string | null {
+    // Check dependency results
+    if (step.dependsOn) {
+      for (const depId of step.dependsOn) {
+        const depResult = context.stepResults.get(depId);
+        if (!depResult) {
+          return `Dependency ${depId} not executed`;
+        }
+        if (depResult.status !== "success") {
+          return `Dependency ${depId} did not succeed`;
+        }
+        
+        // Check confidence threshold
+        if (step.requiredConfidence && depResult.confidence < step.requiredConfidence) {
+          return `Dependency ${depId} confidence (${depResult.confidence}) below threshold (${step.requiredConfidence})`;
+        }
+      }
+    }
+    
+    // Check required evidence
+    if (step.requiredEvidence) {
+      const availableEvidence = new Set(
+        context.collectedEvidence.map(e => e.type)
+      );
+      for (const required of step.requiredEvidence) {
+        if (!availableEvidence.has(required)) {
+          return `Required evidence type '${required}' not available`;
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  private getModeLevel(mode: ExecutionMode): number {
+    switch (mode) {
+      case "safe": return 0;
+      case "simulation": return 1;
+      case "live": return 2;
+      default: return 0;
+    }
+  }
+  
+  private mapStepTypeToOperation(type: StepType): SandboxedOperationType {
+    switch (type) {
+      case "exfiltrate": return "data_exfiltration";
+      case "exploit":
+      case "escalate":
+      case "pivot":
+      case "persist":
+        return "exploit_execution";
+      default:
+        return "vulnerability_scan";
+    }
+  }
+  
+  private redactEvidence(evidence: StepEvidence): StepEvidence {
+    const sensitivePatterns = [
+      /password[\"']?\s*[:=]\s*[\"']?[^\"'\s]+/gi,
+      /api[_-]?key[\"']?\s*[:=]\s*[\"']?[^\"'\s]+/gi,
+      /secret[\"']?\s*[:=]\s*[\"']?[^\"'\s]+/gi,
+      /token[\"']?\s*[:=]\s*[\"']?[^\"'\s]+/gi,
+      /bearer\s+[a-zA-Z0-9\-_\.]+/gi,
+      /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g,
+    ];
+    
+    let dataStr = typeof evidence.data === "string" 
+      ? evidence.data 
+      : JSON.stringify(evidence.data);
+    
+    for (const pattern of sensitivePatterns) {
+      dataStr = dataStr.replace(pattern, "[REDACTED]");
+    }
+    
+    return {
+      ...evidence,
+      data: dataStr,
+      redacted: true,
+    };
+  }
+  
+  private createBlockedResult(playbook: Playbook, mode: ExecutionMode, reason: string): ChainExecutionResult {
+    return {
+      playbookId: playbook.id,
+      playbookName: playbook.name,
+      status: "aborted",
+      overallConfidence: 0,
+      overallVerdict: "error",
+      stepsExecuted: 0,
+      stepsSucceeded: 0,
+      stepsFailed: 0,
+      stepsSkipped: playbook.steps.length,
+      stepResults: [],
+      executionMode: mode,
+      startedAt: new Date(),
+      completedAt: new Date(),
+      totalDurationMs: 0,
+      criticalFindings: [],
+      proofArtifacts: [],
+      attackPath: [],
+    };
+  }
+  
+  private createSkippedResult(step: PlaybookStep, reason: string): StepResult {
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "skipped",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+      blockedReason: reason,
+    };
+  }
+  
+  private createBlockedResult2(step: PlaybookStep, reason: string): StepResult {
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "blocked",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+      blockedReason: reason,
+    };
+  }
+  
+  private createFailedResult(step: PlaybookStep, startTime: number, error: string, retryCount: number): StepResult {
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "failed",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      durationMs: Date.now() - startTime,
+      retryCount,
+      error,
+    };
+  }
+  
+  private buildChainResult(
+    playbook: Playbook,
+    context: ChainExecutionContext,
+    stepResults: StepResult[],
+    startTime: number
+  ): ChainExecutionResult {
+    const succeeded = stepResults.filter(r => r.status === "success").length;
+    const failed = stepResults.filter(r => r.status === "failed").length;
+    const skipped = stepResults.filter(r => r.status === "skipped" || r.status === "blocked").length;
+    
+    // Calculate overall confidence (average of successful steps)
+    const successfulResults = stepResults.filter(r => r.status === "success");
+    const avgConfidence = successfulResults.length > 0
+      ? successfulResults.reduce((sum, r) => sum + r.confidence, 0) / successfulResults.length
+      : 0;
+    
+    // Determine overall verdict
+    let overallVerdict: ValidationVerdict = "false_positive";
+    if (avgConfidence >= 90) overallVerdict = "confirmed";
+    else if (avgConfidence >= 70) overallVerdict = "likely";
+    else if (avgConfidence >= 40) overallVerdict = "theoretical";
+    
+    // Extract critical findings
+    const criticalFindings: string[] = [];
+    for (const result of stepResults) {
+      if (result.status === "success" && result.confidence >= 80) {
+        criticalFindings.push(`${result.stepName}: ${result.verdict || "Exploitable"}`);
+      }
+    }
+    
+    // Build attack path
+    const attackPath = stepResults.map(r => ({
+      nodeId: r.stepId,
+      technique: playbook.steps.find(s => s.id === r.stepId)?.name || r.stepName,
+      status: r.status === "success" ? "success" as const : 
+              r.status === "failed" ? "failed" as const : "skipped" as const,
+      confidence: r.confidence,
+    }));
+    
+    // Determine overall status
+    let status: ChainExecutionResult["status"] = "completed";
+    if (context.aborted) status = "aborted";
+    else if (succeeded === 0) status = "failed";
+    else if (failed > 0 || skipped > 0) status = "partial";
+    
+    return {
+      playbookId: playbook.id,
+      playbookName: playbook.name,
+      status,
+      overallConfidence: Math.round(avgConfidence),
+      overallVerdict,
+      stepsExecuted: stepResults.length - skipped,
+      stepsSucceeded: succeeded,
+      stepsFailed: failed,
+      stepsSkipped: skipped,
+      stepResults,
+      executionMode: context.mode,
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      totalDurationMs: Date.now() - startTime,
+      criticalFindings,
+      proofArtifacts: context.collectedEvidence,
+      attackPath,
+    };
+  }
+  
+  // ---------------------------------------------------------------------------
+  // CHAIN MANAGEMENT
+  // ---------------------------------------------------------------------------
+  
+  abortChain(executionId: string, reason: string): boolean {
+    const context = this.activeChains.get(executionId);
+    if (context) {
+      context.aborted = true;
+      context.abortReason = reason;
+      return true;
+    }
+    return false;
+  }
+  
+  getActiveChains(): string[] {
+    return Array.from(this.activeChains.keys());
+  }
+}
+
+// ============================================================================
+// STEP HANDLER INTERFACE
+// ============================================================================
+
+interface ChainExecutionContext {
+  executionId: string;
+  playbook: Playbook;
+  target: string;
+  tenantId: string;
+  organizationId: string;
+  evaluationId?: string;
+  userId?: string;
+  approvalId?: string;
+  mode: ExecutionMode;
+  stepResults: Map<string, StepResult>;
+  collectedEvidence: StepEvidence[];
+  aborted: boolean;
+  abortReason?: string;
+}
+
+export interface StepHandler {
+  execute(
+    step: PlaybookStep,
+    context: ChainExecutionContext,
+    httpClient: ValidatingHttpClient,
+    signal: AbortSignal
+  ): Promise<StepResult>;
+}
+
+// ============================================================================
+// BUILTIN STEP HANDLERS (Stubs - implemented in separate files)
+// ============================================================================
+
+class SqliValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    const { SqliValidator } = await import("../validation/modules/sqli-validator");
+    const validator = new SqliValidator();
+    const result = await validator.validate({
+      targetUrl: context.target,
+      parameterName: step.config.parameter || "id",
+      parameterLocation: step.config.parameterLocation || "url_param",
+      originalValue: step.config.value || "1",
+      httpMethod: step.config.method || "GET",
+      headers: step.config.headers,
+    });
+    
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: result.vulnerable ? "success" : "failed",
+      verdict: result.verdict,
+      confidence: result.confidence,
+      evidence: [{
+        type: "sqli_validation",
+        data: result.evidence,
+        capturedAt: new Date(),
+      }],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class SqliExploitHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    // Placeholder - implemented in post-exploitation module
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "success",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class SqliExfiltrateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    // Placeholder - implemented in post-exploitation module
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "success",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class PathTraversalValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    const { PathTraversalValidator } = await import("../validation/modules/path-traversal-validator");
+    const validator = new PathTraversalValidator();
+    const result = await validator.validate({
+      targetUrl: context.target,
+      parameterName: step.config.parameter || "file",
+      parameterLocation: step.config.parameterLocation || "url_param",
+      originalValue: step.config.value || "test.txt",
+      httpMethod: step.config.method || "GET",
+      headers: step.config.headers,
+    });
+    
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: result.vulnerable ? "success" : "failed",
+      verdict: result.verdict,
+      confidence: result.confidence,
+      evidence: [{
+        type: "path_traversal_validation",
+        data: result.evidence,
+        capturedAt: new Date(),
+      }],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class PathTraversalExfiltrateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    // Placeholder - implemented in post-exploitation module
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "success",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class CommandInjectionValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    const { CommandInjectionValidator } = await import("../validation/modules/command-injection-validator");
+    const validator = new CommandInjectionValidator();
+    const result = await validator.validate({
+      targetUrl: context.target,
+      parameterName: step.config.parameter || "cmd",
+      parameterLocation: step.config.parameterLocation || "url_param",
+      originalValue: step.config.value || "test",
+      httpMethod: step.config.method || "GET",
+      headers: step.config.headers,
+    });
+    
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: result.vulnerable ? "success" : "failed",
+      verdict: result.verdict,
+      confidence: result.confidence,
+      evidence: [{
+        type: "command_injection_validation",
+        data: result.evidence,
+        capturedAt: new Date(),
+      }],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class CommandInjectionExploitHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    // Placeholder - implemented in post-exploitation module
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "success",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class AuthBypassValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    const { AuthBypassValidator } = await import("../validation/modules/auth-bypass-validator");
+    const validator = new AuthBypassValidator();
+    const result = await validator.validate({
+      targetUrl: context.target,
+      parameterName: step.config.parameter || "user",
+      parameterLocation: step.config.parameterLocation || "url_param",
+      originalValue: step.config.value || "admin",
+      httpMethod: step.config.method || "GET",
+      headers: step.config.headers,
+    });
+    
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: result.vulnerable ? "success" : "failed",
+      verdict: result.verdict,
+      confidence: result.confidence,
+      evidence: [{
+        type: "auth_bypass_validation",
+        data: result.evidence,
+        capturedAt: new Date(),
+      }],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class AuthBypassEscalateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    // Placeholder - implemented in post-exploitation module
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "success",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class SsrfValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    const { SsrfValidator } = await import("../validation/modules/ssrf-validator");
+    const validator = new SsrfValidator();
+    const result = await validator.validate({
+      targetUrl: context.target,
+      parameterName: step.config.parameter || "url",
+      parameterLocation: step.config.parameterLocation || "url_param",
+      originalValue: step.config.value || "http://example.com",
+      httpMethod: step.config.method || "GET",
+      headers: step.config.headers,
+    });
+    
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: result.vulnerable ? "success" : "failed",
+      verdict: result.verdict,
+      confidence: result.confidence,
+      evidence: [{
+        type: "ssrf_validation",
+        data: result.evidence,
+        capturedAt: new Date(),
+      }],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+class SsrfPivotHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
+    // Placeholder - implemented in lateral movement module
+    return {
+      stepId: step.id,
+      stepName: step.name,
+      status: "success",
+      confidence: 0,
+      evidence: [],
+      startedAt: new Date(),
+      completedAt: new Date(),
+      durationMs: 0,
+      retryCount: 0,
+    };
+  }
+}
+
+// ============================================================================
+// SINGLETON EXPORT
+// ============================================================================
+
+export const chainOrchestrator = new ChainOrchestrator();

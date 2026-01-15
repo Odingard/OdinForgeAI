@@ -6,7 +6,9 @@ export type SandboxedOperationType =
   | "credential_test"
   | "payload_injection"
   | "network_scan"
-  | "port_scan";
+  | "port_scan"
+  | "exploit_execution"
+  | "data_exfiltration";
 
 export interface ResourceLimits {
   maxExecutionTimeMs: number;
