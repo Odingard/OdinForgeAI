@@ -1738,6 +1738,10 @@ export const validationAuditLogActions = [
   "evidence_captured",
   "target_accessed",
   "data_retrieved",
+  "chain_executed",
+  "chain_step_completed",
+  "exploit_chain_started",
+  "post_exploitation_proof",
 ] as const;
 
 export type ValidationAuditLogAction = typeof validationAuditLogActions[number];
