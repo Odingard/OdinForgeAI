@@ -2,6 +2,9 @@ import { ValidatingHttpClient } from "./validating-http-client";
 import { createSqliValidator, type SqliValidationResult } from "./modules/sqli-validator";
 import { createXssValidator, type XssValidationResult } from "./modules/xss-validator";
 import { createAuthBypassValidator, type AuthBypassValidationResult } from "./modules/auth-bypass-validator";
+import { createCommandInjectionValidator, type CommandInjectionValidationResult } from "./modules/command-injection-validator";
+import { createPathTraversalValidator, type PathTraversalValidationResult } from "./modules/path-traversal-validator";
+import { createSsrfValidator, type SsrfValidationResult } from "./modules/ssrf-validator";
 import type { PayloadExecutionContext, PayloadResult } from "./payloads/payload-types";
 import type { ValidationContext } from "./validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
@@ -25,6 +28,8 @@ export interface ValidationTarget {
   vulnerabilityTypes?: VulnerabilityType[];
 }
 
+export type ValidatorResult = SqliValidationResult | XssValidationResult | AuthBypassValidationResult | CommandInjectionValidationResult | PathTraversalValidationResult | SsrfValidationResult;
+
 export interface UnifiedValidationResult {
   target: ValidationTarget;
   vulnerable: boolean;
@@ -32,7 +37,7 @@ export interface UnifiedValidationResult {
   overallVerdict: ValidationVerdict;
   vulnerabilities: {
     type: VulnerabilityType;
-    result: SqliValidationResult | XssValidationResult | AuthBypassValidationResult;
+    result: ValidatorResult;
   }[];
   totalPayloadsTested: number;
   successfulPayloads: number;
@@ -116,7 +121,7 @@ export class ValidationEngine {
       successfulPayloads,
       executionTimeMs,
       evidence: allEvidence,
-      recommendations: [...new Set(allRecommendations)],
+      recommendations: Array.from(new Set(allRecommendations)),
     };
   }
 
@@ -138,7 +143,7 @@ export class ValidationEngine {
   private async runValidator(
     type: VulnerabilityType,
     context: PayloadExecutionContext
-  ): Promise<SqliValidationResult | XssValidationResult | AuthBypassValidationResult | null> {
+  ): Promise<ValidatorResult | null> {
     switch (type) {
       case "sqli": {
         const validator = createSqliValidator(this.validationContext);
@@ -150,6 +155,18 @@ export class ValidationEngine {
       }
       case "auth_bypass": {
         const validator = createAuthBypassValidator(this.validationContext);
+        return validator.validate(context);
+      }
+      case "command_injection": {
+        const validator = createCommandInjectionValidator(this.validationContext);
+        return validator.validate(context);
+      }
+      case "path_traversal": {
+        const validator = createPathTraversalValidator(this.validationContext);
+        return validator.validate(context);
+      }
+      case "ssrf": {
+        const validator = createSsrfValidator(this.validationContext);
         return validator.validate(context);
       }
       default:
