@@ -106,13 +106,28 @@ fi
 # Remove trailing slash
 SERVER_URL="${SERVER_URL%/}"
 
-# Get registration token from CLI args, environment, or prompt (in priority order)
+# Default registration token - can be embedded when downloaded with ?token=<value>
+DEFAULT_TOKEN="__REGISTRATION_TOKEN_PLACEHOLDER__"
+
+# Check if token was embedded (doesn't contain placeholder text)
+token_is_embedded() {
+    case "$1" in
+        *__REGISTRATION_TOKEN_PLACEHOLDER__*) return 1 ;;
+        "") return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# Get registration token from CLI args, environment, embedded default, or prompt (in priority order)
 if [ -n "$CLI_TOKEN" ]; then
     TOKEN="$CLI_TOKEN"
 elif [ -n "$ODINFORGE_TOKEN" ]; then
     TOKEN="$ODINFORGE_TOKEN"
 elif [ -n "$TOKEN" ]; then
     TOKEN="$TOKEN"
+elif token_is_embedded "$DEFAULT_TOKEN"; then
+    TOKEN="$DEFAULT_TOKEN"
+    echo -e "${GREEN}Using embedded registration token${NC}"
 else
     echo -e "${YELLOW}Enter registration token:${NC}"
     read -r TOKEN < /dev/tty

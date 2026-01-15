@@ -183,6 +183,7 @@ export async function registerRoutes(
 
   // Serve install.sh script for curl-based installation (no auth required)
   // Automatically injects the server URL so users don't need to enter it manually
+  // Optional: ?token=<registration-token> to embed the token in the script
   app.get("/api/agents/install.sh", (req, res) => {
     const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.sh");
     
@@ -193,6 +194,9 @@ export async function registerRoutes(
       // Inject the server URL - replace placeholder with actual URL
       const serverUrl = getServerUrl(req);
       script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
+      // Inject registration token if provided, otherwise remove placeholder for clarity
+      const token = req.query.token as string | undefined;
+      script = script.replace(/__REGISTRATION_TOKEN_PLACEHOLDER__/g, token || "");
       res.send(script);
     } else {
       res.status(404).json({ error: "Install script not found" });
@@ -201,6 +205,7 @@ export async function registerRoutes(
 
   // Serve install.ps1 script for PowerShell-based installation (no auth required)
   // Automatically injects the server URL so users don't need to enter it manually
+  // Optional: ?token=<registration-token> to embed the token in the script
   app.get("/api/agents/install.ps1", (req, res) => {
     const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.ps1");
     
@@ -211,6 +216,9 @@ export async function registerRoutes(
       // Inject the server URL - replace placeholder with actual URL
       const serverUrl = getServerUrl(req);
       script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
+      // Inject registration token if provided, otherwise remove placeholder for clarity
+      const token = req.query.token as string | undefined;
+      script = script.replace(/__REGISTRATION_TOKEN_PLACEHOLDER__/g, token || "");
       res.send(script);
     } else {
       res.status(404).json({ error: "Install script not found" });
@@ -4641,8 +4649,8 @@ export async function registerRoutes(
     }
   });
 
-  // List registration tokens for an organization
-  app.get("/api/agents/registration-tokens", async (req, res) => {
+  // List registration tokens for an organization (admin only)
+  app.get("/api/agents/registration-tokens", requireAdminAuth, async (req, res) => {
     try {
       const organizationId = (req.query.organizationId as string) || "default";
       const tokens = await storage.getAgentRegistrationTokens(organizationId);

@@ -59,7 +59,10 @@ if ($ServerUrl) {
 }
 $server = $server.TrimEnd('/')
 
-# Get registration token from parameters, environment, or prompt
+# Default registration token - can be embedded when downloaded with ?token=<value>
+$defaultToken = "__REGISTRATION_TOKEN_PLACEHOLDER__"
+
+# Get registration token from parameters, environment, embedded default, or prompt
 if ($RegistrationToken) {
     $regToken = $RegistrationToken
 } elseif ($Token) {
@@ -70,6 +73,9 @@ if ($RegistrationToken) {
     $regToken = $env:ODINFORGE_TOKEN
 } elseif ($env:TOKEN) {
     $regToken = $env:TOKEN
+} elseif ($defaultToken -notmatch "__REGISTRATION_TOKEN_PLACEHOLDER__" -and $defaultToken -ne "") {
+    $regToken = $defaultToken
+    Write-Host "Using embedded registration token" -ForegroundColor Green
 } else {
     $regToken = Read-Host "Enter registration token"
 }
