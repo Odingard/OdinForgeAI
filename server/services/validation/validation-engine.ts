@@ -8,6 +8,12 @@ import { createSsrfValidator, type SsrfValidationResult } from "./modules/ssrf-v
 import type { PayloadExecutionContext, PayloadResult } from "./payloads/payload-types";
 import type { ValidationContext } from "./validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
+import { 
+  type ExecutionMode, 
+  executionModeEnforcer, 
+  validateOperation,
+  getExecutionModeConfig 
+} from "./execution-modes";
 
 export type VulnerabilityType = "sqli" | "xss" | "auth_bypass" | "command_injection" | "path_traversal" | "ssrf";
 
@@ -16,6 +22,8 @@ export interface ValidationEngineConfig {
   timeoutMs?: number;
   captureEvidence?: boolean;
   safeMode?: boolean;
+  executionMode?: ExecutionMode;
+  tenantId?: string;
 }
 
 export interface ValidationTarget {
@@ -51,6 +59,8 @@ const DEFAULT_CONFIG: Required<ValidationEngineConfig> = {
   timeoutMs: 10000,
   captureEvidence: true,
   safeMode: true,
+  executionMode: "safe",
+  tenantId: "default",
 };
 
 export class ValidationEngine {
@@ -71,6 +81,32 @@ export class ValidationEngine {
     const allRecommendations: string[] = [];
     let totalPayloads = 0;
     let successfulPayloads = 0;
+
+    const mode = this.config.executionMode || executionModeEnforcer.getMode(this.config.tenantId);
+    const modeConfig = getExecutionModeConfig(mode);
+
+    const payloadInjectionCheck = validateOperation(mode, "payloadInjection", target.url);
+    if (!payloadInjectionCheck.allowed && !this.config.safeMode) {
+      console.warn(`[ValidationEngine] Payload injection blocked: ${payloadInjectionCheck.reason}`);
+      return {
+        target,
+        vulnerable: false,
+        overallConfidence: 0,
+        overallVerdict: "false_positive",
+        vulnerabilities: [],
+        totalPayloadsTested: 0,
+        successfulPayloads: 0,
+        executionTimeMs: Date.now() - startTime,
+        evidence: [],
+        recommendations: [`Validation blocked: ${payloadInjectionCheck.reason}`],
+      };
+    }
+
+    const effectiveTimeout = Math.min(this.config.timeoutMs, modeConfig.restrictions.timeoutMs);
+    const effectiveMaxPayloads = Math.min(
+      this.config.maxPayloadsPerTest, 
+      modeConfig.restrictions.maxConcurrentProbes * 2
+    );
 
     const executionContext: PayloadExecutionContext = {
       targetUrl: target.url,

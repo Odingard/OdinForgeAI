@@ -1720,6 +1720,114 @@ export const rateLimitTracking = pgTable("rate_limit_tracking", {
   blockedCount: integer("blocked_count").default(0),
 });
 
+// ========== IMMUTABLE VALIDATION AUDIT LOG ==========
+// This table is append-only for compliance and forensics
+
+export const validationAuditLogActions = [
+  "probe_executed",
+  "payload_sent",
+  "vulnerability_confirmed",
+  "exploit_attempted",
+  "credential_tested",
+  "mode_escalated",
+  "approval_requested",
+  "approval_granted",
+  "approval_denied",
+  "execution_blocked",
+  "kill_switch_triggered",
+  "evidence_captured",
+  "target_accessed",
+  "data_retrieved",
+] as const;
+
+export type ValidationAuditLogAction = typeof validationAuditLogActions[number];
+
+export const validationAuditLogs = pgTable("validation_audit_logs", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  agentId: varchar("agent_id"),
+  action: varchar("action").notNull(),
+  executionMode: varchar("execution_mode").notNull(), // safe, simulation, live
+  targetHost: varchar("target_host"),
+  targetPort: integer("target_port"),
+  probeType: varchar("probe_type"),
+  vulnerabilityType: varchar("vulnerability_type"),
+  payloadUsed: text("payload_used"),
+  payloadHash: varchar("payload_hash"),
+  resultStatus: varchar("result_status"), // success, failure, blocked, timeout
+  confidenceScore: integer("confidence_score"),
+  verdict: varchar("verdict"), // confirmed, likely, theoretical, false_positive
+  evidence: text("evidence"),
+  evidenceHash: varchar("evidence_hash"),
+  requestedBy: varchar("requested_by"),
+  approvedBy: varchar("approved_by"),
+  approvalId: varchar("approval_id"),
+  ipAddress: varchar("ip_address"),
+  userAgent: varchar("user_agent"),
+  riskLevel: varchar("risk_level"), // low, medium, high, critical
+  executionDurationMs: integer("execution_duration_ms"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  checksum: varchar("checksum"), // SHA-256 of record for tamper detection
+  previousRecordHash: varchar("previous_record_hash"), // Chain link for immutability
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertValidationAuditLogSchema = createInsertSchema(validationAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertValidationAuditLog = z.infer<typeof insertValidationAuditLogSchema>;
+export type ValidationAuditLog = typeof validationAuditLogs.$inferSelect;
+
+// ========== APPROVAL WORKFLOW ==========
+
+export const approvalStatuses = ["pending", "approved", "denied", "expired", "cancelled"] as const;
+export type ApprovalStatus = typeof approvalStatuses[number];
+
+export const approvalLevels = ["manager", "security_lead", "ciso", "dual_control"] as const;
+export type ApprovalLevel = typeof approvalLevels[number];
+
+export const approvalRequests = pgTable("approval_requests", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull(),
+  tenantId: varchar("tenant_id").notNull(),
+  requestType: varchar("request_type").notNull(), // mode_change, live_execution, scope_expansion
+  requestedBy: varchar("requested_by").notNull(),
+  requestedByName: varchar("requested_by_name"),
+  requiredLevel: varchar("required_level").notNull(), // manager, security_lead, ciso
+  status: varchar("status").notNull().default("pending"),
+  targetHost: varchar("target_host"),
+  targetScope: jsonb("target_scope").$type<string[]>(),
+  executionMode: varchar("execution_mode"),
+  operationType: varchar("operation_type"),
+  justification: text("justification").notNull(),
+  riskAssessment: text("risk_assessment"),
+  estimatedImpact: varchar("estimated_impact"), // minimal, moderate, significant, severe
+  durationMinutes: integer("duration_minutes"),
+  approvedBy: varchar("approved_by"),
+  approvedByName: varchar("approved_by_name"),
+  approvalNotes: text("approval_notes"),
+  denialReason: text("denial_reason"),
+  expiresAt: timestamp("expires_at"),
+  approvedAt: timestamp("approved_at"),
+  deniedAt: timestamp("denied_at"),
+  metadata: jsonb("metadata").$type<Record<string, any>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertApprovalRequestSchema = createInsertSchema(approvalRequests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertApprovalRequest = z.infer<typeof insertApprovalRequestSchema>;
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+
 // ========== ADVANCED / FUTURE DIFFERENTIATORS ==========
 
 // AI Adversary Profiles

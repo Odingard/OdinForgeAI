@@ -13,6 +13,7 @@ import (
         "odinforge-agent/internal/collector"
         "odinforge-agent/internal/config"
         "odinforge-agent/internal/installer"
+        "odinforge-agent/internal/prober"
         "odinforge-agent/internal/queue"
         "odinforge-agent/internal/registrar"
         "odinforge-agent/internal/sender"
@@ -499,8 +500,8 @@ func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collect
                         errorMsg = err.Error()
                 } else {
                         result = map[string]interface{}{
-                                "status":      "completed",
-                                "executedAt":  time.Now().Format(time.RFC3339),
+                                "status":        "completed",
+                                "executedAt":    time.Now().Format(time.RFC3339),
                                 "telemetrySent": true,
                         }
                 }
@@ -514,6 +515,9 @@ func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collect
                         "scanType":   "full",
                 }
 
+        case "validation_probe":
+                result = executeValidationProbe(ctx, cmd.Payload)
+
         default:
                 errorMsg = "unknown command type: " + cmd.CommandType
         }
@@ -523,5 +527,89 @@ func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collect
                 log.Printf("failed to report command completion: %v", err)
         } else {
                 log.Printf("command %s completed successfully", cmd.ID)
+        }
+}
+
+func executeValidationProbe(ctx context.Context, payload map[string]interface{}) map[string]interface{} {
+        start := time.Now()
+
+        host, _ := payload["host"].(string)
+        if host == "" {
+                return map[string]interface{}{
+                        "status": "error",
+                        "error":  "missing required 'host' parameter",
+                }
+        }
+
+        probeTypes, _ := payload["probes"].([]interface{})
+        var probes []string
+        for _, p := range probeTypes {
+                if pStr, ok := p.(string); ok {
+                        probes = append(probes, pStr)
+                }
+        }
+
+        port := 0
+        if portFloat, ok := payload["port"].(float64); ok {
+                port = int(portFloat)
+        }
+
+        timeout := 5000
+        if timeoutFloat, ok := payload["timeout"].(float64); ok {
+                timeout = int(timeoutFloat)
+        }
+
+        log.Printf("running validation probes on %s: %v", host, probes)
+
+        var allResults []prober.ProbeResult
+
+        // Run protocol probes
+        if len(probes) > 0 {
+                cfg := prober.ProbeConfig{
+                        Host:    host,
+                        Port:    port,
+                        Timeout: timeout,
+                        Probes:  probes,
+                }
+                p := prober.New(cfg)
+                results := p.RunProbes(ctx)
+                allResults = append(allResults, results...)
+        }
+
+        // Run credential probes if requested
+        credServices, _ := payload["credentialServices"].([]interface{})
+        if len(credServices) > 0 {
+                credProber := prober.NewCredentialProber(host, timeout)
+                for _, svc := range credServices {
+                        svcStr, ok := svc.(string)
+                        if !ok {
+                                continue
+                        }
+                        result := credProber.ProbeService(ctx, prober.ServiceType(svcStr), port)
+                        allResults = append(allResults, result)
+                }
+        }
+
+        // Aggregate findings
+        var vulnerableCount int
+        var criticalFindings []string
+        for _, r := range allResults {
+                if r.Vulnerable {
+                        vulnerableCount++
+                        if r.Confidence >= 90 {
+                                criticalFindings = append(criticalFindings, r.Evidence)
+                        }
+                }
+        }
+
+        return map[string]interface{}{
+                "status":           "completed",
+                "executedAt":       time.Now().Format(time.RFC3339),
+                "host":             host,
+                "probeCount":       len(allResults),
+                "vulnerableCount":  vulnerableCount,
+                "criticalFindings": criticalFindings,
+                "results":          allResults,
+                "executionMs":      time.Since(start).Milliseconds(),
         }
 }

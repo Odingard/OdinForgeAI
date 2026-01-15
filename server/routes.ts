@@ -779,6 +779,512 @@ export async function registerRoutes(
     }
   });
 
+  // ========== EXECUTION MODE ENDPOINTS ==========
+  
+  app.get("/api/aev/execution-modes", async (req, res) => {
+    try {
+      const { 
+        getExecutionModeSummary, 
+        executionModeEnforcer 
+      } = await import("./services/validation/execution-modes");
+      
+      const tenantId = req.query.tenantId as string || "default";
+      const currentMode = executionModeEnforcer.getMode(tenantId);
+      
+      const modes = ["safe", "simulation", "live"] as const;
+      const summaries = modes.map(mode => ({
+        ...getExecutionModeSummary(mode),
+        isCurrent: mode === currentMode,
+      }));
+      
+      res.json({
+        currentMode,
+        tenantId,
+        modes: summaries,
+      });
+    } catch (error) {
+      console.error("Error fetching execution modes:", error);
+      res.status(500).json({ error: "Failed to fetch execution modes" });
+    }
+  });
+  
+  app.get("/api/aev/execution-modes/current", async (req, res) => {
+    try {
+      const { 
+        getExecutionModeSummary, 
+        getExecutionModeConfig,
+        executionModeEnforcer 
+      } = await import("./services/validation/execution-modes");
+      
+      const tenantId = req.query.tenantId as string || "default";
+      const currentMode = executionModeEnforcer.getMode(tenantId);
+      const config = getExecutionModeConfig(currentMode);
+      const summary = getExecutionModeSummary(currentMode);
+      
+      res.json({
+        mode: currentMode,
+        tenantId,
+        summary,
+        config,
+      });
+    } catch (error) {
+      console.error("Error fetching current execution mode:", error);
+      res.status(500).json({ error: "Failed to fetch current execution mode" });
+    }
+  });
+  
+  app.post("/api/aev/execution-modes/set", async (req, res) => {
+    try {
+      const { 
+        executionModeEnforcer,
+        validateModeTransition,
+        getExecutionModeSummary,
+      } = await import("./services/validation/execution-modes");
+      
+      const { mode, tenantId = "default", durationMinutes, reason } = req.body;
+      
+      if (!mode || !["safe", "simulation", "live"].includes(mode)) {
+        return res.status(400).json({ error: "Invalid mode. Must be 'safe', 'simulation', or 'live'" });
+      }
+      
+      const currentMode = executionModeEnforcer.getMode(tenantId);
+      
+      const transitionResult = validateModeTransition({
+        fromMode: currentMode,
+        toMode: mode,
+        requestedBy: "api",
+        reason: reason || "Mode change requested via API",
+        targetScope: [tenantId],
+        duration: durationMinutes || 60,
+      });
+      
+      if (!transitionResult.allowed) {
+        return res.status(403).json({ 
+          error: transitionResult.reason,
+          allowed: false,
+        });
+      }
+      
+      if (transitionResult.requiresApproval) {
+        return res.status(202).json({
+          status: "pending_approval",
+          message: transitionResult.reason,
+          approvalLevel: transitionResult.approvalLevel,
+          currentMode,
+          requestedMode: mode,
+        });
+      }
+      
+      if (durationMinutes && durationMinutes > 0) {
+        executionModeEnforcer.setTenantOverride(tenantId, mode, durationMinutes);
+      } else {
+        executionModeEnforcer.setMode(mode);
+      }
+      
+      console.log(`[ExecutionMode] Mode changed: ${currentMode} -> ${mode} for tenant ${tenantId}`);
+      
+      res.json({
+        success: true,
+        previousMode: currentMode,
+        newMode: mode,
+        tenantId,
+        durationMinutes: durationMinutes || "permanent",
+        summary: getExecutionModeSummary(mode),
+      });
+    } catch (error) {
+      console.error("Error setting execution mode:", error);
+      res.status(500).json({ error: "Failed to set execution mode" });
+    }
+  });
+  
+  app.post("/api/aev/execution-modes/validate-operation", async (req, res) => {
+    try {
+      const { 
+        validateOperation,
+        executionModeEnforcer,
+      } = await import("./services/validation/execution-modes");
+      
+      const { operation, target, tenantId = "default" } = req.body;
+      
+      const validOperations = [
+        "bannerGrabbing", "versionDetection", "portScanning", 
+        "credentialTesting", "payloadInjection", "exploitExecution", "dataExfiltration"
+      ];
+      
+      if (!operation || !validOperations.includes(operation)) {
+        return res.status(400).json({ 
+          error: `Invalid operation. Must be one of: ${validOperations.join(", ")}` 
+        });
+      }
+      
+      const mode = executionModeEnforcer.getMode(tenantId);
+      const result = validateOperation(mode, operation, target);
+      
+      res.json({
+        mode,
+        operation,
+        target,
+        ...result,
+      });
+    } catch (error) {
+      console.error("Error validating operation:", error);
+      res.status(500).json({ error: "Failed to validate operation" });
+    }
+  });
+
+  // ========== APPROVAL WORKFLOW ENDPOINTS ==========
+  
+  app.get("/api/aev/approval-requests", async (req, res) => {
+    try {
+      const { approvalWorkflowService } = await import("./services/validation/audit-service");
+      const organizationId = req.query.organizationId as string || "default";
+      const requiredLevel = req.query.requiredLevel as string | undefined;
+      
+      const requests = await approvalWorkflowService.getPendingApprovals(
+        organizationId, 
+        requiredLevel as any
+      );
+      
+      res.json({ requests });
+    } catch (error) {
+      console.error("Error fetching approval requests:", error);
+      res.status(500).json({ error: "Failed to fetch approval requests" });
+    }
+  });
+  
+  app.get("/api/aev/approval-requests/:id", async (req, res) => {
+    try {
+      const { approvalWorkflowService } = await import("./services/validation/audit-service");
+      const request = await approvalWorkflowService.getApprovalRequest(req.params.id);
+      
+      if (!request) {
+        return res.status(404).json({ error: "Approval request not found" });
+      }
+      
+      res.json(request);
+    } catch (error) {
+      console.error("Error fetching approval request:", error);
+      res.status(500).json({ error: "Failed to fetch approval request" });
+    }
+  });
+  
+  app.post("/api/aev/approval-requests", async (req, res) => {
+    try {
+      const { approvalWorkflowService } = await import("./services/validation/audit-service");
+      
+      const {
+        requestType,
+        requiredLevel,
+        organizationId = "default",
+        tenantId = "default",
+        requestedBy,
+        requestedByName,
+        targetHost,
+        targetScope,
+        executionMode,
+        operationType,
+        justification,
+        riskAssessment,
+        estimatedImpact,
+        durationMinutes,
+      } = req.body;
+      
+      if (!requestType || !requiredLevel || !justification) {
+        return res.status(400).json({ 
+          error: "Missing required fields: requestType, requiredLevel, justification" 
+        });
+      }
+      
+      const request = await approvalWorkflowService.createApprovalRequest(
+        requestType,
+        requiredLevel,
+        {
+          organizationId,
+          tenantId,
+          requestedBy,
+          requestedByName,
+          targetHost,
+          targetScope,
+          executionMode,
+          operationType,
+          justification,
+          riskAssessment,
+          estimatedImpact,
+          durationMinutes,
+        }
+      );
+      
+      res.status(201).json(request);
+    } catch (error) {
+      console.error("Error creating approval request:", error);
+      res.status(500).json({ error: "Failed to create approval request" });
+    }
+  });
+  
+  app.post("/api/aev/approval-requests/:id/approve", async (req, res) => {
+    try {
+      const { approvalWorkflowService } = await import("./services/validation/audit-service");
+      const { approverId, approverName, notes } = req.body;
+      
+      if (!approverId || !approverName) {
+        return res.status(400).json({ error: "Missing required fields: approverId, approverName" });
+      }
+      
+      const updated = await approvalWorkflowService.approveRequest(
+        req.params.id,
+        approverId,
+        approverName,
+        notes
+      );
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error approving request:", error);
+      res.status(400).json({ error: error.message || "Failed to approve request" });
+    }
+  });
+  
+  app.post("/api/aev/approval-requests/:id/deny", async (req, res) => {
+    try {
+      const { approvalWorkflowService } = await import("./services/validation/audit-service");
+      const { denierId, denierName, reason } = req.body;
+      
+      if (!denierId || !denierName || !reason) {
+        return res.status(400).json({ error: "Missing required fields: denierId, denierName, reason" });
+      }
+      
+      const updated = await approvalWorkflowService.denyRequest(
+        req.params.id,
+        denierId,
+        denierName,
+        reason
+      );
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error denying request:", error);
+      res.status(400).json({ error: error.message || "Failed to deny request" });
+    }
+  });
+  
+  app.post("/api/aev/approval-requests/:id/cancel", async (req, res) => {
+    try {
+      const { approvalWorkflowService } = await import("./services/validation/audit-service");
+      const { cancelledBy } = req.body;
+      
+      const updated = await approvalWorkflowService.cancelRequest(req.params.id, cancelledBy || "unknown");
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error cancelling request:", error);
+      res.status(400).json({ error: error.message || "Failed to cancel request" });
+    }
+  });
+
+  // ========== VALIDATION AUDIT LOG ENDPOINTS ==========
+  
+  app.get("/api/aev/audit-logs", async (req, res) => {
+    try {
+      const { auditService } = await import("./services/validation/audit-service");
+      const organizationId = req.query.organizationId as string || "default";
+      const limit = parseInt(req.query.limit as string) || 100;
+      const action = req.query.action as string | undefined;
+      const executionMode = req.query.executionMode as string | undefined;
+      
+      const logs = await auditService.getAuditLogs(organizationId, {
+        limit,
+        action: action as any,
+        executionMode: executionMode as any,
+      });
+      
+      res.json({ logs, total: logs.length });
+    } catch (error) {
+      console.error("Error fetching audit logs:", error);
+      res.status(500).json({ error: "Failed to fetch audit logs" });
+    }
+  });
+  
+  app.get("/api/aev/audit-logs/verify", async (req, res) => {
+    try {
+      const { auditService } = await import("./services/validation/audit-service");
+      const organizationId = req.query.organizationId as string || "default";
+      
+      const verification = await auditService.verifyAuditIntegrity(organizationId);
+      
+      res.json(verification);
+    } catch (error) {
+      console.error("Error verifying audit integrity:", error);
+      res.status(500).json({ error: "Failed to verify audit integrity" });
+    }
+  });
+
+  // ========== SANDBOX EXECUTION ENDPOINTS ==========
+  
+  app.get("/api/aev/sandbox/config", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const tenantId = req.query.tenantId as string || "default";
+      
+      const config = sandboxExecutor.getTenantConfig(tenantId);
+      res.json(config);
+    } catch (error) {
+      console.error("Error fetching sandbox config:", error);
+      res.status(500).json({ error: "Failed to fetch sandbox config" });
+    }
+  });
+  
+  app.put("/api/aev/sandbox/config", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { tenantId, ...config } = req.body;
+      
+      if (tenantId) {
+        sandboxExecutor.setTenantConfig(tenantId, config);
+      } else {
+        sandboxExecutor.setConfig(config);
+      }
+      
+      res.json({ success: true, config: sandboxExecutor.getTenantConfig(tenantId || "default") });
+    } catch (error) {
+      console.error("Error updating sandbox config:", error);
+      res.status(500).json({ error: "Failed to update sandbox config" });
+    }
+  });
+  
+  app.get("/api/aev/sandbox/stats", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const tenantId = req.query.tenantId as string | undefined;
+      
+      const stats = sandboxExecutor.getStats(tenantId);
+      const activeOperations = sandboxExecutor.getActiveOperations(tenantId);
+      
+      res.json({ stats, activeOperations });
+    } catch (error) {
+      console.error("Error fetching sandbox stats:", error);
+      res.status(500).json({ error: "Failed to fetch sandbox stats" });
+    }
+  });
+  
+  app.get("/api/aev/sandbox/kill-switch", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const state = sandboxExecutor.getKillSwitchState();
+      res.json(state);
+    } catch (error) {
+      console.error("Error fetching kill switch state:", error);
+      res.status(500).json({ error: "Failed to fetch kill switch state" });
+    }
+  });
+  
+  app.post("/api/aev/sandbox/kill-switch/engage", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { scope = "global", reason, engagedBy, affectedTenants, affectedOperations } = req.body;
+      
+      if (!reason || !engagedBy) {
+        return res.status(400).json({ error: "Missing required fields: reason, engagedBy" });
+      }
+      
+      const state = sandboxExecutor.engageKillSwitch({
+        scope,
+        reason,
+        engagedBy,
+        affectedTenants,
+        affectedOperations,
+      });
+      
+      res.json({ success: true, state });
+    } catch (error) {
+      console.error("Error engaging kill switch:", error);
+      res.status(500).json({ error: "Failed to engage kill switch" });
+    }
+  });
+  
+  app.post("/api/aev/sandbox/kill-switch/disengage", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { disengagedBy } = req.body;
+      
+      if (!disengagedBy) {
+        return res.status(400).json({ error: "Missing required field: disengagedBy" });
+      }
+      
+      const state = sandboxExecutor.disengageKillSwitch(disengagedBy);
+      res.json({ success: true, state });
+    } catch (error) {
+      console.error("Error disengaging kill switch:", error);
+      res.status(500).json({ error: "Failed to disengage kill switch" });
+    }
+  });
+  
+  app.post("/api/aev/sandbox/abort/:operationId", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { reason } = req.body;
+      
+      const aborted = sandboxExecutor.abortOperation(req.params.operationId, reason || "Manually aborted");
+      
+      if (!aborted) {
+        return res.status(404).json({ error: "Operation not found or not running" });
+      }
+      
+      res.json({ success: true, operationId: req.params.operationId });
+    } catch (error) {
+      console.error("Error aborting operation:", error);
+      res.status(500).json({ error: "Failed to abort operation" });
+    }
+  });
+  
+  app.post("/api/aev/sandbox/abort-all", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { tenantId, reason } = req.body;
+      
+      const count = sandboxExecutor.abortAllOperations(tenantId, reason || "All operations aborted");
+      res.json({ success: true, abortedCount: count });
+    } catch (error) {
+      console.error("Error aborting all operations:", error);
+      res.status(500).json({ error: "Failed to abort all operations" });
+    }
+  });
+  
+  app.post("/api/aev/sandbox/validate-target", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { target, tenantId = "default" } = req.body;
+      
+      if (!target) {
+        return res.status(400).json({ error: "Missing required field: target" });
+      }
+      
+      const result = sandboxExecutor.validateTarget(target, tenantId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error validating target:", error);
+      res.status(500).json({ error: "Failed to validate target" });
+    }
+  });
+  
+  app.post("/api/aev/sandbox/check-limits", async (req, res) => {
+    try {
+      const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
+      const { tenantId = "default" } = req.body;
+      
+      const rateCheck = sandboxExecutor.checkRateLimits(tenantId);
+      const concurrencyCheck = sandboxExecutor.checkConcurrencyLimits(tenantId);
+      const killSwitchEngaged = sandboxExecutor.isKillSwitchEngaged(tenantId);
+      
+      res.json({
+        rateLimits: rateCheck,
+        concurrencyLimits: concurrencyCheck,
+        killSwitchEngaged,
+      });
+    } catch (error) {
+      console.error("Error checking limits:", error);
+      res.status(500).json({ error: "Failed to check limits" });
+    }
+  });
+
   // ========== SYSTEM MONITORING ENDPOINTS ==========
   
   app.get("/api/system/websocket-stats", async (req, res) => {
@@ -3526,6 +4032,76 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error forcing agent check-in:", error);
       res.status(500).json({ error: "Failed to queue agent check-in command" });
+    }
+  });
+
+  // Queue validation probe command for agent to execute from inside target network
+  app.post("/api/agents/:id/validation-probe", async (req, res) => {
+    try {
+      const agent = await storage.getEndpointAgent(req.params.id);
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+      
+      const { host, probes, credentialServices, port, timeout, evaluationId } = req.body;
+      
+      if (!host) {
+        return res.status(400).json({ error: "Target host is required" });
+      }
+      
+      if ((!probes || probes.length === 0) && (!credentialServices || credentialServices.length === 0)) {
+        return res.status(400).json({ error: "At least one probe type or credential service must be specified" });
+      }
+      
+      // Validate probe types
+      const validProbes = ["smtp", "dns", "ldap", "port_scan"];
+      const validCredServices = ["ssh", "ftp", "telnet", "mysql", "postgres", "redis", "mongodb"];
+      
+      if (probes) {
+        const invalidProbes = probes.filter((p: string) => !validProbes.includes(p));
+        if (invalidProbes.length > 0) {
+          return res.status(400).json({ error: `Invalid probe types: ${invalidProbes.join(", ")}` });
+        }
+      }
+      
+      if (credentialServices) {
+        const invalidServices = credentialServices.filter((s: string) => !validCredServices.includes(s));
+        if (invalidServices.length > 0) {
+          return res.status(400).json({ error: `Invalid credential services: ${invalidServices.join(", ")}` });
+        }
+      }
+      
+      // Queue the validation_probe command for the agent
+      const command = await storage.createAgentCommand({
+        agentId: agent.id,
+        organizationId: agent.organizationId,
+        commandType: "validation_probe",
+        payload: { 
+          host,
+          probes: probes || [],
+          credentialServices: credentialServices || [],
+          port: port || 0,
+          timeout: timeout || 5000,
+          evaluationId,
+          requestedAt: new Date().toISOString(),
+        },
+        status: "pending",
+      });
+      
+      res.json({ 
+        success: true, 
+        message: "Validation probe command queued. Agent will execute on next heartbeat.",
+        commandId: command.id,
+        agentId: agent.id,
+        targetHost: host,
+        probes: probes || [],
+        credentialServices: credentialServices || [],
+        queuedAt: command.createdAt,
+        expiresAt: command.expiresAt,
+      });
+    } catch (error) {
+      console.error("Error queuing validation probe:", error);
+      res.status(500).json({ error: "Failed to queue validation probe command" });
     }
   });
 
