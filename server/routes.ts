@@ -5934,6 +5934,32 @@ async function runAiSimulation(simulationId: string) {
 // ========== JOB QUEUE API ROUTES ==========
 
 function registerJobQueueRoutes(app: Express) {
+  // Admin auth middleware for job queue routes
+  const requireAdminAuth = (req: any, res: any, next: any) => {
+    // Check for authenticated session (Replit Auth)
+    if (req.isAuthenticated && req.isAuthenticated()) {
+      return next();
+    }
+    // Check for admin password header
+    const adminPassword = req.headers["x-admin-password"];
+    const expectedAdminPassword = process.env.ADMIN_PASSWORD;
+    if (expectedAdminPassword && adminPassword === expectedAdminPassword) {
+      return next();
+    }
+    // Check for admin API key header
+    const adminKey = req.headers["x-admin-key"];
+    const expectedAdminKey = process.env.ADMIN_API_KEY;
+    if (expectedAdminKey && adminKey === expectedAdminKey) {
+      return next();
+    }
+    // In development mode without session, allow access with warning
+    if (process.env.NODE_ENV === "development" && !expectedAdminKey && !expectedAdminPassword) {
+      console.warn("WARNING: Endpoint accessed without authentication (development mode)");
+      return next();
+    }
+    return res.status(401).json({ error: "Admin authentication required" });
+  };
+
   // Get queue stats
   app.get("/api/jobs/stats", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
@@ -6261,6 +6287,223 @@ function registerJobQueueRoutes(app: Express) {
     } catch (error) {
       console.error("Failed to queue AI simulation:", error);
       res.status(500).json({ error: "Failed to queue AI simulation job" });
+    }
+  });
+
+  // ============================================================================
+  // COVERAGE AUTOPILOT ENDPOINTS
+  // ============================================================================
+
+  // POST /api/enrollment/token - Create a new enrollment token (60 min expiry)
+  app.post("/api/enrollment/token", requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      
+      // Generate a cryptographically secure token
+      const rawToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+      const tokenHint = rawToken.slice(-6);
+      
+      // Set expiration to 60 minutes from now
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      
+      const tokenId = `enroll-${randomUUID().slice(0, 8)}`;
+      
+      await storage.createEnrollmentToken({
+        id: tokenId,
+        organizationId,
+        tokenHash,
+        tokenHint,
+        expiresAt,
+        revoked: false,
+      });
+      
+      res.status(201).json({
+        token: rawToken,
+        tokenId,
+        tokenHint,
+        expiresAt: expiresAt.toISOString(),
+        expiresInMinutes: 60,
+        message: "Enrollment token created. This token will only be shown once.",
+      });
+    } catch (error) {
+      console.error("Failed to create enrollment token:", error);
+      res.status(500).json({ error: "Failed to create enrollment token" });
+    }
+  });
+
+  // GET /api/enrollment/tokens - List active enrollment tokens (no raw tokens)
+  app.get("/api/enrollment/tokens", requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      
+      const tokens = await storage.getActiveEnrollmentTokens(organizationId);
+      
+      res.json({
+        tokens: tokens.map(t => ({
+          id: t.id,
+          tokenHint: t.tokenHint,
+          expiresAt: t.expiresAt,
+          createdAt: t.createdAt,
+          revoked: t.revoked,
+        })),
+      });
+    } catch (error) {
+      console.error("Failed to list enrollment tokens:", error);
+      res.status(500).json({ error: "Failed to list enrollment tokens" });
+    }
+  });
+
+  // DELETE /api/enrollment/tokens/:id - Revoke an enrollment token
+  app.delete("/api/enrollment/tokens/:id", requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const organizationId = getOrganizationId(req) || "default";
+      
+      await storage.revokeEnrollmentToken(id, organizationId);
+      
+      res.json({ message: "Token revoked successfully" });
+    } catch (error) {
+      console.error("Failed to revoke enrollment token:", error);
+      res.status(500).json({ error: "Failed to revoke enrollment token" });
+    }
+  });
+
+  // GET /api/bootstrap?token= - Generate bootstrap commands for all platforms
+  app.get("/api/bootstrap", async (req, res) => {
+    try {
+      const { token } = req.query;
+      
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Enrollment token is required" });
+      }
+      
+      // Validate the token
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const enrollmentToken = await storage.getEnrollmentTokenByHash(tokenHash);
+      
+      if (!enrollmentToken) {
+        return res.status(401).json({ error: "Invalid enrollment token" });
+      }
+      
+      if (enrollmentToken.revoked) {
+        return res.status(401).json({ error: "Enrollment token has been revoked" });
+      }
+      
+      if (new Date(enrollmentToken.expiresAt) < new Date()) {
+        return res.status(401).json({ error: "Enrollment token has expired" });
+      }
+      
+      const organizationId = enrollmentToken.organizationId;
+      
+      // Get server URL from environment or request
+      const serverUrl = process.env.PUBLIC_ODINFORGE_URL || 
+        `${req.protocol}://${req.get("host")}`;
+      const agentImage = process.env.ODINFORGE_AGENT_IMAGE || "ghcr.io/sixsensees/odinforge-agent:latest";
+      
+      // Generate bootstrap commands
+      const bootstrap = {
+        host: {
+          linux: `curl -sSL '${serverUrl}/api/agents/install.sh' | sudo bash -s -- --server-url "${serverUrl}" --api-key "${token}" --tenant-id "${organizationId}"`,
+          windows: `irm '${serverUrl}/api/agents/install.ps1' | iex; Install-OdinForgeAgent -ServerUrl "${serverUrl}" -ApiKey "${token}" -TenantId "${organizationId}"`,
+        },
+        cloud: {
+          aws: {
+            userDataLinux: `#!/bin/bash
+curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serverUrl}" --api-key "${token}" --tenant-id "${organizationId}"`,
+            userDataWindows: `<powershell>
+irm '${serverUrl}/api/agents/install.ps1' | iex
+Install-OdinForgeAgent -ServerUrl "${serverUrl}" -ApiKey "${token}" -TenantId "${organizationId}"
+</powershell>`,
+          },
+          azure: {
+            vmssLinux: `#!/bin/bash
+curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serverUrl}" --api-key "${token}" --tenant-id "${organizationId}"`,
+            vmssWindows: `irm '${serverUrl}/api/agents/install.ps1' | iex; Install-OdinForgeAgent -ServerUrl "${serverUrl}" -ApiKey "${token}" -TenantId "${organizationId}"`,
+          },
+          gcp: {
+            startupLinux: `#!/bin/bash
+curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serverUrl}" --api-key "${token}" --tenant-id "${organizationId}"`,
+            startupWindows: `irm '${serverUrl}/api/agents/install.ps1' | iex; Install-OdinForgeAgent -ServerUrl "${serverUrl}" -ApiKey "${token}" -TenantId "${organizationId}"`,
+          },
+        },
+        k8s: {
+          apply: `curl -sSL '${serverUrl}/k8s/odinforge-agent-daemonset.yaml' | \\
+  sed -e 's|__SERVER_URL__|${serverUrl}|g' \\
+      -e 's|__TENANT_ID__|${organizationId}|g' \\
+      -e 's|__ENROLL_TOKEN__|${token}|g' \\
+      -e 's|__AGENT_IMAGE__|${agentImage}|g' | \\
+  kubectl apply -f -`,
+          verify: `kubectl -n odinforge get ds odinforge-agent && kubectl -n odinforge rollout status ds/odinforge-agent --timeout=120s && kubectl -n odinforge get pods -o wide`,
+        },
+      };
+      
+      res.json(bootstrap);
+    } catch (error) {
+      console.error("Failed to generate bootstrap commands:", error);
+      res.status(500).json({ error: "Failed to generate bootstrap commands" });
+    }
+  });
+
+  // POST /api/inventory/assets - Ingest discovered assets
+  app.post("/api/inventory/assets", requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { provider, assets } = req.body;
+      
+      if (!provider || !["aws", "azure", "gcp", "k8s"].includes(provider)) {
+        return res.status(400).json({ error: "Invalid provider. Must be aws, azure, gcp, or k8s" });
+      }
+      
+      if (!assets || !Array.isArray(assets)) {
+        return res.status(400).json({ error: "assets array is required" });
+      }
+      
+      let imported = 0;
+      let updated = 0;
+      
+      for (const asset of assets) {
+        const result = await storage.upsertCloudAsset({
+          organizationId,
+          provider,
+          assetType: asset.assetType || "vm",
+          assetName: asset.name || asset.assetName,
+          region: asset.region,
+          providerResourceId: asset.externalId || asset.id || `${provider}-${randomUUID().slice(0, 8)}`,
+          rawMetadata: asset.metadata || asset,
+          lastSeenAt: new Date(),
+        });
+        
+        if (result.isNew) {
+          imported++;
+        } else {
+          updated++;
+        }
+      }
+      
+      res.status(200).json({
+        message: "Assets ingested successfully",
+        imported,
+        updated,
+        total: assets.length,
+      });
+    } catch (error) {
+      console.error("Failed to ingest assets:", error);
+      res.status(500).json({ error: "Failed to ingest assets" });
+    }
+  });
+
+  // GET /api/coverage - Get coverage statistics
+  app.get("/api/coverage", requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      
+      const coverage = await storage.getCoverageStats(organizationId);
+      
+      res.json(coverage);
+    } catch (error) {
+      console.error("Failed to get coverage stats:", error);
+      res.status(500).json({ error: "Failed to get coverage statistics" });
     }
   });
 }

@@ -3449,3 +3449,32 @@ export const insertValidationEvidenceArtifactSchema = createInsertSchema(validat
 
 export type InsertValidationEvidenceArtifact = z.infer<typeof insertValidationEvidenceArtifactSchema>;
 export type ValidationEvidenceArtifact = typeof validationEvidenceArtifacts.$inferSelect;
+
+// ============================================================================
+// COVERAGE AUTOPILOT - Enrollment Tokens
+// ============================================================================
+
+// Enrollment Tokens - Short-lived tokens for Coverage Autopilot bootstrap
+export const enrollmentTokens = pgTable("enrollment_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Token (stored as SHA256 hash for security)
+  tokenHash: varchar("token_hash").notNull(),
+  tokenHint: varchar("token_hint").notNull(), // Last 6 characters for identification
+  
+  // Expiration & revocation
+  expiresAt: timestamp("expires_at").notNull(),
+  revoked: boolean("revoked").default(false),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEnrollmentTokenSchema = createInsertSchema(enrollmentTokens).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertEnrollmentToken = z.infer<typeof insertEnrollmentTokenSchema>;
+export type EnrollmentToken = typeof enrollmentTokens.$inferSelect;

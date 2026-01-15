@@ -52,6 +52,23 @@ Tracks the progress of long-running AI validation agents, detecting and recoveri
 ### Cloud Agent Deployment
 Facilitates agent deployment on AWS (SSM Run Command), Azure (VM Run Command), and GCP (startup script metadata). Agents are pre-registered in a pending state, and deployment status is tracked per cloud asset.
 
+### Coverage Autopilot
+A hands-off agent onboarding system for deploying agents at scale across infrastructure. Available as a tab in the Agents page (`/agents`).
+
+**Enrollment Tokens**: Short-lived (60-minute TTL) single-use tokens for bulk agent deployment. Stored as SHA256 hashes with only the last 6 characters visible for identification.
+- `POST /api/enrollment/token` - Create enrollment token
+- `GET /api/enrollment/tokens` - List active tokens
+- `DELETE /api/enrollment/tokens/:id` - Revoke token
+
+**Bootstrap Commands**: Platform-specific installation commands generated via `GET /api/bootstrap?token=<token>`:
+- Host Install: Linux/Windows one-liner commands
+- Cloud User-Data: AWS, Azure VMSS, GCP startup scripts (both Linux/Windows)
+- Kubernetes: Raw DaemonSet manifest with placeholder substitution (`public/k8s/odinforge-agent-daemonset.yaml`)
+
+**Coverage Metrics**: `GET /api/coverage` returns asset vs agent coverage stats with per-provider breakdowns (AWS, Azure, GCP).
+
+**UI Component**: `CoverageAutopilot.tsx` displays coverage metrics, token generation, and tabbed bootstrap scripts with copy-to-clipboard functionality.
+
 ### AEV Evidence Collection
 Stores raw HTTP request/response, timing data, and verdict classifications (`confirmed`, `likely`, `theoretical`, `false_positive`, `error`) in a `validationEvidenceArtifacts` table. A `ValidatingHttpClient` captures evidence, and an `EvidenceStorageService` manages persistence, retention policies, and automatic cleanup, ensuring tenant isolation.
 

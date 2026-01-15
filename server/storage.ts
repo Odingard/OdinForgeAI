@@ -117,6 +117,8 @@ import {
   type AgentRegistrationToken,
   type InsertAgentRegistrationToken,
   agentRegistrationTokens,
+  enrollmentTokens,
+  type EnrollmentToken,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -237,6 +239,32 @@ export interface IStorage {
   consumeAgentRegistrationToken(id: string, agentId: string): Promise<boolean>;
   deleteAgentRegistrationToken(id: string): Promise<void>;
   cleanupExpiredAgentRegistrationTokens(): Promise<number>;
+  
+  // Enrollment Token operations (Coverage Autopilot)
+  createEnrollmentToken(data: { id: string; organizationId: string; tokenHash: string; tokenHint: string; expiresAt: Date; revoked: boolean }): Promise<EnrollmentToken>;
+  getActiveEnrollmentTokens(organizationId: string): Promise<EnrollmentToken[]>;
+  getEnrollmentTokenByHash(tokenHash: string): Promise<EnrollmentToken | undefined>;
+  revokeEnrollmentToken(id: string, organizationId: string): Promise<void>;
+  
+  // Coverage Stats operations
+  getCoverageStats(organizationId: string): Promise<{
+    totalAssets: number;
+    agentCount: number;
+    missingAssets: number;
+    byProvider: { provider: string; assets: number; agents: number }[];
+  }>;
+  
+  // Cloud Asset upsert for inventory ingestion
+  upsertCloudAsset(data: {
+    organizationId: string;
+    provider: string;
+    assetType: string;
+    assetName: string;
+    region?: string;
+    providerResourceId: string;
+    rawMetadata?: Record<string, any>;
+    lastSeenAt: Date;
+  }): Promise<{ isNew: boolean }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1961,6 +1989,176 @@ export class DatabaseStorage implements IStorage {
       .delete(agentRegistrationTokens)
       .where(sql`${agentRegistrationTokens.usedAt} IS NOT NULL OR ${agentRegistrationTokens.expiresAt} < NOW()`);
     return result.rowCount || 0;
+  }
+
+  // Enrollment Token operations (Coverage Autopilot)
+  async createEnrollmentToken(data: { id: string; organizationId: string; tokenHash: string; tokenHint: string; expiresAt: Date; revoked: boolean }): Promise<EnrollmentToken> {
+    const [token] = await db
+      .insert(enrollmentTokens)
+      .values(data)
+      .returning();
+    return token;
+  }
+
+  async getActiveEnrollmentTokens(organizationId: string): Promise<EnrollmentToken[]> {
+    return db
+      .select()
+      .from(enrollmentTokens)
+      .where(and(
+        eq(enrollmentTokens.organizationId, organizationId),
+        eq(enrollmentTokens.revoked, false),
+        gte(enrollmentTokens.expiresAt, new Date())
+      ))
+      .orderBy(desc(enrollmentTokens.createdAt));
+  }
+
+  async getEnrollmentTokenByHash(tokenHash: string): Promise<EnrollmentToken | undefined> {
+    const [token] = await db
+      .select()
+      .from(enrollmentTokens)
+      .where(eq(enrollmentTokens.tokenHash, tokenHash));
+    return token;
+  }
+
+  async revokeEnrollmentToken(id: string, organizationId: string): Promise<void> {
+    await db
+      .update(enrollmentTokens)
+      .set({ revoked: true })
+      .where(and(
+        eq(enrollmentTokens.id, id),
+        eq(enrollmentTokens.organizationId, organizationId)
+      ));
+  }
+
+  // Coverage Stats operations
+  async getCoverageStats(organizationId: string): Promise<{
+    totalAssets: number;
+    agentCount: number;
+    missingAssets: number;
+    byProvider: { provider: string; assets: number; agents: number }[];
+  }> {
+    // Get total cloud assets
+    const assetsResult = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(cloudAssets)
+      .where(eq(cloudAssets.organizationId, organizationId));
+    const totalAssets = assetsResult[0]?.count || 0;
+
+    // Get total agents
+    const agentsResult = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(endpointAgents)
+      .where(eq(endpointAgents.organizationId, organizationId));
+    const agentCount = agentsResult[0]?.count || 0;
+
+    // Get assets by provider
+    const assetsByProvider = await db
+      .select({
+        provider: cloudAssets.provider,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(cloudAssets)
+      .where(eq(cloudAssets.organizationId, organizationId))
+      .groupBy(cloudAssets.provider);
+
+    // Get agents by platform (map to provider)
+    const agentsByPlatform = await db
+      .select({
+        platform: endpointAgents.platform,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(endpointAgents)
+      .where(eq(endpointAgents.organizationId, organizationId))
+      .groupBy(endpointAgents.platform);
+
+    // Combine provider stats
+    const providerMap = new Map<string, { assets: number; agents: number }>();
+    
+    for (const a of assetsByProvider) {
+      const provider = a.provider || "unknown";
+      const existing = providerMap.get(provider) || { assets: 0, agents: 0 };
+      existing.assets = a.count;
+      providerMap.set(provider, existing);
+    }
+
+    for (const ag of agentsByPlatform) {
+      // Map platform to provider (linux/windows -> host, kubernetes -> k8s, etc.)
+      let provider = ag.platform || "unknown";
+      if (provider === "linux" || provider === "windows" || provider === "macos") {
+        provider = "host";
+      }
+      const existing = providerMap.get(provider) || { assets: 0, agents: 0 };
+      existing.agents += ag.count;
+      providerMap.set(provider, existing);
+    }
+
+    const byProvider = Array.from(providerMap.entries()).map(([provider, stats]) => ({
+      provider,
+      assets: stats.assets,
+      agents: stats.agents,
+    }));
+
+    return {
+      totalAssets,
+      agentCount,
+      missingAssets: Math.max(totalAssets - agentCount, 0),
+      byProvider,
+    };
+  }
+
+  // Cloud Asset upsert for inventory ingestion
+  async upsertCloudAsset(data: {
+    organizationId: string;
+    provider: string;
+    assetType: string;
+    assetName: string;
+    region?: string;
+    providerResourceId: string;
+    rawMetadata?: Record<string, any>;
+    lastSeenAt: Date;
+  }): Promise<{ isNew: boolean }> {
+    // Check if asset exists by provider resource ID
+    const [existing] = await db
+      .select()
+      .from(cloudAssets)
+      .where(and(
+        eq(cloudAssets.organizationId, data.organizationId),
+        eq(cloudAssets.providerResourceId, data.providerResourceId)
+      ));
+
+    if (existing) {
+      // Update existing asset
+      await db
+        .update(cloudAssets)
+        .set({
+          assetName: data.assetName,
+          region: data.region,
+          rawMetadata: data.rawMetadata,
+          lastSeenAt: data.lastSeenAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudAssets.id, existing.id));
+      return { isNew: false };
+    } else {
+      // Insert new asset - need a connectionId for the existing schema
+      // Since this is for manual inventory ingestion, create a placeholder connection ID
+      const assetId = `asset-${randomUUID().slice(0, 8)}`;
+      await db
+        .insert(cloudAssets)
+        .values({
+          id: assetId,
+          connectionId: `manual-${data.organizationId}`,
+          organizationId: data.organizationId,
+          provider: data.provider,
+          assetType: data.assetType,
+          assetName: data.assetName,
+          region: data.region,
+          providerResourceId: data.providerResourceId,
+          rawMetadata: data.rawMetadata,
+          lastSeenAt: data.lastSeenAt,
+        });
+      return { isNew: true };
+    }
   }
 }
 
