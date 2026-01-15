@@ -4701,7 +4701,7 @@ export async function registerRoutes(
   // This is the primary endpoint for automated agent deployment
   app.post("/api/agents/install-command", requireAdminAuth, async (req, res) => {
     try {
-      const { platform, organizationId, label, expiresInHours } = req.body;
+      const { platform, organizationId, label, expiresInHours, serverUrl: customServerUrl } = req.body;
       const org = organizationId || "default";
       const expHours = expiresInHours || 24;
       const targetPlatform = platform || "linux";
@@ -4720,11 +4720,22 @@ export async function registerRoutes(
         expiresAt,
       });
       
-      // Construct the server URL from the request
-      const host = req.get("host") || "localhost:5000";
-      const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-      const protocol = isLocalhost ? "http" : "https";
-      const serverUrl = `${protocol}://${host}`;
+      // Construct the server URL - prefer custom URL, then Replit domain, then request host
+      let serverUrl: string;
+      if (customServerUrl) {
+        serverUrl = customServerUrl.replace(/\/$/, ''); // Remove trailing slash
+      } else {
+        // Check for Replit deployment domain
+        const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
+        if (replitDomain) {
+          serverUrl = `https://${replitDomain}`;
+        } else {
+          const host = req.get("host") || "localhost:5000";
+          const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+          const protocol = isLocalhost ? "http" : "https";
+          serverUrl = `${protocol}://${host}`;
+        }
+      }
       
       // Generate platform-specific install commands
       let installCommand: string;
