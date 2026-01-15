@@ -33,7 +33,7 @@ import {
   hashPassword,
   type UIAuthenticatedRequest,
 } from "./services/ui-auth";
-import { randomUUID, timingSafeEqual } from "crypto";
+import { randomUUID, timingSafeEqual, randomBytes, createHash } from "crypto";
 import bcrypt from "bcrypt";
 import { z } from "zod";
 import { registerReportV2Routes } from "./src/reportsV2/routes";
@@ -3211,39 +3211,66 @@ export async function registerRoutes(
   });
 
   // Auto-register a new agent using registration token (no pre-registration required)
+  // Supports both: 1) Single-use tokens from database, 2) Permanent env var token (fallback)
   app.post("/api/agents/auto-register", authRateLimiter, async (req, res) => {
     try {
-      const registrationToken = process.env.AGENT_REGISTRATION_TOKEN;
-      
-      if (!registrationToken) {
-        return res.status(503).json({ 
-          error: "Auto-registration not enabled", 
-          message: "AGENT_REGISTRATION_TOKEN environment variable not set" 
-        });
-      }
-
       const { token, agentName, hostname, platform, platformVersion, architecture, capabilities, environment, tags } = req.body;
 
       if (!token) {
         return res.status(400).json({ error: "Registration token required" });
       }
 
-      // Debug: Log token lengths to diagnose shell escaping issues
-      console.log(`[Agent Registration] Received token length: ${token.length}, Expected length: ${registrationToken.length}`);
-      console.log(`[Agent Registration] Token match: ${token === registrationToken}`);
+      // Track which token type was used and organization for the agent
+      let tokenType: "single-use" | "permanent" = "permanent";
+      let singleUseTokenRecord: Awaited<ReturnType<typeof storage.getAgentRegistrationTokenByHash>> = undefined;
+      let organizationId = "default";
 
-      // Validate the registration token (constant-time comparison to prevent timing attacks)
-      const tokenBuffer = Buffer.from(token);
-      const expectedBuffer = Buffer.from(registrationToken);
+      // First, try to validate as a single-use token from database
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      singleUseTokenRecord = await storage.getAgentRegistrationTokenByHash(tokenHash);
       
-      if (tokenBuffer.length !== expectedBuffer.length || !timingSafeEqual(tokenBuffer, expectedBuffer)) {
-        console.log(`[Agent Registration] Token mismatch - received: "${token.substring(0, 3)}..." vs expected: "${registrationToken.substring(0, 3)}..."`);
-        return res.status(401).json({ error: "Invalid registration token" });
+      if (singleUseTokenRecord) {
+        // Check if token is already used
+        if (singleUseTokenRecord.usedAt) {
+          console.log(`[Agent Registration] Single-use token ${singleUseTokenRecord.id} already used`);
+          return res.status(401).json({ error: "Registration token has already been used" });
+        }
+        
+        // Check if token is expired
+        if (new Date(singleUseTokenRecord.expiresAt) < new Date()) {
+          console.log(`[Agent Registration] Single-use token ${singleUseTokenRecord.id} expired`);
+          return res.status(401).json({ error: "Registration token has expired" });
+        }
+        
+        tokenType = "single-use";
+        organizationId = singleUseTokenRecord.organizationId;
+        console.log(`[Agent Registration] Valid single-use token ${singleUseTokenRecord.id} for org ${organizationId}`);
+      } else {
+        // Fall back to permanent env var token
+        const permanentToken = process.env.AGENT_REGISTRATION_TOKEN;
+        
+        if (!permanentToken) {
+          return res.status(401).json({ 
+            error: "Invalid registration token",
+            message: "Token not recognized as single-use token and no permanent token configured"
+          });
+        }
+
+        // Validate against permanent token (constant-time comparison)
+        const tokenBuffer = Buffer.from(token);
+        const expectedBuffer = Buffer.from(permanentToken);
+        
+        if (tokenBuffer.length !== expectedBuffer.length || !timingSafeEqual(tokenBuffer, expectedBuffer)) {
+          console.log(`[Agent Registration] Token mismatch - not a valid single-use or permanent token`);
+          return res.status(401).json({ error: "Invalid registration token" });
+        }
+        
+        console.log(`[Agent Registration] Valid permanent token used`);
       }
 
       // Check if agent with same hostname already exists (prevent duplicate registrations)
       if (hostname) {
-        const existingAgents = await storage.getEndpointAgents();
+        const existingAgents = await storage.getEndpointAgents(organizationId);
         const existingAgent = existingAgents.find(a => a.hostname === hostname);
         if (existingAgent) {
           // Return existing agent's info but generate a new API key
@@ -3256,12 +3283,19 @@ export async function registerRoutes(
             lastHeartbeat: new Date()
           });
           
+          // Consume single-use token even for re-registration
+          if (tokenType === "single-use" && singleUseTokenRecord) {
+            await storage.consumeAgentRegistrationToken(singleUseTokenRecord.id, existingAgent.id);
+            console.log(`[Agent Registration] Single-use token ${singleUseTokenRecord.id} consumed by existing agent ${existingAgent.id}`);
+          }
+          
           return res.json({
             id: existingAgent.id,
             apiKey,
             agentName: existingAgent.agentName,
             message: "Agent re-registered successfully. API key has been rotated.",
-            existingAgent: true
+            existingAgent: true,
+            tokenType
           });
         }
       }
@@ -3282,16 +3316,23 @@ export async function registerRoutes(
         capabilities: capabilities || [],
         environment: environment || "production",
         tags: tags || [],
-        organizationId: "default",
+        organizationId,
         status: "online",
       });
+
+      // Consume single-use token after successful registration
+      if (tokenType === "single-use" && singleUseTokenRecord) {
+        await storage.consumeAgentRegistrationToken(singleUseTokenRecord.id, agent.id);
+        console.log(`[Agent Registration] Single-use token ${singleUseTokenRecord.id} consumed by new agent ${agent.id}`);
+      }
 
       res.json({
         id: agent.id,
         apiKey,
         agentName: agent.agentName,
         message: "Agent auto-registered successfully. Store the API key securely.",
-        existingAgent: false
+        existingAgent: false,
+        tokenType
       });
     } catch (error) {
       console.error("Error auto-registering agent:", error);
@@ -4555,6 +4596,96 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching auth status:", error);
       res.status(500).json({ error: "Failed to fetch auth status" });
+    }
+  });
+
+  // ============================================================================
+  // Agent Registration Token Management
+  // Generate single-use tokens for secure agent auto-registration
+  // ============================================================================
+
+  // Generate a new single-use registration token
+  app.post("/api/agents/registration-tokens", requireAdminAuth, async (req, res) => {
+    try {
+      const { organizationId, label, expiresInHours } = req.body;
+      const org = organizationId || "default";
+      const expHours = expiresInHours || 24; // Default 24 hours
+      
+      // Generate a secure random token
+      const token = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const id = `regtoken-${randomBytes(4).toString("hex")}`;
+      const expiresAt = new Date(Date.now() + expHours * 60 * 60 * 1000);
+      
+      const registrationToken = await storage.createAgentRegistrationToken({
+        id,
+        tokenHash,
+        organizationId: org,
+        label: label || `Token created at ${new Date().toISOString()}`,
+        expiresAt,
+      });
+      
+      console.log(`[AUDIT] Registration token ${id} created for org ${org}, expires ${expiresAt.toISOString()}`);
+      
+      res.json({
+        id: registrationToken.id,
+        token, // Only returned once, never stored
+        label: registrationToken.label,
+        organizationId: registrationToken.organizationId,
+        expiresAt: registrationToken.expiresAt,
+        message: "Single-use registration token created. Store securely - the token value cannot be retrieved again.",
+      });
+    } catch (error) {
+      console.error("Error creating registration token:", error);
+      res.status(500).json({ error: "Failed to create registration token" });
+    }
+  });
+
+  // List registration tokens for an organization
+  app.get("/api/agents/registration-tokens", async (req, res) => {
+    try {
+      const organizationId = (req.query.organizationId as string) || "default";
+      const tokens = await storage.getAgentRegistrationTokens(organizationId);
+      
+      // Return token metadata without the hash
+      res.json(tokens.map(t => ({
+        id: t.id,
+        label: t.label,
+        organizationId: t.organizationId,
+        expiresAt: t.expiresAt,
+        usedAt: t.usedAt,
+        usedByAgentId: t.usedByAgentId,
+        createdAt: t.createdAt,
+        isExpired: new Date(t.expiresAt) < new Date(),
+        isUsed: !!t.usedAt,
+      })));
+    } catch (error) {
+      console.error("Error fetching registration tokens:", error);
+      res.status(500).json({ error: "Failed to fetch registration tokens" });
+    }
+  });
+
+  // Delete a registration token
+  app.delete("/api/agents/registration-tokens/:id", requireAdminAuth, async (req, res) => {
+    try {
+      await storage.deleteAgentRegistrationToken(req.params.id);
+      console.log(`[AUDIT] Registration token ${req.params.id} deleted`);
+      res.json({ success: true, message: "Registration token deleted" });
+    } catch (error) {
+      console.error("Error deleting registration token:", error);
+      res.status(500).json({ error: "Failed to delete registration token" });
+    }
+  });
+
+  // Cleanup expired/used tokens (maintenance endpoint)
+  app.post("/api/agents/registration-tokens/cleanup", requireAdminAuth, async (req, res) => {
+    try {
+      const deletedCount = await storage.cleanupExpiredAgentRegistrationTokens();
+      console.log(`[AUDIT] Cleaned up ${deletedCount} expired/used registration tokens`);
+      res.json({ success: true, deletedCount, message: `Removed ${deletedCount} expired or used tokens` });
+    } catch (error) {
+      console.error("Error cleaning up registration tokens:", error);
+      res.status(500).json({ error: "Failed to cleanup registration tokens" });
     }
   });
 
