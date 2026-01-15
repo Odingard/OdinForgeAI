@@ -34,6 +34,7 @@ import {
   type ResultData,
   type ComputedExecutiveSummary,
   type ComputedTechnicalReport,
+  type EvidenceArtifactData,
 } from "./report-logic";
 
 // Create OpenAI client lazily to handle missing API key gracefully
@@ -63,6 +64,48 @@ interface AIResponse {
 }
 
 export class ReportGenerator {
+  
+  private async fetchEvidenceForEvaluations(
+    evaluations: Array<{ id: string; organizationId?: string }>
+  ): Promise<EvidenceArtifactData[]> {
+    if (evaluations.length === 0) {
+      return [];
+    }
+    
+    try {
+      const artifacts: EvidenceArtifactData[] = [];
+      
+      for (const evaluation of evaluations) {
+        if (!evaluation.organizationId) continue;
+        
+        const evalEvidence = await storage.getValidationEvidenceArtifactsByEvaluationId(
+          evaluation.id,
+          evaluation.organizationId
+        );
+        
+        for (const artifact of evalEvidence) {
+          artifacts.push({
+            id: artifact.id,
+            evaluationId: artifact.evaluationId || undefined,
+            findingId: artifact.findingId || undefined,
+            evidenceType: artifact.evidenceType,
+            verdict: artifact.verdict,
+            confidenceScore: artifact.confidenceScore || 0,
+            targetUrl: artifact.targetUrl || "",
+            observedBehavior: artifact.observedBehavior || "",
+            capturedAt: artifact.capturedAt || new Date(),
+            httpRequest: artifact.httpRequest as EvidenceArtifactData["httpRequest"],
+            httpResponse: artifact.httpResponse as EvidenceArtifactData["httpResponse"],
+          });
+        }
+      }
+      
+      return artifacts;
+    } catch (error) {
+      console.warn("[ReportGenerator] Failed to fetch evidence artifacts:", error);
+      return [];
+    }
+  }
   
   private generateTemplatedNarrative(
     reportType: "executive" | "technical" | "compliance",
@@ -1263,7 +1306,9 @@ Write in clear, professional language. Be specific about what the evidence demon
     }
     
     const computedSummary = computeExecutiveSummary([evalData], resultsMap);
-    const computedTechnical = computeTechnicalReport([evalData], resultsMap);
+    
+    const evidenceArtifacts = await this.fetchEvidenceForEvaluations([{ id: evaluationId, organizationId: evaluation.organizationId || undefined }]);
+    const computedTechnical = computeTechnicalReport([evalData], resultsMap, evidenceArtifacts);
     
     let killChainSection: KillChainReportSection | null = null;
     let killChainDiagram = "";
@@ -1465,7 +1510,11 @@ Write in clear, professional language. Be specific about what the evidence demon
     });
     
     const computedSummary = computeExecutiveSummary(evalDataList, resultsMap);
-    const computedTechnical = computeTechnicalReport(evalDataList, resultsMap);
+    
+    const evidenceArtifacts = await this.fetchEvidenceForEvaluations(
+      evalDataList.map(e => ({ id: e.id, organizationId: e.organizationId }))
+    );
+    const computedTechnical = computeTechnicalReport(evalDataList, resultsMap, evidenceArtifacts);
     
     const allAttackSteps: AttackPathStep[] = [];
     let aggregatedGraph: any | undefined;
