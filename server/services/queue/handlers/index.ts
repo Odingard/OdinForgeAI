@@ -11,6 +11,7 @@ import { handleApiScanJob } from "./api-scan-handler";
 import { handleAuthScanJob } from "./auth-scan-handler";
 import { handleRemediationJob } from "./remediation-handler";
 import { handleAgentDeploymentJob } from "./agent-deployment-handler";
+import { handleProtocolProbeJob } from "./protocol-probe-handler";
 
 export function registerJobHandlers(): void {
   console.log("[Queue] Registering job handlers...");
@@ -27,8 +28,9 @@ export function registerJobHandlers(): void {
   queueService.registerHandler("auth_scan", handleAuthScanJob as JobHandler);
   queueService.registerHandler("remediation", handleRemediationJob as JobHandler);
   queueService.registerHandler("agent_deployment", handleAgentDeploymentJob as JobHandler);
+  queueService.registerHandler("protocol_probe", handleProtocolProbeJob as JobHandler);
   
-  console.log("[Queue] Job handlers registered (12 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment");
+  console.log("[Queue] Job handlers registered (13 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment, protocol_probe");
 }
 
 export { 
@@ -44,4 +46,5 @@ export {
   handleAuthScanJob,
   handleRemediationJob,
   handleAgentDeploymentJob,
+  handleProtocolProbeJob,
 };

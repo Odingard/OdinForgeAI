@@ -59,6 +59,11 @@ import {
   type InsertTenant,
   type ValidationEvidenceArtifact,
   type InsertValidationEvidenceArtifact,
+  type ValidationAuditLog,
+  type InsertValidationAuditLog,
+  type ApprovalRequest,
+  type InsertApprovalRequest,
+  type ApprovalLevel,
   type SystemRoleId,
   systemRoleIds,
   uiRoles,
@@ -92,6 +97,8 @@ import {
   agentFindings,
   agentCommands,
   uiUsers,
+  validationAuditLogs,
+  approvalRequests,
   type CloudCredential,
   type InsertCloudCredential,
   type CloudDiscoveryJob,
@@ -200,6 +207,25 @@ export interface IStorage {
   updateValidationEvidenceArtifact(id: string, updates: Partial<ValidationEvidenceArtifact>): Promise<void>;
   deleteValidationEvidenceArtifact(id: string): Promise<void>;
   deleteOldValidationEvidenceArtifacts(beforeDate: Date): Promise<number>;
+  
+  // Validation Audit Log operations (immutable)
+  createValidationAuditLog(data: InsertValidationAuditLog & { checksum?: string }, id: string): Promise<ValidationAuditLog>;
+  getValidationAuditLogs(organizationId: string, options?: {
+    limit?: number;
+    offset?: number;
+    action?: string;
+    executionMode?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<ValidationAuditLog[]>;
+  getValidationAuditLog(id: string): Promise<ValidationAuditLog | undefined>;
+  
+  // Approval Request operations
+  createApprovalRequest(data: InsertApprovalRequest, id: string): Promise<ApprovalRequest>;
+  getApprovalRequest(id: string): Promise<ApprovalRequest | undefined>;
+  getPendingApprovalRequests(organizationId: string, requiredLevel?: ApprovalLevel): Promise<ApprovalRequest[]>;
+  updateApprovalRequest(id: string, updates: Partial<ApprovalRequest>): Promise<ApprovalRequest>;
+  expireOldApprovalRequests(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1763,6 +1789,116 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(validationEvidenceArtifacts)
       .where(lte(validationEvidenceArtifacts.createdAt, beforeDate));
+    return result.rowCount || 0;
+  }
+
+  // Validation Audit Log operations (immutable - no update/delete)
+  async createValidationAuditLog(data: InsertValidationAuditLog & { checksum?: string }, id: string): Promise<ValidationAuditLog> {
+    const [result] = await db
+      .insert(validationAuditLogs)
+      .values({ ...data, id } as typeof validationAuditLogs.$inferInsert)
+      .returning();
+    return result;
+  }
+
+  async getValidationAuditLogs(organizationId: string, options?: {
+    limit?: number;
+    offset?: number;
+    action?: string;
+    executionMode?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<ValidationAuditLog[]> {
+    const conditions = [eq(validationAuditLogs.organizationId, organizationId)];
+    
+    if (options?.action) {
+      conditions.push(eq(validationAuditLogs.action, options.action));
+    }
+    if (options?.executionMode) {
+      conditions.push(eq(validationAuditLogs.executionMode, options.executionMode));
+    }
+    if (options?.startDate) {
+      conditions.push(gte(validationAuditLogs.createdAt, options.startDate));
+    }
+    if (options?.endDate) {
+      conditions.push(lte(validationAuditLogs.createdAt, options.endDate));
+    }
+    
+    let query = db
+      .select()
+      .from(validationAuditLogs)
+      .where(and(...conditions))
+      .orderBy(desc(validationAuditLogs.createdAt));
+    
+    if (options?.limit) {
+      query = query.limit(options.limit) as typeof query;
+    }
+    if (options?.offset) {
+      query = query.offset(options.offset) as typeof query;
+    }
+    
+    return query;
+  }
+
+  async getValidationAuditLog(id: string): Promise<ValidationAuditLog | undefined> {
+    const [result] = await db
+      .select()
+      .from(validationAuditLogs)
+      .where(eq(validationAuditLogs.id, id));
+    return result;
+  }
+
+  // Approval Request operations
+  async createApprovalRequest(data: InsertApprovalRequest, id: string): Promise<ApprovalRequest> {
+    const [result] = await db
+      .insert(approvalRequests)
+      .values({ ...data, id } as typeof approvalRequests.$inferInsert)
+      .returning();
+    return result;
+  }
+
+  async getApprovalRequest(id: string): Promise<ApprovalRequest | undefined> {
+    const [result] = await db
+      .select()
+      .from(approvalRequests)
+      .where(eq(approvalRequests.id, id));
+    return result;
+  }
+
+  async getPendingApprovalRequests(organizationId: string, requiredLevel?: ApprovalLevel): Promise<ApprovalRequest[]> {
+    const conditions = [
+      eq(approvalRequests.organizationId, organizationId),
+      eq(approvalRequests.status, "pending"),
+    ];
+    
+    if (requiredLevel) {
+      conditions.push(eq(approvalRequests.requiredLevel, requiredLevel));
+    }
+    
+    return db
+      .select()
+      .from(approvalRequests)
+      .where(and(...conditions))
+      .orderBy(desc(approvalRequests.createdAt));
+  }
+
+  async updateApprovalRequest(id: string, updates: Partial<ApprovalRequest>): Promise<ApprovalRequest> {
+    const [result] = await db
+      .update(approvalRequests)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(approvalRequests.id, id))
+      .returning();
+    return result;
+  }
+
+  async expireOldApprovalRequests(): Promise<number> {
+    const result = await db
+      .update(approvalRequests)
+      .set({ status: "expired" })
+      .where(and(
+        eq(approvalRequests.status, "pending"),
+        lte(approvalRequests.expiresAt, new Date())
+      ));
     return result.rowCount || 0;
   }
 }
