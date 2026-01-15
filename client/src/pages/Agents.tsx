@@ -40,6 +40,7 @@ import {
   Loader2
 } from "lucide-react";
 import { InstallWizard } from "@/components/InstallWizard";
+import { CoverageAutopilot } from "@/components/CoverageAutopilot";
 import { Progress } from "@/components/ui/progress";
 
 interface EndpointAgent {
@@ -616,6 +617,7 @@ export default function Agents() {
       <Tabs defaultValue="agents" className="space-y-4">
         <TabsList>
           <TabsTrigger value="agents" data-testid="tab-agents">Agents</TabsTrigger>
+          <TabsTrigger value="coverage" data-testid="tab-coverage">Coverage Autopilot</TabsTrigger>
           <TabsTrigger value="findings" data-testid="tab-findings">Findings</TabsTrigger>
           <TabsTrigger value="system" data-testid="tab-system">System</TabsTrigger>
           <TabsTrigger value="settings" data-testid="tab-settings">Settings</TabsTrigger>
@@ -720,6 +722,10 @@ export default function Agents() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="coverage" className="space-y-4">
+          <CoverageAutopilot />
         </TabsContent>
 
         <TabsContent value="findings" className="space-y-4">
