@@ -106,6 +106,10 @@ export const exploitValidationJobDataSchema = baseJobDataSchema.extend({
   exploitType: z.string(),
   safeMode: z.boolean().default(true),
   evaluationId: z.string().optional(),
+  targetUrl: z.string().optional(),
+  httpMethod: z.enum(["GET", "POST", "PUT", "DELETE", "PATCH"]).optional(),
+  parameterName: z.string().optional(),
+  parameterLocation: z.enum(["url_param", "body_param", "header", "cookie", "path"]).optional(),
 });
 
 export const apiScanJobDataSchema = baseJobDataSchema.extend({
