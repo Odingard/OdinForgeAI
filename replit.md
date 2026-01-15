@@ -47,8 +47,17 @@ Facilitates agent deployment on AWS (SSM Run Command), Azure (VM Run Command), a
 ### AEV Evidence Collection
 Stores raw HTTP request/response, timing data, and verdict classifications (`confirmed`, `likely`, `theoretical`, `false_positive`, `error`) in a `validationEvidenceArtifacts` table. A `ValidatingHttpClient` captures evidence, and an `EvidenceStorageService` manages persistence, retention policies, and automatic cleanup, ensuring tenant isolation.
 
-### AEV Safe Validation Primitives
-Includes a comprehensive categorized payload library for security testing (SQL Injection, XSS, Command Injection, Path Traversal, SSRF, Auth Bypass) with defined risk levels. Validation modules (`SqliValidator`, `XssValidator`, `AuthBypassValidator`) are integrated into a `ValidationEngine` for unified coordination and evidence capture.
+### AEV Safe Validation Primitives (Phase 2 & 3 Complete)
+- **Payload Library**: Comprehensive categorized payloads for SQL Injection, XSS, Command Injection, Path Traversal, SSRF, Auth Bypass with risk levels and indicators.
+- **All 6 Validation Modules Implemented**:
+  - `SqliValidator`: Error-based, time-based, boolean-based detection with DB fingerprinting (MySQL, PostgreSQL, MSSQL, Oracle, SQLite).
+  - `XssValidator`: Reflected and DOM-based XSS detection with encoding analysis.
+  - `AuthBypassValidator`: SQLi bypass, header manipulation, path bypass techniques.
+  - `CommandInjectionValidator`: Blind time-based (sleep/ping) and error-based (id, whoami) with Unix/Windows OS detection.
+  - `PathTraversalValidator`: File disclosure detection for Unix/Windows system files, config files, Base64 content.
+  - `SsrfValidator`: Cloud metadata (AWS/Azure/GCP), localhost bypass, internal service detection.
+- **ValidationEngine**: Unified coordinator for all 6 validators with evidence capture integration and configurable timeouts.
+- **Exploit Validation Handler**: Runs live payload-based validation when `safeMode=false` with targetUrl, supports all 6 vulnerability types.
 
 ### Enhanced Reporting System
 Provides comprehensive, logic-based reporting, including a vulnerability catalog, kill chain visualization mapping to MITRE ATT&CK, and a report logic engine for generating executive summaries, technical reports, and compliance assessments from actual data.
