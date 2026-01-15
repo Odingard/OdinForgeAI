@@ -1,0 +1,104 @@
+# OdinForge Agent Helm Chart Values
+
+# Required configuration
+odinforge:
+  serverUrl: ""  # Required: Your OdinForge server URL
+  apiKey: ""     # Required: API key for agent authentication
+  tenantId: "default"  # Tenant/organization ID
+
+# Image configuration
+image:
+  repository: ghcr.io/odinforge/agent
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Image pull secrets (if using private registry)
+imagePullSecrets: []
+
+# Node selector for agent pods
+nodeSelector: {}
+
+# Tolerations to run on all nodes (including control plane)
+tolerations:
+  - operator: Exists
+
+# Affinity rules
+affinity: {}
+
+# Resource limits
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Persistent storage for agent queue
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+
+# Security context
+securityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+
+podSecurityContext:
+  fsGroup: 0
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  create: true
+
+# mTLS configuration (optional)
+mtls:
+  enabled: false
+  certSecret: ""  # Name of secret containing TLS certificates
+  certPath: /etc/odinforge/certs
+
+# Additional environment variables
+extraEnv: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Priority class name
+priorityClassName: ""
+
+# Update strategy for DaemonSet
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1
+
+# Liveness probe
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness probe
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3

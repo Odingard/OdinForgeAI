@@ -1,0 +1,15 @@
+apiVersion: v2
+name: odinforge-agent
+description: OdinForge Security Agent for Kubernetes - Adversarial Exposure Validation
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - security
+  - monitoring
+  - agent
+  - vulnerability
+  - odinforge
+maintainers:
+  - name: OdinForge
+    url: https://odinforge.io
