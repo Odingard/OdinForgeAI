@@ -172,7 +172,14 @@ export async function registerRoutes(
   });
 
   // Helper function to get the correct server URL (HTTPS for production, HTTP for localhost)
+  // Priority: PUBLIC_ODINFORGE_URL env var > request host
+  // This ensures agents always connect to the stable production URL across deployments
   const getServerUrl = (req: any): string => {
+    // Always prefer the configured public URL for stable agent connections
+    if (process.env.PUBLIC_ODINFORGE_URL) {
+      return process.env.PUBLIC_ODINFORGE_URL.replace(/\/$/, ""); // Remove trailing slash
+    }
+    
     const host = req.get("host") || "localhost:5000";
     // For non-localhost hosts, ALWAYS use HTTPS (agent binary requires HTTPS in production)
     // This is necessary because reverse proxies may set x-forwarded-proto to http even for HTTPS traffic
