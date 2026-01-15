@@ -126,12 +126,16 @@ All documentation is consolidated under the `docs/` directory:
 - **Pre-registration**: Agents are pre-registered in pending state before cloud deployment, appearing immediately in the Agents list.
 - **Status Tracking**: Deployment status tracked per cloud asset (pending, deploying, success, failed).
 
-### AEV Evidence Collection (Phase 1 Foundation)
+### AEV Evidence Collection (Phase 1 Complete)
 - **Database Schema**: `validationEvidenceArtifacts` table stores raw HTTP request/response, timing data, verdict classifications, and tenant scoping.
 - **ValidationVerdict Types**: `confirmed`, `likely`, `theoretical`, `false_positive`, `error` - with confidence scoring (0-100).
-- **ValidatingHttpClient** (`server/services/validation/validating-http-client.ts`): Wraps fetch to capture full request/response with timing, sanitizes sensitive headers, truncates large bodies.
+- **ValidatingHttpClient** (`server/services/validation/validating-http-client.ts`): Wraps fetch to capture full request/response with timing, sanitizes sensitive headers, truncates large bodies. Provides `saveEvidence()` method for consistent artifact creation.
 - **EvidenceStorageService** (`server/services/validation/evidence-storage-service.ts`): Manages evidence persistence with retention policies (default 90 days), per-evaluation artifact limits (max 100), automatic cleanup of theoretical/false-positive findings.
 - **Tenant Isolation**: All evidence queries enforce organizationId at storage layer for cross-tenant protection.
+- **Scan Handler Integration**:
+  - `api-scan-handler.ts`: Captures HTTP evidence for up to 5 critical/high severity API vulnerabilities using ValidatingHttpClient.saveEvidence() with full ValidationContext (tenantId, organizationId, evaluationId, scanId, findingId).
+  - `auth-scan-handler.ts`: Captures authentication test evidence for critical/high severity issues with proper context linking.
+- **Report Integration**: Technical reports now include raw evidence artifacts matched to evaluation findings via evaluationId, enabling full audit trail in generated reports.
 - **API Endpoints**:
   - `GET /api/evidence` - List evidence artifacts for organization
   - `GET /api/evidence/summary` - Statistics (counts by verdict, total size)
