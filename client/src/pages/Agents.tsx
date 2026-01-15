@@ -27,7 +27,6 @@ import {
   MonitorSmartphone,
   Wifi,
   WifiOff,
-  Terminal,
   Eye,
   Lock,
   Shield,
@@ -40,7 +39,7 @@ import {
   Clock,
   Loader2
 } from "lucide-react";
-import { DownloadCenter } from "@/components/DownloadCenter";
+import { InstallWizard } from "@/components/InstallWizard";
 import { Progress } from "@/components/ui/progress";
 
 interface EndpointAgent {
@@ -134,7 +133,6 @@ export default function Agents() {
   const [newAgentEnvironment, setNewAgentEnvironment] = useState("production");
   const [registeredApiKey, setRegisteredApiKey] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<EndpointAgent | null>(null);
-  const [scriptDialogOpen, setScriptDialogOpen] = useState(false);
   const [telemetryAgentId, setTelemetryAgentId] = useState<string | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
@@ -151,11 +149,6 @@ export default function Agents() {
 
   const { data: findings = [] } = useQuery<AgentFinding[]>({
     queryKey: [`/api/agent-findings?includeNoise=${includeNoise}`],
-  });
-
-  // Fetch registration token for download center
-  const { data: tokenData } = useQuery<{ token: string | null }>({
-    queryKey: ["/api/agents/registration-token"],
   });
 
   // Fetch auto-cleanup settings
@@ -361,64 +354,6 @@ export default function Agents() {
     return status;
   };
 
-  const goAgentInstructions = `# OdinForge Agent Installation
-
-## Quick Install (Auto-detect environment)
-# Download the agent binary for your platform, then run:
-
-sudo ./odinforge-agent install \\
-  --server-url ${window.location.origin} \\
-  --api-key YOUR_API_KEY_HERE
-
-# Check installation status
-./odinforge-agent status
-
-# Uninstall when needed
-sudo ./odinforge-agent uninstall
-
-## Manual Configuration (agent.yaml)
-server_url: "${window.location.origin}"
-api_key: "YOUR_API_KEY_HERE"
-telemetry_interval: 60s
-batch_size: 100
-queue_path: /var/lib/odinforge/queue.db
-
-# Optional mTLS configuration
-mtls:
-  enabled: false
-  cert_path: /etc/odinforge/agent.crt
-  key_path: /etc/odinforge/agent.key
-  ca_path: /etc/odinforge/ca.crt
-
-## Docker Deployment
-docker run -d \\
-  --name odinforge-agent \\
-  -e ODINFORGE_SERVER_URL=${window.location.origin} \\
-  -e ODINFORGE_API_KEY=YOUR_API_KEY_HERE \\
-  -v /var/lib/odinforge:/data \\
-  odinforge/agent:latest
-
-## Kubernetes DaemonSet
-# Apply the manifests from odinforge-agent/deploy/kubernetes/
-kubectl create secret generic odinforge-agent \\
-  --from-literal=api-key=YOUR_API_KEY_HERE
-kubectl apply -f daemonset.yaml
-
-## Supported Platforms
-- Linux (systemd service with security hardening)
-- macOS (launchd daemon)
-- Windows (Windows Service)
-- Docker (container with volume persistence)
-- Kubernetes (DaemonSet for cluster-wide deployment)
-
-## Features
-- Offline resilience with BoltDB queue
-- Batched HTTPS transmission
-- Optional mTLS and SPKI pinning
-- Auto-restart on failure
-- Stable agent ID across restarts
-`;
-
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between gap-4">
@@ -433,20 +368,16 @@ kubectl apply -f daemonset.yaml
             <DialogTrigger asChild>
               <Button 
                 variant="default"
-                data-testid="btn-download-agent"
+                data-testid="btn-install-agent"
               >
                 <Download className="h-4 w-4 mr-2" />
-                Download Agent
+                Install Agent
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-              <DownloadCenter serverUrl={window.location.origin} registrationToken={tokenData?.token || undefined} />
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <InstallWizard serverUrl={window.location.origin} />
             </DialogContent>
           </Dialog>
-          <Button variant="outline" onClick={() => setScriptDialogOpen(true)} data-testid="btn-view-script">
-            <Terminal className="h-4 w-4 mr-2" />
-            Installation Guide
-          </Button>
           <Dialog open={cleanupDialogOpen} onOpenChange={setCleanupDialogOpen}>
             <DialogTrigger asChild>
               <Button 
@@ -1257,46 +1188,6 @@ kubectl apply -f daemonset.yaml
           </Card>
         </TabsContent>
       </Tabs>
-
-      <Dialog open={scriptDialogOpen} onOpenChange={setScriptDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>OdinForge Agent Installation</DialogTitle>
-            <DialogDescription>
-              Deploy the Go agent on your endpoints for live security monitoring
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 overflow-auto">
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="sm"
-                className="absolute right-2 top-2"
-                onClick={() => {
-                  navigator.clipboard.writeText(goAgentInstructions);
-                  toast({ title: "Copied", description: "Instructions copied to clipboard" });
-                }}
-                data-testid="btn-copy-script"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy
-              </Button>
-              <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs font-mono">
-                {goAgentInstructions}
-              </pre>
-            </div>
-          </div>
-          <div className="pt-4 border-t">
-            <h4 className="font-medium mb-2">Quick Start:</h4>
-            <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-              <li>Register an agent above to get an API key</li>
-              <li>Download the agent binary for your platform</li>
-              <li>Run: sudo ./odinforge-agent install --server-url URL --api-key KEY</li>
-              <li>Check status: ./odinforge-agent status</li>
-            </ol>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Agent Details Dialog */}
       <Dialog open={selectedAgent !== null} onOpenChange={(open) => !open && setSelectedAgent(null)}>
