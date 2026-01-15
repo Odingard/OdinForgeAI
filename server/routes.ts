@@ -4697,6 +4697,66 @@ export async function registerRoutes(
     }
   });
 
+  // Generate a ready-to-use install command with embedded token (zero user interaction)
+  // This is the primary endpoint for automated agent deployment
+  app.post("/api/agents/install-command", requireAdminAuth, async (req, res) => {
+    try {
+      const { platform, organizationId, label, expiresInHours } = req.body;
+      const org = organizationId || "default";
+      const expHours = expiresInHours || 24;
+      const targetPlatform = platform || "linux";
+      
+      // Generate a single-use token
+      const token = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const id = `regtoken-${randomBytes(4).toString("hex")}`;
+      const expiresAt = new Date(Date.now() + expHours * 60 * 60 * 1000);
+      
+      await storage.createAgentRegistrationToken({
+        id,
+        tokenHash,
+        organizationId: org,
+        label: label || `Auto-install command generated at ${new Date().toISOString()}`,
+        expiresAt,
+      });
+      
+      // Construct the server URL from the request
+      const host = req.get("host") || "localhost:5000";
+      const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+      const protocol = isLocalhost ? "http" : "https";
+      const serverUrl = `${protocol}://${host}`;
+      
+      // Generate platform-specific install commands
+      let installCommand: string;
+      let scriptUrl: string;
+      
+      if (targetPlatform === "windows") {
+        scriptUrl = `${serverUrl}/api/agents/install.ps1?token=${encodeURIComponent(token)}`;
+        installCommand = `irm '${scriptUrl}' | iex`;
+      } else {
+        // Linux (default)
+        scriptUrl = `${serverUrl}/api/agents/install.sh?token=${encodeURIComponent(token)}`;
+        installCommand = `curl -sSL '${scriptUrl}' | sudo bash`;
+      }
+      
+      console.log(`[AUDIT] Install command generated for org ${org}, platform ${targetPlatform}, token ${id}`);
+      
+      res.json({
+        installCommand,
+        scriptUrl,
+        platform: targetPlatform,
+        tokenId: id,
+        organizationId: org,
+        expiresAt,
+        expiresInHours: expHours,
+        message: "Copy and run this command on your target machine. The token is single-use and will expire after first registration or timeout.",
+      });
+    } catch (error) {
+      console.error("Error generating install command:", error);
+      res.status(500).json({ error: "Failed to generate install command" });
+    }
+  });
+
   // ============================================================================
   // Tenant Management Endpoints
   // Note: These endpoints require admin authentication
