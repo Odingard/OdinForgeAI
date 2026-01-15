@@ -5172,9 +5172,25 @@ export async function registerRoutes(
       }
       
       if (scan.status === "pending") {
-        return res.status(404).json({ 
+        return res.status(202).json({ 
+          status: "pending",
           error: "Scan still in progress",
           message: "The scan is still running. Try again in a few seconds."
+        });
+      }
+
+      if (scan.status === "failed") {
+        return res.json({
+          scanId,
+          status: "failed",
+          result: {
+            target: scan.target,
+            scanTime: scan.scanTime || new Date(),
+            errors: scan.errors || ["Scan failed"],
+          },
+          exposures: [],
+          canCreateEvaluation: false,
+          error: scan.errors?.[0] || "Scan failed",
         });
       }
 
@@ -5194,6 +5210,7 @@ export async function registerRoutes(
 
       res.json({
         scanId,
+        status: "completed",
         result,
         exposures,
         canCreateEvaluation: exposures.length > 0,
