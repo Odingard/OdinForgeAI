@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# OdinForge Agent Installer
+# OdinForge Agent Installer for Linux
 # Usage: curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash -s -- --server-url https://YOUR_SERVER --registration-token YOUR_TOKEN
 # Or with env vars: curl -sSL https://YOUR_SERVER/api/agents/install.sh | SERVER_URL=https://YOUR_SERVER TOKEN=YOUR_TOKEN sudo -E bash
 
@@ -13,6 +13,7 @@ NC='\033[0m'
 
 echo -e "${GREEN}OdinForge Agent Installer${NC}"
 echo "================================"
+echo ""
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -33,10 +34,10 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: install.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --server-url URL         OdinForge server URL"
+            echo "  --server-url URL              OdinForge server URL"
             echo "  --registration-token TOKEN   Registration token for auto-registration"
-            echo "  --token TOKEN            Alias for --registration-token"
-            echo "  -h, --help               Show this help message"
+            echo "  --token TOKEN                Alias for --registration-token"
+            echo "  -h, --help                   Show this help message"
             exit 0
             ;;
         *)
@@ -51,10 +52,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Detect OS and architecture
+# Check for Linux
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
+if [ "$OS" != "linux" ]; then
+    echo -e "${RED}Error: This script is for Linux only. Use install.ps1 for Windows.${NC}"
+    exit 1
+fi
 
+# Detect architecture
+ARCH=$(uname -m)
 case "$ARCH" in
     x86_64|amd64)
         ARCH="amd64"
@@ -68,24 +74,10 @@ case "$ARCH" in
         ;;
 esac
 
-case "$OS" in
-    linux)
-        PLATFORM="linux"
-        ;;
-    darwin)
-        PLATFORM="darwin"
-        ;;
-    *)
-        echo -e "${RED}Error: Unsupported OS: $OS${NC}"
-        exit 1
-        ;;
-esac
-
-BINARY_NAME="odinforge-agent-${PLATFORM}-${ARCH}"
-echo -e "Detected platform: ${GREEN}${PLATFORM}-${ARCH}${NC}"
+BINARY_NAME="odinforge-agent-linux-${ARCH}"
+echo -e "Detected platform: ${GREEN}linux-${ARCH}${NC}"
 
 # Default server URL - automatically embedded when downloaded from server
-# When served via the API, this is replaced with the actual server URL
 DEFAULT_SERVER_URL="__SERVER_URL_PLACEHOLDER__"
 
 # Check if URL was embedded (starts with http)
@@ -147,14 +139,17 @@ mkdir -p /var/lib/odinforge-agent
 cat > /etc/odinforge/agent.env << EOF
 ODINFORGE_SERVER_URL=${SERVER_URL}
 ODINFORGE_REGISTRATION_TOKEN=${TOKEN}
+ODINFORGE_TENANT_ID=default
 EOF
 chmod 600 /etc/odinforge/agent.env
 
-# Platform-specific service installation
-if [ "$PLATFORM" = "linux" ]; then
-    echo "Installing systemd service..."
-    
-    cat > /etc/systemd/system/odinforge-agent.service << EOF
+# Stop existing service if running
+echo "Checking for existing service..."
+systemctl stop odinforge-agent 2>/dev/null || true
+
+# Install systemd service
+echo "Installing systemd service..."
+cat > /etc/systemd/system/odinforge-agent.service << EOF
 [Unit]
 Description=OdinForge Security Agent
 After=network.target
@@ -171,54 +166,19 @@ User=root
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable odinforge-agent
-    systemctl start odinforge-agent
-    
-    echo -e "${GREEN}Agent installed and started successfully!${NC}"
-    echo "Check status: systemctl status odinforge-agent"
-    echo "View logs: journalctl -u odinforge-agent -f"
+# Reload and start service
+systemctl daemon-reload
+systemctl enable odinforge-agent
+systemctl start odinforge-agent
 
-elif [ "$PLATFORM" = "darwin" ]; then
-    echo "Installing launchd service..."
-    
-    cat > /Library/LaunchDaemons/com.odinforge.agent.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.odinforge.agent</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/local/bin/odinforge-agent</string>
-    </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>ODINFORGE_SERVER_URL</key>
-        <string>${SERVER_URL}</string>
-        <key>ODINFORGE_REGISTRATION_TOKEN</key>
-        <string>${TOKEN}</string>
-    </dict>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/var/log/odinforge-agent.log</string>
-    <key>StandardErrorPath</key>
-    <string>/var/log/odinforge-agent.error.log</string>
-</dict>
-</plist>
-EOF
-
-    launchctl bootstrap system /Library/LaunchDaemons/com.odinforge.agent.plist 2>/dev/null || \
-    launchctl load /Library/LaunchDaemons/com.odinforge.agent.plist 2>/dev/null || true
-    
-    echo -e "${GREEN}Agent installed and started successfully!${NC}"
-    echo "Check status: sudo launchctl print system/com.odinforge.agent"
-    echo "View logs: tail -f /var/log/odinforge-agent.log"
-fi
-
+echo ""
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}Agent installed and started successfully!${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo ""
+echo "Check status: systemctl status odinforge-agent"
+echo "View logs: journalctl -u odinforge-agent -f"
+echo "Stop service: systemctl stop odinforge-agent"
+echo "Start service: systemctl start odinforge-agent"
 echo ""
 echo -e "${GREEN}Installation complete!${NC}"
