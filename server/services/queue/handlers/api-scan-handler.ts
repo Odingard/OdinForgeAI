@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { storage } from "../../../storage";
 import { db } from "../../../db";
 import { apiScanResults } from "@shared/schema";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   ApiScanJobData,
   JobResult,
@@ -214,6 +215,32 @@ export async function handleApiScanJob(
   const { scanId, baseUrl, specUrl, specContent, tenantId, organizationId } = job.data;
 
   console.log(`[ApiScan] Starting API scan for ${baseUrl}`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "api_scan",
+    baseUrl
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[ApiScan] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitApiScanProgress(tenantId, organizationId, scanId, {
+      type: "api_scan_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "api_scan", baseUrl);
 
   emitApiScanProgress(tenantId, organizationId, scanId, {
     type: "api_scan_started",

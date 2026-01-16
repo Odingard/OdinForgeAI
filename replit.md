@@ -111,6 +111,33 @@ Stores raw HTTP request/response, timing data, and verdict classifications (`con
 - **ValidationEngine**: Unified coordinator for all 6 validators with evidence capture integration and configurable timeouts.
 - **Exploit Validation Handler**: Runs live payload-based validation when `safeMode=false` with targetUrl, supports all 6 vulnerability types.
 
+### Governance & Safety Controls Enforcement
+Centralized safety controls enforced across all security operations via `GovernanceEnforcementService`:
+
+**Kill Switch**: Emergency stop that immediately halts all security operations organization-wide. When activated, all job handlers check and refuse to proceed, logging the block.
+
+**Execution Modes**:
+- **Safe Mode**: Read-only reconnaissance only (port scanning, version detection, banner grabbing)
+- **Simulate Mode**: Adds credential testing and payload injection with blocked targets (*.gov, *.mil, *.edu)
+- **Live Mode**: Full exploitation including data exfiltration (requires approval, blocks localhost, private IPs, government domains)
+
+**Scope Rules**: Allow/Block rules validated against operation targets:
+- IP address matching (exact)
+- Hostname matching (with subdomain support)
+- CIDR network range matching
+- Pattern/regex matching
+- Priority-based rule evaluation
+
+**Enforcement Integration**: All 10 job handlers validate governance before execution:
+- `evaluation`, `ai_simulation`, `network_scan`, `exploit_validation`, `external_recon`
+- `cloud_discovery`, `full_assessment`, `api_scan`, `auth_scan`, `agent_deployment`
+
+**Authorization Logging**: All blocked operations are logged with detailed reasons to `authorization_logs` table for audit trail.
+
+**Cache Invalidation**: Governance settings use 30-second TTL cache with immediate invalidation when settings change via API.
+
+**UI**: Governance page (`/governance`) provides Kill Switch toggle, Execution Mode selector, Scope Rules management (CRUD), and Authorization Log viewer.
+
 ### Enhanced Reporting System
 Provides comprehensive, logic-based reporting, including a vulnerability catalog, kill chain visualization mapping to MITRE ATT&CK, and a report logic engine for generating executive summaries, technical reports, and compliance assessments from actual data.
 

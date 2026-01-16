@@ -1,6 +1,7 @@
 import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { runFullAssessment } from "../../full-assessment";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   FullAssessmentJobData,
   JobResult,
@@ -55,6 +56,32 @@ export async function handleFullAssessmentJob(
   const jobId = job.id || assessmentId;
 
   console.log(`[FullAssessment] Starting full assessment ${assessmentId} for ${targetSystems.length} systems`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "full_assessment",
+    targetSystems[0]
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[FullAssessment] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitAssessmentProgress(tenantId, organizationId, assessmentId, {
+      type: "assessment_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "full_assessment", targetSystems.join(", "));
 
   emitAssessmentProgress(tenantId, organizationId, assessmentId, {
     type: "assessment_started",
