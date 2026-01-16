@@ -39,7 +39,16 @@ import {
   Gauge,
   BarChart3,
   RefreshCw,
+  Info,
+  ThumbsUp,
+  ThumbsDown,
+  HelpCircle,
+  ArrowRight,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
 import type { 
   DefensivePostureScore, 
@@ -114,10 +123,53 @@ const priorityConfig: Record<string, { label: string; color: string }> = {
   low: { label: "Low", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
 };
 
+const getConfidenceLevel = (confidence: number): { label: string; color: string; description: string } => {
+  if (confidence >= 80) return { label: "High", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30", description: "Strong evidence from multiple data sources" };
+  if (confidence >= 50) return { label: "Medium", color: "bg-amber-500/10 text-amber-400 border-amber-500/30", description: "Moderate evidence, some uncertainty" };
+  return { label: "Low", color: "bg-gray-500/10 text-gray-400 border-gray-500/30", description: "Limited data, requires verification" };
+};
+
+interface SecurityStatusResult {
+  status: string;
+  textColor: string;
+  bgColor: string;
+  borderColor: string;
+  icon: typeof ShieldCheck;
+  message: string;
+  action: string;
+}
+
+const getSecurityStatus = (score: number, breachLikelihood: number): SecurityStatusResult => {
+  if (score >= 80 && breachLikelihood <= 20) {
+    return { status: "Good", textColor: "text-emerald-400", bgColor: "bg-emerald-500/10", borderColor: "border-emerald-500/30", icon: ShieldCheck, message: "Your security posture is strong", action: "Continue monitoring and run periodic simulations" };
+  }
+  if (score >= 50 && breachLikelihood <= 50) {
+    return { status: "Needs Attention", textColor: "text-amber-400", bgColor: "bg-amber-500/10", borderColor: "border-amber-500/30", icon: ShieldAlert, message: "Some security gaps detected", action: "Review predictions below and address high-priority items" };
+  }
+  return { status: "Critical", textColor: "text-red-400", bgColor: "bg-red-500/10", borderColor: "border-red-500/30", icon: ShieldX, message: "Significant security vulnerabilities found", action: "Immediate action required on critical findings" };
+};
+
+const formatTimeAgo = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
+};
+
 export default function Advanced() {
   const { toast } = useToast();
   const [timeHorizon, setTimeHorizon] = useState("30d");
   const [isSimulationDialogOpen, setIsSimulationDialogOpen] = useState(false);
+  const [dismissedVectors, setDismissedVectors] = useState<Set<string>>(new Set());
+  const [verifiedVectors, setVerifiedVectors] = useState<Set<string>>(new Set());
+  const [showDismissed, setShowDismissed] = useState(false);
   const [newSimulation, setNewSimulation] = useState({
     name: "",
     description: "",
@@ -274,6 +326,63 @@ export default function Advanced() {
         </Alert>
       )}
 
+      {!isInitialData && posture && (() => {
+        const securityStatus = getSecurityStatus(posture.overallScore || 0, posture.breachLikelihood || 0);
+        const StatusIcon = securityStatus.icon;
+        return (
+          <Card className={`border ${securityStatus.borderColor}`} data-testid="card-security-status">
+            <CardContent className="pt-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-start gap-4">
+                  <div className={`p-3 rounded-full ${securityStatus.bgColor}`}>
+                    <StatusIcon className={`h-8 w-8 ${securityStatus.textColor}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xl font-bold ${securityStatus.textColor}`} data-testid="text-security-status">
+                        Security Status: {securityStatus.status}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>Based on your overall security score ({posture.overallScore}%) and breach likelihood ({posture.breachLikelihood}%)</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <p className="text-muted-foreground">{securityStatus.message}</p>
+                    <div className="flex items-center gap-2 mt-2 text-sm">
+                      <ArrowRight className="h-4 w-4 text-cyan-400" />
+                      <span className="text-cyan-400 font-medium">{securityStatus.action}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <div className="text-center px-4 py-2 rounded-lg bg-background/50">
+                    <div className="text-2xl font-bold" data-testid="text-quick-score">{posture.overallScore || 0}</div>
+                    <div className="text-xs text-muted-foreground">Security Score</div>
+                  </div>
+                  <div className="text-center px-4 py-2 rounded-lg bg-background/50">
+                    <div className="text-2xl font-bold text-orange-400" data-testid="text-quick-breach">{posture.breachLikelihood || 0}%</div>
+                    <div className="text-xs text-muted-foreground">Breach Risk</div>
+                  </div>
+                  {predictions?.calculatedAt && (
+                    <div className="text-center px-4 py-2 rounded-lg bg-background/50">
+                      <div className="text-sm font-medium flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatTimeAgo(predictions.calculatedAt)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Last Updated</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       <Card data-testid="card-defensive-posture">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -342,43 +451,89 @@ export default function Advanced() {
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 rounded-lg bg-muted/50">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Breach Likelihood</div>
-                  <div className="text-2xl font-bold text-orange-400" data-testid="text-breach-likelihood">
-                    {posture?.breachLikelihood || 0}%
-                  </div>
-                </div>
-                <div className="p-3 rounded-lg bg-muted/50">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide">Benchmark</div>
-                  <div className="text-2xl font-bold text-cyan-400" data-testid="text-benchmark">
-                    {posture?.benchmarkPercentile || 0}th %ile
-                  </div>
-                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="p-3 rounded-lg bg-muted/50 cursor-help">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                        Breach Likelihood
+                        <HelpCircle className="h-3 w-3" />
+                      </div>
+                      <div className="text-2xl font-bold text-orange-400" data-testid="text-breach-likelihood">
+                        {posture?.breachLikelihood || 0}%
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Probability of a successful security breach based on current vulnerabilities and threat exposure</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="p-3 rounded-lg bg-muted/50 cursor-help">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                        Benchmark
+                        <HelpCircle className="h-3 w-3" />
+                      </div>
+                      <div className="text-2xl font-bold text-cyan-400" data-testid="text-benchmark">
+                        {posture?.benchmarkPercentile || 0}th %ile
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>How your security compares to similar organizations. Higher is better.</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 rounded-lg bg-muted/50">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    MTTD
-                  </div>
-                  <div className="text-2xl font-bold text-foreground" data-testid="text-mttd">
-                    {posture?.meanTimeToDetect || 0}h
-                  </div>
-                </div>
-                <div className="p-3 rounded-lg bg-muted/50">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                    <Zap className="h-3 w-3" />
-                    MTTR
-                  </div>
-                  <div className="text-2xl font-bold text-foreground" data-testid="text-mttr">
-                    {posture?.meanTimeToRespond || 0}h
-                  </div>
-                </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="p-3 rounded-lg bg-muted/50 cursor-help">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        MTTD
+                        <HelpCircle className="h-3 w-3" />
+                      </div>
+                      <div className="text-2xl font-bold text-foreground" data-testid="text-mttd">
+                        {posture?.meanTimeToDetect || 0}h
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Mean Time To Detect - Average time to identify a security incident. Lower is better.</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="p-3 rounded-lg bg-muted/50 cursor-help">
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                        <Zap className="h-3 w-3" />
+                        MTTR
+                        <HelpCircle className="h-3 w-3" />
+                      </div>
+                      <div className="text-2xl font-bold text-foreground" data-testid="text-mttr">
+                        {posture?.meanTimeToRespond || 0}h
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Mean Time To Respond - Average time to contain a threat after detection. Lower is better.</p>
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm font-medium text-muted-foreground mb-3">Category Breakdown</div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-medium text-muted-foreground">Category Breakdown</span>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Scores for each security category. Higher scores indicate stronger defenses in that area.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               {categoryScores && Object.entries(categoryScores).map(([key, value]) => (
                 <div key={key} className="flex items-center gap-2">
                   <div className="w-28 text-xs text-muted-foreground truncate capitalize">
@@ -437,6 +592,14 @@ export default function Advanced() {
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-red-400" />
                     <span className="text-sm font-medium">Overall Breach Likelihood</span>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3.5 w-3.5 text-red-400/60" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p>Probability of a successful breach within the selected time horizon, based on your current vulnerabilities and threat landscape.</p>
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
                   <span className="text-2xl font-bold text-red-400" data-testid="text-overall-breach">
                     {latestPrediction.overallBreachLikelihood}%
@@ -444,48 +607,185 @@ export default function Advanced() {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="text-sm font-medium text-muted-foreground">Predicted Attack Vectors</div>
-                  {(latestPrediction.predictedAttackVectors as any[])?.map((vector, idx) => (
-                    <div key={idx} className="p-3 rounded-lg bg-muted/50 space-y-2" data-testid={`card-vector-${idx}`}>
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <span className="font-medium">{vector.vector}</span>
-                        <Badge variant="outline" className={adversaryTypeConfig[vector.adversaryProfile]?.color || "text-muted-foreground"}>
-                          {adversaryTypeConfig[vector.adversaryProfile]?.label || vector.adversaryProfile}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Progress value={vector.likelihood} className="flex-1 h-2" />
-                        <span className="text-sm font-mono w-12">{vector.likelihood}%</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground flex-wrap">
-                        <span>Confidence: {vector.confidence}%</span>
-                        <a
-                          href={`https://attack.mitre.org/techniques/${vector.mitreAttackId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-cyan-400"
-                          data-testid={`link-mitre-${idx}`}
-                        >
-                          {vector.mitreAttackId}
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                      <div className="text-xs text-muted-foreground">{vector.estimatedImpact}</div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-muted-foreground">Predicted Attack Vectors</span>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p>AI-predicted attack techniques based on your security posture, known vulnerabilities, and threat intelligence. Verify or dismiss predictions to improve accuracy.</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
-                  ))}
+                    {latestPrediction.calculatedAt && (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3" />
+                        Updated {formatTimeAgo(latestPrediction.calculatedAt)}
+                      </div>
+                    )}
+                  </div>
+                  {(latestPrediction.predictedAttackVectors as any[])?.map((vector, idx) => {
+                    const vectorId = vector.mitreAttackId || `vector-${idx}`;
+                    const isDismissed = dismissedVectors.has(vectorId);
+                    
+                    if (isDismissed && !showDismissed) return null;
+                    
+                    const confidence = getConfidenceLevel(vector.confidence);
+                    const isVerified = verifiedVectors.has(vectorId);
+                    return (
+                      <div 
+                        key={vectorId} 
+                        className={`p-3 rounded-lg space-y-2 ${isDismissed ? 'opacity-50 border border-dashed border-muted' : isVerified ? 'bg-emerald-500/5 border border-emerald-500/20' : 'bg-muted/50'}`} 
+                        data-testid={`card-vector-${vectorId}`}
+                      >
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{vector.vector}</span>
+                            {isVerified && (
+                              <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Verified
+                              </Badge>
+                            )}
+                            {isDismissed && (
+                              <Badge variant="outline" className="bg-gray-500/10 text-gray-400 border-gray-500/30 text-xs">
+                                Dismissed
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className={adversaryTypeConfig[vector.adversaryProfile]?.color || "text-muted-foreground"}>
+                              {adversaryTypeConfig[vector.adversaryProfile]?.label || vector.adversaryProfile}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Progress value={vector.likelihood} className="flex-1 h-2" />
+                          <span className="text-sm font-mono w-12">{vector.likelihood}%</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
+                          <div className="flex items-center gap-3">
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <Badge variant="outline" className={confidence.color}>
+                                  {confidence.label} Confidence
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <p>{confidence.description}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <a
+                              href={`https://attack.mitre.org/techniques/${vector.mitreAttackId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-cyan-400"
+                              data-testid={`link-mitre-${vectorId}`}
+                            >
+                              {vector.mitreAttackId}
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {isDismissed ? (
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-7 text-xs text-muted-foreground"
+                                onClick={() => {
+                                  setDismissedVectors(prev => {
+                                    const next = new Set(Array.from(prev));
+                                    next.delete(vectorId);
+                                    return next;
+                                  });
+                                  toast({ title: "Prediction Restored", description: "This attack vector has been restored to the list" });
+                                }}
+                                data-testid={`btn-restore-${vectorId}`}
+                              >
+                                Restore
+                              </Button>
+                            ) : (
+                              <>
+                                {!isVerified && (
+                                  <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-7 text-xs text-emerald-400 hover:text-emerald-300"
+                                    onClick={() => {
+                                      setVerifiedVectors(prev => new Set([...Array.from(prev), vectorId]));
+                                      toast({ title: "Prediction Verified", description: "This attack vector has been confirmed as a valid threat" });
+                                    }}
+                                    data-testid={`btn-verify-${vectorId}`}
+                                  >
+                                    <ThumbsUp className="h-3 w-3 mr-1" />
+                                    Verify
+                                  </Button>
+                                )}
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="h-7 text-xs text-muted-foreground hover:text-red-400"
+                                  onClick={() => {
+                                    setDismissedVectors(prev => new Set([...Array.from(prev), vectorId]));
+                                    toast({ title: "Prediction Dismissed", description: "This attack vector has been marked as not applicable" });
+                                  }}
+                                  data-testid={`btn-dismiss-${vectorId}`}
+                                >
+                                  <ThumbsDown className="h-3 w-3 mr-1" />
+                                  Dismiss
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">{vector.estimatedImpact}</div>
+                      </div>
+                    );
+                  })}
+                  {dismissedVectors.size > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-xs text-muted-foreground"
+                      onClick={() => setShowDismissed(!showDismissed)}
+                      data-testid="btn-toggle-dismissed"
+                    >
+                      {showDismissed ? 'Hide' : 'Show'} {dismissedVectors.size} dismissed prediction{dismissedVectors.size > 1 ? 's' : ''}
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-3">
-                  <div className="text-sm font-medium text-muted-foreground">Risk Factors</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-muted-foreground">Risk Factors</span>
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p>Key factors contributing to your breach risk. The percentage shows how much each factor impacts your overall risk score. Arrows indicate if the risk is increasing or decreasing.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                   {(latestPrediction.riskFactors as any[])?.map((factor, idx) => {
                     const TrendIcon = trendIcons[factor.trend as keyof typeof trendIcons]?.icon || Minus;
                     const trendColor = trendIcons[factor.trend as keyof typeof trendIcons]?.color || "text-muted-foreground";
+                    const trendLabel = factor.trend === "increasing" ? "Getting worse" : factor.trend === "decreasing" ? "Improving" : "Stable";
                     return (
                       <div key={idx} className="flex items-center justify-between gap-2" data-testid={`risk-factor-${idx}`}>
                         <span className="text-sm">{factor.factor}</span>
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-mono">{factor.contribution}%</span>
-                          <TrendIcon className={`h-4 w-4 ${trendColor}`} />
+                          <Tooltip>
+                            <TooltipTrigger>
+                              <TrendIcon className={`h-4 w-4 ${trendColor}`} />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>{trendLabel}</p>
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       </div>
                     );
