@@ -3148,6 +3148,69 @@ export const fullAssessments = pgTable("full_assessments", {
   lateralMovementPaths: jsonb("lateral_movement_paths"),
   businessImpactAnalysis: jsonb("business_impact_analysis"),
   
+  // Web Application Reconnaissance (new)
+  webAppRecon: jsonb("web_app_recon").$type<{
+    targetUrl?: string;
+    scanDurationMs?: number;
+    applicationInfo?: {
+      title?: string;
+      technologies: string[];
+      frameworks: string[];
+      missingSecurityHeaders: string[];
+    };
+    attackSurface?: {
+      totalEndpoints: number;
+      highPriorityEndpoints: number;
+      inputParameters: number;
+      apiEndpoints: number;
+      authenticationPoints: number;
+      fileUploadPoints: number;
+    };
+    endpoints?: Array<{
+      url: string;
+      method: string;
+      path: string;
+      type: string;
+      priority: string;
+      parameters: Array<{
+        name: string;
+        vulnerabilityPotential: string[];
+      }>;
+    }>;
+  }>(),
+  
+  // Validated Findings with LLM verification (new)
+  validatedFindings: jsonb("validated_findings").$type<Array<{
+    id: string;
+    endpointUrl: string;
+    endpointPath: string;
+    parameter: string;
+    vulnerabilityType: string;
+    severity: string;
+    confidence: number;
+    verdict: string;
+    evidence: string[];
+    recommendations: string[];
+    reproductionSteps: string[];
+    cvssEstimate?: string;
+    mitreAttackId?: string;
+    llmValidation?: {
+      verdict: string;
+      confidence: number;
+      reason: string;
+    };
+  }>>(),
+  
+  // Agent dispatch statistics (new)
+  agentDispatchStats: jsonb("agent_dispatch_stats").$type<{
+    totalTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+    falsePositivesFiltered: number;
+    executionTimeMs: number;
+    tasksByVulnerabilityType: Record<string, number>;
+  }>(),
+  
   // Prioritized recommendations across all systems
   recommendations: jsonb("recommendations").$type<Array<{
     id: string;
