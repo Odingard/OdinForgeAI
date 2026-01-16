@@ -85,6 +85,13 @@ export default function Reports() {
   const [dateTo, setDateTo] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [previewData, setPreviewData] = useState<any>(null);
   const [isV2Generating, setIsV2Generating] = useState(false);
+  
+  // Engagement metadata state
+  const [clientName, setClientName] = useState<string>("");
+  const [methodology, setMethodology] = useState<string>("OWASP");
+  const [testingApproach, setTestingApproach] = useState<string>("gray_box");
+  const [leadTester, setLeadTester] = useState<string>("");
+  const [showEngagementOptions, setShowEngagementOptions] = useState(false);
 
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["/api/reports"],
@@ -163,6 +170,23 @@ export default function Reports() {
   });
 
   const handleGenerate = () => {
+    // Build engagement metadata if provided
+    const engagementMetadata = showEngagementOptions ? {
+      clientName: clientName || undefined,
+      assessmentPeriod: {
+        startDate: dateFrom,
+        endDate: dateTo,
+      },
+      methodology: {
+        framework: methodology as "OWASP" | "PTES" | "NIST" | "OSSTMM" | "ISSAF" | "custom",
+        testingApproach: testingApproach as "black_box" | "gray_box" | "white_box",
+      },
+      assessmentTeam: leadTester ? [{
+        name: leadTester,
+        role: "Lead Tester",
+      }] : undefined,
+    } : undefined;
+    
     if (reportVersion === "v2_narrative") {
       if (!isV2Enabled) {
         toast({
@@ -184,6 +208,7 @@ export default function Reports() {
         customerContext: {
           riskTolerance: "medium",
         },
+        engagementMetadata,
       });
     } else {
       generateMutation.mutate({
@@ -192,6 +217,7 @@ export default function Reports() {
         from: dateFrom,
         to: dateTo,
         framework: selectedType === "compliance_mapping" ? selectedFramework : undefined,
+        engagementMetadata,
       });
     }
   };
@@ -840,6 +866,83 @@ export default function Reports() {
                     </Button>
                   ))}
                 </div>
+              </div>
+
+              <Separator />
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Engagement Context</Label>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => setShowEngagementOptions(!showEngagementOptions)}
+                    className="text-xs"
+                    data-testid="btn-toggle-engagement"
+                  >
+                    {showEngagementOptions ? "Hide Options" : "Add Professional Context"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Add engagement metadata for consulting-grade deliverables
+                </p>
+                
+                {showEngagementOptions && (
+                  <div className="space-y-3 p-3 rounded-md bg-muted/30 border">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Client Name</Label>
+                        <Input
+                          placeholder="Acme Corporation"
+                          value={clientName}
+                          onChange={(e) => setClientName(e.target.value)}
+                          data-testid="input-client-name"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Lead Tester</Label>
+                        <Input
+                          placeholder="John Smith, OSCP"
+                          value={leadTester}
+                          onChange={(e) => setLeadTester(e.target.value)}
+                          data-testid="input-lead-tester"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Methodology</Label>
+                        <Select value={methodology} onValueChange={setMethodology}>
+                          <SelectTrigger data-testid="select-methodology">
+                            <SelectValue placeholder="Select methodology" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="OWASP">OWASP</SelectItem>
+                            <SelectItem value="PTES">PTES</SelectItem>
+                            <SelectItem value="NIST">NIST</SelectItem>
+                            <SelectItem value="OSSTMM">OSSTMM</SelectItem>
+                            <SelectItem value="ISSAF">ISSAF</SelectItem>
+                            <SelectItem value="custom">Custom</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Testing Approach</Label>
+                        <Select value={testingApproach} onValueChange={setTestingApproach}>
+                          <SelectTrigger data-testid="select-testing-approach">
+                            <SelectValue placeholder="Select approach" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="black_box">Black Box</SelectItem>
+                            <SelectItem value="gray_box">Gray Box</SelectItem>
+                            <SelectItem value="white_box">White Box</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <Separator />
