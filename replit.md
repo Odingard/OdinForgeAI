@@ -20,6 +20,15 @@ The backend is built with Express.js and TypeScript, also leveraging WebSockets.
 ### AI vs AI Simulation System
 This system features Attacker AI and Defender AI for purple team exercises, offering configurable iterative rounds with actionable recommendations.
 
+**Quick-Start Templates**: The Simulations page (`/simulations`) provides 5 pre-configured templates for one-click simulation launch:
+1. **Web Application Breach**: SQL injection, XSS, and authentication bypass attacks
+2. **Cloud Infrastructure Attack**: Cloud misconfigurations, IAM weaknesses, container escapes
+3. **Ransomware Simulation**: Lateral movement, data encryption tactics
+4. **Data Exfiltration**: Sensitive data theft via multiple exfiltration channels
+5. **Insider Threat**: Privilege abuse and credential misuse from internal actors
+
+**Evaluation-to-Simulation Flow**: Completed evaluations show a "Start AI Simulation" button that navigates to `/simulations` with pre-filled parameters (`assetId`, `exposureType`, `priority`, `fromEvaluation`) for seamless workflow continuation.
+
 ### Full Assessment System
 Provides multi-phase penetration testing, including reconnaissance, vulnerability analysis, attack synthesis, lateral movement, and impact assessment. It generates cross-system attack graphs and AI-powered analysis for unified attack paths, delivering real-time progress and prioritized remediation. This includes Business Impact Analysis and Lateral Movement Analysis.
 
