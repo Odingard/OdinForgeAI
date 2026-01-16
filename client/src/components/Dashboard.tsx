@@ -175,6 +175,16 @@ export function Dashboard() {
     setShowProgressModal(true);
   };
 
+  const handleStartSimulation = (evaluation: Evaluation) => {
+    const params = new URLSearchParams({
+      assetId: evaluation.assetId,
+      exposureType: evaluation.exposureType,
+      priority: evaluation.priority,
+      fromEvaluation: evaluation.id,
+    });
+    navigate(`/simulations?${params.toString()}`);
+  };
+
   if (selectedEvaluationId && selectedEvaluation) {
     return (
       <EvaluationDetail 
@@ -276,6 +286,7 @@ export function Dashboard() {
           evaluations={filteredEvaluations}
           onViewDetails={handleViewDetails}
           onRunEvaluation={handleRunEvaluation}
+          onStartSimulation={handleStartSimulation}
         />
       )}
 

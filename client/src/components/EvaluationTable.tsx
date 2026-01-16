@@ -12,10 +12,12 @@ import {
   CheckCircle,
   Clock,
   XCircle,
-  Loader2
+  Loader2,
+  Swords
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface Evaluation {
   id: string;
@@ -33,11 +35,12 @@ interface EvaluationTableProps {
   evaluations: Evaluation[];
   onViewDetails: (evaluation: Evaluation) => void;
   onRunEvaluation: (evaluation: Evaluation) => void;
+  onStartSimulation?: (evaluation: Evaluation) => void;
 }
 
 type SortField = "createdAt" | "priority" | "status" | "score";
 
-export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation }: EvaluationTableProps) {
+export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation, onStartSimulation }: EvaluationTableProps) {
   const [sortField, setSortField] = useState<SortField>("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
@@ -218,23 +221,48 @@ export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation }:
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={() => onViewDetails(evaluation)}
-                      data-testid={`button-view-${evaluation.id}`}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => onViewDetails(evaluation)}
+                          data-testid={`button-view-${evaluation.id}`}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>View Details</TooltipContent>
+                    </Tooltip>
                     {evaluation.status !== "in_progress" && (
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => onRunEvaluation(evaluation)}
-                        data-testid={`button-run-${evaluation.id}`}
-                      >
-                        <Play className="h-4 w-4" />
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => onRunEvaluation(evaluation)}
+                            data-testid={`button-run-${evaluation.id}`}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Re-run Evaluation</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {evaluation.status === "completed" && onStartSimulation && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => onStartSimulation(evaluation)}
+                            data-testid={`button-simulate-${evaluation.id}`}
+                          >
+                            <Swords className="h-4 w-4 text-purple-500" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Start AI Simulation</TooltipContent>
+                      </Tooltip>
                     )}
                   </div>
                 </td>
