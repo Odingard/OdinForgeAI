@@ -30,6 +30,7 @@ interface AuthContextType {
   needsSanitizedView: () => boolean;
   setUserRole: (role: UserRole) => void;
   availableRoles: UserRole[];
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -125,6 +126,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } : null);
   };
 
+  const logout = async () => {
+    try {
+      await fetch("/ui/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.warn("Logout request failed:", error);
+    }
+    localStorage.removeItem("odinforge_user_role");
+    localStorage.removeItem("odinforge_read_notifications");
+    setUser(null);
+    window.location.href = "/login";
+  };
+
   return (
     <AuthContext.Provider value={{ 
       user, 
@@ -137,6 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       needsSanitizedView,
       setUserRole,
       availableRoles,
+      logout,
     }}>
       {children}
     </AuthContext.Provider>

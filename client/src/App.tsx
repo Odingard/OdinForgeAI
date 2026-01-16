@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -28,7 +28,8 @@ import FullAssessment from "@/pages/FullAssessment";
 import { ExternalRecon } from "@/components/ExternalRecon";
 import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, Bell, User, ChevronDown, LogOut } from "lucide-react";
+import { Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
+import { NotificationsPopover } from "./components/NotificationsPopover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +44,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/login"><Redirect to="/" /></Route>
+      <Route path="/signup"><Redirect to="/" /></Route>
       <Route path="/risk" component={RiskDashboard} />
       <Route path="/assets" component={Assets} />
       <Route path="/infrastructure" component={Infrastructure} />
@@ -92,10 +95,7 @@ function AppHeader() {
             )}
           </Button>
           
-          <Button variant="ghost" size="icon" className="relative" data-testid="button-notifications">
-            <Bell className="h-4 w-4" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
-          </Button>
+          <NotificationsPopover />
           
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
