@@ -1,5 +1,5 @@
 import { Queue, Worker, Job, QueueEvents } from "bullmq";
-import { getRedisConnection, isRedisAvailable } from "./redis-connection";
+import { getBullMQConnection, testRedisConnection, markRedisUnavailable, type BullMQConnectionOptions } from "./redis-connection";
 import { 
   JobType, 
   JobStatus, 
@@ -42,19 +42,29 @@ class QueueService extends EventEmitter {
   private handlers: Map<JobType, JobHandler> = new Map();
   private inMemoryJobs: Map<string, QueuedJob> = new Map();
   private useRedis: boolean = false;
+  private redisConnectionOptions: BullMQConnectionOptions | null = null;
 
   async initialize(): Promise<void> {
     try {
-      const redis = getRedisConnection();
-      await redis.connect();
-      await Promise.race([
-        redis.ping(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Redis ping timeout")), 3000))
-      ]);
+      const connOptions = getBullMQConnection();
+      if (!connOptions) {
+        console.warn("[Queue] Redis not configured, using in-memory queue fallback");
+        this.useRedis = false;
+        return;
+      }
+      
+      const connectionWorks = await testRedisConnection();
+      if (!connectionWorks) {
+        console.warn("[Queue] Redis connection test failed, using in-memory queue fallback");
+        this.useRedis = false;
+        return;
+      }
+      
+      this.redisConnectionOptions = connOptions;
       this.useRedis = true;
       
       this.queue = new Queue<AnyJobData>(QUEUE_NAME, {
-        connection: redis,
+        connection: connOptions,
         defaultJobOptions: {
           attempts: 3,
           backoff: {
@@ -72,13 +82,15 @@ class QueueService extends EventEmitter {
       });
 
       this.queueEvents = new QueueEvents(QUEUE_NAME, {
-        connection: redis,
+        connection: connOptions,
       });
 
       this.setupQueueEvents();
-      console.log("Queue service initialized with Redis");
-    } catch (error) {
-      console.warn("Redis not available, using in-memory queue fallback");
+      console.log("[Queue] Initialized with Redis backend");
+    } catch (error: any) {
+      console.warn("[Queue] Redis initialization error:", error.message);
+      console.warn("[Queue] Using in-memory queue fallback");
+      markRedisUnavailable();
       this.useRedis = false;
     }
   }
@@ -106,7 +118,7 @@ class QueueService extends EventEmitter {
   registerHandler(jobType: JobType, handler: JobHandler): void {
     this.handlers.set(jobType, handler);
 
-    if (this.useRedis && this.queue) {
+    if (this.useRedis && this.queue && this.redisConnectionOptions) {
       const worker = new Worker<AnyJobData, JobResult>(
         QUEUE_NAME,
         async (job) => {
@@ -117,7 +129,7 @@ class QueueService extends EventEmitter {
           return handler(job);
         },
         {
-          connection: getRedisConnection(),
+          connection: this.redisConnectionOptions,
           concurrency: 5,
         }
       );
