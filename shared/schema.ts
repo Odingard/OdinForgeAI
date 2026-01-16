@@ -3761,3 +3761,97 @@ export const insertEnrollmentTokenSchema = createInsertSchema(enrollmentTokens).
 
 export type InsertEnrollmentToken = z.infer<typeof insertEnrollmentTokenSchema>;
 export type EnrollmentToken = typeof enrollmentTokens.$inferSelect;
+
+// ============================================================================
+// WEB APPLICATION RECONNAISSANCE SCANS
+// ============================================================================
+
+export const webAppReconScans = pgTable("web_app_recon_scans", {
+  id: varchar("id").primaryKey(),
+  targetUrl: varchar("target_url").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Scan configuration
+  enableParallelAgents: boolean("enable_parallel_agents").default(true),
+  maxConcurrentAgents: integer("max_concurrent_agents").default(5),
+  vulnerabilityTypes: jsonb("vulnerability_types").$type<string[]>(),
+  enableLLMValidation: boolean("enable_llm_validation").default(true),
+  
+  // Status tracking
+  status: varchar("status").notNull().default("pending"), // pending, web_recon, web_recon_complete, agent_dispatch, completed, failed
+  progress: integer("progress").default(0),
+  currentPhase: varchar("current_phase"),
+  
+  // Results
+  reconResult: jsonb("recon_result").$type<{
+    targetUrl: string;
+    durationMs: number;
+    applicationInfo: {
+      title?: string;
+      technologies: string[];
+      frameworks: string[];
+      missingSecurityHeaders: string[];
+    };
+    attackSurface: {
+      totalEndpoints: number;
+      inputParameters: number;
+      formCount: number;
+      uniquePaths: number;
+    };
+    endpoints: Array<{
+      url: string;
+      method: string;
+      path: string;
+      type: string;
+      priority: string;
+      parameters: Array<{
+        name: string;
+        location: string;
+        vulnerabilityPotential: Record<string, number>;
+      }>;
+    }>;
+  }>(),
+  
+  agentDispatchResult: jsonb("agent_dispatch_result").$type<{
+    totalTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+    falsePositivesFiltered: number;
+    executionTimeMs: number;
+    tasksByVulnerabilityType: Record<string, number>;
+  }>(),
+  
+  validatedFindings: jsonb("validated_findings").$type<Array<{
+    id: string;
+    endpointUrl: string;
+    endpointPath: string;
+    parameter: string;
+    vulnerabilityType: string;
+    severity: string;
+    confidence: number;
+    verdict: string;
+    evidence: string[];
+    recommendations: string[];
+    reproductionSteps: string[];
+    cvssEstimate?: string;
+    mitreAttackId?: string;
+    llmValidation?: {
+      verdict: string;
+      confidence: number;
+      reason: string;
+    };
+  }>>(),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertWebAppReconScanSchema = createInsertSchema(webAppReconScans).omit({
+  createdAt: true,
+  completedAt: true,
+});
+
+export type InsertWebAppReconScan = z.infer<typeof insertWebAppReconScanSchema>;
+export type WebAppReconScan = typeof webAppReconScans.$inferSelect;
