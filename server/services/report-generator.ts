@@ -24,6 +24,7 @@ import {
   generateTextualKillChainDiagram,
   generatePdfKillChainContent,
   type KillChainReportSection,
+  type PdfKillChainContent,
 } from "./kill-chain-graph";
 import {
   computeExecutiveSummary,
@@ -169,62 +170,79 @@ export class ReportGenerator {
     
     try {
       const prompts = {
-        executive: `You are a cybersecurity executive advisor writing a security report for C-suite executives and board members.
+        executive: `You are a principal security consultant at a leading professional services firm (similar to Big 4 consulting) preparing an executive security assessment report for the Board of Directors and C-suite leadership.
 
-Based on the following security assessment data, write a comprehensive executive summary in natural language:
-
-${JSON.stringify(data, null, 2)}
-
-Provide your response as JSON with this exact structure (no additional fields):
-{
-  "executiveSummary": "A 2-3 paragraph executive summary written in clear, non-technical language suitable for executives. Include overall risk posture, key concerns, and strategic recommendations.",
-  "findings": [
-    {"title": "Finding title", "description": "Clear description of the security issue and its business impact", "recommendation": "Recommended action to address this"}
-  ],
-  "recommendations": ["Strategic recommendation 1", "Strategic recommendation 2", "Strategic recommendation 3"]
-}
-
-Focus on business impact, financial risk, and strategic priorities. Avoid technical jargon. Limit findings to maximum 5 items.`,
-
-        technical: `You are a senior security engineer writing a technical security report.
-
-Based on the following security assessment data, write detailed technical findings:
+Based on the following security assessment data, craft a polished executive summary that reflects enterprise consulting standards:
 
 ${JSON.stringify(data, null, 2)}
 
 Provide your response as JSON with this exact structure (no additional fields):
 {
-  "executiveSummary": "A technical summary of the security assessment covering methodology, scope, and key technical findings.",
+  "executiveSummary": "A 2-3 paragraph executive summary using formal, measured language. Begin with the overall security posture assessment, followed by key risk areas requiring leadership attention, and conclude with strategic recommendations. Use language such as 'Our assessment revealed...', 'The organization's current security posture...', 'We recommend the following strategic initiatives...'",
   "findings": [
-    {"title": "Technical finding title", "description": "Detailed technical description including attack vectors, CVE references, and exploitation details", "recommendation": "Specific technical remediation steps"}
+    {"title": "Finding title using active, professional language", "description": "Clear articulation of the business risk and potential impact on operations, reputation, and financial position", "recommendation": "Strategic remediation approach with implementation considerations"}
   ],
-  "recommendations": ["Technical recommendation 1", "Technical recommendation 2", "Technical recommendation 3"]
+  "recommendations": ["Strategic recommendation framed as an investment in security posture", "Risk reduction initiative with measurable outcomes", "Governance improvement with accountability structure"]
 }
 
-Include specific technical details, attack paths, and concrete remediation steps. Limit findings to maximum 10 items.`,
+Writing guidelines:
+- Use formal third-person perspective ("The assessment team identified..." not "We found...")
+- Quantify risk in business terms (potential financial impact, operational disruption)
+- Frame recommendations as strategic investments, not just fixes
+- Reference industry frameworks (NIST CSF, ISO 27001) where appropriate
+- Maintain objective, measured tone without alarmist language
+- Limit findings to 5 highest-priority items`,
 
-        compliance: `You are a compliance and audit specialist writing a compliance assessment report.
+        technical: `You are a senior penetration testing consultant preparing a technical assessment report following professional services firm standards (Big 4 / specialized security consultancy format).
 
-Based on the following compliance assessment data, write a compliance-focused report:
+Based on the following security assessment data, write detailed technical findings suitable for security teams and technical leadership:
 
 ${JSON.stringify(data, null, 2)}
 
 Provide your response as JSON with this exact structure (no additional fields):
 {
-  "executiveSummary": "A compliance summary covering audit readiness, control gaps, and remediation priorities for the specified framework.",
+  "executiveSummary": "A technical summary opening with assessment scope and methodology, followed by key technical findings categorized by severity, and concluding with remediation prioritization. Reference MITRE ATT&CK techniques and CVSS scores where applicable.",
   "findings": [
-    {"title": "Compliance gap title", "description": "Description of the control gap and its compliance implications", "recommendation": "Steps to achieve compliance"}
+    {"title": "Technical finding with CVE/CWE reference where applicable", "description": "Detailed technical description including: attack vector, prerequisites, exploitation proof-of-concept summary, and potential escalation paths. Reference specific assets and evidence artifacts.", "recommendation": "Prioritized remediation steps with specific technical guidance, configuration changes, and validation criteria"}
   ],
-  "recommendations": ["Compliance recommendation 1", "Compliance recommendation 2", "Compliance recommendation 3"]
+  "recommendations": ["Immediate remediation actions (0-30 days)", "Short-term security improvements (30-90 days)", "Strategic security architecture enhancements (90+ days)"]
 }
 
-Focus on regulatory requirements, control effectiveness, and audit readiness. Limit findings to maximum 5 items.`
+Writing guidelines:
+- Reference specific MITRE ATT&CK technique IDs (T####) and tactics
+- Include CWE identifiers for vulnerability classes
+- Provide evidence-based findings with specific asset references
+- Structure remediation as actionable, testable items
+- Include validation criteria for confirming fixes
+- Limit findings to 10 highest-impact items`,
+
+        compliance: `You are a compliance and risk advisory consultant preparing a regulatory compliance assessment report following professional services firm standards.
+
+Based on the following compliance assessment data, prepare a compliance-focused report suitable for audit committees and compliance leadership:
+
+${JSON.stringify(data, null, 2)}
+
+Provide your response as JSON with this exact structure (no additional fields):
+{
+  "executiveSummary": "A compliance summary presenting current compliance posture against the framework, material control gaps requiring attention, and a risk-prioritized remediation roadmap. Include compliance percentage and trajectory.",
+  "findings": [
+    {"title": "Control gap with specific framework control reference", "description": "Gap analysis including: control objective, current state, target state, and compliance implications. Reference specific regulatory requirements.", "recommendation": "Remediation approach with implementation timeline and evidence requirements for audit"}
+  ],
+  "recommendations": ["Immediate compliance gaps requiring 30-day remediation", "Control enhancements for sustained compliance", "Governance improvements for ongoing compliance assurance"]
+}
+
+Writing guidelines:
+- Reference specific framework control IDs (e.g., NIST SP 800-53, PCI DSS, SOC 2 TSC)
+- Frame gaps in terms of audit risk and regulatory exposure
+- Provide evidence requirements for demonstrating compliance
+- Include suggested control implementations
+- Limit findings to 5 most material gaps`
       };
 
       const response = await client.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: "You are a cybersecurity report writer. Always respond with valid JSON matching the exact schema requested. Never include extra fields." },
+          { role: "system", content: "You are a senior cybersecurity consultant at a leading professional services firm preparing formal deliverables. Write in polished, formal language suitable for board-level and executive audiences. Always respond with valid JSON matching the exact schema requested. Never include extra fields." },
           { role: "user", content: prompts[reportType] }
         ],
         response_format: { type: "json_object" },
@@ -1237,7 +1255,7 @@ Write in clear, professional language. Be specific about what the evidence demon
       info: VulnerabilityInfo;
       humanReadableName: string;
       shortName: string;
-      cweId: string;
+      cweIds: string[];
       mitreTechniques: string[];
       businessImpact: string;
     };
@@ -1258,7 +1276,7 @@ Write in clear, professional language. Be specific about what the evidence demon
     killChain: {
       section: KillChainReportSection | null;
       textualDiagram: string;
-      pdfContent: any[] | null;
+      pdfContent: PdfKillChainContent | null;
     };
     executiveSummary: ComputedExecutiveSummary;
     technicalReport: ComputedTechnicalReport;
@@ -1312,7 +1330,7 @@ Write in clear, professional language. Be specific about what the evidence demon
     
     let killChainSection: KillChainReportSection | null = null;
     let killChainDiagram = "";
-    let killChainPdfContent: any[] | null = null;
+    let killChainPdfContent: PdfKillChainContent | null = null;
     
     if (options.includeKillChain !== false && result?.attackPath) {
       const attackPath = result.attackPath as AttackPathStep[];
@@ -1326,11 +1344,14 @@ Write in clear, professional language. Be specific about what the evidence demon
     let formattedRemediation = "";
     if (options.includeRemediation !== false) {
       formattedRemediation = formatRemediationSection({
-        exposureType,
+        vulnerabilityType: exposureType,
         vulnerabilityName: formatVulnerabilityName(exposureType),
-        priority: evaluation.priority as "critical" | "high" | "medium" | "low",
-        remediationSteps: remediationGuidance.steps,
+        affectedAssets: [evaluation.assetId],
+        immediateActions: remediationGuidance.immediateActions,
+        shortTermSteps: remediationGuidance.shortTermRemediation,
+        longTermSteps: remediationGuidance.longTermRemediation,
         compensatingControls: remediationGuidance.compensatingControls,
+        references: remediationGuidance.references,
       });
     }
     
@@ -1347,14 +1368,14 @@ Write in clear, professional language. Be specific about what the evidence demon
       info: vulnerabilityInfo,
       humanReadableName: formatVulnerabilityName(exposureType),
       shortName: formatVulnerabilityShortName(exposureType),
-      cweId: vulnerabilityInfo.cweId,
+      cweIds: vulnerabilityInfo.cweIds,
       mitreTechniques: vulnerabilityInfo.mitreTechniques,
       businessImpact: vulnerabilityInfo.businessImpact,
     } : {
-      info: { name: vulnerabilityInfo.name, description: "", cweId: vulnerabilityInfo.cweId, mitreTechniques: [], businessImpact: "" } as VulnerabilityInfo,
+      info: vulnerabilityInfo,
       humanReadableName: formatVulnerabilityName(exposureType),
       shortName: formatVulnerabilityShortName(exposureType),
-      cweId: vulnerabilityInfo.cweId,
+      cweIds: [] as string[],
       mitreTechniques: [] as string[],
       businessImpact: "",
     };
@@ -1362,7 +1383,7 @@ Write in clear, professional language. Be specific about what the evidence demon
     const remediationData = options.includeRemediation !== false ? {
       structured: remediationGuidance,
       formatted: formattedRemediation,
-      steps: remediationGuidance.steps.map((step) => ({
+      steps: remediationGuidance.shortTermRemediation.map((step) => ({
         order: step.order,
         title: step.title,
         description: step.description,
@@ -1373,7 +1394,7 @@ Write in clear, professional language. Be specific about what the evidence demon
         verificationSteps: step.verificationSteps,
       })),
     } : {
-      structured: { steps: [], compensatingControls: [] } as RemediationGuidance,
+      structured: remediationGuidance,
       formatted: "",
       steps: [] as Array<{
         order: number;
@@ -1437,13 +1458,13 @@ Write in clear, professional language. Be specific about what the evidence demon
     killChain: {
       section: KillChainReportSection | null;
       textualDiagram: string;
-      pdfContent: any[] | null;
+      pdfContent: PdfKillChainContent | null;
     };
     vulnerabilityBreakdown: Array<{
       type: string;
       humanReadableName: string;
       shortName: string;
-      cweId: string;
+      cweIds: string[];
       mitreTechniques: string[];
       businessImpact: string;
       count: number;
@@ -1529,7 +1550,7 @@ Write in clear, professional language. Be specific about what the evidence demon
     
     let killChainSection: KillChainReportSection | null = null;
     let killChainDiagram = "";
-    let killChainPdfContent: any[] | null = null;
+    let killChainPdfContent: PdfKillChainContent | null = null;
     
     if (options.includeKillChain !== false && allAttackSteps.length > 0) {
       const visualization = buildKillChainVisualization(allAttackSteps, aggregatedGraph);
@@ -1555,13 +1576,13 @@ Write in clear, professional language. Be specific about what the evidence demon
         type,
         humanReadableName: formatVulnerabilityName(type),
         shortName: formatVulnerabilityShortName(type),
-        cweId: info.cweId,
+        cweIds: info.cweIds,
         mitreTechniques: info.mitreTechniques,
         businessImpact: info.businessImpact,
         count: data.count,
         exploitableCount: data.exploitableCount,
         remediationGuidance: {
-          steps: guidance.steps.map(step => ({
+          steps: guidance.shortTermRemediation.map((step: { order: number; title: string; description: string; effort: string; estimatedTime?: string; requiredTools?: string[]; requiredSkills?: string[]; verificationSteps?: string[] }) => ({
             order: step.order,
             title: step.title,
             description: step.description,
@@ -1590,11 +1611,14 @@ Write in clear, professional language. Be specific about what the evidence demon
         const priority = evalForType?.priority as "critical" | "high" | "medium" | "low" || "medium";
         const guidance = getRemediationGuidance(vuln.type as ExposureType);
         const formatted = formatRemediationSection({
-          exposureType: vuln.type as ExposureType,
+          vulnerabilityType: vuln.type as ExposureType,
           vulnerabilityName: vuln.humanReadableName,
-          priority,
-          remediationSteps: guidance.steps,
+          affectedAssets: [],
+          immediateActions: guidance.immediateActions,
+          shortTermSteps: guidance.shortTermRemediation,
+          longTermSteps: guidance.longTermRemediation,
           compensatingControls: guidance.compensatingControls,
+          references: guidance.references,
         });
         remediationByExposureType.push({
           exposureType: vuln.type,

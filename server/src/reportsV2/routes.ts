@@ -15,6 +15,24 @@ import { antiTemplateLint, lintReportSection } from "./antiTemplateLint";
 import { reportGenerator } from "../../services/report-generator";
 import { reportRateLimiter } from "../../services/rate-limiter";
 
+// Engagement metadata schema for consulting-grade reports
+const engagementMetadataRequestSchema = z.object({
+  clientName: z.string().optional(),
+  assessmentPeriod: z.object({
+    startDate: z.string(),
+    endDate: z.string(),
+  }).optional(),
+  methodology: z.object({
+    framework: z.enum(["OWASP", "PTES", "NIST", "OSSTMM", "ISSAF", "custom"]).optional(),
+    testingApproach: z.enum(["black_box", "gray_box", "white_box"]).optional(),
+  }).optional(),
+  assessmentTeam: z.array(z.object({
+    name: z.string(),
+    role: z.string(),
+    credentials: z.array(z.string()).optional(),
+  })).optional(),
+}).optional();
+
 // Validation schemas
 const generateReportV2Schema = z.object({
   evaluationId: z.string().optional(),
@@ -32,6 +50,7 @@ const generateReportV2Schema = z.object({
     criticalSystems: z.array(z.string()).optional(),
     riskTolerance: z.enum(["low", "medium", "high"]).optional(),
   }).optional(),
+  engagementMetadata: engagementMetadataRequestSchema,
 });
 
 const regenerateReportV2Schema = z.object({

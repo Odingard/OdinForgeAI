@@ -1409,6 +1409,156 @@ export const complianceReportSchema = z.object({
 
 export type ComplianceReport = z.infer<typeof complianceReportSchema>;
 
+// ============================================================================
+// ENGAGEMENT METADATA & ATTESTATION SCHEMAS
+// ============================================================================
+
+// Professional engagement context for consulting-grade reports
+export const engagementMetadataSchema = z.object({
+  // Client & Engagement Details
+  clientName: z.string().optional(),
+  clientIndustry: z.enum([
+    "finance", "healthcare", "government", "retail", "technology", 
+    "manufacturing", "energy", "telecommunications", "education", "other"
+  ]).optional(),
+  engagementId: z.string().optional(),
+  contractReference: z.string().optional(),
+  
+  // Assessment Scope
+  assessmentPeriod: z.object({
+    startDate: z.string(),
+    endDate: z.string(),
+  }),
+  scopeBoundaries: z.object({
+    inScope: z.array(z.string()),   // Systems/networks in scope
+    outOfScope: z.array(z.string()), // Explicitly excluded items
+    limitations: z.array(z.string()), // Testing limitations/restrictions
+  }).optional(),
+  
+  // Methodology
+  methodology: z.object({
+    framework: z.enum(["OWASP", "PTES", "NIST", "OSSTMM", "ISSAF", "custom"]),
+    description: z.string().optional(),
+    testingApproach: z.enum(["black_box", "gray_box", "white_box"]).optional(),
+    riskRating: z.enum(["CVSS", "DREAD", "custom"]).optional(),
+  }),
+  
+  // Assessment Team
+  assessmentTeam: z.array(z.object({
+    name: z.string(),
+    role: z.string(), // Lead Tester, Security Analyst, etc.
+    credentials: z.array(z.string()).optional(), // OSCP, CISSP, etc.
+  })).optional(),
+  
+  // Classification
+  classification: z.enum([
+    "confidential", "internal", "public", "restricted", "top_secret"
+  ]).default("confidential"),
+  distributionList: z.array(z.string()).optional(),
+});
+
+export type EngagementMetadata = z.infer<typeof engagementMetadataSchema>;
+
+// Formal attestation for report sign-off
+export const attestationSchema = z.object({
+  // Assessment Statement
+  assessmentStatement: z.string().default(
+    "This security assessment was conducted in accordance with industry best practices and the methodology described herein. The findings represent the security posture of the target environment at the time of testing."
+  ),
+  
+  // Scope Confirmation
+  scopeConfirmation: z.string().default(
+    "Testing was limited to the systems and networks explicitly identified in the scope section. No testing was performed against production systems unless explicitly authorized."
+  ),
+  
+  // Limitations Disclaimer
+  limitationsDisclaimer: z.string().default(
+    "Security testing provides a point-in-time assessment. New vulnerabilities may be discovered after this assessment. The absence of identified vulnerabilities does not guarantee the absence of security weaknesses."
+  ),
+  
+  // Data Handling
+  dataHandlingStatement: z.string().default(
+    "All sensitive data obtained during testing has been handled in accordance with applicable data protection requirements and will be securely deleted following the retention period."
+  ),
+  
+  // Sign-off Section
+  attestedBy: z.object({
+    leadTester: z.object({
+      name: z.string(),
+      title: z.string(),
+      signature: z.string().optional(), // Could be digital signature
+      date: z.string(),
+    }).optional(),
+    technicalReviewer: z.object({
+      name: z.string(),
+      title: z.string(),
+      signature: z.string().optional(),
+      date: z.string(),
+    }).optional(),
+    clientAcceptance: z.object({
+      name: z.string(),
+      title: z.string(),
+      signature: z.string().optional(),
+      date: z.string(),
+    }).optional(),
+  }).optional(),
+  
+  // Report Version Control
+  versionHistory: z.array(z.object({
+    version: z.string(),
+    date: z.string(),
+    author: z.string(),
+    changes: z.string(),
+  })).optional(),
+  
+  // Report Status
+  reportStatus: z.enum(["draft", "final", "amended"]).default("draft"),
+});
+
+export type Attestation = z.infer<typeof attestationSchema>;
+
+// Attack Narrative Schema - Story mode for technical reports
+export const attackNarrativeSchema = z.object({
+  title: z.string(),
+  overview: z.string().min(100), // Brief summary of the attack scenario
+  
+  // Full narrative prose
+  narrative: z.string().min(300), // "We gained initial access via..."
+  
+  // Key milestones in the attack chain
+  milestones: z.array(z.object({
+    phase: z.enum([
+      "reconnaissance", "initial_access", "execution", "persistence",
+      "privilege_escalation", "defense_evasion", "credential_access",
+      "discovery", "lateral_movement", "collection", "exfiltration", "impact"
+    ]),
+    timestamp: z.string().optional(), // When this occurred during testing
+    description: z.string(),
+    technique: z.string(), // MITRE ATT&CK technique name
+    techniqueId: z.string().optional(), // e.g., T1190
+    targetAsset: z.string(),
+    evidence: z.array(z.string()).optional(), // Evidence artifact IDs
+  })),
+  
+  // Impact achieved
+  finalImpact: z.object({
+    accessLevel: z.enum(["none", "low", "medium", "high", "domain_admin", "root"]),
+    dataAccessed: z.array(z.string()).optional(),
+    systemsCompromised: z.array(z.string()).optional(),
+    businessImpact: z.string(),
+  }),
+  
+  // Time to compromise
+  timeMetrics: z.object({
+    totalTime: z.string(), // e.g., "2 hours 15 minutes"
+    initialAccessTime: z.string().optional(),
+    escalationTime: z.string().optional(),
+    lateralMovementTime: z.string().optional(),
+  }).optional(),
+});
+
+export type AttackNarrative = z.infer<typeof attackNarrativeSchema>;
+
 // Reports Database Table
 export const reports = pgTable("reports", {
   id: varchar("id").primaryKey(),
@@ -1422,6 +1572,9 @@ export const reports = pgTable("reports", {
   status: varchar("status").notNull().default("generating"), // generating, completed, failed, draft, final
   content: jsonb("content"), // The actual report content
   evaluationIds: jsonb("evaluation_ids").$type<string[]>(), // Evaluations included
+  engagementMetadata: jsonb("engagement_metadata").$type<EngagementMetadata>(), // Professional engagement context
+  attestation: jsonb("attestation").$type<Attestation>(), // Formal sign-off section
+  attackNarrative: jsonb("attack_narrative").$type<AttackNarrative>(), // Story-mode narrative
   generatedBy: varchar("generated_by"), // user/system identifier
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"),

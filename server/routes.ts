@@ -1316,7 +1316,7 @@ export async function registerRoutes(
   
   app.post("/api/reports/generate", reportRateLimiter, async (req, res) => {
     try {
-      const { type, format, from, to, framework, organizationId = "default", evaluationId } = req.body;
+      const { type, format, from, to, framework, organizationId = "default", evaluationId, engagementMetadata } = req.body;
       
       // If evaluationId is provided, generate single-evaluation report
       if (evaluationId) {
@@ -1378,6 +1378,7 @@ export async function registerRoutes(
           dateRangeFrom: new Date(),
           dateRangeTo: new Date(),
           framework,
+          engagementMetadata,
         });
         
         return res.json({ 
@@ -1453,6 +1454,7 @@ export async function registerRoutes(
         dateRangeFrom: fromDate,
         dateRangeTo: toDate,
         framework,
+        engagementMetadata,
       });
       
       res.json({ 
