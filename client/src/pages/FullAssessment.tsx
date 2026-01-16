@@ -24,8 +24,11 @@ import {
   Eye,
   RefreshCw,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  Globe
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FullAssessment } from "@shared/schema";
@@ -374,6 +377,12 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
     <Tabs defaultValue="summary" className="w-full">
       <TabsList className="w-full flex-wrap h-auto justify-start gap-1 p-1">
         <TabsTrigger value="summary">Summary</TabsTrigger>
+        {(assessment as any).webAppRecon && (
+          <TabsTrigger value="web-recon">Web Recon</TabsTrigger>
+        )}
+        {(assessment as any).validatedFindings?.length > 0 && (
+          <TabsTrigger value="validated-findings">Validated Findings</TabsTrigger>
+        )}
         <TabsTrigger value="attack-graph">Attack Graph</TabsTrigger>
         <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
         <TabsTrigger value="lateral">Lateral Movement</TabsTrigger>
@@ -429,6 +438,199 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
           </Card>
         )}
       </TabsContent>
+
+      {/* Web App Reconnaissance Results */}
+      {(assessment as any).webAppRecon && (
+        <TabsContent value="web-recon" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Globe className="w-4 h-4" />
+                Web Application Reconnaissance
+              </CardTitle>
+              <CardDescription>
+                Target: {(assessment as any).webAppRecon.targetUrl}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-4 gap-4">
+                <div className="p-3 rounded-md border text-center">
+                  <div className="text-2xl font-bold text-blue-500">
+                    {(assessment as any).webAppRecon.attackSurface?.totalEndpoints || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Endpoints</div>
+                </div>
+                <div className="p-3 rounded-md border text-center">
+                  <div className="text-2xl font-bold text-purple-500">
+                    {(assessment as any).webAppRecon.attackSurface?.inputParameters || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Parameters</div>
+                </div>
+                <div className="p-3 rounded-md border text-center">
+                  <div className="text-2xl font-bold text-cyan-500">
+                    {(assessment as any).webAppRecon.attackSurface?.formCount || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Forms</div>
+                </div>
+                <div className="p-3 rounded-md border text-center">
+                  <div className="text-2xl font-bold text-amber-500">
+                    {(((assessment as any).webAppRecon.scanDurationMs || 0) / 1000).toFixed(1)}s
+                  </div>
+                  <div className="text-xs text-muted-foreground">Scan Time</div>
+                </div>
+              </div>
+
+              {(assessment as any).webAppRecon.applicationInfo && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-sm">Application Info</h4>
+                  <div className="flex gap-2 flex-wrap">
+                    {(assessment as any).webAppRecon.applicationInfo.technologies?.map((tech: string, idx: number) => (
+                      <Badge key={idx} variant="secondary">{tech}</Badge>
+                    ))}
+                    {(assessment as any).webAppRecon.applicationInfo.frameworks?.map((fw: string, idx: number) => (
+                      <Badge key={idx} variant="outline">{fw}</Badge>
+                    ))}
+                  </div>
+                  {(assessment as any).webAppRecon.applicationInfo.missingSecurityHeaders?.length > 0 && (
+                    <div className="mt-2">
+                      <span className="text-xs text-muted-foreground">Missing Security Headers:</span>
+                      <div className="flex gap-1 flex-wrap mt-1">
+                        {(assessment as any).webAppRecon.applicationInfo.missingSecurityHeaders.map((h: string, idx: number) => (
+                          <Badge key={idx} variant="destructive" className="text-xs">{h}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(assessment as any).webAppRecon.endpoints?.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-sm">Discovered Endpoints ({(assessment as any).webAppRecon.endpoints.length})</h4>
+                  <ScrollArea className="h-[300px]">
+                    <div className="space-y-2">
+                      {(assessment as any).webAppRecon.endpoints.slice(0, 50).map((ep: any, idx: number) => (
+                        <div key={idx} className="p-2 rounded-md border text-sm flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Badge variant="outline" className="text-xs shrink-0">{ep.method}</Badge>
+                            <span className="truncate text-muted-foreground">{ep.path}</span>
+                          </div>
+                          <Badge variant={ep.priority === 'high' ? 'destructive' : ep.priority === 'medium' ? 'secondary' : 'outline'} className="text-xs shrink-0">
+                            {ep.priority}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      )}
+
+      {/* Validated Findings from Parallel Agents */}
+      {(assessment as any).validatedFindings?.length > 0 && (
+        <TabsContent value="validated-findings" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Validated Security Findings
+              </CardTitle>
+              <CardDescription>
+                {(assessment as any).validatedFindings.length} vulnerabilities confirmed by parallel security agents
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(assessment as any).agentDispatchStats && (
+                <div className="grid grid-cols-4 gap-4 mb-4">
+                  <div className="p-3 rounded-md border text-center">
+                    <div className="text-2xl font-bold text-blue-500">
+                      {(assessment as any).agentDispatchStats.completedTasks}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Tasks Completed</div>
+                  </div>
+                  <div className="p-3 rounded-md border text-center">
+                    <div className="text-2xl font-bold text-green-500">
+                      {(assessment as any).validatedFindings.length}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Confirmed</div>
+                  </div>
+                  <div className="p-3 rounded-md border text-center">
+                    <div className="text-2xl font-bold text-amber-500">
+                      {(assessment as any).agentDispatchStats.falsePositivesFiltered}
+                    </div>
+                    <div className="text-xs text-muted-foreground">False Positives Filtered</div>
+                  </div>
+                  <div className="p-3 rounded-md border text-center">
+                    <div className="text-2xl font-bold text-muted-foreground">
+                      {(((assessment as any).agentDispatchStats.executionTimeMs || 0) / 1000).toFixed(1)}s
+                    </div>
+                    <div className="text-xs text-muted-foreground">Execution Time</div>
+                  </div>
+                </div>
+              )}
+
+              <ScrollArea className="h-[400px]">
+                <div className="space-y-3">
+                  {(assessment as any).validatedFindings.map((finding: any, idx: number) => (
+                    <div key={finding.id || idx} className="p-3 rounded-md border">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant={
+                            finding.severity === 'critical' ? 'destructive' :
+                            finding.severity === 'high' ? 'destructive' :
+                            finding.severity === 'medium' ? 'secondary' : 'outline'
+                          }>
+                            {finding.severity?.toUpperCase()}
+                          </Badge>
+                          <Badge variant="outline">{finding.vulnerabilityType}</Badge>
+                          {finding.mitreAttackId && (
+                            <Badge className="bg-purple-500/20 text-purple-400 text-xs">{finding.mitreAttackId}</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {finding.cvssEstimate && (
+                            <Badge variant="secondary">CVSS: {finding.cvssEstimate}</Badge>
+                          )}
+                          <Badge variant={finding.verdict === 'confirmed' ? 'destructive' : 'secondary'}>
+                            {finding.verdict}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="text-sm text-muted-foreground mb-2">
+                        <span className="font-medium text-foreground">{finding.endpointPath}</span>
+                        {finding.parameter && <span> ({finding.parameter})</span>}
+                      </div>
+                      {finding.evidence && finding.evidence.length > 0 && (
+                        <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded-md mb-2 overflow-x-auto">
+                          <code>{Array.isArray(finding.evidence) 
+                            ? finding.evidence[0]?.slice(0, 200) + (finding.evidence[0]?.length > 200 ? '...' : '')
+                            : String(finding.evidence).slice(0, 200)
+                          }</code>
+                        </div>
+                      )}
+                      {finding.recommendations?.length > 0 && (
+                        <div className="text-xs">
+                          <span className="text-muted-foreground">Recommendations: </span>
+                          {finding.recommendations.slice(0, 2).join('; ')}
+                        </div>
+                      )}
+                      {finding.llmValidation && (
+                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-green-500" />
+                          LLM Validated: {finding.llmValidation.confidence}% confidence
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      )}
       
       <TabsContent value="attack-graph" className="mt-4">
         <Card>
@@ -594,6 +796,12 @@ export default function FullAssessmentPage() {
   const [selectedAssessment, setSelectedAssessment] = useState<FullAssessment | null>(null);
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  // Enhanced assessment options
+  const [targetUrl, setTargetUrl] = useState("");
+  const [enableWebAppRecon, setEnableWebAppRecon] = useState(true);
+  const [enableParallelAgents, setEnableParallelAgents] = useState(true);
+  const [maxConcurrentAgents, setMaxConcurrentAgents] = useState(5);
+  const [enableLLMValidation, setEnableLLMValidation] = useState(true);
   
   const { data: assessments = [], isLoading, refetch } = useQuery<FullAssessment[]>({
     queryKey: ["/api/full-assessments"],
@@ -601,14 +809,29 @@ export default function FullAssessmentPage() {
   });
   
   const createMutation = useMutation({
-    mutationFn: async (data: { name: string; description: string }) => {
+    mutationFn: async (data: { 
+      name: string; 
+      description: string;
+      targetUrl?: string;
+      enableWebAppRecon?: boolean;
+      enableParallelAgents?: boolean;
+      maxConcurrentAgents?: number;
+      enableLLMValidation?: boolean;
+    }) => {
       return apiRequest("POST", "/api/full-assessments", data);
     },
     onSuccess: () => {
-      toast({ title: "Assessment Started", description: "Full security assessment is now running" });
+      const isEnhanced = targetUrl.trim().length > 0;
+      toast({ 
+        title: isEnhanced ? "Enhanced Assessment Started" : "Assessment Started", 
+        description: isEnhanced 
+          ? "Full security assessment with web app reconnaissance is now running" 
+          : "Full security assessment is now running" 
+      });
       setIsCreateOpen(false);
       setNewName("");
       setNewDescription("");
+      setTargetUrl("");
       queryClient.invalidateQueries({ queryKey: ["/api/full-assessments"] });
     },
     onError: (error) => {
@@ -632,7 +855,15 @@ export default function FullAssessmentPage() {
       toast({ title: "Name required", variant: "destructive" });
       return;
     }
-    createMutation.mutate({ name: newName, description: newDescription });
+    createMutation.mutate({ 
+      name: newName, 
+      description: newDescription,
+      targetUrl: targetUrl.trim() || undefined,
+      enableWebAppRecon: targetUrl.trim() ? enableWebAppRecon : undefined,
+      enableParallelAgents: targetUrl.trim() ? enableParallelAgents : undefined,
+      maxConcurrentAgents: targetUrl.trim() ? maxConcurrentAgents : undefined,
+      enableLLMValidation: targetUrl.trim() ? enableLLMValidation : undefined,
+    });
   };
 
   return (
@@ -656,7 +887,7 @@ export default function FullAssessmentPage() {
                 Start Full Assessment
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Start Full Security Assessment</DialogTitle>
               </DialogHeader>
@@ -679,12 +910,84 @@ export default function FullAssessmentPage() {
                     data-testid="input-assessment-description"
                   />
                 </div>
+                
+                {/* Enhanced Web App Reconnaissance Section */}
+                <div className="border rounded-md p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-primary" />
+                    <label className="text-sm font-medium">Web Application Target (optional)</label>
+                  </div>
+                  <Input
+                    value={targetUrl}
+                    onChange={(e) => setTargetUrl(e.target.value)}
+                    placeholder="https://example.com"
+                    data-testid="input-target-url"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Provide a URL to enable enhanced web app reconnaissance with parallel security agent testing
+                  </p>
+                  
+                  {targetUrl.trim() && (
+                    <div className="space-y-2 pt-2 border-t">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium">Web App Reconnaissance</label>
+                        <Switch
+                          checked={enableWebAppRecon}
+                          onCheckedChange={setEnableWebAppRecon}
+                          data-testid="switch-web-recon"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium">Parallel Security Agents</label>
+                        <Switch
+                          checked={enableParallelAgents}
+                          onCheckedChange={setEnableParallelAgents}
+                          data-testid="switch-parallel-agents"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium">LLM False Positive Filtering</label>
+                        <Switch
+                          checked={enableLLMValidation}
+                          onCheckedChange={setEnableLLMValidation}
+                          data-testid="switch-llm-validation"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium">Max Concurrent Agents</label>
+                        <Select
+                          value={String(maxConcurrentAgents)}
+                          onValueChange={(v) => setMaxConcurrentAgents(Number(v))}
+                        >
+                          <SelectTrigger className="w-20 h-7" data-testid="select-max-agents">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="3">3</SelectItem>
+                            <SelectItem value="5">5</SelectItem>
+                            <SelectItem value="10">10</SelectItem>
+                            <SelectItem value="15">15</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="bg-muted/50 p-3 rounded-md">
                   <h4 className="text-sm font-medium flex items-center gap-2">
                     <Target className="w-4 h-4" />
                     What this assessment does:
                   </h4>
                   <ul className="text-sm text-muted-foreground mt-2 space-y-1">
+                    {targetUrl.trim() && (
+                      <>
+                        <li className="text-primary">Crawls target URL to discover endpoints</li>
+                        <li className="text-primary">Dispatches parallel security validation agents</li>
+                        <li className="text-primary">Tests for SQLi, XSS, Auth Bypass, Command Injection, Path Traversal, SSRF</li>
+                        <li className="text-primary">Filters false positives using AI validation</li>
+                      </>
+                    )}
                     <li>Collects findings from all deployed agents</li>
                     <li>Analyzes vulnerabilities across all systems</li>
                     <li>Maps cross-system attack paths using MITRE ATT&CK</li>
@@ -704,7 +1007,7 @@ export default function FullAssessmentPage() {
                   ) : (
                     <Play className="w-4 h-4 mr-2" />
                   )}
-                  Start Assessment
+                  {targetUrl.trim() ? "Start Enhanced Assessment" : "Start Assessment"}
                 </Button>
               </div>
             </DialogContent>

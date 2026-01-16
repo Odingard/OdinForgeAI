@@ -5282,10 +5282,22 @@ export async function registerRoutes(
   // Full Assessment (Multi-System Pentest) Endpoints
   // ============================================================================
 
-  // Create and start a full assessment
+  // Create and start a full assessment (supports enhanced mode with target URL)
   app.post("/api/full-assessments", evaluationRateLimiter, async (req, res) => {
     try {
-      const { name, description, agentIds, organizationId } = req.body;
+      const { 
+        name, 
+        description, 
+        agentIds, 
+        organizationId,
+        // Enhanced assessment options
+        targetUrl,
+        enableWebAppRecon,
+        enableParallelAgents,
+        maxConcurrentAgents,
+        vulnerabilityTypes,
+        enableLLMValidation,
+      } = req.body;
       
       if (!name) {
         return res.status(400).json({ error: "Assessment name is required" });
@@ -5297,16 +5309,32 @@ export async function registerRoutes(
         agentIds: agentIds || null,
         organizationId: organizationId || "default",
         status: "pending",
-        currentPhase: "Initializing...",
+        currentPhase: targetUrl ? "web_recon" : "reconnaissance",
       });
 
-      runFullAssessment(assessment.id).catch(error => {
-        console.error("Full assessment failed:", error);
-      });
+      // Use enhanced assessment if target URL provided
+      if (targetUrl) {
+        const { runEnhancedFullAssessment } = await import("./services/full-assessment");
+        runEnhancedFullAssessment(assessment.id, {
+          targetUrl,
+          enableWebAppRecon: enableWebAppRecon !== false,
+          enableParallelAgents: enableParallelAgents !== false,
+          maxConcurrentAgents: maxConcurrentAgents || 5,
+          vulnerabilityTypes: vulnerabilityTypes || ["sqli", "xss", "auth_bypass", "command_injection", "path_traversal", "ssrf"],
+          enableLLMValidation: enableLLMValidation !== false,
+        }).catch(error => {
+          console.error("Enhanced full assessment failed:", error);
+        });
+      } else {
+        runFullAssessment(assessment.id).catch(error => {
+          console.error("Full assessment failed:", error);
+        });
+      }
 
       res.json({ 
         assessmentId: assessment.id,
-        message: "Full assessment started"
+        message: targetUrl ? "Enhanced full assessment started with web application reconnaissance" : "Full assessment started",
+        mode: targetUrl ? "enhanced" : "standard",
       });
     } catch (error) {
       console.error("Create full assessment error:", error);

@@ -2,6 +2,8 @@ import OpenAI from "openai";
 import type { FullAssessment, AgentFinding, EndpointAgent } from "@shared/schema";
 import { storage } from "../storage";
 import { wsService } from "./websocket";
+import { runWebAppReconnaissance, type WebAppReconResult } from "./web-app-recon";
+import { dispatchParallelAgents, type AgentDispatchResult } from "./parallel-agent-dispatcher";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -121,17 +123,14 @@ export async function runFullAssessment(
           findingsAnalyzed: 0,
           durationMs: Date.now() - startTime,
           completedAt: new Date(),
-          unifiedAttackGraph: { nodes: [], edges: [] },
-          criticalPaths: [],
-          lateralMovement: [],
-          businessImpact: { 
-            confidentialityImpact: "none",
-            integrityImpact: "none", 
-            availabilityImpact: "none",
-            financialRisk: "none",
-            reputationalRisk: "none",
-            complianceRisk: "none",
-            narrative: "No findings in scope to analyze."
+          unifiedAttackGraph: { nodes: [], edges: [], criticalPaths: [] },
+          lateralMovementPaths: { paths: [], highRiskPivots: [] },
+          businessImpactAnalysis: { 
+            overallRisk: "none",
+            dataAtRisk: { types: [], estimatedRecords: "0", regulatoryImplications: [] },
+            operationalImpact: { systemsAffected: 0, potentialDowntime: "none", businessProcesses: [] },
+            financialImpact: { estimatedRange: "$0", factors: [] },
+            reputationalImpact: "No findings in scope to analyze."
           },
           recommendations: [],
           executiveSummary: "No findings were available in the specified scope for this assessment.",
@@ -630,4 +629,192 @@ function calculateOverallRiskScore(
   else if (overallRisk === "low") score += 5;
   
   return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+// ============================================================================
+// Enhanced Full Assessment with Web App Reconnaissance
+// ============================================================================
+
+export interface EnhancedAssessmentOptions {
+  targetUrl?: string;
+  enableWebAppRecon?: boolean;
+  enableParallelAgents?: boolean;
+  maxConcurrentAgents?: number;
+  vulnerabilityTypes?: ("sqli" | "xss" | "auth_bypass" | "command_injection" | "path_traversal" | "ssrf")[];
+  enableLLMValidation?: boolean;
+}
+
+export async function runEnhancedFullAssessment(
+  assessmentId: string,
+  options: EnhancedAssessmentOptions = {},
+  onProgress?: FullAssessmentProgressCallback
+): Promise<void> {
+  const startTime = Date.now();
+  
+  try {
+    const assessment = await storage.getFullAssessment(assessmentId);
+    if (!assessment) {
+      await updateAssessmentStatus(assessmentId, "failed", 0, "Assessment not found");
+      return;
+    }
+    
+    let webAppReconResult: WebAppReconResult | null = null;
+    let agentDispatchResult: AgentDispatchResult | null = null;
+    
+    // Phase 1: Web Application Reconnaissance (if target URL provided)
+    if (options.targetUrl && options.enableWebAppRecon !== false) {
+      await updateAssessmentStatus(assessmentId, "web_recon", 5, "Starting web application reconnaissance...");
+      onProgress?.(assessmentId, "web_recon", 5, "Crawling target application...");
+      broadcastProgress(assessmentId, "web_recon", 5, "Crawling target application...");
+      
+      try {
+        webAppReconResult = await runWebAppReconnaissance(
+          options.targetUrl,
+          (phase, progress, message) => {
+            const adjustedProgress = Math.round(5 + (progress * 0.15)); // 5-20%
+            onProgress?.(assessmentId, "web_recon", adjustedProgress, message);
+            broadcastProgress(assessmentId, "web_recon", adjustedProgress, message);
+          }
+        );
+        
+        // Store web app recon results
+        await storage.updateFullAssessment(assessmentId, {
+          webAppRecon: {
+            targetUrl: webAppReconResult.targetUrl,
+            scanDurationMs: webAppReconResult.durationMs,
+            applicationInfo: {
+              title: webAppReconResult.applicationInfo.title,
+              technologies: webAppReconResult.applicationInfo.technologies,
+              frameworks: webAppReconResult.applicationInfo.frameworks,
+              missingSecurityHeaders: webAppReconResult.applicationInfo.missingSecurityHeaders,
+            },
+            attackSurface: webAppReconResult.attackSurface,
+            endpoints: webAppReconResult.endpoints.slice(0, 50).map(ep => ({
+              url: ep.url,
+              method: ep.method,
+              path: ep.path,
+              type: ep.type,
+              priority: ep.priority,
+              parameters: ep.parameters.map(p => ({
+                name: p.name,
+                vulnerabilityPotential: p.vulnerabilityPotential,
+              })),
+            })),
+          },
+        });
+        
+        await updateAssessmentStatus(assessmentId, "web_recon", 20, 
+          `Discovered ${webAppReconResult.endpoints.length} endpoints with ${webAppReconResult.attackSurface.inputParameters} input parameters`
+        );
+        
+      } catch (error) {
+        console.error("[EnhancedAssessment] Web recon failed:", error);
+        await updateAssessmentStatus(assessmentId, "web_recon", 20, 
+          `Web reconnaissance failed: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+    }
+    
+    // Phase 2: Parallel Agent Dispatch (if web recon succeeded)
+    if (webAppReconResult && webAppReconResult.endpoints.length > 0 && options.enableParallelAgents !== false) {
+      await updateAssessmentStatus(assessmentId, "agent_dispatch", 25, "Dispatching specialized security agents...");
+      onProgress?.(assessmentId, "agent_dispatch", 25, "Dispatching parallel validation agents...");
+      broadcastProgress(assessmentId, "agent_dispatch", 25, "Dispatching parallel validation agents...");
+      
+      try {
+        agentDispatchResult = await dispatchParallelAgents(
+          webAppReconResult,
+          {
+            maxConcurrentAgents: options.maxConcurrentAgents || 5,
+            enableLLMValidation: options.enableLLMValidation !== false,
+            vulnerabilityTypes: options.vulnerabilityTypes || ["sqli", "xss", "auth_bypass", "command_injection", "path_traversal", "ssrf"],
+          },
+          (phase, progress, message, stats) => {
+            const adjustedProgress = Math.round(25 + (progress * 0.35)); // 25-60%
+            onProgress?.(assessmentId, "agent_dispatch", adjustedProgress, message);
+            broadcastProgress(assessmentId, "agent_dispatch", adjustedProgress, message);
+          }
+        );
+        
+        // Store agent dispatch results
+        await storage.updateFullAssessment(assessmentId, {
+          validatedFindings: agentDispatchResult.findings.map(f => ({
+            id: f.id,
+            endpointUrl: f.endpointUrl,
+            endpointPath: f.endpointPath,
+            parameter: f.parameter,
+            vulnerabilityType: f.vulnerabilityType,
+            severity: f.severity,
+            confidence: f.confidence,
+            verdict: f.verdict,
+            evidence: f.evidence,
+            recommendations: f.recommendations,
+            reproductionSteps: f.reproductionSteps,
+            cvssEstimate: f.cvssEstimate,
+            mitreAttackId: f.mitreAttackId,
+            llmValidation: f.llmValidation,
+          })),
+          agentDispatchStats: {
+            totalTasks: agentDispatchResult.totalTasks,
+            completedTasks: agentDispatchResult.completedTasks,
+            failedTasks: agentDispatchResult.failedTasks,
+            falsePositivesFiltered: agentDispatchResult.falsePositivesFiltered,
+            executionTimeMs: agentDispatchResult.executionTimeMs,
+            tasksByVulnerabilityType: agentDispatchResult.tasksByVulnerabilityType,
+          },
+        });
+        
+        await updateAssessmentStatus(assessmentId, "agent_dispatch", 60, 
+          `Completed ${agentDispatchResult.completedTasks} tasks, found ${agentDispatchResult.findings.length} validated findings`
+        );
+        
+      } catch (error) {
+        console.error("[EnhancedAssessment] Agent dispatch failed:", error);
+        await updateAssessmentStatus(assessmentId, "agent_dispatch", 60, 
+          `Agent dispatch failed: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+    }
+    
+    // Continue with standard assessment phases...
+    // The rest of the standard assessment flow continues from here
+    await runFullAssessment(assessmentId, onProgress);
+    
+    // Update with enhanced metrics if we have web app findings
+    if (agentDispatchResult && agentDispatchResult.findings.length > 0) {
+      const existingAssessment = await storage.getFullAssessment(assessmentId);
+      if (existingAssessment) {
+        // Add validated findings to the findings count
+        const totalFindings = (existingAssessment.findingsAnalyzed || 0) + agentDispatchResult.findings.length;
+        
+        // Recalculate risk score including web app findings
+        const webAppSeverityScore = agentDispatchResult.findings.reduce((sum, f) => {
+          const severityScores = { critical: 10, high: 7, medium: 4, low: 1 };
+          return sum + (severityScores[f.severity] || 0);
+        }, 0);
+        
+        const adjustedRiskScore = Math.min(100, 
+          (existingAssessment.overallRiskScore || 0) + Math.round(webAppSeverityScore / agentDispatchResult.findings.length * 10)
+        );
+        
+        await storage.updateFullAssessment(assessmentId, {
+          findingsAnalyzed: totalFindings,
+          overallRiskScore: adjustedRiskScore,
+        });
+      }
+    }
+    
+    const durationMs = Date.now() - startTime;
+    console.log(`[EnhancedAssessment] Completed in ${durationMs}ms`);
+    
+  } catch (error) {
+    console.error("[EnhancedAssessment] Fatal error:", error);
+    await storage.updateFullAssessment(assessmentId, {
+      status: "failed",
+      progress: 0,
+      currentPhase: "failed",
+    });
+    broadcastProgress(assessmentId, "failed", 0, `Assessment failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw error;
+  }
 }

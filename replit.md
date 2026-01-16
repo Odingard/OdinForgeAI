@@ -1,145 +1,69 @@
 # OdinForge AI Platform
 
 ## Overview
-OdinForge AI (Adversarial Exposure Validation) is a next-generation AI-powered security platform designed for autonomous exploit validation and attack simulation. Its core purpose is to analyze security exposures, determine exploitability using AI, construct attack paths via MITRE ATT&CK, assess business impact, and generate remediation recommendations. The platform aims to provide comprehensive multi-system penetration testing capabilities and an AI vs AI simulation system for purple team exercises, enabling organizations to proactively strengthen their security posture against evolving threats.
+OdinForge AI (Adversarial Exposure Validation) is an AI-powered security platform for autonomous exploit validation and attack simulation. It analyzes security exposures, determines exploitability using AI, constructs attack paths via MITRE ATT&CK, assesses business impact, and generates remediation recommendations. The platform provides multi-system penetration testing and an AI vs AI simulation system for purple team exercises, aiming to strengthen security posture against evolving threats.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 ### Core Platform
-The platform uses a full-stack TypeScript architecture. The frontend is built with React 18, utilizing Wouter for routing, TanStack React Query for state management, and Tailwind CSS with shadcn/ui for styling, supporting dark/light modes. Real-time communication is handled via WebSockets for live progress updates.
+The platform uses a full-stack TypeScript architecture. The frontend is built with React 18, Wouter for routing, TanStack React Query for state management, and Tailwind CSS with shadcn/ui for styling, supporting dark/light modes. Real-time communication uses WebSockets.
 
-The backend is built with Express.js and TypeScript, also leveraging WebSockets. Key services include:
-- **AEV Service**: AI analysis using OpenAI.
-- **Agent Orchestrator**: Coordinates AI agents for evaluations.
-- **AI Simulation Orchestrator**: Manages AI vs AI simulations with iterative attack/defense cycles.
-- **Report Generator**: Creates executive, technical, and compliance reports.
-- **Auth Services**: mTLS Auth Service for agent authentication and JWT Auth Service for user authentication, integrated into a Unified Auth Service supporting multi-tenancy.
+The backend uses Express.js and TypeScript, also with WebSockets. Key services include AEV for AI analysis, Agent Orchestrator, AI Simulation Orchestrator, Report Generator, and a Unified Auth Service supporting mTLS and JWT for multi-tenancy.
 
 ### AI vs AI Simulation System
-This system features Attacker AI and Defender AI for purple team exercises, offering configurable iterative rounds with actionable recommendations.
-
-**Quick-Start Templates**: The Simulations page (`/simulations`) provides 5 pre-configured templates for one-click simulation launch:
-1. **Web Application Breach**: SQL injection, XSS, and authentication bypass attacks
-2. **Cloud Infrastructure Attack**: Cloud misconfigurations, IAM weaknesses, container escapes
-3. **Ransomware Simulation**: Lateral movement, data encryption tactics
-4. **Data Exfiltration**: Sensitive data theft via multiple exfiltration channels
-5. **Insider Threat**: Privilege abuse and credential misuse from internal actors
-
-**Evaluation-to-Simulation Flow**: Completed evaluations show a "Start AI Simulation" button that navigates to `/simulations` with pre-filled parameters (`assetId`, `exposureType`, `priority`, `fromEvaluation`) for seamless workflow continuation.
+This system features Attacker AI and Defender AI for purple team exercises with configurable iterative rounds. It includes quick-start templates for common attack scenarios (e.g., Web Application Breach, Cloud Infrastructure Attack, Ransomware Simulation, Data Exfiltration, Insider Threat) and allows launching simulations directly from completed evaluations with pre-filled parameters.
 
 ### Full Assessment System
-Provides multi-phase penetration testing, including reconnaissance, vulnerability analysis, attack synthesis, lateral movement, and impact assessment. It generates cross-system attack graphs and AI-powered analysis for unified attack paths, delivering real-time progress and prioritized remediation. This includes Business Impact Analysis and Lateral Movement Analysis.
+Provides multi-phase penetration testing (reconnaissance, vulnerability analysis, attack synthesis, lateral movement, impact assessment), generating cross-system attack graphs and AI-powered analysis for unified attack paths, real-time progress, and prioritized remediation. It includes Business Impact Analysis and Lateral Movement Analysis.
+
+An enhanced web application mode includes:
+- **Web App Reconnaissance**: Crawls target URLs, discovers endpoints, detects technologies, analyzes security headers, and uses AI to prioritize attack surface.
+- **Parallel Agent Dispatch**: Concurrently spawns specialized validation agents for SQLi, XSS, Auth Bypass, Command Injection, Path Traversal, and SSRF, using LLM validation to filter false positives.
 
 ### Data Storage
-PostgreSQL serves as the primary data store, with Drizzle ORM for type-safe database interactions. The schema defines tables for users, evaluations, results, reports, agents, and simulations.
+PostgreSQL is the primary data store, with Drizzle ORM for type-safe interactions.
 
 ### Multi-Tenant Isolation
-The system supports multi-tenancy with a `Tenants` table for managing organizations, tier-based feature limits, IP allowlisting, and hierarchical multi-tenancy. A tenant middleware extracts context, validates status, and enforces IP allowlists, ensuring feature gating based on tenant configuration.
+The system supports multi-tenancy with a `Tenants` table for managing organizations, feature limits, IP allowlisting, and hierarchical multi-tenancy, enforced via middleware.
 
 ### Job Queue Infrastructure
-Utilizes BullMQ with a Redis-backed job queue, featuring an in-memory fallback. It supports various job types such as evaluation, network scan, cloud discovery, external recon, report generation, and AI simulation. All scan and validation results are persisted to dedicated database tables. Job handlers include `network_scan`, `cloud_discovery`, `external_recon`, `report_generation`, `ai_simulation`, `evaluation`, `full_assessment`, `exploit_validation`, `api_scan`, `auth_scan`, `remediation`, and `agent_deployment`.
+BullMQ with a Redis-backed job queue (in-memory fallback) handles various job types like evaluation, network scan, cloud discovery, external recon, report generation, and AI simulation.
 
 ### Live Network Testing
-This feature provides real TCP port scanning with banner grabbing, service detection, and vulnerability pattern matching. Results are stored in the `liveScanResults` table and accessible via a REST API with tenant isolation. Secure WebSocket channels provide real-time progress updates.
+Provides real TCP port scanning with banner grabbing, service detection, and vulnerability pattern matching. Results are tenant-isolated and accessible via REST API and WebSockets.
 
-### External Reconnaissance (6-Section Structure)
-Provides comprehensive internet-facing asset scanning with direct integration into autonomous exploit chaining logic. The system is organized into 6 sections:
-
-1. **Network Exposure**: Open ports, high-risk services (FTP, Telnet, SMB, RDP, VNC), database exposure, version disclosure
-2. **Transport Security**: TLS grading (A+ to F), HSTS configuration, forward secrecy, certificate transparency, downgrade risks
-3. **Application Identity**: Technologies detected, frameworks, CMS, web server, WAF detection, security headers present/missing
-4. **Authentication Surface**: Login pages, admin panels (protected/unprotected), OAuth endpoints, password reset forms, API authentication methods
-5. **DNS & Infrastructure**: Hosting/CDN providers, DNS configuration, mail security (SPF/DMARC), shadow assets
-6. **Attack Readiness Summary**: Overall exposure score, risk level, category scores, AEV next-actions with MITRE ATT&CK IDs, prioritized remediations
-
-Each finding includes exploit chain signals with:
-- Exploit type and MITRE ATT&CK technique ID
-- Chain position (initial_access, execution, persistence, privilege_escalation, lateral_movement)
-- Required execution mode (observe, passive, active, exploit)
-- Confidence score (0-100)
-
-UI accessible via `/recon` with 7 tabs: Summary (default), Network, Transport, App, Auth, Infra, Findings.
+### External Reconnaissance
+Offers comprehensive internet-facing asset scanning with a 6-section structure: Network Exposure, Transport Security, Application Identity, Authentication Surface, DNS & Infrastructure, and Attack Readiness Summary. Each finding includes exploit chain signals with type, MITRE ATT&CK ID, chain position, execution mode, and confidence score.
 
 ### Endpoint Agent System
-Supports live agent deployment for real-time monitoring, including agent registration, telemetry ingestion, auto-evaluation triggers, and deduplication. Pre-compiled Go agents are provided for multiple platforms. Agent status is dynamically calculated based on heartbeat, with support for force check-ins and cross-platform data validation.
-
-**Agent Registration Token System**: Supports single-use registration tokens as a secure alternative to embedding permanent tokens. Admins can generate time-limited, one-time tokens via `/api/agents/registration-tokens` that are consumed after successful agent registration. Tokens are stored as SHA256 hashes with configurable expiration (default 24 hours).
-
-**Zero-Interaction Agent Installation**: Only 2 deployment methods are supported for simplicity:
-
-1. **Host Install** (Linux/Windows): The `POST /api/agents/install-command` endpoint generates a one-liner command with embedded server URL and single-use token. Scripts (`odinforge-agent/install.sh` and `install.ps1`) support CLI args (`--server-url`, `--api-key`, `--tenant-id`, `--dry-run`, `--force`), commands (`install|uninstall|status`), and automatic service installation with security hardening.
-
-2. **Container Install** (Docker/Kubernetes): Docker deployment via `docker run` with environment variables (`ODINFORGE_SERVER_URL`, `ODINFORGE_API_KEY`, `ODINFORGE_TENANT_ID`). Kubernetes deployment via Helm chart at `odinforge-agent/deploy/helm/` with DaemonSet, RBAC, ServiceAccount, and optional mTLS configuration in `values.yaml`.
+Supports live agent deployment for monitoring, including registration, telemetry, auto-evaluation triggers, and deduplication. Pre-compiled Go agents are provided for multiple platforms. A registration token system enables secure, single-use token-based agent registration. Simple zero-interaction installation methods are provided for host and container environments (Docker/Kubernetes).
 
 ### Validation Agent Heartbeat System
-Tracks the progress of long-running AI validation agents, detecting and recovering from stalled agents through retries and timeouts. WebSocket events provide real-time monitoring of agent status.
+Monitors long-running AI validation agents, detecting and recovering from stalled agents via retries and timeouts, with real-time status updates via WebSockets.
 
 ### Cloud Agent Deployment
-Facilitates agent deployment on AWS (SSM Run Command), Azure (VM Run Command), and GCP (startup script metadata). Agents are pre-registered in a pending state, and deployment status is tracked per cloud asset.
+Facilitates agent deployment on AWS, Azure, and GCP, tracking deployment status per cloud asset.
 
 ### Coverage Autopilot
-A hands-off agent onboarding system for deploying agents at scale across infrastructure. Available as a tab in the Agents page (`/agents`).
-
-**Enrollment Tokens**: Short-lived (60-minute TTL) single-use tokens for bulk agent deployment. Stored as SHA256 hashes with only the last 6 characters visible for identification.
-- `POST /api/enrollment/token` - Create enrollment token
-- `GET /api/enrollment/tokens` - List active tokens
-- `DELETE /api/enrollment/tokens/:id` - Revoke token
-
-**Bootstrap Commands**: Platform-specific installation commands generated via `GET /api/bootstrap?token=<token>`:
-- Host Install: Linux/Windows one-liner commands
-- Cloud User-Data: AWS, Azure VMSS, GCP startup scripts (both Linux/Windows)
-- Kubernetes: Raw DaemonSet manifest with placeholder substitution (`public/k8s/odinforge-agent-daemonset.yaml`)
-
-**Coverage Metrics**: `GET /api/coverage` returns asset vs agent coverage stats with per-provider breakdowns (AWS, Azure, GCP).
-
-**UI Component**: `CoverageAutopilot.tsx` displays coverage metrics, token generation, and tabbed bootstrap scripts with copy-to-clipboard functionality.
+A hands-off system for bulk agent deployment using short-lived enrollment tokens and platform-specific bootstrap commands (host, cloud user-data, Kubernetes DaemonSet). It provides coverage metrics for assets versus agents.
 
 ### AEV Evidence Collection
-Stores raw HTTP request/response, timing data, and verdict classifications (`confirmed`, `likely`, `theoretical`, `false_positive`, `error`) in a `validationEvidenceArtifacts` table. A `ValidatingHttpClient` captures evidence, and an `EvidenceStorageService` manages persistence, retention policies, and automatic cleanup, ensuring tenant isolation.
+Stores raw HTTP request/response, timing data, and verdict classifications in a `validationEvidenceArtifacts` table. An `EvidenceStorageService` manages persistence, retention, and cleanup with tenant isolation.
 
-### AEV Safe Validation Primitives (Phase 2 & 3 Complete)
-- **Payload Library**: Comprehensive categorized payloads for SQL Injection, XSS, Command Injection, Path Traversal, SSRF, Auth Bypass with risk levels and indicators.
-- **All 6 Validation Modules Implemented**:
-  - `SqliValidator`: Error-based, time-based, boolean-based detection with DB fingerprinting (MySQL, PostgreSQL, MSSQL, Oracle, SQLite).
-  - `XssValidator`: Reflected and DOM-based XSS detection with encoding analysis.
-  - `AuthBypassValidator`: SQLi bypass, header manipulation, path bypass techniques.
-  - `CommandInjectionValidator`: Blind time-based (sleep/ping) and error-based (id, whoami) with Unix/Windows OS detection.
-  - `PathTraversalValidator`: File disclosure detection for Unix/Windows system files, config files, Base64 content.
-  - `SsrfValidator`: Cloud metadata (AWS/Azure/GCP), localhost bypass, internal service detection.
-- **ValidationEngine**: Unified coordinator for all 6 validators with evidence capture integration and configurable timeouts.
-- **Exploit Validation Handler**: Runs live payload-based validation when `safeMode=false` with targetUrl, supports all 6 vulnerability types.
+### AEV Safe Validation Primitives
+Includes a comprehensive categorized payload library and implemented validation modules for SQL Injection, XSS, Auth Bypass, Command Injection, Path Traversal, and SSRF. A `ValidationEngine` coordinates these with evidence capture, and an Exploit Validation Handler runs live payload-based validation.
 
 ### Governance & Safety Controls Enforcement
-Centralized safety controls enforced across all security operations via `GovernanceEnforcementService`:
-
-**Kill Switch**: Emergency stop that immediately halts all security operations organization-wide. When activated, all job handlers check and refuse to proceed, logging the block.
-
-**Execution Modes**:
-- **Safe Mode**: Read-only reconnaissance only (port scanning, version detection, banner grabbing)
-- **Simulate Mode**: Adds credential testing and payload injection with blocked targets (*.gov, *.mil, *.edu)
-- **Live Mode**: Full exploitation including data exfiltration (requires approval, blocks localhost, private IPs, government domains)
-
-**Scope Rules**: Allow/Block rules validated against operation targets:
-- IP address matching (exact)
-- Hostname matching (with subdomain support)
-- CIDR network range matching
-- Pattern/regex matching
-- Priority-based rule evaluation
-
-**Enforcement Integration**: All 10 job handlers validate governance before execution:
-- `evaluation`, `ai_simulation`, `network_scan`, `exploit_validation`, `external_recon`
-- `cloud_discovery`, `full_assessment`, `api_scan`, `auth_scan`, `agent_deployment`
-
-**Authorization Logging**: All blocked operations are logged with detailed reasons to `authorization_logs` table for audit trail.
-
-**Cache Invalidation**: Governance settings use 30-second TTL cache with immediate invalidation when settings change via API.
-
-**UI**: Governance page (`/governance`) provides Kill Switch toggle, Execution Mode selector, Scope Rules management (CRUD), and Authorization Log viewer.
+Centralized controls enforced via a `GovernanceEnforcementService`:
+- **Kill Switch**: Halts all security operations organization-wide.
+- **Execution Modes**: Defines levels of operation (Safe, Simulate, Live) with progressively more intrusive actions and target restrictions.
+- **Scope Rules**: Allow/Block rules for IP addresses, hostnames, CIDR ranges, and regex patterns.
+All job handlers validate governance before execution, logging blocked operations for audit. Settings are cached with invalidation on change.
 
 ### Enhanced Reporting System
-Provides comprehensive, logic-based reporting, including a vulnerability catalog, kill chain visualization mapping to MITRE ATT&CK, and a report logic engine for generating executive summaries, technical reports, and compliance assessments from actual data.
+Provides comprehensive, logic-based reporting including a vulnerability catalog, kill chain visualization mapping to MITRE ATT&CK, and a report logic engine for generating executive summaries, technical reports, and compliance assessments.
 
 ### Design System
 Follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
@@ -148,7 +72,6 @@ Follows custom guidelines blending Material Design with cyber-security aesthetic
 ### Database
 - **PostgreSQL**: Primary relational database.
 - **Drizzle ORM**: TypeScript ORM for database interaction.
-- **connect-pg-simple**: PostgreSQL session store.
 
 ### AI Services
 - **OpenAI API**: Used for core AI analysis.
@@ -156,14 +79,6 @@ Follows custom guidelines blending Material Design with cyber-security aesthetic
 ### Frontend Libraries
 - **shadcn/ui**: Accessible React component library.
 - **TanStack React Query**: Data fetching, caching, and synchronization.
-- **Lucide React**: Icon library.
-- **date-fns**: JavaScript date utility library.
-
-### Development Tools
-- **Vite**: Frontend build tool.
-- **tsx**: TypeScript execution environment.
-- **Drizzle Kit**: Database migration tool.
 
 ### Real-time Communication
 - **ws**: WebSocket server library.
-- Native WebSocket API on client-side.
