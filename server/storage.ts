@@ -9,8 +9,6 @@ import {
   type InsertReport,
   type ReportNarrative,
   type InsertReportNarrative,
-  type BatchJob,
-  type InsertBatchJob,
   type ScheduledScan,
   type InsertScheduledScan,
   type OrganizationGovernance,
@@ -73,7 +71,6 @@ import {
   liveScanResults,
   reports,
   reportNarratives,
-  batchJobs,
   scheduledScans,
   evaluationHistory,
   organizationGovernance,
@@ -160,13 +157,6 @@ export interface IStorage {
   getReportNarrative(id: string): Promise<ReportNarrative | undefined>;
   getReportNarrativeByEvaluationId(evaluationId: string): Promise<ReportNarrative | undefined>;
   getReportNarratives(organizationId?: string): Promise<ReportNarrative[]>;
-  
-  // Batch Job operations
-  createBatchJob(data: InsertBatchJob): Promise<BatchJob>;
-  getBatchJob(id: string): Promise<BatchJob | undefined>;
-  getBatchJobs(organizationId?: string): Promise<BatchJob[]>;
-  updateBatchJob(id: string, updates: Partial<BatchJob>): Promise<void>;
-  deleteBatchJob(id: string): Promise<void>;
   
   // Scheduled Scan operations
   createScheduledScan(data: InsertScheduledScan): Promise<ScheduledScan>;
@@ -470,46 +460,6 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(reportNarratives.createdAt));
     }
     return db.select().from(reportNarratives).orderBy(desc(reportNarratives.createdAt));
-  }
-
-  // Batch Job operations
-  async createBatchJob(data: InsertBatchJob & { totalEvaluations: number }): Promise<BatchJob> {
-    const id = `batch-${randomUUID().slice(0, 8)}`;
-    const [job] = await db
-      .insert(batchJobs)
-      .values({ ...data, id } as typeof batchJobs.$inferInsert)
-      .returning();
-    return job;
-  }
-
-  async getBatchJob(id: string): Promise<BatchJob | undefined> {
-    const [job] = await db
-      .select()
-      .from(batchJobs)
-      .where(eq(batchJobs.id, id));
-    return job;
-  }
-
-  async getBatchJobs(organizationId?: string): Promise<BatchJob[]> {
-    if (organizationId) {
-      return db
-        .select()
-        .from(batchJobs)
-        .where(eq(batchJobs.organizationId, organizationId))
-        .orderBy(desc(batchJobs.createdAt));
-    }
-    return db.select().from(batchJobs).orderBy(desc(batchJobs.createdAt));
-  }
-
-  async updateBatchJob(id: string, updates: Partial<BatchJob>): Promise<void> {
-    await db
-      .update(batchJobs)
-      .set(updates)
-      .where(eq(batchJobs.id, id));
-  }
-
-  async deleteBatchJob(id: string): Promise<void> {
-    await db.delete(batchJobs).where(eq(batchJobs.id, id));
   }
 
   // Scheduled Scan operations

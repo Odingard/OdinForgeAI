@@ -1616,19 +1616,8 @@ export type InsertReportNarrative = z.infer<typeof insertReportNarrativeSchema>;
 export type ReportNarrative = typeof reportNarratives.$inferSelect;
 
 // ============================================================================
-// BATCH EVALUATION & SCHEDULING SCHEMAS
+// SCHEDULING SCHEMAS
 // ============================================================================
-
-// Batch Job Status
-export const batchJobStatuses = [
-  "pending",
-  "running",
-  "completed",
-  "failed",
-  "cancelled",
-] as const;
-
-export type BatchJobStatus = typeof batchJobStatuses[number];
 
 // Schedule Frequency
 export const scheduleFrequencies = [
@@ -1640,45 +1629,6 @@ export const scheduleFrequencies = [
 ] as const;
 
 export type ScheduleFrequency = typeof scheduleFrequencies[number];
-
-// Batch Evaluation Job
-export const batchJobs = pgTable("batch_jobs", {
-  id: varchar("id").primaryKey(),
-  organizationId: varchar("organization_id").notNull().default("default"),
-  name: text("name").notNull(),
-  description: text("description"),
-  assets: jsonb("assets").$type<Array<{
-    assetId: string;
-    exposureType: string;
-    priority: string;
-    description: string;
-  }>>().notNull(),
-  status: varchar("status").notNull().default("pending"),
-  progress: integer("progress").default(0), // 0-100
-  totalEvaluations: integer("total_evaluations").notNull(),
-  completedEvaluations: integer("completed_evaluations").default(0),
-  failedEvaluations: integer("failed_evaluations").default(0),
-  evaluationIds: jsonb("evaluation_ids").$type<string[]>(), // Created evaluation IDs
-  scheduledAt: timestamp("scheduled_at"),
-  startedAt: timestamp("started_at"),
-  completedAt: timestamp("completed_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertBatchJobSchema = createInsertSchema(batchJobs).omit({
-  id: true,
-  createdAt: true,
-  startedAt: true,
-  completedAt: true,
-  totalEvaluations: true,
-  completedEvaluations: true,
-  failedEvaluations: true,
-  evaluationIds: true,
-  progress: true,
-});
-
-export type InsertBatchJob = z.infer<typeof insertBatchJobSchema>;
-export type BatchJob = typeof batchJobs.$inferSelect;
 
 // Scheduled Scans
 export const scheduledScans = pgTable("scheduled_scans", {
@@ -1699,7 +1649,6 @@ export const scheduledScans = pgTable("scheduled_scans", {
   enabled: boolean("enabled").default(true),
   lastRunAt: timestamp("last_run_at"),
   nextRunAt: timestamp("next_run_at"),
-  lastBatchJobId: varchar("last_batch_job_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1709,7 +1658,6 @@ export const insertScheduledScanSchema = createInsertSchema(scheduledScans).omit
   createdAt: true,
   updatedAt: true,
   lastRunAt: true,
-  lastBatchJobId: true,
 });
 
 export type InsertScheduledScan = z.infer<typeof insertScheduledScanSchema>;

@@ -86,14 +86,6 @@ export async function createDatabaseIndexes(): Promise<void> {
       query: sql`CREATE INDEX IF NOT EXISTS idx_reports_type ON reports (report_type)`,
     },
     {
-      name: "idx_batch_jobs_status",
-      query: sql`CREATE INDEX IF NOT EXISTS idx_batch_jobs_status ON batch_jobs (status)`,
-    },
-    {
-      name: "idx_batch_jobs_created",
-      query: sql`CREATE INDEX IF NOT EXISTS idx_batch_jobs_created ON batch_jobs (created_at DESC)`,
-    },
-    {
       name: "idx_simulations_org",
       query: sql`CREATE INDEX IF NOT EXISTS idx_simulations_org ON ai_simulations (organization_id)`,
     },
@@ -200,8 +192,6 @@ export async function dropAllCustomIndexes(): Promise<void> {
     "idx_reports_org",
     "idx_reports_created",
     "idx_reports_type",
-    "idx_batch_jobs_status",
-    "idx_batch_jobs_created",
     "idx_simulations_org",
     "idx_simulations_status",
     "idx_simulations_created",
@@ -239,7 +229,6 @@ export async function analyzeTableStats(): Promise<void> {
     "agent_findings",
     "agent_telemetry",
     "reports",
-    "batch_jobs",
     "ai_simulations",
   ];
   
