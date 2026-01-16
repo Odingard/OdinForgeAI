@@ -5,7 +5,6 @@ import {
   Building2,
   BarChart3,
   FileText,
-  Layers,
   Shield,
   Bot,
   Swords,
@@ -48,7 +47,6 @@ const analysisItems = [
   { title: "Full Assessment", href: "/full-assessment", icon: ScanSearch },
   { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
-  { title: "Batch Jobs", href: "/batch", icon: Layers },
   { title: "Simulations", href: "/simulations", icon: Swords },
 ];
 

@@ -80,16 +80,6 @@ async function processDueScans(): Promise<void> {
       try {
         console.log(`[Scheduler] Processing scheduled scan: ${scan.name} (${scan.id})`);
 
-        const batchJob = await storage.createBatchJob({
-          organizationId: scan.organizationId,
-          name: `Scheduled: ${scan.name}`,
-          status: "running",
-          assets: scan.assets,
-          totalEvaluations: scan.assets.length,
-        });
-
-        console.log(`[Scheduler] Created batch job ${batchJob.id} for scheduled scan ${scan.id}`);
-
         const evaluationIds: string[] = [];
 
         for (const asset of scan.assets) {
@@ -117,7 +107,6 @@ async function processDueScans(): Promise<void> {
                 exposureType: asset.exposureType,
                 priority: asset.priority,
                 description: asset.description,
-                batchJobId: batchJob.id,
                 scheduledScanId: scan.id,
               },
             },
@@ -127,15 +116,10 @@ async function processDueScans(): Promise<void> {
           );
         }
 
-        await storage.updateBatchJob(batchJob.id, {
-          evaluationIds,
-        });
-
         const nextRunAt = calculateNextRunAt(scan);
         await storage.updateScheduledScan(scan.id, {
           lastRunAt: now,
           nextRunAt: nextRunAt,
-          lastBatchJobId: batchJob.id,
         });
 
         console.log(`[Scheduler] Queued ${evaluationIds.length} evaluations for scan ${scan.id}`);
@@ -183,7 +167,7 @@ export function stopScheduler(): void {
   }
 }
 
-export async function triggerImmediateScan(scanId: string): Promise<{ batchJobId: string } | null> {
+export async function triggerImmediateScan(scanId: string): Promise<{ evaluationIds: string[] } | null> {
   const scan = await storage.getScheduledScan(scanId);
   if (!scan) {
     console.error(`[Scheduler] Scan ${scanId} not found`);
@@ -191,14 +175,6 @@ export async function triggerImmediateScan(scanId: string): Promise<{ batchJobId
   }
 
   console.log(`[Scheduler] Triggering immediate run for scan: ${scan.name}`);
-
-  const batchJob = await storage.createBatchJob({
-    organizationId: scan.organizationId,
-    name: `Manual: ${scan.name}`,
-    status: "running",
-    assets: scan.assets,
-    totalEvaluations: scan.assets.length,
-  });
 
   const evaluationIds: string[] = [];
 
@@ -227,7 +203,6 @@ export async function triggerImmediateScan(scanId: string): Promise<{ batchJobId
           exposureType: asset.exposureType,
           priority: asset.priority,
           description: asset.description,
-          batchJobId: batchJob.id,
           scheduledScanId: scan.id,
         },
       },
@@ -237,14 +212,9 @@ export async function triggerImmediateScan(scanId: string): Promise<{ batchJobId
     );
   }
 
-  await storage.updateBatchJob(batchJob.id, {
-    evaluationIds,
-  });
-
   await storage.updateScheduledScan(scan.id, {
     lastRunAt: new Date(),
-    lastBatchJobId: batchJob.id,
   });
 
-  return { batchJobId: batchJob.id };
+  return { evaluationIds };
 }

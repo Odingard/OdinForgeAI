@@ -156,11 +156,6 @@ async function testEvaluationCreate(concurrency: number, requests: number): Prom
   return runConcurrentRequests("/api/aev/evaluate", "POST", testEvaluation, concurrency, requests);
 }
 
-async function testBatchJobsRead(concurrency: number, requests: number): Promise<TestResult> {
-  console.log(`\nTesting GET /api/batch-jobs (${concurrency} concurrent, ${requests} total)`);
-  return runConcurrentRequests("/api/batch-jobs", "GET", null, concurrency, requests);
-}
-
 async function testReportsRead(concurrency: number, requests: number): Promise<TestResult> {
   console.log(`\nTesting GET /api/reports (${concurrency} concurrent, ${requests} total)`);
   return runConcurrentRequests("/api/reports", "GET", null, concurrency, requests);
@@ -209,7 +204,6 @@ async function runLoadTests() {
   console.log("════════════════════════════════════════════════════════════════");
   
   results.push(await testEvaluationsEndpoint(concurrency, requests));
-  results.push(await testBatchJobsRead(concurrency, requests));
   results.push(await testReportsRead(concurrency, requests));
   results.push(await testSimulationsRead(concurrency, requests));
   results.push(await testAgentsRead(concurrency, requests));

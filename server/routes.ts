@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import fs from "fs";
 import path from "path";
 import { storage } from "./storage";
-import { insertEvaluationSchema, insertReportSchema, insertBatchJobSchema, insertScheduledScanSchema, complianceFrameworks } from "@shared/schema";
+import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
 import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
@@ -16,7 +16,6 @@ import {
   apiRateLimiter, 
   authRateLimiter, 
   agentTelemetryRateLimiter, 
-  batchRateLimiter, 
   evaluationRateLimiter,
   reportRateLimiter,
   simulationRateLimiter,
@@ -1644,82 +1643,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error exporting evidence:", error);
       res.status(500).json({ error: "Failed to export evidence" });
-    }
-  });
-
-  // ========== BATCH JOB ENDPOINTS ==========
-  
-  app.post("/api/batch-jobs", batchRateLimiter, async (req, res) => {
-    try {
-      const parsed = insertBatchJobSchema.safeParse(req.body);
-      if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request body", details: parsed.error });
-      }
-      
-      const batchJob = await storage.createBatchJob({
-        ...parsed.data,
-        totalEvaluations: (parsed.data.assets as any[]).length,
-      });
-      
-      res.json({ batchJobId: batchJob.id, status: "created" });
-      
-      runBatchJob(batchJob.id, parsed.data.assets as any[]);
-    } catch (error) {
-      console.error("Error creating batch job:", error);
-      res.status(500).json({ error: "Failed to create batch job" });
-    }
-  });
-  
-  app.get("/api/batch-jobs", async (req, res) => {
-    try {
-      const organizationId = req.query.organizationId as string | undefined;
-      const jobs = await storage.getBatchJobs(organizationId);
-      res.json(jobs);
-    } catch (error) {
-      console.error("Error fetching batch jobs:", error);
-      res.status(500).json({ error: "Failed to fetch batch jobs" });
-    }
-  });
-  
-  app.get("/api/batch-jobs/:id", async (req, res) => {
-    try {
-      const job = await storage.getBatchJob(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: "Batch job not found" });
-      }
-      res.json(job);
-    } catch (error) {
-      console.error("Error fetching batch job:", error);
-      res.status(500).json({ error: "Failed to fetch batch job" });
-    }
-  });
-  
-  app.delete("/api/batch-jobs/:id", async (req, res) => {
-    try {
-      const job = await storage.getBatchJob(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: "Batch job not found" });
-      }
-      await storage.deleteBatchJob(req.params.id);
-      res.json({ success: true, message: "Batch job deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting batch job:", error);
-      res.status(500).json({ error: "Failed to delete batch job" });
-    }
-  });
-
-  app.patch("/api/batch-jobs/:id", async (req, res) => {
-    try {
-      const job = await storage.getBatchJob(req.params.id);
-      if (!job) {
-        return res.status(404).json({ error: "Batch job not found" });
-      }
-      await storage.updateBatchJob(req.params.id, req.body);
-      const updatedJob = await storage.getBatchJob(req.params.id);
-      res.json(updatedJob);
-    } catch (error) {
-      console.error("Error updating batch job:", error);
-      res.status(500).json({ error: "Failed to update batch job" });
     }
   });
 
@@ -5779,103 +5702,6 @@ async function runEvaluation(evaluationId: string, data: {
     console.error("Evaluation failed:", error);
     await storage.updateEvaluationStatus(evaluationId, "failed");
     wsService.sendComplete(evaluationId, false, String(error));
-  }
-}
-
-async function runBatchJob(batchJobId: string, configs: Array<{
-  assetId: string;
-  exposureType: string;
-  priority: string;
-  description: string;
-}>) {
-  try {
-    await storage.updateBatchJob(batchJobId, { status: "running" });
-    
-    const evaluationIds: string[] = [];
-    const jobResults: Array<{ evaluationId: string; success: boolean }> = [];
-    let completed = 0;
-    let failed = 0;
-    
-    for (const config of configs) {
-      try {
-        const evaluation = await storage.createEvaluation({
-          assetId: config.assetId,
-          exposureType: config.exposureType,
-          priority: config.priority,
-          description: config.description,
-          organizationId: "default",
-        });
-        
-        evaluationIds.push(evaluation.id);
-        
-        const startTime = Date.now();
-        await storage.updateEvaluationStatus(evaluation.id, "in_progress");
-        
-        const result = await runAgentOrchestrator(
-          config.assetId,
-          config.exposureType,
-          config.priority,
-          config.description,
-          evaluation.id,
-          (agentName, stage, progress, message) => {
-            wsService.sendProgress(evaluation.id, agentName, stage, progress, message);
-          }
-        );
-        
-        const duration = Date.now() - startTime;
-        
-        await storage.createResult({
-          id: `res-${randomUUID().slice(0, 8)}`,
-          evaluationId: evaluation.id,
-          exploitable: result.exploitable,
-          confidence: result.confidence,
-          score: result.score,
-          attackPath: result.attackPath,
-          attackGraph: result.attackGraph,
-          businessLogicFindings: result.businessLogicFindings,
-          multiVectorFindings: result.multiVectorFindings,
-          workflowAnalysis: result.workflowAnalysis,
-          impact: result.impact,
-          recommendations: result.recommendations,
-          evidenceArtifacts: result.evidenceArtifacts,
-          intelligentScore: result.intelligentScore,
-          remediationGuidance: result.remediationGuidance,
-          duration,
-        });
-        
-        await storage.updateEvaluationStatus(evaluation.id, "completed");
-        wsService.sendComplete(evaluation.id, true);
-        
-        jobResults.push({ evaluationId: evaluation.id, success: true });
-        completed++;
-      } catch (error) {
-        console.error(`Batch evaluation failed for ${config.assetId}:`, error);
-        jobResults.push({ evaluationId: config.assetId, success: false });
-        failed++;
-      }
-      
-      await storage.updateBatchJob(batchJobId, {
-        completedEvaluations: completed,
-        failedEvaluations: failed,
-        evaluationIds,
-        progress: Math.round(((completed + failed) / configs.length) * 100),
-      });
-    }
-    
-    await storage.updateBatchJob(batchJobId, {
-      status: failed === configs.length ? "failed" : "completed",
-      completedAt: new Date(),
-      completedEvaluations: completed,
-      failedEvaluations: failed,
-      evaluationIds,
-      progress: 100,
-    });
-  } catch (error) {
-    console.error("Batch job failed:", error);
-    await storage.updateBatchJob(batchJobId, { 
-      status: "failed",
-      completedAt: new Date(),
-    });
   }
 }
 

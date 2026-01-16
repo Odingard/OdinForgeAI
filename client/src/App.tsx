@@ -15,7 +15,6 @@ import RiskDashboard from "@/pages/RiskDashboard";
 import Assets from "@/pages/Assets";
 import Infrastructure from "@/pages/Infrastructure";
 import Reports from "@/pages/Reports";
-import BatchJobs from "@/pages/BatchJobs";
 import Governance from "@/pages/Governance";
 import Advanced from "@/pages/Advanced";
 import Agents from "@/pages/Agents";
@@ -50,7 +49,6 @@ function Router() {
       <Route path="/assets" component={Assets} />
       <Route path="/infrastructure" component={Infrastructure} />
       <Route path="/reports" component={Reports} />
-      <Route path="/batch" component={BatchJobs} />
       <Route path="/governance" component={Governance} />
       <Route path="/agents" component={Agents} />
       <Route path="/simulations" component={Simulations} />
