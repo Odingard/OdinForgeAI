@@ -28,7 +28,6 @@ import {
   Wifi,
   WifiOff,
   Eye,
-  Lock,
   Shield,
   Cpu,
   HardDrive,
@@ -124,15 +123,9 @@ export default function Agents() {
   const { toast } = useToast();
   const { hasPermission } = useAuth();
   
-  const canRegisterAgent = hasPermission("agents:register");
   const canManageAgent = hasPermission("agents:manage");
   const canDeleteAgent = hasPermission("agents:delete");
   
-  const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
-  const [newAgentName, setNewAgentName] = useState("");
-  const [newAgentPlatform, setNewAgentPlatform] = useState("linux");
-  const [newAgentEnvironment, setNewAgentEnvironment] = useState("production");
-  const [registeredApiKey, setRegisteredApiKey] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<EndpointAgent | null>(null);
   const [telemetryAgentId, setTelemetryAgentId] = useState<string | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
@@ -175,25 +168,6 @@ export default function Agents() {
   // Get the latest telemetry entry
   const latestTelemetry = agentTelemetry?.[0] || null;
   const selectedTelemetryAgent = agents.find(a => a.id === telemetryAgentId);
-
-  const registerAgentMutation = useMutation({
-    mutationFn: async (data: { agentName: string; platform: string; environment: string }) => {
-      const response = await apiRequest("POST", "/api/agents/register", data);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      setRegisteredApiKey(data.apiKey);
-      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Registration Failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
 
   const deleteAgentMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -300,21 +274,6 @@ export default function Agents() {
     },
   });
 
-  const handleRegister = () => {
-    if (!newAgentName.trim()) {
-      toast({
-        title: "Error",
-        description: "Agent name is required",
-        variant: "destructive",
-      });
-      return;
-    }
-    registerAgentMutation.mutate({
-      agentName: newAgentName,
-      platform: newAgentPlatform,
-      environment: newAgentEnvironment,
-    });
-  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -452,118 +411,6 @@ export default function Agents() {
               </div>
             </DialogContent>
           </Dialog>
-          <Dialog open={registerDialogOpen} onOpenChange={(open) => {
-            setRegisterDialogOpen(open);
-            if (!open) {
-              setRegisteredApiKey(null);
-              setNewAgentName("");
-            }
-          }}>
-            <DialogTrigger asChild>
-              <Button data-testid="btn-register-agent" disabled={!canRegisterAgent}>
-                {canRegisterAgent ? <Plus className="h-4 w-4 mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
-                Register Agent
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Register New Agent</DialogTitle>
-                <DialogDescription>
-                  Create credentials for a new endpoint agent
-                </DialogDescription>
-              </DialogHeader>
-              
-              {registeredApiKey ? (
-                <div className="space-y-4">
-                  <div className="bg-green-500/10 border border-green-500/20 rounded-md p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <CheckCircle2 className="h-5 w-5 text-green-500" />
-                      <span className="font-medium">Agent Registered Successfully</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Copy the API key below. It will not be shown again.
-                    </p>
-                    <div className="flex gap-2">
-                      <Input 
-                        value={registeredApiKey} 
-                        readOnly 
-                        className="font-mono text-sm"
-                        data-testid="input-api-key"
-                      />
-                      <Button 
-                        variant="outline" 
-                        size="icon"
-                        onClick={() => copyToClipboard(registeredApiKey)}
-                        data-testid="btn-copy-api-key"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                  <Button 
-                    className="w-full" 
-                    onClick={() => {
-                      setRegisterDialogOpen(false);
-                      setRegisteredApiKey(null);
-                      setNewAgentName("");
-                    }}
-                    data-testid="btn-close-dialog"
-                  >
-                    Done
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="agentName">Agent Name</Label>
-                    <Input
-                      id="agentName"
-                      placeholder="e.g., prod-webserver-01"
-                      value={newAgentName}
-                      onChange={(e) => setNewAgentName(e.target.value)}
-                      data-testid="input-agent-name"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Platform</Label>
-                    <Select value={newAgentPlatform} onValueChange={setNewAgentPlatform}>
-                      <SelectTrigger data-testid="select-platform">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="linux">Linux</SelectItem>
-                        <SelectItem value="windows">Windows</SelectItem>
-                        <SelectItem value="macos">macOS</SelectItem>
-                        <SelectItem value="container">Container</SelectItem>
-                        <SelectItem value="kubernetes">Kubernetes</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Environment</Label>
-                    <Select value={newAgentEnvironment} onValueChange={setNewAgentEnvironment}>
-                      <SelectTrigger data-testid="select-environment">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="production">Production</SelectItem>
-                        <SelectItem value="staging">Staging</SelectItem>
-                        <SelectItem value="development">Development</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button 
-                    className="w-full" 
-                    onClick={handleRegister}
-                    disabled={registerAgentMutation.isPending}
-                    data-testid="btn-submit-register"
-                  >
-                    {registerAgentMutation.isPending ? "Registering..." : "Register Agent"}
-                  </Button>
-                </div>
-              )}
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
 
@@ -637,13 +484,13 @@ export default function Agents() {
               ) : agents.length === 0 ? (
                 <div className="text-center py-8">
                   <Server className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="font-medium mb-2">No Agents Registered</h3>
+                  <h3 className="font-medium mb-2">No Agents Installed</h3>
                   <p className="text-muted-foreground text-sm mb-4">
-                    Register an agent to start collecting live security data
+                    Install an agent to start collecting live security data
                   </p>
-                  <Button onClick={() => setRegisterDialogOpen(true)} data-testid="btn-register-first-agent">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Register First Agent
+                  <Button onClick={() => setDownloadDialogOpen(true)} data-testid="btn-install-first-agent">
+                    <Download className="h-4 w-4 mr-2" />
+                    Install First Agent
                   </Button>
                 </div>
               ) : (
