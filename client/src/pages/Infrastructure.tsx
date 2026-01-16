@@ -14,12 +14,12 @@ import {
   Play,
   Eye,
   Search,
-  Filter,
-  Download,
   MoreVertical,
   Database,
   Globe,
-  Shield
+  Shield,
+  Zap,
+  ArrowRight
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,24 +58,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-interface DiscoveredAsset {
-  id: string;
-  assetIdentifier: string;
-  displayName: string | null;
-  assetType: string;
-  status: string | null;
-  ipAddresses: string[] | null;
-  hostname: string | null;
-  fqdn: string | null;
-  cloudProvider: string | null;
-  cloudRegion: string | null;
-  operatingSystem: string | null;
-  criticality: string | null;
-  environment: string | null;
-  openPorts: Array<{port: number; protocol: string; service?: string}> | null;
-  createdAt: string;
-}
 
 interface VulnerabilityImport {
   id: string;
@@ -177,284 +159,212 @@ function CloudConnectionCard({
 
   const { data: discoveryJobs = [] } = useQuery<CloudDiscoveryJob[]>({
     queryKey: ["/api/cloud-connections", connection.id, "discovery-jobs"],
-    enabled: assetsDialogOpen,
   });
 
-  const storeCredentialsMutation = useMutation({
-    mutationFn: async (creds: Record<string, string>) => {
-      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/credentials`, creds);
+  const latestJob = discoveryJobs[0];
+
+  const discoverMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/discover`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "discovery-jobs"] });
+      toast({ title: "Discovery Started", description: "Asset discovery is now running in the background" });
+    },
+  });
+
+  const updateCredentialsMutation = useMutation({
+    mutationFn: async (credentials: Record<string, string>) => {
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/credentials`, credentials);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections"] });
       setCredentialsDialogOpen(false);
-      toast({ title: "Credentials Stored", description: "Cloud credentials validated and stored securely" });
+      toast({ title: "Credentials Updated" });
     },
-    onError: (error: Error) => {
-      toast({ title: "Failed to Store Credentials", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const discoverAssetsMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/discover`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "discovery-jobs"] });
-      toast({ title: "Discovery Started", description: "Asset discovery is running in the background" });
+    onError: () => {
+      toast({ title: "Failed to update credentials", variant: "destructive" });
     },
   });
 
   const deployAgentMutation = useMutation({
     mutationFn: async (assetId: string) => {
-      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/deploy-agent`, {});
+      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/deploy-agent`);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
-      // Also invalidate agents cache so new pre-registered agents show up
-      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
-      toast({ title: "Agent Deployment Started", description: "Agent registered and will appear in Agents list" });
+      toast({ title: "Agent Deployment Started" });
     },
   });
 
   const redeployAgentMutation = useMutation({
     mutationFn: async (assetId: string) => {
-      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/redeploy-agent`, {});
+      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/redeploy-agent`);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
-      toast({ title: "Agent Redeployment Started", description: "Fresh agent install triggered" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Redeployment Failed", description: error.message, variant: "destructive" });
+      toast({ title: "Agent Redeployment Started" });
     },
   });
 
-  const deployAllAgentsMutation = useMutation({
-    mutationFn: async () => {
-      // Deploy to all deployable assets - don't filter by asset type
-      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/deploy-all-agents`, {});
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
-      // Also invalidate agents cache so new pre-registered agents show up
-      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
-      toast({ title: "Bulk Deployment Started", description: `Deploying agents to ${data.jobIds?.length || 0} assets - check Agents page` });
-    },
-  });
-
-  const handleCredentialsSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const flatCreds: Record<string, string> = {};
-    formData.forEach((value, key) => {
-      if (value) flatCreds[key] = value as string;
-    });
-    
-    // Wrap credentials under the provider key as expected by the backend
-    const wrappedCreds: Record<string, Record<string, string>> = {
-      [connection.provider]: flatCreds
-    };
-    storeCredentialsMutation.mutate(wrappedCreds as any);
-  };
-
-  const getProviderFields = () => {
+  const getProviderIcon = () => {
     switch (connection.provider) {
-      case "aws":
-        return (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="accessKeyId">Access Key ID</Label>
-              <Input id="accessKeyId" name="accessKeyId" placeholder="AKIA..." required data-testid="input-aws-access-key" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="secretAccessKey">Secret Access Key</Label>
-              <Input id="secretAccessKey" name="secretAccessKey" type="password" placeholder="Secret key" required data-testid="input-aws-secret-key" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="roleArn">Role ARN (optional)</Label>
-              <Input id="roleArn" name="roleArn" placeholder="arn:aws:iam::123456789:role/OdinForgeRole" data-testid="input-aws-role" />
-            </div>
-            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-              <p className="font-medium mb-1">Required IAM Permissions for Agent Deployment:</p>
-              <code className="block">ssm:SendCommand, ssm:GetCommandInvocation</code>
-              <p className="mt-1">EC2 instances must have SSM Agent installed and the <code>AmazonSSMManagedInstanceCore</code> policy attached.</p>
-            </div>
-          </>
-        );
-      case "azure":
-        return (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="tenantId">Tenant ID</Label>
-              <Input id="tenantId" name="tenantId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-tenant" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="clientId">Client ID (App ID)</Label>
-              <Input id="clientId" name="clientId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-client" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="clientSecret">Client Secret</Label>
-              <Input id="clientSecret" name="clientSecret" type="password" required data-testid="input-azure-secret" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="subscriptionId">Subscription ID</Label>
-              <Input id="subscriptionId" name="subscriptionId" placeholder="00000000-0000-0000-0000-000000000000" required data-testid="input-azure-subscription" />
-            </div>
-            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-              <p className="font-medium mb-1">Required Permissions for Agent Deployment:</p>
-              <code className="block">Microsoft.Compute/virtualMachines/runCommand/action</code>
-              <p className="mt-1">The service principal needs the Virtual Machine Contributor role or custom role with Run Command permissions.</p>
-            </div>
-          </>
-        );
-      case "gcp":
-        return (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="projectId">Project ID</Label>
-              <Input id="projectId" name="projectId" placeholder="my-project-123456" required data-testid="input-gcp-project" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="serviceAccountKey">Service Account Key (JSON)</Label>
-              <textarea
-                id="serviceAccountKey"
-                name="serviceAccountKey"
-                className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-                placeholder='{"type": "service_account", ...}'
-                required
-                data-testid="input-gcp-key"
-              />
-            </div>
-            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-              <p className="font-medium mb-1">Required Permissions for Agent Deployment:</p>
-              <code className="block">compute.instances.get, compute.instances.setMetadata</code>
-              <p className="mt-1">Agent installs via startup script on next instance reboot. For immediate installation, manually restart the instance from GCP Console after deployment.</p>
-            </div>
-          </>
-        );
-      default:
-        return null;
+      case "aws": return "AWS";
+      case "azure": return "Azure";
+      case "gcp": return "GCP";
+      default: return "Cloud";
     }
   };
 
-  const activeDiscovery = discoveryJobs.find(j => j.status === "running" || j.status === "pending");
-  // Assets that can be deployed: deployable and either no status, failed, or stuck pending with no agent
-  const deployableAssets = cloudAssets.filter(a => 
-    a.agentDeployable && 
-    a.agentDeploymentStatus !== "success" &&
-    a.agentDeploymentStatus !== "deploying" &&
-    // Allow retry for pending only if no agent was linked
-    (a.agentDeploymentStatus !== "pending" || !a.agentId)
-  );
+  const getAssetTypeIcon = (type: string) => {
+    switch(type) {
+      case "database": return <Database className="h-4 w-4" />;
+      case "web_application": return <Globe className="h-4 w-4" />;
+      case "cloud_instance": return <Cloud className="h-4 w-4" />;
+      case "firewall": return <Shield className="h-4 w-4" />;
+      default: return <Server className="h-4 w-4" />;
+    }
+  };
 
   return (
     <>
-      <Card data-testid={`card-cloud-${connection.id}`}>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-muted">
-              <Cloud className="h-5 w-5 text-cyan-400" />
-            </div>
-            <div>
-              <CardTitle className="text-base">{connection.name}</CardTitle>
-              <CardDescription>{connection.provider.toUpperCase()}</CardDescription>
-            </div>
-          </div>
-          <Badge className={getStatusBadge(connection.status)}>
-            {connection.status}
-          </Badge>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Assets Discovered</span>
-              <span className="font-mono">{connection.assetsDiscovered || 0}</span>
-            </div>
-            {connection.lastSyncAt && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Last Sync</span>
-                <span>{new Date(connection.lastSyncAt).toLocaleString()}</span>
+      <Card className="hover-elevate" data-testid={`cloud-connection-${connection.id}`}>
+        <CardHeader className="pb-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-muted/50">
+                <Cloud className="h-4 w-4 text-cyan-400" />
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-2 pt-2">
-              {connection.status === "pending" ? (
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="flex-1"
-                  onClick={() => setCredentialsDialogOpen(true)}
-                  data-testid={`button-configure-cloud-${connection.id}`}
-                >
-                  <Shield className="h-3 w-3 mr-1" />
-                  Configure
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setAssetsDialogOpen(true)}
-                    data-testid={`button-view-assets-${connection.id}`}
-                  >
-                    <Eye className="h-3 w-3 mr-1" />
-                    Assets
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => discoverAssetsMutation.mutate()}
-                    disabled={discoverAssetsMutation.isPending}
-                    data-testid={`button-discover-${connection.id}`}
-                  >
-                    <RefreshCw className={`h-3 w-3 mr-1 ${discoverAssetsMutation.isPending ? "animate-spin" : ""}`} />
-                    Discover
-                  </Button>
-                </>
-              )}
+              <div>
+                <CardTitle className="text-sm font-medium">{connection.name}</CardTitle>
+                <CardDescription className="text-xs">{getProviderIcon()}</CardDescription>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Badge className={getStatusBadge(connection.status)}>
+                {connection.status}
+              </Badge>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost" data-testid={`button-cloud-menu-${connection.id}`}>
-                    <MoreVertical className="h-3 w-3" />
+                  <Button variant="ghost" size="icon" data-testid={`button-cloud-menu-${connection.id}`}>
+                    <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setCredentialsDialogOpen(true)}>
-                    Update Credentials
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onTest} disabled={testPending}>
+                  <DropdownMenuItem onClick={onTest} disabled={testPending} data-testid={`menu-test-${connection.id}`}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
                     Test Connection
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                    Delete Connection
+                  <DropdownMenuItem onClick={() => setCredentialsDialogOpen(true)} data-testid={`menu-credentials-${connection.id}`}>
+                    <Shield className="h-4 w-4 mr-2" />
+                    Update Credentials
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setAssetsDialogOpen(true)} data-testid={`menu-assets-${connection.id}`}>
+                    <Server className="h-4 w-4 mr-2" />
+                    View Assets
+                  </DropdownMenuItem>
+                  <DropdownMenuItem className="text-destructive" onClick={onDelete} data-testid={`menu-delete-${connection.id}`}>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Assets Discovered</span>
+            <span className="font-mono">{connection.assetsDiscovered || 0}</span>
+          </div>
+          {connection.lastSyncAt && (
+            <div className="text-xs text-muted-foreground">
+              Last sync: {new Date(connection.lastSyncAt).toLocaleString()}
+            </div>
+          )}
+          {latestJob && latestJob.status === "running" && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{latestJob.currentPhase}</span>
+                <span>{latestJob.regionsScanned}/{latestJob.totalRegions} regions</span>
+              </div>
+              <Progress value={latestJob.progress} className="h-1" />
+            </div>
+          )}
+          <Button 
+            className="w-full" 
+            variant="outline" 
+            size="sm"
+            onClick={() => discoverMutation.mutate()}
+            disabled={discoverMutation.isPending || (latestJob?.status === "running")}
+            data-testid={`button-discover-${connection.id}`}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${latestJob?.status === "running" ? "animate-spin" : ""}`} />
+            {latestJob?.status === "running" ? "Discovering..." : "Run Discovery"}
+          </Button>
         </CardContent>
       </Card>
 
       <Dialog open={credentialsDialogOpen} onOpenChange={setCredentialsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Configure {connection.provider.toUpperCase()} Credentials</DialogTitle>
+            <DialogTitle>Update Credentials</DialogTitle>
             <DialogDescription>
-              Enter your cloud provider credentials. They will be encrypted and stored securely.
+              Update the credentials for {connection.name}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleCredentialsSubmit}>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const formData = new FormData(e.currentTarget);
+            const credentials: Record<string, string> = {};
+            formData.forEach((value, key) => {
+              if (value) credentials[key] = value as string;
+            });
+            updateCredentialsMutation.mutate(credentials);
+          }}>
             <div className="space-y-4 py-4">
-              {getProviderFields()}
+              {connection.provider === "aws" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="accessKeyId">Access Key ID</Label>
+                    <Input id="accessKeyId" name="accessKeyId" placeholder="AKIA..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="secretAccessKey">Secret Access Key</Label>
+                    <Input id="secretAccessKey" name="secretAccessKey" type="password" />
+                  </div>
+                </>
+              )}
+              {connection.provider === "azure" && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="clientId">Client ID</Label>
+                    <Input id="clientId" name="clientId" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="clientSecret">Client Secret</Label>
+                    <Input id="clientSecret" name="clientSecret" type="password" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="tenantId">Tenant ID</Label>
+                    <Input id="tenantId" name="tenantId" />
+                  </div>
+                </>
+              )}
+              {connection.provider === "gcp" && (
+                <div className="space-y-2">
+                  <Label htmlFor="serviceAccountKey">Service Account Key (JSON)</Label>
+                  <Input id="serviceAccountKey" name="serviceAccountKey" type="password" />
+                </div>
+              )}
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={storeCredentialsMutation.isPending} data-testid="button-save-credentials">
-                {storeCredentialsMutation.isPending ? "Validating..." : "Save Credentials"}
+              <Button type="submit" disabled={updateCredentialsMutation.isPending}>
+                Update
               </Button>
             </DialogFooter>
           </form>
@@ -462,65 +372,74 @@ function CloudConnectionCard({
       </Dialog>
 
       <Dialog open={assetsDialogOpen} onOpenChange={setAssetsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between gap-4">
-              <span>{connection.name} - Cloud Assets</span>
-              {deployableAssets.length > 0 && (
-                <Button
-                  size="sm"
-                  onClick={() => deployAllAgentsMutation.mutate()}
-                  disabled={deployAllAgentsMutation.isPending}
-                  data-testid="button-deploy-all-agents"
-                >
-                  <Play className="h-3 w-3 mr-1" />
-                  Deploy Agents ({deployableAssets.length})
-                </Button>
-              )}
-            </DialogTitle>
+            <DialogTitle>Cloud Assets - {connection.name}</DialogTitle>
             <DialogDescription>
-              Discovered assets from {connection.provider.toUpperCase()} account
-              {activeDiscovery && (
-                <span className="ml-2 text-amber-400">
-                  (Discovery in progress: {activeDiscovery.progress}%)
-                </span>
-              )}
+              {cloudAssets.length} assets discovered
             </DialogDescription>
           </DialogHeader>
-          <div className="flex-1 overflow-auto">
+          <div className="py-4">
             {assetsLoading ? (
               <div className="text-center py-8 text-muted-foreground">Loading assets...</div>
             ) : cloudAssets.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No assets discovered yet. Click "Discover" to scan your cloud account.
+                No assets discovered yet. Run discovery to find assets.
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Asset</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Region</TableHead>
-                    <TableHead>Platform</TableHead>
-                    <TableHead>Agent Status</TableHead>
-                    <TableHead></TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Agent</TableHead>
+                    <TableHead className="w-[80px]">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {cloudAssets.map((asset) => (
-                    <TableRow key={asset.id} data-testid={`row-cloud-asset-${asset.id}`}>
-                      <TableCell className="font-medium">{asset.name}</TableCell>
+                    <TableRow key={asset.id}>
                       <TableCell>
-                        <Badge variant="outline">{asset.assetType}</Badge>
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded bg-muted text-cyan-400">
+                            {getAssetTypeIcon(asset.assetType)}
+                          </div>
+                          <div>
+                            <div className="font-medium text-sm">{asset.name}</div>
+                            <div className="text-xs text-muted-foreground font-mono">
+                              {asset.providerResourceId.length > 30 
+                                ? `${asset.providerResourceId.slice(0, 30)}...` 
+                                : asset.providerResourceId}
+                            </div>
+                          </div>
+                        </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{asset.region || "-"}</TableCell>
-                      <TableCell className="text-sm">{asset.platform || "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {asset.assetType.replace("_", " ")}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {asset.region || "-"}
+                        {asset.zone && <span className="text-muted-foreground"> / {asset.zone}</span>}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={
+                          asset.status === "running" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                          asset.status === "stopped" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
+                          "bg-gray-500/10 text-gray-400 border-gray-500/30"
+                        }>
+                          {asset.status}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         {asset.agentDeployable ? (
                           <Badge className={
                             asset.agentDeploymentStatus === "success" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                            asset.agentDeploymentStatus === "deploying" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
-                            asset.agentDeploymentStatus === "pending" ? "bg-blue-500/10 text-blue-400 border-blue-500/30" :
+                            asset.agentDeploymentStatus === "deploying" || asset.agentDeploymentStatus === "pending" 
+                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
                             asset.agentDeploymentStatus === "failed" ? "bg-red-500/10 text-red-400 border-red-500/30" :
                             "bg-gray-500/10 text-gray-400 border-gray-500/30"
                           }>
@@ -574,19 +493,13 @@ function CloudConnectionCard({
 
 export default function Infrastructure() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("assets");
+  const [activeTab, setActiveTab] = useState("scanner-imports");
   const [searchQuery, setSearchQuery] = useState("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [cloudDialogOpen, setCloudDialogOpen] = useState(false);
-  const [selectedAsset, setSelectedAsset] = useState<DiscoveredAsset | null>(null);
 
-  // Queries
   const { data: stats, isLoading: statsLoading } = useQuery<InfraStats>({
     queryKey: ["/api/infrastructure/stats"],
-  });
-
-  const { data: assets = [], isLoading: assetsLoading } = useQuery<DiscoveredAsset[]>({
-    queryKey: ["/api/assets"],
   });
 
   const { data: vulnerabilities = [], isLoading: vulnsLoading } = useQuery<VulnerabilityImport[]>({
@@ -601,7 +514,6 @@ export default function Infrastructure() {
     queryKey: ["/api/cloud-connections"],
   });
 
-  // Import mutation
   const uploadMutation = useMutation({
     mutationFn: async (data: { content: string; fileName: string; name: string }) => {
       const res = await apiRequest("POST", "/api/imports/upload", data);
@@ -628,7 +540,6 @@ export default function Infrastructure() {
     },
   });
 
-  // Create AEV evaluation from vulnerability
   const evaluateMutation = useMutation({
     mutationFn: async (vulnId: string) => {
       const res = await apiRequest("POST", `/api/vulnerabilities/${vulnId}/evaluate`);
@@ -637,13 +548,32 @@ export default function Infrastructure() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vulnerabilities"] });
       toast({
-        title: "Evaluation Started",
-        description: "AEV analysis has been initiated for this vulnerability",
+        title: "AEV Evaluation Started",
+        description: "AI-powered exploitability analysis is now running",
       });
     },
   });
 
-  // Delete import job
+  const evaluateAllMutation = useMutation({
+    mutationFn: async () => {
+      const unevaluated = vulnerabilities.filter(v => !v.aevEvaluationId);
+      const criticalHigh = unevaluated.filter(v => v.severity === "critical" || v.severity === "high");
+      const toEvaluate = criticalHigh.length > 0 ? criticalHigh.slice(0, 10) : unevaluated.slice(0, 10);
+      
+      for (const vuln of toEvaluate) {
+        await apiRequest("POST", `/api/vulnerabilities/${vuln.id}/evaluate`);
+      }
+      return toEvaluate.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vulnerabilities"] });
+      toast({
+        title: "Batch Evaluation Started",
+        description: `Triggered AEV analysis for ${count} vulnerabilities`,
+      });
+    },
+  });
+
   const deleteImportMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/imports/${id}`);
@@ -657,7 +587,6 @@ export default function Infrastructure() {
     },
   });
 
-  // Create cloud connection
   const createCloudMutation = useMutation({
     mutationFn: async (data: { name: string; provider: string }) => {
       const res = await apiRequest("POST", "/api/cloud-connections", data);
@@ -670,7 +599,6 @@ export default function Infrastructure() {
     },
   });
 
-  // Test cloud connection
   const testCloudMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("POST", `/api/cloud-connections/${id}/test`);
@@ -681,7 +609,6 @@ export default function Infrastructure() {
     },
   });
 
-  // Delete cloud connection
   const deleteCloudMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/cloud-connections/${id}`);
@@ -733,35 +660,22 @@ export default function Infrastructure() {
     return styles[status] || styles.pending;
   };
 
-  const getAssetTypeIcon = (type: string) => {
-    switch(type) {
-      case "database": return <Database className="h-4 w-4" />;
-      case "web_application": return <Globe className="h-4 w-4" />;
-      case "cloud_instance": return <Cloud className="h-4 w-4" />;
-      case "firewall": return <Shield className="h-4 w-4" />;
-      default: return <Server className="h-4 w-4" />;
-    }
-  };
-
-  const filteredAssets = assets.filter(a => 
-    a.assetIdentifier.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    a.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    a.hostname?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const filteredVulns = vulnerabilities.filter(v =>
     v.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.cveId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     v.affectedHost?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const unevaluatedCount = vulnerabilities.filter(v => !v.aevEvaluationId).length;
+  const evaluatedCount = vulnerabilities.filter(v => v.aevEvaluationId).length;
+
   return (
-    <div className="space-y-6" data-testid="infrastructure-page">
+    <div className="space-y-6" data-testid="data-sources-page">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Infrastructure</h1>
+          <h1 className="text-2xl font-bold text-foreground">Data Sources</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage discovered assets, vulnerability imports, and cloud connections
+            Import vulnerability data and connect cloud providers for asset discovery
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -769,7 +683,7 @@ export default function Infrastructure() {
             <DialogTrigger asChild>
               <Button data-testid="button-import">
                 <Upload className="h-4 w-4 mr-2" />
-                Import
+                Import Scanner Data
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -866,20 +780,7 @@ export default function Infrastructure() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Assets</CardTitle>
-            <Server className="h-4 w-4 text-cyan-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-total-assets">
-              {statsLoading ? "..." : stats?.totalAssets || 0}
-            </div>
-          </CardContent>
-        </Card>
-
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Vulnerabilities</CardTitle>
@@ -894,44 +795,32 @@ export default function Infrastructure() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Critical</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-red-400" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Awaiting Analysis</CardTitle>
+            <Zap className="h-4 w-4 text-blue-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-400" data-testid="stat-critical">
-              {statsLoading ? "..." : stats?.criticalVulns || 0}
+            <div className="text-2xl font-bold text-blue-400" data-testid="stat-unevaluated">
+              {unevaluatedCount}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">High</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-orange-400" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Evaluated</CardTitle>
+            <CheckCircle className="h-4 w-4 text-emerald-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-400" data-testid="stat-high">
-              {statsLoading ? "..." : stats?.highVulns || 0}
+            <div className="text-2xl font-bold text-emerald-400" data-testid="stat-evaluated">
+              {evaluatedCount}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending</CardTitle>
-            <RefreshCw className="h-4 w-4 text-blue-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold" data-testid="stat-pending">
-              {statsLoading ? "..." : stats?.pendingImports || 0}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Cloud</CardTitle>
-            <Cloud className="h-4 w-4 text-emerald-400" />
+            <CardTitle className="text-sm font-medium text-muted-foreground">Cloud Connections</CardTitle>
+            <Cloud className="h-4 w-4 text-cyan-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="stat-cloud">
@@ -941,12 +830,11 @@ export default function Infrastructure() {
         </Card>
       </div>
 
-      {/* Search */}
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search assets, vulnerabilities..."
+            placeholder="Search vulnerabilities..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -955,301 +843,205 @@ export default function Infrastructure() {
         </div>
       </div>
 
-      {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="assets" data-testid="tab-assets">
-            <Server className="h-4 w-4 mr-2" />
-            Assets ({assets.length})
-          </TabsTrigger>
-          <TabsTrigger value="vulnerabilities" data-testid="tab-vulnerabilities">
-            <AlertTriangle className="h-4 w-4 mr-2" />
-            Vulnerabilities ({vulnerabilities.length})
-          </TabsTrigger>
-          <TabsTrigger value="imports" data-testid="tab-imports">
+          <TabsTrigger value="scanner-imports" data-testid="tab-scanner-imports">
             <Upload className="h-4 w-4 mr-2" />
-            Imports ({importJobs.length})
+            Scanner Imports ({importJobs.length + vulnerabilities.length})
           </TabsTrigger>
           <TabsTrigger value="cloud" data-testid="tab-cloud">
             <Cloud className="h-4 w-4 mr-2" />
-            Cloud ({cloudConnections.length})
+            Cloud Connections ({cloudConnections.length})
           </TabsTrigger>
         </TabsList>
 
-        {/* Assets Tab */}
-        <TabsContent value="assets" className="mt-4">
-          {assetsLoading ? (
-            <div className="text-center py-12 text-muted-foreground">Loading assets...</div>
-          ) : filteredAssets.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Server className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">No assets discovered yet</p>
-                <p className="text-sm text-muted-foreground mt-1">Import a scanner file to discover assets</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Asset</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>IP / Hostname</TableHead>
-                    <TableHead>Environment</TableHead>
-                    <TableHead>Ports</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-[100px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredAssets.map((asset) => (
-                    <TableRow key={asset.id} data-testid={`row-asset-${asset.id}`}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="p-1.5 rounded bg-muted text-cyan-400">
-                            {getAssetTypeIcon(asset.assetType)}
-                          </div>
-                          <div>
-                            <div className="font-medium">{asset.displayName || asset.assetIdentifier}</div>
-                            {asset.displayName && (
-                              <div className="text-xs text-muted-foreground">{asset.assetIdentifier}</div>
-                            )}
+        <TabsContent value="scanner-imports" className="mt-4 space-y-6">
+          {importJobs.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">Recent Imports</h3>
+              <div className="grid gap-3">
+                {importJobs.map((job) => (
+                  <Card key={job.id} data-testid={`card-import-${job.id}`}>
+                    <CardHeader className="flex flex-row items-center justify-between gap-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-muted/50">
+                          <Upload className="h-4 w-4 text-cyan-400" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-sm font-medium">{job.name}</CardTitle>
+                          <CardDescription className="flex items-center gap-2 text-xs">
+                            <Badge variant="outline" className="text-xs">{job.sourceType}</Badge>
+                            <span>{new Date(job.createdAt).toLocaleString()}</span>
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right text-sm">
+                          <div className="flex items-center gap-3 text-muted-foreground">
+                            <span><span className="font-mono text-cyan-400">{job.assetsDiscovered || 0}</span> assets</span>
+                            <span><span className="font-mono text-amber-400">{job.vulnerabilitiesFound || 0}</span> vulns</span>
                           </div>
                         </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {asset.assetType.replace("_", " ")}
+                        <Badge className={getStatusBadge(job.status)}>
+                          {job.status}
                         </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {asset.ipAddresses?.[0] || asset.hostname || "-"}
-                        </div>
-                        {asset.fqdn && (
-                          <div className="text-xs text-muted-foreground">{asset.fqdn}</div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {asset.environment ? (
-                          <Badge variant="outline" className="text-xs">{asset.environment}</Badge>
-                        ) : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm font-mono">
-                          {asset.openPorts?.length || 0}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getStatusBadge(asset.status || "active")}>
-                          {asset.status || "active"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" data-testid={`button-asset-actions-${asset.id}`}>
+                            <Button variant="ghost" size="icon">
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setSelectedAsset(asset)}>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Play className="h-4 w-4 mr-2" />
-                              Run Evaluation
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => deleteImportMutation.mutate(job.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Vulnerabilities Tab */}
-        <TabsContent value="vulnerabilities" className="mt-4">
-          {vulnsLoading ? (
-            <div className="text-center py-12 text-muted-foreground">Loading vulnerabilities...</div>
-          ) : filteredVulns.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <AlertTriangle className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">No vulnerabilities imported yet</p>
-                <p className="text-sm text-muted-foreground mt-1">Import a scanner file to see vulnerabilities</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Vulnerability</TableHead>
-                    <TableHead>CVE</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Affected Host</TableHead>
-                    <TableHead>Port</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-[100px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredVulns.map((vuln) => (
-                    <TableRow key={vuln.id} data-testid={`row-vuln-${vuln.id}`}>
-                      <TableCell>
-                        <div className="font-medium max-w-[300px] truncate" title={vuln.title}>
-                          {vuln.title}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {vuln.cveId ? (
-                          <Badge variant="outline" className="font-mono text-xs">
-                            {vuln.cveId}
-                          </Badge>
-                        ) : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={getSeverityBadge(vuln.severity)}>
-                          {vuln.severity.toUpperCase()}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-mono text-sm">{vuln.affectedHost || "-"}</span>
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-mono text-sm">{vuln.affectedPort || "-"}</span>
-                      </TableCell>
-                      <TableCell>
-                        {vuln.aevEvaluationId ? (
-                          <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                            Evaluated
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30">
-                            {vuln.status || "open"}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" data-testid={`button-vuln-actions-${vuln.id}`}>
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
-                              <Eye className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                            {!vuln.aevEvaluationId && (
-                              <DropdownMenuItem
-                                onClick={() => evaluateMutation.mutate(vuln.id)}
-                                disabled={evaluateMutation.isPending}
-                              >
-                                <Play className="h-4 w-4 mr-2" />
-                                Run AEV Analysis
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Imports Tab */}
-        <TabsContent value="imports" className="mt-4">
-          {jobsLoading ? (
-            <div className="text-center py-12 text-muted-foreground">Loading imports...</div>
-          ) : importJobs.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Upload className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">No import jobs yet</p>
-                <Button
-                  variant="outline"
-                  className="mt-4"
-                  onClick={() => setImportDialogOpen(true)}
-                  data-testid="button-first-import"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Import Scanner Data
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4">
-              {importJobs.map((job) => (
-                <Card key={job.id} data-testid={`card-import-${job.id}`}>
-                  <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-                    <div>
-                      <CardTitle className="text-base">{job.name}</CardTitle>
-                      <CardDescription className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline" className="text-xs">{job.sourceType}</Badge>
-                        <span>
-                          {new Date(job.createdAt).toLocaleString()}
-                        </span>
-                      </CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={getStatusBadge(job.status)}>
-                        {job.status}
-                      </Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => deleteImportMutation.mutate(job.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center gap-6 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Records:</span>
-                        <span className="ml-2 font-mono">{job.totalRecords || 0}</span>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">Assets:</span>
-                        <span className="ml-2 font-mono text-cyan-400">{job.assetsDiscovered || 0}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Vulnerabilities:</span>
-                        <span className="ml-2 font-mono text-amber-400">{job.vulnerabilitiesFound || 0}</span>
-                      </div>
-                    </div>
+                    </CardHeader>
                     {job.status === "processing" && (
-                      <Progress value={job.progress} className="mt-3 h-1" />
+                      <CardContent className="pt-0 pb-3">
+                        <Progress value={job.progress} className="h-1" />
+                      </CardContent>
                     )}
-                  </CardContent>
-                </Card>
-              ))}
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-muted-foreground">Imported Vulnerabilities</h3>
+              {unevaluatedCount > 0 && (
+                <Button 
+                  size="sm" 
+                  onClick={() => evaluateAllMutation.mutate()}
+                  disabled={evaluateAllMutation.isPending}
+                  data-testid="button-evaluate-all"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  Run AEV Analysis ({Math.min(unevaluatedCount, 10)})
+                </Button>
+              )}
+            </div>
+            
+            {vulnsLoading || jobsLoading ? (
+              <div className="text-center py-12 text-muted-foreground">Loading...</div>
+            ) : vulnerabilities.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <AlertTriangle className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
+                  <p className="text-muted-foreground">No vulnerabilities imported yet</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Import scanner data to see vulnerabilities here
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => setImportDialogOpen(true)}
+                    data-testid="button-first-import"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import Scanner Data
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Vulnerability</TableHead>
+                      <TableHead>CVE</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Affected Host</TableHead>
+                      <TableHead>AEV Status</TableHead>
+                      <TableHead className="w-[100px]">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredVulns.map((vuln) => (
+                      <TableRow key={vuln.id} data-testid={`row-vuln-${vuln.id}`}>
+                        <TableCell>
+                          <div className="font-medium max-w-[300px] truncate" title={vuln.title}>
+                            {vuln.title}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {vuln.cveId ? (
+                            <Badge variant="outline" className="font-mono text-xs">
+                              {vuln.cveId}
+                            </Badge>
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={getSeverityBadge(vuln.severity)}>
+                            {vuln.severity.toUpperCase()}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-mono text-sm">{vuln.affectedHost || "-"}</span>
+                          {vuln.affectedPort && (
+                            <span className="text-muted-foreground">:{vuln.affectedPort}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {vuln.aevEvaluationId ? (
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Analyzed
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30">
+                              Awaiting
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" data-testid={`button-vuln-actions-${vuln.id}`}>
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem data-testid={`menu-view-vuln-${vuln.id}`}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </DropdownMenuItem>
+                              {!vuln.aevEvaluationId && (
+                                <DropdownMenuItem
+                                  onClick={() => evaluateMutation.mutate(vuln.id)}
+                                  disabled={evaluateMutation.isPending}
+                                  data-testid={`menu-evaluate-vuln-${vuln.id}`}
+                                >
+                                  <Zap className="h-4 w-4 mr-2" />
+                                  Run AEV Analysis
+                                </DropdownMenuItem>
+                              )}
+                              {vuln.aevEvaluationId && (
+                                <DropdownMenuItem data-testid={`menu-view-eval-${vuln.id}`}>
+                                  <ArrowRight className="h-4 w-4 mr-2" />
+                                  View Evaluation
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Card>
+            )}
+          </div>
         </TabsContent>
 
-        {/* Cloud Tab */}
         <TabsContent value="cloud" className="mt-4">
           {cloudLoading ? (
             <div className="text-center py-12 text-muted-foreground">Loading cloud connections...</div>
@@ -1288,66 +1080,6 @@ export default function Infrastructure() {
           )}
         </TabsContent>
       </Tabs>
-
-      {/* Asset Detail Dialog */}
-      <Dialog open={!!selectedAsset} onOpenChange={() => setSelectedAsset(null)}>
-        <DialogContent className="max-w-2xl">
-          {selectedAsset && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  {getAssetTypeIcon(selectedAsset.assetType)}
-                  {selectedAsset.displayName || selectedAsset.assetIdentifier}
-                </DialogTitle>
-                <DialogDescription>
-                  {selectedAsset.assetType.replace("_", " ")} - {selectedAsset.status}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Identifier</span>
-                    <p className="font-mono">{selectedAsset.assetIdentifier}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Hostname</span>
-                    <p className="font-mono">{selectedAsset.hostname || "-"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">IP Addresses</span>
-                    <p className="font-mono">{selectedAsset.ipAddresses?.join(", ") || "-"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">FQDN</span>
-                    <p className="font-mono">{selectedAsset.fqdn || "-"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Operating System</span>
-                    <p>{selectedAsset.operatingSystem || "-"}</p>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Cloud Provider</span>
-                    <p>{selectedAsset.cloudProvider?.toUpperCase() || "-"}</p>
-                  </div>
-                </div>
-                {selectedAsset.openPorts && selectedAsset.openPorts.length > 0 && (
-                  <div>
-                    <span className="text-muted-foreground text-sm">Open Ports</span>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {selectedAsset.openPorts.map((port, i) => (
-                        <Badge key={i} variant="outline" className="font-mono">
-                          {port.port}/{port.protocol}
-                          {port.service && ` (${port.service})`}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
