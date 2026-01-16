@@ -1,6 +1,7 @@
 import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { runAISimulation, type AISimulationResult } from "../../agents/ai-simulation";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   AiSimulationJobData,
   JobResult,
@@ -66,6 +67,39 @@ export async function handleAISimulationJob(
   const jobId = job.id || simulationId;
 
   console.log(`[AISimulation] Starting ${scenario} simulation with ${rounds} rounds`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "ai_simulation",
+    scenario
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[AISimulation] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitSimulationProgress(tenantId, organizationId, simulationId, {
+      type: "ai_simulation_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    try {
+      await storage.updateAiSimulation(simulationId, { 
+        status: "failed",
+        results: { error: governanceCheck.reason, blockedByGovernance: true } as any
+      });
+    } catch {}
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "ai_simulation", scenario);
 
   emitSimulationProgress(tenantId, organizationId, simulationId, {
     type: "ai_simulation_started",

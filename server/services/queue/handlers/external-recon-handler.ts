@@ -1,6 +1,7 @@
 import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { fullRecon, reconToExposures, ReconResult } from "../../external-recon";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   ExternalReconJobData,
   JobResult,
@@ -89,6 +90,32 @@ export async function handleExternalReconJob(
   const jobId = job.id || reconId;
 
   console.log(`[ExternalRecon] Starting reconnaissance for target: ${target}`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "external_recon",
+    target
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[ExternalRecon] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitReconProgress(tenantId, organizationId, reconId, {
+      type: "external_recon_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "external_recon", target);
 
   emitReconProgress(tenantId, organizationId, reconId, {
     type: "external_recon_started",

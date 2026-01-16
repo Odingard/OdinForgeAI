@@ -2,6 +2,7 @@ import { Job } from "bullmq";
 import { randomUUID } from "crypto";
 import { storage } from "../../../storage";
 import { runAgentOrchestrator } from "../../agents/orchestrator";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   EvaluationJobData,
   JobResult,
@@ -56,6 +57,33 @@ export async function handleEvaluationJob(
   const jobId = job.id || evaluationId;
 
   console.log(`[Evaluation] Starting evaluation ${evaluationId} in ${executionMode} mode`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "evaluation",
+    assetId
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[Evaluation] Blocked by governance: ${governanceCheck.reason}`);
+    await storage.updateEvaluationStatus(evaluationId, "failed", executionMode);
+    
+    emitEvaluationProgress(tenantId, organizationId, evaluationId, {
+      type: "evaluation_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "evaluation", assetId || evaluationId);
 
   emitEvaluationProgress(tenantId, organizationId, evaluationId, {
     type: "evaluation_started",

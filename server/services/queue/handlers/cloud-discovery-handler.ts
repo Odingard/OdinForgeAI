@@ -1,6 +1,7 @@
 import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { cloudIntegrationService } from "../../cloud";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   CloudDiscoveryJobData,
   JobResult,
@@ -78,6 +79,32 @@ export async function handleCloudDiscoveryJob(
   const startTime = Date.now();
   const { connectionId, provider, regions, tenantId, organizationId } = job.data;
   const jobId = job.id || connectionId;
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "cloud_discovery",
+    provider
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[CloudDiscovery] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitDiscoveryProgress(tenantId, organizationId, jobId, {
+      type: "cloud_discovery_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "cloud_discovery", provider);
 
   console.log(`[CloudDiscovery] Starting discovery for connection ${connectionId} (${provider})`);
 

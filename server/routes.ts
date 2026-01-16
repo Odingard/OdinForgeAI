@@ -1916,6 +1916,10 @@ export async function registerRoutes(
     try {
       await storage.updateOrganizationGovernance(req.params.organizationId, req.body);
       
+      // Clear governance cache to ensure new settings take effect immediately
+      const { governanceEnforcement } = await import("./services/governance/governance-enforcement");
+      governanceEnforcement.clearCache(req.params.organizationId);
+      
       // Log the change
       await storage.createAuthorizationLog({
         organizationId: req.params.organizationId,
@@ -1937,6 +1941,9 @@ export async function registerRoutes(
     try {
       const { activate, activatedBy } = req.body;
       
+      // Clear governance cache immediately so kill switch takes effect
+      const { governanceEnforcement } = await import("./services/governance/governance-enforcement");
+      
       if (activate) {
         await storage.activateKillSwitch(req.params.organizationId, activatedBy || "system");
         await storage.createAuthorizationLog({
@@ -1955,6 +1962,9 @@ export async function registerRoutes(
           authorized: true,
         });
       }
+      
+      // Clear cache after updating database
+      governanceEnforcement.clearCache(req.params.organizationId);
       
       const governance = await storage.getOrganizationGovernance(req.params.organizationId);
       res.json(governance);
@@ -1991,6 +2001,10 @@ export async function registerRoutes(
     try {
       const rule = await storage.createScopeRule(req.body);
       
+      // Clear scope rules cache so new rule takes effect immediately
+      const { governanceEnforcement } = await import("./services/governance/governance-enforcement");
+      governanceEnforcement.clearCache(req.body.organizationId);
+      
       await storage.createAuthorizationLog({
         organizationId: req.body.organizationId,
         action: "scope_rule_modified",
@@ -2008,6 +2022,11 @@ export async function registerRoutes(
   app.delete("/api/scope-rules/:id", async (req, res) => {
     try {
       await storage.deleteScopeRule(req.params.id);
+      
+      // Clear all caches since we don't know the organizationId
+      const { governanceEnforcement } = await import("./services/governance/governance-enforcement");
+      governanceEnforcement.clearCache();
+      
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting scope rule:", error);

@@ -7,6 +7,7 @@ import {
   ScanResult,
   LiveTestProgress,
 } from "../../live-network-testing";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   NetworkScanJobData,
   JobResult,
@@ -140,6 +141,32 @@ export async function handleNetworkScanJob(
   const jobId = job.id || scanId;
 
   console.log(`[NetworkScan] Starting scan ${scanId} for ${targets.length} target(s)`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "network_scan",
+    targets[0]
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[NetworkScan] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitSecureScanProgress(tenantId, organizationId, scanId, {
+      type: "network_scan_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "network_scan", targets.join(", "));
 
   const results: {
     target: string;

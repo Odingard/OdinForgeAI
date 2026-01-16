@@ -5,6 +5,7 @@ import * as http from "http";
 import { storage } from "../../../storage";
 import { db } from "../../../db";
 import { authScanResults } from "@shared/schema";
+import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   AuthScanJobData,
   JobResult,
@@ -347,6 +348,32 @@ export async function handleAuthScanJob(
   const { scanId, targetUrl, authType, credentials, tenantId, organizationId } = job.data;
 
   console.log(`[AuthScan] Starting ${authType} authentication scan for ${targetUrl}`);
+
+  const governanceCheck = await governanceEnforcement.canStartOperation(
+    organizationId,
+    "auth_scan",
+    targetUrl
+  );
+  
+  if (!governanceCheck.canStart) {
+    console.log(`[AuthScan] Blocked by governance: ${governanceCheck.reason}`);
+    
+    emitAuthScanProgress(tenantId, organizationId, scanId, {
+      type: "auth_scan_failed",
+      error: `Operation blocked by governance controls: ${governanceCheck.reason}`,
+    });
+    
+    return {
+      success: false,
+      error: governanceCheck.reason,
+      metadata: {
+        blockedByGovernance: true,
+        reason: governanceCheck.reason,
+      },
+    };
+  }
+
+  await governanceEnforcement.logOperationStarted(organizationId, "auth_scan", targetUrl);
 
   emitAuthScanProgress(tenantId, organizationId, scanId, {
     type: "auth_scan_started",
