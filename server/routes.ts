@@ -6122,6 +6122,205 @@ function registerJobQueueRoutes(app: Express) {
     }
   });
 
+  // Submit web app reconnaissance scan
+  app.post("/api/jobs/web-app-recon", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const tenantId = req.uiUser?.tenantId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
+      const userId = req.uiUser?.userId;
+
+      const { 
+        targetUrl, 
+        enableParallelAgents = true,
+        maxConcurrentAgents = 5,
+        vulnerabilityTypes = ["sqli", "xss", "auth_bypass", "command_injection", "path_traversal", "ssrf"],
+        enableLLMValidation = true 
+      } = req.body;
+
+      if (!targetUrl) {
+        return res.status(400).json({ error: "targetUrl is required" });
+      }
+
+      // Validate URL format
+      try {
+        new URL(targetUrl);
+      } catch {
+        return res.status(400).json({ error: "Invalid URL format" });
+      }
+
+      const scanId = `webapp-${randomUUID().slice(0, 8)}`;
+
+      // Create a record for this scan
+      await storage.createWebAppReconScan({
+        id: scanId,
+        targetUrl,
+        organizationId,
+        tenantId,
+        status: "pending",
+        enableParallelAgents,
+        maxConcurrentAgents,
+        vulnerabilityTypes,
+        enableLLMValidation,
+      });
+
+      // Run the scan in the background
+      (async () => {
+        try {
+          const { runWebAppReconnaissance } = await import("./services/web-app-recon");
+          const { dispatchParallelAgents } = await import("./services/parallel-agent-dispatcher");
+          
+          await storage.updateWebAppReconScan(scanId, { 
+            status: "web_recon",
+            progress: 5,
+            currentPhase: "Crawling target application..."
+          });
+          
+          // Broadcast progress via WebSocket
+          wsService.broadcastScanProgress(scanId, "web_recon", 5, "Crawling target application...");
+          
+          const webAppReconResult = await runWebAppReconnaissance(
+            targetUrl,
+            (phase, progress, message) => {
+              wsService.broadcastScanProgress(scanId, phase, Math.round(5 + progress * 0.35), message);
+            }
+          );
+          
+          await storage.updateWebAppReconScan(scanId, {
+            status: "web_recon_complete",
+            progress: 40,
+            currentPhase: "Web reconnaissance complete",
+            reconResult: {
+              targetUrl: webAppReconResult.targetUrl,
+              durationMs: webAppReconResult.durationMs,
+              applicationInfo: webAppReconResult.applicationInfo,
+              attackSurface: webAppReconResult.attackSurface,
+              endpoints: webAppReconResult.endpoints.slice(0, 100),
+            },
+          });
+          
+          wsService.broadcastScanProgress(scanId, "web_recon_complete", 40, `Discovered ${webAppReconResult.endpoints.length} endpoints`);
+          
+          // Run parallel agent dispatch if enabled
+          if (enableParallelAgents && webAppReconResult.endpoints.length > 0) {
+            await storage.updateWebAppReconScan(scanId, {
+              status: "agent_dispatch",
+              progress: 45,
+              currentPhase: "Dispatching security validation agents..."
+            });
+            
+            wsService.broadcastScanProgress(scanId, "agent_dispatch", 45, "Dispatching security validation agents...");
+            
+            const agentResult = await dispatchParallelAgents(
+              webAppReconResult,
+              {
+                maxConcurrentAgents,
+                enableLLMValidation,
+                vulnerabilityTypes,
+              },
+              (phase, progress, message) => {
+                wsService.broadcastScanProgress(scanId, phase, Math.round(45 + progress * 0.50), message);
+              }
+            );
+            
+            await storage.updateWebAppReconScan(scanId, {
+              status: "completed",
+              progress: 100,
+              currentPhase: "Scan complete",
+              agentDispatchResult: {
+                totalTasks: agentResult.totalTasks,
+                completedTasks: agentResult.completedTasks,
+                failedTasks: agentResult.failedTasks,
+                falsePositivesFiltered: agentResult.falsePositivesFiltered,
+                executionTimeMs: agentResult.executionTimeMs,
+                tasksByVulnerabilityType: agentResult.tasksByVulnerabilityType,
+              },
+              validatedFindings: agentResult.findings.map(f => ({
+                id: f.id,
+                endpointUrl: f.endpointUrl,
+                endpointPath: f.endpointPath,
+                parameter: f.parameter,
+                vulnerabilityType: f.vulnerabilityType,
+                severity: f.severity,
+                confidence: f.confidence,
+                verdict: f.verdict,
+                evidence: f.evidence,
+                recommendations: f.recommendations,
+                reproductionSteps: f.reproductionSteps,
+                cvssEstimate: f.cvssEstimate,
+                mitreAttackId: f.mitreAttackId,
+                llmValidation: f.llmValidation,
+              })),
+            });
+            
+            wsService.broadcastScanProgress(scanId, "completed", 100, `Found ${agentResult.findings.length} validated vulnerabilities`);
+          } else {
+            await storage.updateWebAppReconScan(scanId, {
+              status: "completed",
+              progress: 100,
+              currentPhase: "Scan complete (recon only)",
+            });
+            
+            wsService.broadcastScanProgress(scanId, "completed", 100, "Web reconnaissance complete");
+          }
+          
+        } catch (error) {
+          console.error("[WebAppRecon] Scan failed:", error);
+          await storage.updateWebAppReconScan(scanId, {
+            status: "failed",
+            progress: 0,
+            currentPhase: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
+          });
+          wsService.broadcastScanProgress(scanId, "failed", 0, `Scan failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+        }
+      })();
+
+      res.status(201).json({
+        scanId,
+        message: "Web app reconnaissance scan started",
+      });
+    } catch (error) {
+      console.error("Failed to start web app recon:", error);
+      res.status(500).json({ error: "Failed to start web app reconnaissance" });
+    }
+  });
+
+  // Get web app recon scan status
+  app.get("/api/web-app-recon/:scanId", async (req, res) => {
+    try {
+      const scan = await storage.getWebAppReconScan(req.params.scanId);
+      if (!scan) {
+        return res.status(404).json({ error: "Scan not found" });
+      }
+      res.json(scan);
+    } catch (error) {
+      console.error("Failed to fetch web app recon scan:", error);
+      res.status(500).json({ error: "Failed to fetch scan" });
+    }
+  });
+
+  // Get all web app recon scans
+  app.get("/api/web-app-recon", async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+      const scans = await storage.getWebAppReconScans(organizationId);
+      res.json(scans);
+    } catch (error) {
+      console.error("Failed to fetch web app recon scans:", error);
+      res.status(500).json({ error: "Failed to fetch scans" });
+    }
+  });
+
+  // Delete web app recon scan
+  app.delete("/api/web-app-recon/:scanId", uiAuthMiddleware, async (req, res) => {
+    try {
+      await storage.deleteWebAppReconScan(req.params.scanId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Failed to delete web app recon scan:", error);
+      res.status(500).json({ error: "Failed to delete scan" });
+    }
+  });
+
   // Submit report generation job
   app.post("/api/jobs/report", uiAuthMiddleware, reportRateLimiter, async (req: UIAuthenticatedRequest, res) => {
     try {

@@ -116,6 +116,9 @@ import {
   agentRegistrationTokens,
   enrollmentTokens,
   type EnrollmentToken,
+  webAppReconScans,
+  type WebAppReconScan,
+  type InsertWebAppReconScan,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -255,6 +258,13 @@ export interface IStorage {
     rawMetadata?: Record<string, any>;
     lastSeenAt: Date;
   }): Promise<{ isNew: boolean }>;
+  
+  // Web App Recon Scan operations
+  createWebAppReconScan(data: InsertWebAppReconScan): Promise<WebAppReconScan>;
+  getWebAppReconScan(id: string): Promise<WebAppReconScan | undefined>;
+  getWebAppReconScans(organizationId?: string): Promise<WebAppReconScan[]>;
+  updateWebAppReconScan(id: string, updates: Partial<WebAppReconScan>): Promise<void>;
+  deleteWebAppReconScan(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2109,6 +2119,50 @@ export class DatabaseStorage implements IStorage {
         });
       return { isNew: true };
     }
+  }
+  
+  // Web App Recon Scan operations
+  async createWebAppReconScan(data: InsertWebAppReconScan): Promise<WebAppReconScan> {
+    const [scan] = await db
+      .insert(webAppReconScans)
+      .values(data as typeof webAppReconScans.$inferInsert)
+      .returning();
+    return scan;
+  }
+  
+  async getWebAppReconScan(id: string): Promise<WebAppReconScan | undefined> {
+    const [scan] = await db
+      .select()
+      .from(webAppReconScans)
+      .where(eq(webAppReconScans.id, id));
+    return scan;
+  }
+  
+  async getWebAppReconScans(organizationId?: string): Promise<WebAppReconScan[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(webAppReconScans)
+        .where(eq(webAppReconScans.organizationId, organizationId))
+        .orderBy(desc(webAppReconScans.createdAt));
+    }
+    return db
+      .select()
+      .from(webAppReconScans)
+      .orderBy(desc(webAppReconScans.createdAt));
+  }
+  
+  async updateWebAppReconScan(id: string, updates: Partial<WebAppReconScan>): Promise<void> {
+    await db
+      .update(webAppReconScans)
+      .set(updates)
+      .where(eq(webAppReconScans.id, id));
+  }
+  
+  async deleteWebAppReconScan(id: string): Promise<void> {
+    await db
+      .delete(webAppReconScans)
+      .where(eq(webAppReconScans.id, id));
   }
 }
 
