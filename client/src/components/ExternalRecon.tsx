@@ -10,6 +10,8 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { 
   Globe, 
   Shield, 
@@ -24,7 +26,12 @@ import {
   FileWarning,
   ArrowRight,
   Swords,
-  Sparkles
+  Sparkles,
+  Code,
+  Bug,
+  Zap,
+  Target,
+  ExternalLink
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -354,7 +361,85 @@ interface ResultsResponse {
   error?: string;
 }
 
+// Web App Scan interfaces
+interface WebAppReconProgress {
+  phase: 'pending' | 'web_recon' | 'web_recon_complete' | 'agent_dispatch' | 'completed' | 'failed';
+  progress: number;
+  message: string;
+  endpointsFound?: number;
+  vulnerabilitiesValidated?: number;
+}
+
+interface WebAppScanResult {
+  id: string;
+  status: 'pending' | 'web_recon' | 'web_recon_complete' | 'agent_dispatch' | 'completed' | 'failed';
+  targetUrl: string;
+  progress?: number;
+  currentPhase?: string;
+  reconResult?: {
+    targetUrl: string;
+    durationMs?: number;
+    applicationInfo?: {
+      technologies: string[];
+      headers?: Record<string, string>;
+      securityHeaders?: {
+        present: string[];
+        missing: string[];
+      };
+    };
+    attackSurface?: {
+      totalEndpoints: number;
+      highRiskEndpoints: number;
+      authenticatedEndpoints: number;
+      parameterizedEndpoints: number;
+      byRiskLevel?: Record<string, number>;
+    };
+    endpoints?: Array<{
+      url: string;
+      method: string;
+      parameters?: string[];
+      riskScore: number;
+      attackVectors?: string[];
+    }>;
+  };
+  agentDispatchResult?: {
+    totalTasks: number;
+    completedTasks: number;
+    failedTasks: number;
+    falsePositivesFiltered?: number;
+    executionTimeMs?: number;
+    tasksByVulnerabilityType?: Record<string, number>;
+  };
+  validatedFindings?: Array<{
+    id: string;
+    endpointUrl: string;
+    endpointPath?: string;
+    parameter?: string;
+    vulnerabilityType: string;
+    severity: string;
+    confidence: number;
+    verdict: string;
+    evidence?: string[];
+    recommendations?: string[];
+    reproductionSteps?: string[];
+    cvssEstimate?: number;
+    mitreAttackId?: string;
+    llmValidation?: {
+      isValid: boolean;
+      reasoning: string;
+      confidence: number;
+    };
+  }>;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export function ExternalRecon() {
+  // Main tab state
+  const [activeTab, setActiveTab] = useState<"domain" | "webapp">("domain");
+  
+  // Domain scan state
   const [target, setTarget] = useState("");
   const [scanTypes, setScanTypes] = useState({
     portScan: true,
@@ -370,6 +455,25 @@ export function ExternalRecon() {
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const { toast } = useToast();
+  
+  // Web app scan state
+  const [webAppTarget, setWebAppTarget] = useState("");
+  const [enableParallelAgents, setEnableParallelAgents] = useState(true);
+  const [maxConcurrentAgents, setMaxConcurrentAgents] = useState(3);
+  const [enableLLMValidation, setEnableLLMValidation] = useState(true);
+  const [vulnerabilityTypes, setVulnerabilityTypes] = useState({
+    sqli: true,
+    xss: true,
+    authBypass: true,
+    commandInjection: true,
+    pathTraversal: true,
+    ssrf: true,
+  });
+  const [webAppScanId, setWebAppScanId] = useState<string | null>(null);
+  const [webAppResults, setWebAppResults] = useState<WebAppScanResult | null>(null);
+  const [webAppPolling, setWebAppPolling] = useState(false);
+  const [webAppProgress, setWebAppProgress] = useState<WebAppReconProgress | null>(null);
+  const webAppWsRef = useRef<WebSocket | null>(null);
 
   // Track if we've received real WebSocket progress
   const hasRealProgressRef = useRef(false);
@@ -514,6 +618,169 @@ export function ExternalRecon() {
       });
     },
   });
+  
+  // Web App Scan mutation
+  const startWebAppScan = useMutation({
+    mutationFn: async (): Promise<{ scanId: string; message: string }> => {
+      // Convert camelCase vuln types to snake_case for backend
+      const vulnTypeMapping: Record<string, string> = {
+        sqli: 'sqli',
+        xss: 'xss',
+        authBypass: 'auth_bypass',
+        commandInjection: 'command_injection',
+        pathTraversal: 'path_traversal',
+        ssrf: 'ssrf',
+      };
+      
+      const selectedTypes = Object.entries(vulnerabilityTypes)
+        .filter(([, enabled]) => enabled)
+        .map(([type]) => vulnTypeMapping[type] || type);
+      
+      const response = await apiRequest("POST", "/api/jobs/web-app-recon", {
+        targetUrl: webAppTarget,
+        enableParallelAgents,
+        maxConcurrentAgents,
+        enableLLMValidation,
+        vulnerabilityTypes: selectedTypes,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setWebAppScanId(data.scanId);
+      setWebAppPolling(true);
+      setWebAppResults(null);
+      setWebAppProgress({
+        phase: 'pending',
+        progress: 5,
+        message: 'Initializing web application reconnaissance...',
+      });
+      toast({
+        title: "Web App Scan Started",
+        description: `Scanning ${webAppTarget}...`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Web App Scan Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Poll for web app scan results
+  useEffect(() => {
+    if (!webAppPolling || !webAppScanId) return;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/web-app-recon/${webAppScanId}`);
+        const data = await response.json();
+        
+        if (response.status === 404) {
+          setWebAppPolling(false);
+          toast({
+            title: "Scan Not Found",
+            description: "The web app scan was not found.",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        if (response.ok) {
+          setWebAppResults(data);
+          
+          // Update progress based on status
+          const endpointsCount = data.reconResult?.endpoints?.length || data.reconResult?.attackSurface?.totalEndpoints || 0;
+          const progressMap: Record<string, WebAppReconProgress> = {
+            pending: { phase: 'pending', progress: data.progress || 10, message: data.currentPhase || 'Initializing scan...' },
+            web_recon: { phase: 'web_recon', progress: data.progress || 25, message: data.currentPhase || 'Crawling web application...', endpointsFound: endpointsCount },
+            web_recon_complete: { phase: 'web_recon_complete', progress: data.progress || 40, message: data.currentPhase || 'Web reconnaissance complete', endpointsFound: endpointsCount },
+            agent_dispatch: { phase: 'agent_dispatch', progress: data.progress || 65, message: data.currentPhase || 'Dispatching validation agents...', endpointsFound: endpointsCount },
+            completed: { phase: 'completed', progress: 100, message: 'Scan complete!', endpointsFound: endpointsCount, vulnerabilitiesValidated: data.validatedFindings?.length || 0 },
+            failed: { phase: 'failed', progress: 0, message: data.currentPhase || data.error || 'Scan failed' },
+          };
+          
+          setWebAppProgress(progressMap[data.status] || { phase: 'pending', progress: data.progress || 10, message: data.currentPhase || 'Processing...' });
+          
+          if (data.status === 'completed' || data.status === 'failed') {
+            setWebAppPolling(false);
+            
+            if (data.status === 'completed') {
+              toast({
+                title: "Web App Scan Complete",
+                description: `Found ${data.validatedFindings?.length || 0} validated vulnerabilities.`,
+              });
+            } else {
+              toast({
+                title: "Web App Scan Failed",
+                description: data.error || "The scan encountered an error.",
+                variant: "destructive",
+              });
+            }
+          }
+        }
+      } catch {
+        // Network error, continue polling
+      }
+    }, 2000);
+    
+    // Stop polling after 5 minutes
+    const timeout = setTimeout(() => {
+      setWebAppPolling(false);
+      toast({
+        title: "Scan Timeout",
+        description: "The web app scan is taking longer than expected.",
+        variant: "destructive",
+      });
+    }, 300000);
+    
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [webAppPolling, webAppScanId, toast]);
+  
+  // WebSocket for web app scan progress
+  useEffect(() => {
+    if (!webAppScanId || !webAppPolling) return;
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      webAppWsRef.current = ws;
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'scan_progress' && data.scanId === webAppScanId) {
+            // Normalize phase to valid values
+            const validPhases = ['pending', 'web_recon', 'web_recon_complete', 'agent_dispatch', 'completed', 'failed'];
+            const normalizedPhase = validPhases.includes(data.phase) ? data.phase : 'pending';
+            
+            setWebAppProgress({
+              phase: normalizedPhase as WebAppReconProgress['phase'],
+              progress: data.progress || 0,
+              message: data.message || '',
+              endpointsFound: data.endpointsFound,
+              vulnerabilitiesValidated: data.vulnerabilitiesValidated,
+            });
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      };
+      
+      return () => {
+        ws.close();
+        webAppWsRef.current = null;
+      };
+    } catch {
+      // WebSocket creation failed
+    }
+  }, [webAppScanId, webAppPolling]);
 
   // Poll for results
   useEffect(() => {
@@ -602,34 +869,48 @@ export function ExternalRecon() {
             External Reconnaissance
           </CardTitle>
           <CardDescription>
-            Scan internet-facing assets without installing agents. Discovers open ports, SSL issues, server technologies, and DNS records.
+            Scan internet-facing assets without installing agents. Choose between domain scanning or web application vulnerability testing.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="target">Target (domain or IP)</Label>
-            <div className="flex gap-2">
-              <Input
-                id="target"
-                placeholder="example.com or https://example.com"
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                data-testid="input-recon-target"
-              />
-              <Button 
-                onClick={() => startScan.mutate()}
-                disabled={!target || startScan.isPending || polling}
-                data-testid="button-start-scan"
-              >
-                {startScan.isPending || polling ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
-                <span className="ml-2">Scan</span>
-              </Button>
-            </div>
-          </div>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "domain" | "webapp")} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger value="domain" data-testid="tab-domain-scan">
+                <Globe className="h-4 w-4 mr-2" />
+                Domain Scan
+              </TabsTrigger>
+              <TabsTrigger value="webapp" data-testid="tab-webapp-scan">
+                <Code className="h-4 w-4 mr-2" />
+                Web App Scan
+              </TabsTrigger>
+            </TabsList>
+            
+            {/* Domain Scan Tab */}
+            <TabsContent value="domain" className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="target">Target (domain or IP)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="target"
+                    placeholder="example.com or https://example.com"
+                    value={target}
+                    onChange={(e) => setTarget(e.target.value)}
+                    data-testid="input-recon-target"
+                  />
+                  <Button 
+                    onClick={() => startScan.mutate()}
+                    disabled={!target || startScan.isPending || polling}
+                    data-testid="button-start-scan"
+                  >
+                    {startScan.isPending || polling ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                    <span className="ml-2">Scan</span>
+                  </Button>
+                </div>
+              </div>
 
           <div className="space-y-2">
             <Label>Scan Types</Label>
@@ -681,13 +962,334 @@ export function ExternalRecon() {
             </div>
           </div>
 
-          {polling && scanId && (
-            <ScanProgressTracker scanId={scanId} progress={scanProgress} />
-          )}
+              {polling && scanId && (
+                <ScanProgressTracker scanId={scanId} progress={scanProgress} />
+              )}
+            </TabsContent>
+            
+            {/* Web App Scan Tab */}
+            <TabsContent value="webapp" className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="webAppTarget">Target URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="webAppTarget"
+                    placeholder="https://example.com"
+                    value={webAppTarget}
+                    onChange={(e) => setWebAppTarget(e.target.value)}
+                    data-testid="input-webapp-target"
+                  />
+                  <Button 
+                    onClick={() => startWebAppScan.mutate()}
+                    disabled={!webAppTarget || startWebAppScan.isPending || webAppPolling}
+                    data-testid="button-start-webapp-scan"
+                  >
+                    {startWebAppScan.isPending || webAppPolling ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Bug className="h-4 w-4" />
+                    )}
+                    <span className="ml-2">Scan</span>
+                  </Button>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="enableAgents"
+                      checked={enableParallelAgents}
+                      onCheckedChange={setEnableParallelAgents}
+                      data-testid="switch-enable-agents"
+                    />
+                    <Label htmlFor="enableAgents" className="flex items-center gap-1">
+                      <Zap className="h-3 w-3" /> Enable Parallel Validation Agents
+                    </Label>
+                  </div>
+                </div>
+                
+                {enableParallelAgents && (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Max Concurrent Agents: {maxConcurrentAgents}</Label>
+                      </div>
+                      <Slider
+                        value={[maxConcurrentAgents]}
+                        onValueChange={([v]) => setMaxConcurrentAgents(v)}
+                        min={1}
+                        max={6}
+                        step={1}
+                        data-testid="slider-max-agents"
+                      />
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="llmValidation"
+                        checked={enableLLMValidation}
+                        onCheckedChange={setEnableLLMValidation}
+                        data-testid="switch-llm-validation"
+                      />
+                      <Label htmlFor="llmValidation" className="text-sm">
+                        Enable LLM False-Positive Filtering
+                      </Label>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label>Vulnerability Types</Label>
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox 
+                            id="sqli" 
+                            checked={vulnerabilityTypes.sqli}
+                            onCheckedChange={(checked) => setVulnerabilityTypes(v => ({ ...v, sqli: !!checked }))}
+                            data-testid="checkbox-sqli"
+                          />
+                          <label htmlFor="sqli" className="text-sm">SQL Injection</label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox 
+                            id="xss" 
+                            checked={vulnerabilityTypes.xss}
+                            onCheckedChange={(checked) => setVulnerabilityTypes(v => ({ ...v, xss: !!checked }))}
+                            data-testid="checkbox-xss"
+                          />
+                          <label htmlFor="xss" className="text-sm">XSS</label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox 
+                            id="authBypass" 
+                            checked={vulnerabilityTypes.authBypass}
+                            onCheckedChange={(checked) => setVulnerabilityTypes(v => ({ ...v, authBypass: !!checked }))}
+                            data-testid="checkbox-auth-bypass"
+                          />
+                          <label htmlFor="authBypass" className="text-sm">Auth Bypass</label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox 
+                            id="commandInjection" 
+                            checked={vulnerabilityTypes.commandInjection}
+                            onCheckedChange={(checked) => setVulnerabilityTypes(v => ({ ...v, commandInjection: !!checked }))}
+                            data-testid="checkbox-cmd-injection"
+                          />
+                          <label htmlFor="commandInjection" className="text-sm">Command Injection</label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox 
+                            id="pathTraversal" 
+                            checked={vulnerabilityTypes.pathTraversal}
+                            onCheckedChange={(checked) => setVulnerabilityTypes(v => ({ ...v, pathTraversal: !!checked }))}
+                            data-testid="checkbox-path-traversal"
+                          />
+                          <label htmlFor="pathTraversal" className="text-sm">Path Traversal</label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox 
+                            id="ssrf" 
+                            checked={vulnerabilityTypes.ssrf}
+                            onCheckedChange={(checked) => setVulnerabilityTypes(v => ({ ...v, ssrf: !!checked }))}
+                            data-testid="checkbox-ssrf"
+                          />
+                          <label htmlFor="ssrf" className="text-sm">SSRF</label>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {webAppPolling && webAppProgress && (
+                <div className="space-y-4 p-4 bg-muted/30 rounded-md border" data-testid="webapp-progress-tracker">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span className="text-sm font-medium">{webAppProgress.message}</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{webAppProgress.progress}%</span>
+                  </div>
+                  <Progress value={webAppProgress.progress} className="h-2" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                      ['web_recon', 'web_recon_complete'].includes(webAppProgress.phase) ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                      ['agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'opacity-100' : 'opacity-40'
+                    }`}>
+                      <Search className={`h-5 w-5 ${['web_recon_complete', 'agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'text-green-500' : 'text-cyan-400'}`} />
+                      <span className="text-xs text-center">Reconnaissance</span>
+                    </div>
+                    <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                      webAppProgress.phase === 'agent_dispatch' ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                      webAppProgress.phase === 'completed' ? 'opacity-100' : 'opacity-40'
+                    }`}>
+                      <Target className={`h-5 w-5 ${webAppProgress.phase === 'completed' ? 'text-green-500' : 'text-yellow-400'}`} />
+                      <span className="text-xs text-center">Agent Dispatch</span>
+                    </div>
+                    <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                      webAppProgress.phase === 'completed' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'opacity-40'
+                    }`}>
+                      <CheckCircle className={`h-5 w-5 ${webAppProgress.phase === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />
+                      <span className="text-xs text-center">Complete</span>
+                    </div>
+                  </div>
+                  {(webAppProgress.endpointsFound || webAppProgress.vulnerabilitiesValidated) && (
+                    <div className="flex gap-4 text-sm">
+                      {webAppProgress.endpointsFound && webAppProgress.endpointsFound > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Code className="h-3 w-3 text-cyan-400" />
+                          <span>{webAppProgress.endpointsFound} endpoints</span>
+                        </div>
+                      )}
+                      {webAppProgress.vulnerabilitiesValidated && webAppProgress.vulnerabilitiesValidated > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Bug className="h-3 w-3 text-red-400" />
+                          <span>{webAppProgress.vulnerabilitiesValidated} validated</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {webAppResults && webAppResults.status === 'completed' && (
+                <div className="space-y-4">
+                  {/* Recon Results Summary */}
+                  {webAppResults.reconResult && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Search className="h-4 w-4" />
+                          Reconnaissance Results
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                          <div className="bg-muted/50 rounded-md p-3">
+                            <div className="text-2xl font-bold">{webAppResults.reconResult.attackSurface?.totalEndpoints || webAppResults.reconResult.endpoints?.length || 0}</div>
+                            <p className="text-xs text-muted-foreground">Total Endpoints</p>
+                          </div>
+                          <div className="bg-muted/50 rounded-md p-3">
+                            <div className="text-2xl font-bold text-red-400">{webAppResults.reconResult.attackSurface?.highRiskEndpoints || 0}</div>
+                            <p className="text-xs text-muted-foreground">High Risk</p>
+                          </div>
+                          <div className="bg-muted/50 rounded-md p-3">
+                            <div className="text-2xl font-bold text-yellow-400">{webAppResults.reconResult.attackSurface?.authenticatedEndpoints || 0}</div>
+                            <p className="text-xs text-muted-foreground">Auth Required</p>
+                          </div>
+                          <div className="bg-muted/50 rounded-md p-3">
+                            <div className="text-2xl font-bold text-cyan-400">{webAppResults.reconResult.attackSurface?.parameterizedEndpoints || 0}</div>
+                            <p className="text-xs text-muted-foreground">Parameterized</p>
+                          </div>
+                        </div>
+                        
+                        {webAppResults.reconResult.applicationInfo?.technologies && webAppResults.reconResult.applicationInfo.technologies.length > 0 && (
+                          <div className="space-y-2">
+                            <Label className="text-xs">Detected Technologies</Label>
+                            <div className="flex flex-wrap gap-1">
+                              {webAppResults.reconResult.applicationInfo.technologies.map((tech, i) => (
+                                <Badge key={i} variant="secondary" className="text-xs">{tech}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+                  
+                  {/* Validated Findings */}
+                  {webAppResults.validatedFindings && webAppResults.validatedFindings.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Bug className="h-4 w-4 text-red-400" />
+                          Validated Vulnerabilities ({webAppResults.validatedFindings.length})
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {webAppResults.validatedFindings.map((finding, i) => (
+                          <div key={i} className="p-3 bg-muted/30 rounded-md border space-y-2" data-testid={`finding-${i}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Badge className={getSeverityColor(finding.severity)}>{finding.severity}</Badge>
+                                  <span className="font-medium">{finding.vulnerabilityType}</span>
+                                  {finding.cvssEstimate && (
+                                    <Badge variant="outline" className="text-xs">CVSS {finding.cvssEstimate.toFixed(1)}</Badge>
+                                  )}
+                                  <Badge variant="secondary" className="text-xs">{Math.round(finding.confidence)}% confidence</Badge>
+                                </div>
+                                <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground">
+                                  <ExternalLink className="h-3 w-3" />
+                                  <span className="truncate">{finding.endpointUrl}</span>
+                                </div>
+                                {finding.parameter && (
+                                  <div className="text-xs text-muted-foreground mt-1">
+                                    Parameter: <code className="bg-muted px-1 rounded">{finding.parameter}</code>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {finding.evidence && finding.evidence.length > 0 && (
+                              <div className="text-xs bg-background/50 p-2 rounded border overflow-x-auto">
+                                <code className="text-muted-foreground whitespace-pre-wrap">{finding.evidence[0]}</code>
+                              </div>
+                            )}
+                            
+                            <div className="flex flex-wrap gap-2 text-xs">
+                              <div>
+                                <span className="text-muted-foreground">Verdict:</span>
+                                <span className="ml-1 capitalize">{finding.verdict}</span>
+                              </div>
+                              {finding.mitreAttackId && (
+                                <div>
+                                  <span className="text-muted-foreground">MITRE:</span>
+                                  <span className="ml-1">{finding.mitreAttackId}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {finding.recommendations && finding.recommendations.length > 0 && (
+                              <div className="text-xs text-muted-foreground mt-2">
+                                <span className="font-medium">Recommendation:</span> {finding.recommendations[0]}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  )}
+                  
+                  {/* No findings message */}
+                  {(!webAppResults.validatedFindings || webAppResults.validatedFindings.length === 0) && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
+                      <p className="font-medium">No Vulnerabilities Found</p>
+                      <p className="text-sm mt-1">The web application scan completed without finding any validated vulnerabilities.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {webAppResults && webAppResults.status === 'failed' && (
+                <div className="p-4 rounded-md bg-red-500/10 border border-red-500/30">
+                  <div className="flex items-start gap-3">
+                    <XCircle className="h-5 w-5 text-red-400 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-red-400">Scan Failed</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {webAppResults.error || "The web application scan encountered an error."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
 
-      {results && (
+      {results && activeTab === "domain" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

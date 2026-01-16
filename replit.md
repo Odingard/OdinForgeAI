@@ -37,6 +37,16 @@ Provides real TCP port scanning with banner grabbing, service detection, and vul
 ### External Reconnaissance
 Offers comprehensive internet-facing asset scanning with a 6-section structure: Network Exposure, Transport Security, Application Identity, Authentication Surface, DNS & Infrastructure, and Attack Readiness Summary. Each finding includes exploit chain signals with type, MITRE ATT&CK ID, chain position, execution mode, and confidence score.
 
+The External Reconnaissance page includes two scanning modes:
+- **Domain Scan**: Traditional reconnaissance for domains/IPs with port scanning, SSL checks, HTTP fingerprinting, and DNS enumeration.
+- **Web App Scan**: Standalone web application vulnerability testing with:
+  - Target URL input for direct web app testing
+  - Configurable parallel validation agents (up to 6 concurrent)
+  - Vulnerability types: SQLi, XSS, Auth Bypass, Command Injection, Path Traversal, SSRF
+  - LLM-powered false positive filtering
+  - Real-time progress tracking via WebSocket
+  - Displays reconnaissance results (endpoints, technologies, attack surface metrics) and validated findings with severity, CVSS, confidence, evidence, and recommendations
+
 ### Endpoint Agent System
 Supports live agent deployment for monitoring, including registration, telemetry, auto-evaluation triggers, and deduplication. Pre-compiled Go agents are provided for multiple platforms. A registration token system enables secure, single-use token-based agent registration. Simple zero-interaction installation methods are provided for host and container environments (Docker/Kubernetes).
 
