@@ -5206,9 +5206,15 @@ export async function registerRoutes(
         target: scan.target,
         scanTime: scan.scanTime || new Date(),
         portScan: scan.portScan || undefined,
+        networkExposure: scan.networkExposure || undefined,
         sslCheck: scan.sslCheck || undefined,
+        transportSecurity: scan.transportSecurity || undefined,
         httpFingerprint: scan.httpFingerprint || undefined,
+        applicationIdentity: scan.applicationIdentity || undefined,
+        authenticationSurface: scan.authenticationSurface || undefined,
         dnsEnum: scan.dnsEnum || undefined,
+        infrastructure: scan.infrastructure || undefined,
+        attackReadiness: scan.attackReadiness || undefined,
         errors: scan.errors || [],
       };
 

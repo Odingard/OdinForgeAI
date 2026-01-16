@@ -3132,6 +3132,125 @@ export const reconScans = pgTable("recon_scans", {
     cname: string[];
   }>(),
   
+  // Enhanced 6-section structure fields
+  networkExposure: jsonb("network_exposure").$type<{
+    openPorts: number;
+    highRiskPorts: number;
+    serviceVersions: Array<{ port: number; service: string; version?: string }>;
+    protocolFindings: Array<{ protocol: string; finding: string; severity: string }>;
+  }>(),
+  
+  transportSecurity: jsonb("transport_security").$type<{
+    tlsVersion: string;
+    cipherSuite: string;
+    forwardSecrecy: boolean;
+    hstsEnabled: boolean;
+    hstsMaxAge?: number;
+    hstsIncludeSubdomains: boolean;
+    hstsPreload: boolean;
+    certificateTransparency: boolean;
+    ocspStapling: boolean;
+    downgradeRisks: Array<{
+      type: 'protocol' | 'cipher' | 'header' | 'redirect';
+      description: string;
+      severity: 'critical' | 'high' | 'medium' | 'low';
+      mitigiation: string;
+    }>;
+    gradeEstimate: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  }>(),
+  
+  applicationIdentity: jsonb("application_identity").$type<{
+    frameworks: string[];
+    cms?: string;
+    webServer?: string;
+    language?: string;
+    libraries: string[];
+    wafDetected?: string;
+  }>(),
+  
+  authenticationSurface: jsonb("authentication_surface").$type<{
+    loginPages: Array<{
+      path: string;
+      method: string;
+      indicators: string[];
+      riskLevel: 'high' | 'medium' | 'low';
+    }>;
+    adminPanels: Array<{
+      path: string;
+      detected: boolean;
+      technology?: string;
+      protected: boolean;
+    }>;
+    oauthEndpoints: Array<{
+      path: string;
+      provider?: string;
+      scopes?: string[];
+    }>;
+    passwordResetForms: Array<{
+      path: string;
+      method: string;
+      tokenBased: boolean;
+    }>;
+    apiAuthentication: {
+      bearerTokenSupported: boolean;
+      apiKeySupported: boolean;
+      basicAuthSupported: boolean;
+      jwtDetected: boolean;
+    };
+    vulnerabilities: string[];
+  }>(),
+  
+  infrastructure: jsonb("infrastructure").$type<{
+    hostingProvider?: string;
+    cdnProvider?: string;
+    dnsProvider?: string;
+    cloudPlatform?: string;
+    subdomains: string[];
+    relatedDomains: string[];
+    shadowAssets: Array<{
+      hostname: string;
+      type: 'subdomain' | 'related' | 'historical';
+      risk: string;
+    }>;
+    spfRecord?: string;
+    dmarcRecord?: string;
+    mailSecurityIssues: string[];
+  }>(),
+  
+  attackReadiness: jsonb("attack_readiness").$type<{
+    overallScore: number;
+    riskLevel: 'critical' | 'high' | 'medium' | 'low' | 'minimal';
+    executiveSummary: string;
+    categoryScores: {
+      networkExposure: number;
+      transportSecurity: number;
+      applicationIdentity: number;
+      authenticationSurface: number;
+      dnsInfrastructure: number;
+    };
+    aevNextActions: Array<{
+      priority: number;
+      action: string;
+      exploitType: string;
+      targetVector: string;
+      confidence: number;
+      requiredMode: 'observe' | 'passive' | 'active' | 'exploit';
+    }>;
+    attackVectors: Array<{
+      vector: string;
+      mitreAttackId: string;
+      feasibility: 'confirmed' | 'likely' | 'possible' | 'unlikely';
+      prerequisites: string[];
+    }>;
+    prioritizedRemediations: Array<{
+      priority: number;
+      finding: string;
+      remediation: string;
+      effort: 'quick' | 'moderate' | 'significant';
+      impact: 'high' | 'medium' | 'low';
+    }>;
+  }>(),
+  
   errors: jsonb("errors").$type<string[]>().default([]),
   
   createdAt: timestamp("created_at").defaultNow(),
