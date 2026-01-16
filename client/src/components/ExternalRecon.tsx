@@ -155,13 +155,133 @@ interface DNSEnumResult {
   cname: string[];
 }
 
+interface AuthenticationSurfaceResult {
+  loginPages: Array<{
+    path: string;
+    method: string;
+    indicators: string[];
+    riskLevel: 'high' | 'medium' | 'low';
+  }>;
+  adminPanels: Array<{
+    path: string;
+    detected: boolean;
+    technology?: string;
+    protected: boolean;
+  }>;
+  oauthEndpoints: Array<{
+    path: string;
+    provider?: string;
+    scopes?: string[];
+  }>;
+  passwordResetForms: Array<{
+    path: string;
+    method: string;
+    tokenBased: boolean;
+  }>;
+  apiAuthentication: {
+    bearerTokenSupported: boolean;
+    apiKeySupported: boolean;
+    basicAuthSupported: boolean;
+    jwtDetected: boolean;
+  };
+  vulnerabilities: string[];
+}
+
+interface TransportSecurityResult {
+  tlsVersion: string;
+  cipherSuite: string;
+  forwardSecrecy: boolean;
+  hstsEnabled: boolean;
+  hstsMaxAge?: number;
+  hstsIncludeSubdomains: boolean;
+  hstsPreload: boolean;
+  certificateTransparency: boolean;
+  ocspStapling: boolean;
+  downgradeRisks: Array<{
+    type: 'protocol' | 'cipher' | 'header' | 'redirect';
+    description: string;
+    severity: 'critical' | 'high' | 'medium' | 'low';
+    mitigiation: string;
+  }>;
+  gradeEstimate: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+}
+
+interface InfrastructureResult {
+  hostingProvider?: string;
+  cdnProvider?: string;
+  dnsProvider?: string;
+  cloudPlatform?: string;
+  subdomains: string[];
+  relatedDomains: string[];
+  shadowAssets: Array<{
+    hostname: string;
+    type: 'subdomain' | 'related' | 'historical';
+    risk: string;
+  }>;
+  spfRecord?: string;
+  dmarcRecord?: string;
+  mailSecurityIssues: string[];
+}
+
+interface AttackReadinessSummary {
+  overallScore: number;
+  riskLevel: 'critical' | 'high' | 'medium' | 'low' | 'minimal';
+  executiveSummary: string;
+  categoryScores: {
+    networkExposure: number;
+    transportSecurity: number;
+    applicationIdentity: number;
+    authenticationSurface: number;
+    dnsInfrastructure: number;
+  };
+  aevNextActions: Array<{
+    priority: number;
+    action: string;
+    exploitType: string;
+    targetVector: string;
+    confidence: number;
+    requiredMode: 'observe' | 'passive' | 'active' | 'exploit';
+  }>;
+  attackVectors: Array<{
+    vector: string;
+    mitreAttackId: string;
+    feasibility: 'confirmed' | 'likely' | 'possible' | 'unlikely';
+    prerequisites: string[];
+  }>;
+  prioritizedRemediations: Array<{
+    priority: number;
+    finding: string;
+    remediation: string;
+    effort: 'quick' | 'moderate' | 'significant';
+    impact: 'high' | 'medium' | 'low';
+  }>;
+}
+
 interface ReconResult {
   target: string;
   scanTime: string;
   portScan?: PortScanResult[];
+  networkExposure?: {
+    openPorts: number;
+    highRiskPorts: number;
+    serviceVersions: Array<{ port: number; service: string; version?: string }>;
+    protocolFindings: Array<{ protocol: string; finding: string; severity: string }>;
+  };
   sslCheck?: SSLCheckResult;
+  transportSecurity?: TransportSecurityResult;
   httpFingerprint?: HTTPFingerprintResult;
+  applicationIdentity?: {
+    frameworks: string[];
+    cms?: string;
+    webServer?: string;
+    language?: string;
+    libraries: string[];
+    wafDetected?: string;
+  };
+  authenticationSurface?: AuthenticationSurfaceResult;
   dnsEnum?: DNSEnumResult;
+  infrastructure?: InfrastructureResult;
+  attackReadiness?: AttackReadinessSummary;
   errors: string[];
 }
 
@@ -170,6 +290,13 @@ interface Exposure {
   description: string;
   severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
   evidence: string;
+  exploitChainSignal?: {
+    exploitType: string;
+    mitreAttackId?: string;
+    chainPosition: string;
+    requiredMode: string;
+    confidence: number;
+  };
 }
 
 interface ScanResponse {
@@ -599,30 +726,672 @@ export function ExternalRecon() {
                 </div>
               </div>
             )}
-            <Tabs defaultValue="findings" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
+            <Tabs defaultValue="summary" className="w-full">
+              <TabsList className="grid w-full grid-cols-4 lg:grid-cols-7">
+                <TabsTrigger value="summary" data-testid="tab-summary">
+                  <AlertTriangle className="h-4 w-4 mr-1" />
+                  Summary
+                </TabsTrigger>
+                <TabsTrigger value="network" data-testid="tab-network">
+                  <Server className="h-4 w-4 mr-1" />
+                  Network
+                </TabsTrigger>
+                <TabsTrigger value="transport" data-testid="tab-transport">
+                  <Lock className="h-4 w-4 mr-1" />
+                  Transport
+                </TabsTrigger>
+                <TabsTrigger value="app" data-testid="tab-app">
+                  <Globe className="h-4 w-4 mr-1" />
+                  App
+                </TabsTrigger>
+                <TabsTrigger value="auth" data-testid="tab-auth">
+                  <Shield className="h-4 w-4 mr-1" />
+                  Auth
+                </TabsTrigger>
+                <TabsTrigger value="infra" data-testid="tab-infra">
+                  <Wifi className="h-4 w-4 mr-1" />
+                  Infra
+                </TabsTrigger>
                 <TabsTrigger value="findings" data-testid="tab-findings">
                   <FileWarning className="h-4 w-4 mr-1" />
-                  Findings ({results.exposures.length})
-                </TabsTrigger>
-                <TabsTrigger value="ports" data-testid="tab-ports">
-                  <Server className="h-4 w-4 mr-1" />
-                  Ports
-                </TabsTrigger>
-                <TabsTrigger value="ssl" data-testid="tab-ssl">
-                  <Lock className="h-4 w-4 mr-1" />
-                  SSL
-                </TabsTrigger>
-                <TabsTrigger value="http" data-testid="tab-http">
-                  <Shield className="h-4 w-4 mr-1" />
-                  HTTP
-                </TabsTrigger>
-                <TabsTrigger value="dns" data-testid="tab-dns">
-                  <Wifi className="h-4 w-4 mr-1" />
-                  DNS
+                  ({results.exposures.length})
                 </TabsTrigger>
               </TabsList>
 
+              {/* Section 6: Attack Readiness Summary */}
+              <TabsContent value="summary" className="space-y-4 mt-4">
+                {results.result.attackReadiness ? (
+                  <div className="space-y-6" data-testid="attack-readiness-summary">
+                    {/* Overall Score and Risk Level */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Card className={`${
+                        results.result.attackReadiness.riskLevel === 'critical' ? 'border-red-500/50 bg-red-500/5' :
+                        results.result.attackReadiness.riskLevel === 'high' ? 'border-orange-500/50 bg-orange-500/5' :
+                        results.result.attackReadiness.riskLevel === 'medium' ? 'border-yellow-500/50 bg-yellow-500/5' :
+                        'border-green-500/50 bg-green-500/5'
+                      }`}>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm text-muted-foreground">Exposure Score</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-3xl font-bold">
+                            {results.result.attackReadiness.overallScore}/100
+                          </div>
+                          <Badge className={`mt-2 ${
+                            results.result.attackReadiness.riskLevel === 'critical' ? 'bg-red-500' :
+                            results.result.attackReadiness.riskLevel === 'high' ? 'bg-orange-500' :
+                            results.result.attackReadiness.riskLevel === 'medium' ? 'bg-yellow-500' :
+                            'bg-green-500'
+                          }`}>
+                            {results.result.attackReadiness.riskLevel.toUpperCase()}
+                          </Badge>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm text-muted-foreground">Attack Vectors</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-3xl font-bold">
+                            {results.result.attackReadiness.attackVectors.length}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">identified paths</p>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm text-muted-foreground">AEV Actions</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-3xl font-bold">
+                            {results.result.attackReadiness.aevNextActions.length}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">recommended</p>
+                        </CardContent>
+                      </Card>
+                      
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm text-muted-foreground">Remediations</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-3xl font-bold">
+                            {results.result.attackReadiness.prioritizedRemediations.length}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">prioritized</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    
+                    {/* Executive Summary */}
+                    <Card>
+                      <CardContent className="pt-4">
+                        <p className="text-sm">{results.result.attackReadiness.executiveSummary}</p>
+                      </CardContent>
+                    </Card>
+                    
+                    {/* Category Breakdown */}
+                    <div className="space-y-3">
+                      <h4 className="font-medium">Category Scores</h4>
+                      <div className="space-y-2">
+                        {Object.entries(results.result.attackReadiness.categoryScores).map(([category, score]) => (
+                          <div key={category} className="flex items-center gap-3">
+                            <span className="text-sm w-40 capitalize">{category.replace(/([A-Z])/g, ' $1').trim()}</span>
+                            <div className="flex-1 bg-muted rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full ${
+                                  score >= 75 ? 'bg-red-500' :
+                                  score >= 50 ? 'bg-orange-500' :
+                                  score >= 25 ? 'bg-yellow-500' :
+                                  'bg-green-500'
+                                }`}
+                                style={{ width: `${score}%` }}
+                              />
+                            </div>
+                            <span className="text-sm w-10 text-right">{score}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* AEV Next Actions */}
+                    {results.result.attackReadiness.aevNextActions.length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="font-medium">AEV Next Actions</h4>
+                        <div className="space-y-2">
+                          {results.result.attackReadiness.aevNextActions.map((action, i) => (
+                            <div key={i} className="flex items-start gap-3 p-3 bg-muted/50 rounded-md">
+                              <Badge variant="outline" className="shrink-0">P{action.priority}</Badge>
+                              <div className="flex-1">
+                                <p className="text-sm font-medium">{action.action}</p>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                  <Badge variant="secondary" className="text-xs">{action.exploitType}</Badge>
+                                  <Badge variant="outline" className="text-xs">{action.requiredMode}</Badge>
+                                  <span className="text-xs text-muted-foreground">{action.confidence}% confidence</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Prioritized Remediations */}
+                    {results.result.attackReadiness.prioritizedRemediations.length > 0 && (
+                      <div className="space-y-3">
+                        <h4 className="font-medium">Prioritized Remediations</h4>
+                        <div className="space-y-2">
+                          {results.result.attackReadiness.prioritizedRemediations.map((rem, i) => (
+                            <div key={i} className="p-3 bg-muted/50 rounded-md">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium">{rem.finding}</p>
+                                  <p className="text-sm text-muted-foreground mt-1">{rem.remediation}</p>
+                                </div>
+                                <div className="flex gap-1 shrink-0">
+                                  <Badge variant={rem.effort === 'quick' ? 'default' : 'secondary'} className="text-xs">
+                                    {rem.effort}
+                                  </Badge>
+                                  <Badge variant={rem.impact === 'high' ? 'destructive' : 'outline'} className="text-xs">
+                                    {rem.impact}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <AlertTriangle className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No attack readiness summary available</p>
+                    <p className="text-sm mt-1">Run a full scan to generate the summary</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Section 1: Network Exposure */}
+              <TabsContent value="network" className="space-y-4 mt-4">
+                {results.result.portScan && results.result.portScan.length > 0 ? (
+                  <div className="space-y-4" data-testid="network-exposure">
+                    {/* Network Stats */}
+                    {results.result.networkExposure && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <Card>
+                          <CardContent className="pt-4">
+                            <div className="text-2xl font-bold">{results.result.networkExposure.openPorts}</div>
+                            <p className="text-xs text-muted-foreground">Open Ports</p>
+                          </CardContent>
+                        </Card>
+                        <Card className={results.result.networkExposure.highRiskPorts > 0 ? 'border-red-500/50' : ''}>
+                          <CardContent className="pt-4">
+                            <div className="text-2xl font-bold text-red-400">{results.result.networkExposure.highRiskPorts}</div>
+                            <p className="text-xs text-muted-foreground">High-Risk Ports</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4">
+                            <div className="text-2xl font-bold">{results.result.networkExposure.serviceVersions.length}</div>
+                            <p className="text-xs text-muted-foreground">Version Disclosed</p>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="pt-4">
+                            <div className="text-2xl font-bold">{results.result.networkExposure.protocolFindings.length}</div>
+                            <p className="text-xs text-muted-foreground">Protocol Issues</p>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    )}
+                    
+                    {/* Port List */}
+                    <div className="space-y-2">
+                      <h4 className="font-medium">Open Ports & Services</h4>
+                      {results.result.portScan.map((port, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                          <div className="flex items-center gap-2">
+                            <Badge variant={port.state === 'open' ? 'default' : 'secondary'}>
+                              {port.port}
+                            </Badge>
+                            <span className="text-sm">{port.service || 'Unknown'}</span>
+                            {port.banner && (
+                              <span className="text-xs text-muted-foreground font-mono truncate max-w-xs">{port.banner}</span>
+                            )}
+                          </div>
+                          <Badge variant={[21, 23, 445, 3389, 5900, 1433, 3306, 5432, 6379, 27017].includes(port.port) ? 'destructive' : 'outline'}>
+                            {port.state}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Server className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No open ports detected on common ports</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Section 2: Transport Security */}
+              <TabsContent value="transport" className="space-y-4 mt-4">
+                {results.result.sslCheck || results.result.transportSecurity ? (
+                  <div className="space-y-4" data-testid="transport-security">
+                    {/* TLS Grade */}
+                    {results.result.transportSecurity && (
+                      <div className="flex items-center gap-4">
+                        <div className={`text-4xl font-bold p-4 rounded-lg ${
+                          results.result.transportSecurity.gradeEstimate === 'A+' || results.result.transportSecurity.gradeEstimate === 'A' ? 'bg-green-500/20 text-green-400' :
+                          results.result.transportSecurity.gradeEstimate === 'B' ? 'bg-yellow-500/20 text-yellow-400' :
+                          results.result.transportSecurity.gradeEstimate === 'C' ? 'bg-orange-500/20 text-orange-400' :
+                          'bg-red-500/20 text-red-400'
+                        }`}>
+                          {results.result.transportSecurity.gradeEstimate}
+                        </div>
+                        <div>
+                          <h4 className="font-medium">TLS Security Grade</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {results.result.transportSecurity.tlsVersion} / {results.result.transportSecurity.cipherSuite}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* TLS Features */}
+                    {results.result.transportSecurity && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-md">
+                          {results.result.transportSecurity.forwardSecrecy ? 
+                            <CheckCircle className="h-4 w-4 text-green-500" /> : 
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          }
+                          <span className="text-sm">Forward Secrecy</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-md">
+                          {results.result.transportSecurity.hstsEnabled ? 
+                            <CheckCircle className="h-4 w-4 text-green-500" /> : 
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          }
+                          <span className="text-sm">HSTS Enabled</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-md">
+                          {results.result.transportSecurity.hstsPreload ? 
+                            <CheckCircle className="h-4 w-4 text-green-500" /> : 
+                            <XCircle className="h-4 w-4 text-muted-foreground" />
+                          }
+                          <span className="text-sm">HSTS Preload</span>
+                        </div>
+                        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-md">
+                          {results.result.transportSecurity.certificateTransparency ? 
+                            <CheckCircle className="h-4 w-4 text-green-500" /> : 
+                            <XCircle className="h-4 w-4 text-muted-foreground" />
+                          }
+                          <span className="text-sm">CT Logs</span>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Downgrade Risks */}
+                    {results.result.transportSecurity?.downgradeRisks && results.result.transportSecurity.downgradeRisks.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-red-400">Downgrade Risks</h4>
+                        {results.result.transportSecurity.downgradeRisks.map((risk, i) => (
+                          <div key={i} className="p-3 bg-red-500/10 border border-red-500/30 rounded-md">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium">{risk.description}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{risk.mitigiation}</p>
+                              </div>
+                              <Badge variant="destructive" className="shrink-0">{risk.severity}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Certificate Info */}
+                    {results.result.sslCheck && (
+                      <div className="space-y-3">
+                        <h4 className="font-medium">Certificate Details</h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">Subject:</span>
+                            <p className="font-mono">{results.result.sslCheck.subject || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Issuer:</span>
+                            <p className="font-mono">{results.result.sslCheck.issuer || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Protocol:</span>
+                            <p className="font-mono">{results.result.sslCheck.protocol || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Expires in:</span>
+                            <p className={results.result.sslCheck.daysUntilExpiry !== undefined && results.result.sslCheck.daysUntilExpiry < 30 ? 'text-yellow-500' : ''}>
+                              {results.result.sslCheck.daysUntilExpiry !== undefined ? `${results.result.sslCheck.daysUntilExpiry} days` : 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Lock className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No transport security data available</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Section 3: Application Identity */}
+              <TabsContent value="app" className="space-y-4 mt-4">
+                {results.result.httpFingerprint || results.result.applicationIdentity ? (
+                  <div className="space-y-4" data-testid="application-identity">
+                    {/* Application Identity */}
+                    {results.result.applicationIdentity && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        {results.result.applicationIdentity.webServer && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">Web Server</p>
+                              <p className="font-mono text-sm truncate">{results.result.applicationIdentity.webServer}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {results.result.applicationIdentity.language && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">Language</p>
+                              <p className="font-mono text-sm">{results.result.applicationIdentity.language}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {results.result.applicationIdentity.cms && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">CMS</p>
+                              <p className="font-mono text-sm">{results.result.applicationIdentity.cms}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {results.result.applicationIdentity.wafDetected && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">WAF</p>
+                              <p className="font-mono text-sm">{results.result.applicationIdentity.wafDetected}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Technologies */}
+                    {results.result.httpFingerprint?.technologies && results.result.httpFingerprint.technologies.length > 0 && (
+                      <div>
+                        <h4 className="font-medium mb-2">Technologies Detected</h4>
+                        <div className="flex flex-wrap gap-2">
+                          {results.result.httpFingerprint.technologies.map((tech, i) => (
+                            <Badge key={i} variant="secondary">{tech}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Security Headers */}
+                    {results.result.httpFingerprint && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <h4 className="font-medium text-green-400 mb-2">Present Headers</h4>
+                          <div className="space-y-1">
+                            {results.result.httpFingerprint.securityHeaders.present.map((header, i) => (
+                              <div key={i} className="flex items-center gap-2 text-sm text-green-400">
+                                <CheckCircle className="h-3 w-3" />
+                                {header}
+                              </div>
+                            ))}
+                            {results.result.httpFingerprint.securityHeaders.present.length === 0 && (
+                              <p className="text-sm text-muted-foreground">None detected</p>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-yellow-400 mb-2">Missing Headers</h4>
+                          <div className="space-y-1">
+                            {results.result.httpFingerprint.securityHeaders.missing.map((header, i) => (
+                              <div key={i} className="flex items-center gap-2 text-sm text-yellow-400">
+                                <XCircle className="h-3 w-3" />
+                                {header}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Globe className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No application identity data available</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Section 4: Authentication Surface */}
+              <TabsContent value="auth" className="space-y-4 mt-4">
+                {results.result.authenticationSurface ? (
+                  <div className="space-y-4" data-testid="auth-surface">
+                    {/* Auth Stats */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold">{results.result.authenticationSurface.loginPages.length}</div>
+                          <p className="text-xs text-muted-foreground">Login Pages</p>
+                        </CardContent>
+                      </Card>
+                      <Card className={results.result.authenticationSurface.adminPanels.some(p => !p.protected) ? 'border-red-500/50' : ''}>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold">{results.result.authenticationSurface.adminPanels.length}</div>
+                          <p className="text-xs text-muted-foreground">Admin Panels</p>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold">{results.result.authenticationSurface.oauthEndpoints.length}</div>
+                          <p className="text-xs text-muted-foreground">OAuth Endpoints</p>
+                        </CardContent>
+                      </Card>
+                      <Card className={results.result.authenticationSurface.vulnerabilities.length > 0 ? 'border-red-500/50' : ''}>
+                        <CardContent className="pt-4">
+                          <div className="text-2xl font-bold text-red-400">{results.result.authenticationSurface.vulnerabilities.length}</div>
+                          <p className="text-xs text-muted-foreground">Vulnerabilities</p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                    
+                    {/* Login Pages */}
+                    {results.result.authenticationSurface.loginPages.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium">Login Pages</h4>
+                        {results.result.authenticationSurface.loginPages.map((login, i) => (
+                          <div key={i} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+                            <code className="text-sm">{login.path}</code>
+                            <Badge variant={login.riskLevel === 'high' ? 'destructive' : 'outline'}>
+                              {login.riskLevel}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Admin Panels */}
+                    {results.result.authenticationSurface.adminPanels.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium">Admin Panels</h4>
+                        {results.result.authenticationSurface.adminPanels.map((panel, i) => (
+                          <div key={i} className={`flex items-center justify-between p-2 rounded-md ${
+                            !panel.protected ? 'bg-red-500/10 border border-red-500/30' : 'bg-muted/50'
+                          }`}>
+                            <code className="text-sm">{panel.path}</code>
+                            <Badge variant={panel.protected ? 'default' : 'destructive'}>
+                              {panel.protected ? 'Protected' : 'UNPROTECTED'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* API Authentication */}
+                    <div className="space-y-2">
+                      <h4 className="font-medium">API Authentication Methods</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {results.result.authenticationSurface.apiAuthentication.bearerTokenSupported && (
+                          <Badge>Bearer Token</Badge>
+                        )}
+                        {results.result.authenticationSurface.apiAuthentication.apiKeySupported && (
+                          <Badge>API Key</Badge>
+                        )}
+                        {results.result.authenticationSurface.apiAuthentication.basicAuthSupported && (
+                          <Badge variant="outline">Basic Auth</Badge>
+                        )}
+                        {results.result.authenticationSurface.apiAuthentication.jwtDetected && (
+                          <Badge>JWT</Badge>
+                        )}
+                        {!results.result.authenticationSurface.apiAuthentication.bearerTokenSupported &&
+                         !results.result.authenticationSurface.apiAuthentication.apiKeySupported &&
+                         !results.result.authenticationSurface.apiAuthentication.basicAuthSupported && (
+                          <span className="text-sm text-muted-foreground">No API auth methods detected</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Vulnerabilities */}
+                    {results.result.authenticationSurface.vulnerabilities.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-red-400">Authentication Vulnerabilities</h4>
+                        {results.result.authenticationSurface.vulnerabilities.map((vuln, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm text-red-400 p-2 bg-red-500/10 rounded-md">
+                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                            {vuln}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Shield className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No authentication surface data available</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Section 5: DNS & Infrastructure */}
+              <TabsContent value="infra" className="space-y-4 mt-4">
+                {results.result.dnsEnum || results.result.infrastructure ? (
+                  <div className="space-y-4" data-testid="dns-infrastructure">
+                    {/* Infrastructure Info */}
+                    {results.result.infrastructure && (
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        {results.result.infrastructure.hostingProvider && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">Hosting</p>
+                              <p className="font-medium">{results.result.infrastructure.hostingProvider}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {results.result.infrastructure.cdnProvider && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">CDN</p>
+                              <p className="font-medium">{results.result.infrastructure.cdnProvider}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {results.result.infrastructure.dnsProvider && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">DNS Provider</p>
+                              <p className="font-medium">{results.result.infrastructure.dnsProvider}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                        {results.result.infrastructure.cloudPlatform && (
+                          <Card>
+                            <CardContent className="pt-4">
+                              <p className="text-xs text-muted-foreground">Cloud Platform</p>
+                              <p className="font-medium">{results.result.infrastructure.cloudPlatform}</p>
+                            </CardContent>
+                          </Card>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Mail Security */}
+                    {results.result.infrastructure?.mailSecurityIssues && results.result.infrastructure.mailSecurityIssues.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-medium text-yellow-400">Mail Security Issues</h4>
+                        {results.result.infrastructure.mailSecurityIssues.map((issue, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm text-yellow-400 p-2 bg-yellow-500/10 rounded-md">
+                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                            {issue}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* DNS Records */}
+                    {results.result.dnsEnum && (
+                      <div className="space-y-4 text-sm">
+                        {results.result.dnsEnum.ipv4.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">IPv4 Addresses:</span>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {results.result.dnsEnum.ipv4.map((ip, i) => (
+                                <Badge key={i} variant="outline" className="font-mono">{ip}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {results.result.dnsEnum.ns.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Name Servers:</span>
+                            <div className="flex flex-wrap gap-2 mt-1">
+                              {results.result.dnsEnum.ns.map((ns, i) => (
+                                <Badge key={i} variant="outline" className="font-mono">{ns}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {results.result.dnsEnum.mx.length > 0 && (
+                          <div>
+                            <span className="text-muted-foreground">Mail Servers (MX):</span>
+                            <div className="space-y-1 mt-1">
+                              {results.result.dnsEnum.mx.map((mx, i) => (
+                                <div key={i} className="font-mono text-xs">
+                                  {mx.priority} - {mx.exchange}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Wifi className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No infrastructure data available</p>
+                  </div>
+                )}
+              </TabsContent>
+              
+              {/* Findings (exposures for evaluation) */}
               <TabsContent value="findings" className="space-y-4 mt-4">
                 {results.exposures.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
@@ -680,218 +1449,6 @@ export function ExternalRecon() {
                 )}
               </TabsContent>
 
-              <TabsContent value="ports" className="mt-4">
-                {results.result.portScan && results.result.portScan.length > 0 ? (
-                  <div className="space-y-2">
-                    {results.result.portScan.map((port, index) => (
-                      <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
-                        <div className="flex items-center gap-2">
-                          <Badge variant={port.state === 'open' ? 'default' : 'secondary'}>
-                            {port.port}
-                          </Badge>
-                          <span className="text-sm">{port.service || 'Unknown'}</span>
-                        </div>
-                        <Badge variant={port.state === 'open' ? 'destructive' : 'outline'}>
-                          {port.state}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Server className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>No open ports detected on common ports</p>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="ssl" className="mt-4">
-                {results.result.sslCheck ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      {results.result.sslCheck.valid ? (
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <XCircle className="h-5 w-5 text-red-500" />
-                      )}
-                      <span className="font-medium">
-                        Certificate {results.result.sslCheck.valid ? 'Valid' : 'Invalid'}
-                      </span>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      {results.result.sslCheck.subject && (
-                        <div>
-                          <span className="text-muted-foreground">Subject:</span>
-                          <p className="font-mono">{results.result.sslCheck.subject}</p>
-                        </div>
-                      )}
-                      {results.result.sslCheck.issuer && (
-                        <div>
-                          <span className="text-muted-foreground">Issuer:</span>
-                          <p className="font-mono">{results.result.sslCheck.issuer}</p>
-                        </div>
-                      )}
-                      {results.result.sslCheck.protocol && (
-                        <div>
-                          <span className="text-muted-foreground">Protocol:</span>
-                          <p className="font-mono">{results.result.sslCheck.protocol}</p>
-                        </div>
-                      )}
-                      {results.result.sslCheck.daysUntilExpiry !== undefined && (
-                        <div>
-                          <span className="text-muted-foreground">Expires in:</span>
-                          <p className={results.result.sslCheck.daysUntilExpiry < 30 ? 'text-yellow-500' : ''}>
-                            {results.result.sslCheck.daysUntilExpiry} days
-                          </p>
-                        </div>
-                      )}
-                    </div>
-
-                    {results.result.sslCheck.vulnerabilities.length > 0 && (
-                      <div className="space-y-2">
-                        <span className="text-sm font-medium text-red-400">Vulnerabilities:</span>
-                        {results.result.sslCheck.vulnerabilities.map((vuln, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm text-red-400">
-                            <AlertTriangle className="h-4 w-4" />
-                            {vuln}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Lock className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>No SSL/TLS data available</p>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="http" className="mt-4">
-                {results.result.httpFingerprint ? (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      {results.result.httpFingerprint.server && (
-                        <div>
-                          <span className="text-muted-foreground">Server:</span>
-                          <p className="font-mono">{results.result.httpFingerprint.server}</p>
-                        </div>
-                      )}
-                      {results.result.httpFingerprint.poweredBy && (
-                        <div>
-                          <span className="text-muted-foreground">Powered By:</span>
-                          <p className="font-mono">{results.result.httpFingerprint.poweredBy}</p>
-                        </div>
-                      )}
-                      {results.result.httpFingerprint.statusCode && (
-                        <div>
-                          <span className="text-muted-foreground">Status Code:</span>
-                          <p className="font-mono">{results.result.httpFingerprint.statusCode}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {results.result.httpFingerprint.technologies.length > 0 && (
-                      <div>
-                        <span className="text-sm font-medium">Technologies Detected:</span>
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {results.result.httpFingerprint.technologies.map((tech, i) => (
-                            <Badge key={i} variant="secondary">{tech}</Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <span className="text-sm font-medium text-green-400">Security Headers Present:</span>
-                        <div className="space-y-1 mt-2">
-                          {results.result.httpFingerprint.securityHeaders.present.map((header, i) => (
-                            <div key={i} className="flex items-center gap-2 text-sm text-green-400">
-                              <CheckCircle className="h-3 w-3" />
-                              {header}
-                            </div>
-                          ))}
-                          {results.result.httpFingerprint.securityHeaders.present.length === 0 && (
-                            <p className="text-sm text-muted-foreground">None</p>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium text-yellow-400">Security Headers Missing:</span>
-                        <div className="space-y-1 mt-2">
-                          {results.result.httpFingerprint.securityHeaders.missing.map((header, i) => (
-                            <div key={i} className="flex items-center gap-2 text-sm text-yellow-400">
-                              <XCircle className="h-3 w-3" />
-                              {header}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Shield className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>No HTTP data available</p>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="dns" className="mt-4">
-                {results.result.dnsEnum ? (
-                  <div className="space-y-4 text-sm">
-                    {results.result.dnsEnum.ipv4.length > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">IPv4 Addresses:</span>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {results.result.dnsEnum.ipv4.map((ip, i) => (
-                            <Badge key={i} variant="outline" className="font-mono">{ip}</Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {results.result.dnsEnum.ipv6.length > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">IPv6 Addresses:</span>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {results.result.dnsEnum.ipv6.map((ip, i) => (
-                            <Badge key={i} variant="outline" className="font-mono text-xs">{ip}</Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {results.result.dnsEnum.mx.length > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Mail Servers (MX):</span>
-                        <div className="space-y-1 mt-1">
-                          {results.result.dnsEnum.mx.map((mx, i) => (
-                            <div key={i} className="font-mono">
-                              {mx.priority} - {mx.exchange}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {results.result.dnsEnum.ns.length > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Name Servers (NS):</span>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {results.result.dnsEnum.ns.map((ns, i) => (
-                            <Badge key={i} variant="outline" className="font-mono">{ns}</Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Wifi className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>No DNS data available</p>
-                  </div>
-                )}
-              </TabsContent>
             </Tabs>
 
             {results.result.errors.length > 0 && (

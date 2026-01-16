@@ -126,6 +126,8 @@ export async function handleExternalReconJob(
       sslCheck: reconModules.includes("ssl"),
       httpFingerprint: reconModules.includes("http"),
       dnsEnum: reconModules.includes("dns"),
+      authSurface: true,
+      generateSummary: true,
     });
 
     await updateProgress("ports", `Port scanning complete`);
@@ -148,9 +150,15 @@ export async function handleExternalReconJob(
       status: "completed",
       scanTime: new Date(),
       portScan: result.portScan || [],
+      networkExposure: result.networkExposure || null,
       sslCheck: result.sslCheck || null,
+      transportSecurity: result.transportSecurity || null,
       httpFingerprint: result.httpFingerprint || null,
+      applicationIdentity: result.applicationIdentity || null,
+      authenticationSurface: result.authenticationSurface || null,
       dnsEnum: result.dnsEnum || null,
+      infrastructure: result.infrastructure || null,
+      attackReadiness: result.attackReadiness || null,
       errors: result.errors || [],
     });
 

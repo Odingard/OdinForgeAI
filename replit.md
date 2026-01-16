@@ -35,6 +35,24 @@ Utilizes BullMQ with a Redis-backed job queue, featuring an in-memory fallback. 
 ### Live Network Testing
 This feature provides real TCP port scanning with banner grabbing, service detection, and vulnerability pattern matching. Results are stored in the `liveScanResults` table and accessible via a REST API with tenant isolation. Secure WebSocket channels provide real-time progress updates.
 
+### External Reconnaissance (6-Section Structure)
+Provides comprehensive internet-facing asset scanning with direct integration into autonomous exploit chaining logic. The system is organized into 6 sections:
+
+1. **Network Exposure**: Open ports, high-risk services (FTP, Telnet, SMB, RDP, VNC), database exposure, version disclosure
+2. **Transport Security**: TLS grading (A+ to F), HSTS configuration, forward secrecy, certificate transparency, downgrade risks
+3. **Application Identity**: Technologies detected, frameworks, CMS, web server, WAF detection, security headers present/missing
+4. **Authentication Surface**: Login pages, admin panels (protected/unprotected), OAuth endpoints, password reset forms, API authentication methods
+5. **DNS & Infrastructure**: Hosting/CDN providers, DNS configuration, mail security (SPF/DMARC), shadow assets
+6. **Attack Readiness Summary**: Overall exposure score, risk level, category scores, AEV next-actions with MITRE ATT&CK IDs, prioritized remediations
+
+Each finding includes exploit chain signals with:
+- Exploit type and MITRE ATT&CK technique ID
+- Chain position (initial_access, execution, persistence, privilege_escalation, lateral_movement)
+- Required execution mode (observe, passive, active, exploit)
+- Confidence score (0-100)
+
+UI accessible via `/recon` with 7 tabs: Summary (default), Network, Transport, App, Auth, Infra, Findings.
+
 ### Endpoint Agent System
 Supports live agent deployment for real-time monitoring, including agent registration, telemetry ingestion, auto-evaluation triggers, and deduplication. Pre-compiled Go agents are provided for multiple platforms. Agent status is dynamically calculated based on heartbeat, with support for force check-ins and cross-platform data validation.
 
