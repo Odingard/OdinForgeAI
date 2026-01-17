@@ -42,7 +42,17 @@ interface HeartbeatEvent {
   timestamp: number;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent;
+interface ScanProgressEvent {
+  type: "scan_progress";
+  scanId: string;
+  phase: string;
+  progress: number;
+  message: string;
+  endpointsFound?: number;
+  vulnerabilitiesValidated?: number;
+}
+
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -449,6 +459,28 @@ class WebSocketService {
     // Broadcast only to tenant-scoped channel for security
     const channel = `network-scan:${tenantId}:${organizationId}:${scanId}`;
     this.broadcastToChannel(channel, event);
+  }
+
+  broadcastScanProgress(
+    scanId: string,
+    phase: string,
+    progress: number,
+    message: string,
+    endpointsFound?: number,
+    vulnerabilitiesValidated?: number
+  ): void {
+    const event: ScanProgressEvent = {
+      type: "scan_progress",
+      scanId,
+      phase,
+      progress,
+      message,
+      endpointsFound,
+      vulnerabilitiesValidated,
+    };
+    
+    this.broadcast(event);
+    this.broadcastToChannel(`scan:${scanId}`, event);
   }
 
   getStats(): {

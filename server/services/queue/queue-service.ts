@@ -37,7 +37,7 @@ export type JobHandler = (job: Job<AnyJobData>) => Promise<JobResult>;
 
 class QueueService extends EventEmitter {
   private queue: Queue<AnyJobData> | null = null;
-  private workers: Map<JobType, Worker<AnyJobData, JobResult>> = new Map();
+  private sharedWorker: Worker<AnyJobData, JobResult> | null = null;
   private queueEvents: QueueEvents | null = null;
   private handlers: Map<JobType, JobHandler> = new Map();
   private inMemoryJobs: Map<string, QueuedJob> = new Map();
@@ -117,37 +117,46 @@ class QueueService extends EventEmitter {
 
   registerHandler(jobType: JobType, handler: JobHandler): void {
     this.handlers.set(jobType, handler);
+  }
 
-    if (this.useRedis && this.queue && this.redisConnectionOptions) {
-      const worker = new Worker<AnyJobData, JobResult>(
-        QUEUE_NAME,
-        async (job) => {
-          const data = job.data;
-          if (data.type !== jobType) {
-            throw new Error(`Job type mismatch: expected ${jobType}, got ${data.type}`);
-          }
-          return handler(job);
-        },
-        {
-          connection: this.redisConnectionOptions,
-          concurrency: 5,
-        }
-      );
-
-      worker.on("completed", (job, result) => {
-        console.log(`Job ${job.id} completed:`, result.success ? "success" : "failed");
-      });
-
-      worker.on("failed", (job, error) => {
-        console.error(`Job ${job?.id} failed:`, error.message);
-      });
-
-      worker.on("progress", (job, progress) => {
-        console.log(`Job ${job.id} progress:`, progress);
-      });
-
-      this.workers.set(jobType, worker);
+  // Start the shared worker after all handlers are registered
+  startWorker(): void {
+    if (!this.useRedis || !this.queue || !this.redisConnectionOptions || this.sharedWorker) {
+      return;
     }
+
+    this.sharedWorker = new Worker<AnyJobData, JobResult>(
+      QUEUE_NAME,
+      async (job) => {
+        // Use job.name (the type passed to queue.add) to route to the correct handler
+        const jobType = job.name as JobType;
+        const handler = this.handlers.get(jobType);
+        
+        if (!handler) {
+          throw new Error(`No handler registered for job type: ${jobType}`);
+        }
+        
+        return handler(job);
+      },
+      {
+        connection: this.redisConnectionOptions,
+        concurrency: 5,
+      }
+    );
+
+    this.sharedWorker.on("completed", (job, result) => {
+      console.log(`Job ${job.id} (${job.name}) completed:`, result.success ? "success" : "failed");
+    });
+
+    this.sharedWorker.on("failed", (job, error) => {
+      console.error(`Job ${job?.id} (${job?.name}) failed:`, error.message);
+    });
+
+    this.sharedWorker.on("progress", (job, progress) => {
+      console.log(`Job ${job.id} progress:`, progress);
+    });
+
+    console.log("[Queue] Shared worker started");
   }
 
   async addJob(
@@ -418,11 +427,10 @@ class QueueService extends EventEmitter {
   }
 
   async shutdown(): Promise<void> {
-    const allWorkers = Array.from(this.workers.values());
-    for (const worker of allWorkers) {
-      await worker.close();
+    if (this.sharedWorker) {
+      await this.sharedWorker.close();
+      this.sharedWorker = null;
     }
-    this.workers.clear();
 
     if (this.queueEvents) {
       await this.queueEvents.close();
