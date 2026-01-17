@@ -792,7 +792,11 @@ export function ExternalRecon() {
 
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/recon/results/${scanId}`);
+        const accessToken = localStorage.getItem("odinforge_access_token");
+        const response = await fetch(`/api/recon/results/${scanId}`, {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          credentials: 'include'
+        });
         const data = await response.json();
         
         // 202 means still pending - continue polling
@@ -1104,39 +1108,39 @@ export function ExternalRecon() {
                 )}
               </div>
               
-              {webAppPolling && webAppProgress && (
+              {webAppPolling && (
                 <div className="space-y-4 p-4 bg-muted/30 rounded-md border" data-testid="webapp-progress-tracker">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm font-medium">{webAppProgress.message}</span>
+                      <span className="text-sm font-medium">{webAppProgress?.message || 'Initializing web application scan...'}</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{webAppProgress.progress}%</span>
+                    <span className="text-sm text-muted-foreground">{webAppProgress?.progress || 5}%</span>
                   </div>
-                  <Progress value={webAppProgress.progress} className="h-2" />
+                  <Progress value={webAppProgress?.progress || 5} className="h-2" />
                   <div className="grid grid-cols-3 gap-2">
                     <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
-                      ['web_recon', 'web_recon_complete'].includes(webAppProgress.phase) ? 'bg-primary/10 ring-1 ring-primary/30' : 
-                      ['agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'opacity-100' : 'opacity-40'
+                      webAppProgress && ['web_recon', 'web_recon_complete'].includes(webAppProgress.phase) ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                      webAppProgress && ['agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'opacity-100' : 'opacity-40'
                     }`}>
-                      <Search className={`h-5 w-5 ${['web_recon_complete', 'agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'text-green-500' : 'text-cyan-400'}`} />
+                      <Search className={`h-5 w-5 ${webAppProgress && ['web_recon_complete', 'agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'text-green-500' : 'text-cyan-400'}`} />
                       <span className="text-xs text-center">Reconnaissance</span>
                     </div>
                     <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
-                      webAppProgress.phase === 'agent_dispatch' ? 'bg-primary/10 ring-1 ring-primary/30' : 
-                      webAppProgress.phase === 'completed' ? 'opacity-100' : 'opacity-40'
+                      webAppProgress?.phase === 'agent_dispatch' ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                      webAppProgress?.phase === 'completed' ? 'opacity-100' : 'opacity-40'
                     }`}>
-                      <Target className={`h-5 w-5 ${webAppProgress.phase === 'completed' ? 'text-green-500' : 'text-yellow-400'}`} />
+                      <Target className={`h-5 w-5 ${webAppProgress?.phase === 'completed' ? 'text-green-500' : 'text-yellow-400'}`} />
                       <span className="text-xs text-center">Agent Dispatch</span>
                     </div>
                     <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
-                      webAppProgress.phase === 'completed' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'opacity-40'
+                      webAppProgress?.phase === 'completed' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'opacity-40'
                     }`}>
-                      <CheckCircle className={`h-5 w-5 ${webAppProgress.phase === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />
+                      <CheckCircle className={`h-5 w-5 ${webAppProgress?.phase === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />
                       <span className="text-xs text-center">Complete</span>
                     </div>
                   </div>
-                  {(webAppProgress.endpointsFound || webAppProgress.vulnerabilitiesValidated) && (
+                  {webAppProgress && (webAppProgress.endpointsFound || webAppProgress.vulnerabilitiesValidated) && (
                     <div className="flex gap-4 text-sm">
                       {webAppProgress.endpointsFound && webAppProgress.endpointsFound > 0 && (
                         <div className="flex items-center gap-1">
