@@ -8,6 +8,7 @@ import { runAgentOrchestrator } from "./services/agents";
 import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
 import { reportGenerator } from "./services/report-generator";
+import { reconReportGenerator } from "./services/recon-report-generator";
 import { unifiedAuthService } from "./services/unified-auth";
 import { mtlsAuthService } from "./services/mtls-auth";
 import { jwtAuthService } from "./services/jwt-auth";
@@ -1542,6 +1543,74 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error downloading report:", error);
       res.status(500).json({ error: "Failed to download report" });
+    }
+  });
+
+  // Domain Scan Report Generation
+  app.get("/api/reports/domain-scan/:scanId", async (req, res) => {
+    try {
+      const { scanId } = req.params;
+      const format = (req.query.format as string) || "json";
+      
+      const reportData = await reconReportGenerator.generateDomainScanReport(scanId);
+      if (!reportData) {
+        return res.status(404).json({ error: "Scan not found" });
+      }
+      
+      const filename = `domain-scan-${scanId}-${Date.now()}`;
+      
+      if (format === "csv") {
+        const csv = reconReportGenerator.exportToCSV(reportData);
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
+        return res.send(csv);
+      }
+      
+      if (format === "download") {
+        const json = reconReportGenerator.exportToJSON(reportData);
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.json"`);
+        return res.send(json);
+      }
+      
+      res.json(reportData);
+    } catch (error) {
+      console.error("Error generating domain scan report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
+  // Web App Scan Report Generation
+  app.get("/api/reports/web-app-scan/:scanId", async (req, res) => {
+    try {
+      const { scanId } = req.params;
+      const format = (req.query.format as string) || "json";
+      
+      const reportData = await reconReportGenerator.generateWebAppScanReport(scanId);
+      if (!reportData) {
+        return res.status(404).json({ error: "Scan not found" });
+      }
+      
+      const filename = `web-app-scan-${scanId}-${Date.now()}`;
+      
+      if (format === "csv") {
+        const csv = reconReportGenerator.exportToCSV(reportData);
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
+        return res.send(csv);
+      }
+      
+      if (format === "download") {
+        const json = reconReportGenerator.exportToJSON(reportData);
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.json"`);
+        return res.send(json);
+      }
+      
+      res.json(reportData);
+    } catch (error) {
+      console.error("Error generating web app scan report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
     }
   });
 

@@ -31,7 +31,9 @@ import {
   Bug,
   Zap,
   Target,
-  ExternalLink
+  ExternalLink,
+  FileDown,
+  FileText
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -1161,6 +1163,77 @@ export function ExternalRecon() {
               
               {webAppResults && webAppResults.status === 'completed' && (
                 <div className="space-y-4">
+                  {/* Report Generation Buttons */}
+                  {webAppScanId && (
+                    <div className="flex items-center justify-between p-3 bg-muted/30 rounded-md border">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="h-5 w-5 text-green-500" />
+                        <span className="font-medium">Scan Complete</span>
+                        <span className="text-sm text-muted-foreground">
+                          {webAppResults.validatedFindings?.length || 0} vulnerabilities found
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const accessToken = localStorage.getItem("odinforge_access_token");
+                              const response = await fetch(`/api/reports/web-app-scan/${webAppScanId}?format=download`, {
+                                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+                                credentials: 'include'
+                              });
+                              const blob = await response.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `web-app-scan-${webAppScanId}.json`;
+                              document.body.appendChild(a);
+                              a.click();
+                              window.URL.revokeObjectURL(url);
+                              document.body.removeChild(a);
+                            } catch (error) {
+                              toast({ title: "Download Failed", description: "Failed to download report", variant: "destructive" });
+                            }
+                          }}
+                          data-testid="button-download-webapp-report-json"
+                        >
+                          <FileDown className="h-4 w-4 mr-2" />
+                          JSON Report
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const accessToken = localStorage.getItem("odinforge_access_token");
+                              const response = await fetch(`/api/reports/web-app-scan/${webAppScanId}?format=csv`, {
+                                headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+                                credentials: 'include'
+                              });
+                              const blob = await response.blob();
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `web-app-scan-${webAppScanId}.csv`;
+                              document.body.appendChild(a);
+                              a.click();
+                              window.URL.revokeObjectURL(url);
+                              document.body.removeChild(a);
+                            } catch (error) {
+                              toast({ title: "Download Failed", description: "Failed to download report", variant: "destructive" });
+                            }
+                          }}
+                          data-testid="button-download-webapp-report-csv"
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          CSV Export
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Recon Results Summary */}
                   {webAppResults.reconResult && (
                     <Card>
@@ -1299,21 +1372,83 @@ export function ExternalRecon() {
 
       {results && activeTab === "domain" && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {results.status === "failed" ? (
-                <XCircle className="h-5 w-5 text-red-500" />
-              ) : (
-                <CheckCircle className="h-5 w-5 text-green-500" />
-              )}
-              Scan Results: {results.result.target}
-            </CardTitle>
-            <CardDescription>
-              Scanned at {new Date(results.result.scanTime).toLocaleString()}
-              {results.status === "failed" && (
-                <span className="text-red-400 ml-2">(Scan failed)</span>
-              )}
-            </CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                {results.status === "failed" ? (
+                  <XCircle className="h-5 w-5 text-red-500" />
+                ) : (
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                )}
+                Scan Results: {results.result.target}
+              </CardTitle>
+              <CardDescription>
+                Scanned at {new Date(results.result.scanTime).toLocaleString()}
+                {results.status === "failed" && (
+                  <span className="text-red-400 ml-2">(Scan failed)</span>
+                )}
+              </CardDescription>
+            </div>
+            {results.status !== "failed" && scanId && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const accessToken = localStorage.getItem("odinforge_access_token");
+                      const response = await fetch(`/api/reports/domain-scan/${scanId}?format=download`, {
+                        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+                        credentials: 'include'
+                      });
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `domain-scan-${scanId}.json`;
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                    } catch (error) {
+                      toast({ title: "Download Failed", description: "Failed to download report", variant: "destructive" });
+                    }
+                  }}
+                  data-testid="button-download-domain-report-json"
+                >
+                  <FileDown className="h-4 w-4 mr-2" />
+                  JSON Report
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const accessToken = localStorage.getItem("odinforge_access_token");
+                      const response = await fetch(`/api/reports/domain-scan/${scanId}?format=csv`, {
+                        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+                        credentials: 'include'
+                      });
+                      const blob = await response.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `domain-scan-${scanId}.csv`;
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                    } catch (error) {
+                      toast({ title: "Download Failed", description: "Failed to download report", variant: "destructive" });
+                    }
+                  }}
+                  data-testid="button-download-domain-report-csv"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  CSV Export
+                </Button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             {results.status === "failed" && (
