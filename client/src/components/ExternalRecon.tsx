@@ -674,7 +674,11 @@ export function ExternalRecon() {
     
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`/api/web-app-recon/${webAppScanId}`);
+        const accessToken = localStorage.getItem("odinforge_access_token");
+        const response = await fetch(`/api/web-app-recon/${webAppScanId}`, {
+          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          credentials: 'include'
+        });
         const data = await response.json();
         
         if (response.status === 404) {

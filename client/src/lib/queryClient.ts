@@ -7,6 +7,21 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function getAuthHeaders(includeContentType: boolean = false): HeadersInit {
+  const headers: Record<string, string> = {};
+  
+  const accessToken = localStorage.getItem("odinforge_access_token");
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+  
+  if (includeContentType) {
+    headers["Content-Type"] = "application/json";
+  }
+  
+  return headers;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -14,7 +29,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: getAuthHeaders(!!data),
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -30,6 +45,7 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
+      headers: getAuthHeaders(),
       credentials: "include",
     });
 

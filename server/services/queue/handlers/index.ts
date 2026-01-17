@@ -31,6 +31,9 @@ export function registerJobHandlers(): void {
   queueService.registerHandler("protocol_probe", handleProtocolProbeJob as JobHandler);
   
   console.log("[Queue] Job handlers registered (13 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment, protocol_probe");
+  
+  // Start the shared worker after all handlers are registered
+  queueService.startWorker();
 }
 
 export { 
