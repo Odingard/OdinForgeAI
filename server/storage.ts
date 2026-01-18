@@ -119,6 +119,9 @@ import {
   webAppReconScans,
   type WebAppReconScan,
   type InsertWebAppReconScan,
+  autoDeployConfigs,
+  type AutoDeployConfig,
+  type InsertAutoDeployConfig,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -238,6 +241,12 @@ export interface IStorage {
   getActiveEnrollmentTokens(organizationId: string): Promise<EnrollmentToken[]>;
   getEnrollmentTokenByHash(tokenHash: string): Promise<EnrollmentToken | undefined>;
   revokeEnrollmentToken(id: string, organizationId: string): Promise<void>;
+  
+  // Auto-Deploy Config operations
+  getAutoDeployConfig(organizationId: string): Promise<AutoDeployConfig | undefined>;
+  createAutoDeployConfig(data: InsertAutoDeployConfig): Promise<AutoDeployConfig>;
+  updateAutoDeployConfig(organizationId: string, updates: Partial<InsertAutoDeployConfig>): Promise<AutoDeployConfig | undefined>;
+  incrementAutoDeployStats(organizationId: string): Promise<void>;
   
   // Coverage Stats operations
   getCoverageStats(organizationId: string): Promise<{
@@ -1988,6 +1997,46 @@ export class DatabaseStorage implements IStorage {
         eq(enrollmentTokens.id, id),
         eq(enrollmentTokens.organizationId, organizationId)
       ));
+  }
+
+  // Auto-Deploy Config operations
+  async getAutoDeployConfig(organizationId: string): Promise<AutoDeployConfig | undefined> {
+    const [config] = await db
+      .select()
+      .from(autoDeployConfigs)
+      .where(eq(autoDeployConfigs.organizationId, organizationId));
+    return config;
+  }
+
+  async createAutoDeployConfig(data: InsertAutoDeployConfig): Promise<AutoDeployConfig> {
+    const [config] = await db
+      .insert(autoDeployConfigs)
+      .values({
+        ...data,
+        id: randomUUID(),
+      })
+      .returning();
+    return config;
+  }
+
+  async updateAutoDeployConfig(organizationId: string, updates: Partial<InsertAutoDeployConfig>): Promise<AutoDeployConfig | undefined> {
+    const [config] = await db
+      .update(autoDeployConfigs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(autoDeployConfigs.organizationId, organizationId))
+      .returning();
+    return config;
+  }
+
+  async incrementAutoDeployStats(organizationId: string): Promise<void> {
+    await db
+      .update(autoDeployConfigs)
+      .set({ 
+        totalDeploymentsTriggered: sql`${autoDeployConfigs.totalDeploymentsTriggered} + 1`,
+        lastDeploymentTriggeredAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(autoDeployConfigs.organizationId, organizationId));
   }
 
   // Coverage Stats operations

@@ -3855,3 +3855,65 @@ export const insertWebAppReconScanSchema = createInsertSchema(webAppReconScans).
 
 export type InsertWebAppReconScan = z.infer<typeof insertWebAppReconScanSchema>;
 export type WebAppReconScan = typeof webAppReconScans.$inferSelect;
+
+// Auto-Deploy Configuration for automatic agent deployment on new asset discovery
+export const autoDeployConfigs = pgTable("auto_deploy_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull(),
+  
+  // Enable/disable auto-deployment
+  enabled: boolean("enabled").default(false).notNull(),
+  
+  // Which cloud providers to auto-deploy on
+  providers: jsonb("providers").$type<string[]>().default(["aws", "azure", "gcp"]),
+  
+  // Asset types to deploy agents to (e.g., "ec2", "vm", "gce")
+  assetTypes: jsonb("asset_types").$type<string[]>().default(["ec2", "vm", "gce"]),
+  
+  // Platforms to deploy (linux, windows)
+  targetPlatforms: jsonb("target_platforms").$type<string[]>().default(["linux", "windows"]),
+  
+  // Deployment options
+  deploymentOptions: jsonb("deployment_options").$type<{
+    maxConcurrentDeployments: number;
+    deploymentTimeoutSeconds: number;
+    retryFailedDeployments: boolean;
+    maxRetries: number;
+    skipOfflineAssets: boolean;
+  }>().default({
+    maxConcurrentDeployments: 10,
+    deploymentTimeoutSeconds: 300,
+    retryFailedDeployments: true,
+    maxRetries: 3,
+    skipOfflineAssets: true,
+  }),
+  
+  // Filtering rules (optional)
+  filterRules: jsonb("filter_rules").$type<{
+    includeTags?: Record<string, string>;
+    excludeTags?: Record<string, string>;
+    includeRegions?: string[];
+    excludeRegions?: string[];
+    minInstanceSize?: string;
+  }>(),
+  
+  // Statistics
+  totalDeploymentsTriggered: integer("total_deployments_triggered").default(0),
+  lastDeploymentTriggeredAt: timestamp("last_deployment_triggered_at"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: varchar("created_by", { length: 255 }),
+});
+
+export const insertAutoDeployConfigSchema = createInsertSchema(autoDeployConfigs).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  totalDeploymentsTriggered: true,
+  lastDeploymentTriggeredAt: true,
+});
+
+export type InsertAutoDeployConfig = z.infer<typeof insertAutoDeployConfigSchema>;
+export type AutoDeployConfig = typeof autoDeployConfigs.$inferSelect;
