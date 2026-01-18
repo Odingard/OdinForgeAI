@@ -19,7 +19,10 @@ import {
   Globe,
   Shield,
   Zap,
-  ArrowRight
+  ArrowRight,
+  Settings,
+  Bot,
+  Power
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,6 +61,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Switch } from "@/components/ui/switch";
 
 interface VulnerabilityImport {
   id: string;
@@ -92,6 +96,33 @@ interface CloudConnection {
   lastSyncAt: string | null;
   assetsDiscovered: number | null;
   createdAt: string;
+}
+
+interface AutoDeployConfig {
+  id: string;
+  organizationId: string;
+  enabled: boolean;
+  providers: string[];
+  assetTypes: string[];
+  targetPlatforms: string[];
+  deploymentOptions: {
+    maxConcurrentDeployments: number;
+    deploymentTimeoutSeconds: number;
+    retryFailedDeployments: boolean;
+    maxRetries: number;
+    skipOfflineAssets: boolean;
+  };
+  filterRules: {
+    includeTags?: Record<string, string>;
+    excludeTags?: Record<string, string>;
+    includeRegions?: string[];
+    excludeRegions?: string[];
+    minInstanceSize?: string;
+  } | null;
+  totalDeploymentsTriggered: number;
+  lastDeploymentTriggeredAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 interface InfraStats {
@@ -512,6 +543,33 @@ export default function Infrastructure() {
 
   const { data: cloudConnections = [], isLoading: cloudLoading } = useQuery<CloudConnection[]>({
     queryKey: ["/api/cloud-connections"],
+  });
+
+  const { data: autoDeployConfig } = useQuery<AutoDeployConfig>({
+    queryKey: ["/api/auto-deploy/config"],
+  });
+
+  const toggleAutoDeployMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("POST", "/api/auto-deploy/toggle", { enabled });
+      return res.json();
+    },
+    onSuccess: (data: { enabled: boolean }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-deploy/config"] });
+      toast({
+        title: data.enabled ? "Auto-Deploy Enabled" : "Auto-Deploy Disabled",
+        description: data.enabled 
+          ? "Agents will be automatically deployed when new assets are discovered" 
+          : "Automatic agent deployment has been turned off",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to Update",
+        description: "Could not update auto-deploy settings",
+        variant: "destructive",
+      });
+    },
   });
 
   const uploadMutation = useMutation({
@@ -1064,6 +1122,77 @@ export default function Infrastructure() {
             </Card>
           ) : (
             <div className="space-y-6">
+              {/* Auto-Deploy Settings Card */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-primary/10 rounded-lg">
+                        <Bot className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Auto-Deploy Agents</CardTitle>
+                        <CardDescription className="text-xs">
+                          Automatically deploy monitoring agents when new assets are discovered
+                        </CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Power className={`h-4 w-4 ${autoDeployConfig?.enabled ? 'text-green-500' : 'text-muted-foreground'}`} />
+                        <Switch
+                          checked={autoDeployConfig?.enabled || false}
+                          onCheckedChange={(checked) => toggleAutoDeployMutation.mutate(checked)}
+                          disabled={toggleAutoDeployMutation.isPending}
+                          data-testid="switch-auto-deploy"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div className="p-3 bg-muted/30 rounded-md">
+                      <p className="text-muted-foreground text-xs mb-1">Status</p>
+                      <Badge variant={autoDeployConfig?.enabled ? "default" : "secondary"}>
+                        {autoDeployConfig?.enabled ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-md">
+                      <p className="text-muted-foreground text-xs mb-1">Deployments Triggered</p>
+                      <p className="font-medium">{autoDeployConfig?.totalDeploymentsTriggered || 0}</p>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-md">
+                      <p className="text-muted-foreground text-xs mb-1">Providers</p>
+                      <div className="flex gap-1 flex-wrap">
+                        {(autoDeployConfig?.providers || ["aws", "azure", "gcp"]).map(provider => (
+                          <Badge key={provider} variant="outline" className="text-xs">
+                            {provider.toUpperCase()}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-muted/30 rounded-md">
+                      <p className="text-muted-foreground text-xs mb-1">Last Triggered</p>
+                      <p className="font-medium text-xs">
+                        {autoDeployConfig?.lastDeploymentTriggeredAt 
+                          ? new Date(autoDeployConfig.lastDeploymentTriggeredAt).toLocaleDateString()
+                          : "Never"}
+                      </p>
+                    </div>
+                  </div>
+                  {autoDeployConfig?.enabled && (
+                    <div className="mt-3 p-2 bg-green-500/10 border border-green-500/20 rounded-md">
+                      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-2">
+                        <CheckCircle className="h-3 w-3" />
+                        Auto-deploy is active. Agents will be deployed to new {(autoDeployConfig?.assetTypes || []).join(", ")} instances.
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Cloud Connections Grid */}
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {cloudConnections.map((conn) => (
                   <CloudConnectionCard

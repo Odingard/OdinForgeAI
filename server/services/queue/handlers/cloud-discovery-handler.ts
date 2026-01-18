@@ -186,6 +186,60 @@ export async function handleCloudDiscoveryJob(
           updatedAssets: discoveryJob.updatedAssets || 0,
         });
 
+        // Trigger auto-deployment for ONLY newly discovered assets if enabled
+        const newAssetCount = discoveryJob.newAssets || 0;
+        if (newAssetCount > 0) {
+          try {
+            const { triggerAutoDeployForNewAssets } = await import("../../auto-deploy-orchestrator");
+            
+            // Get only assets discovered in THIS job (recently created, no agent installed)
+            // Filter by createdAt being within the last few minutes to ensure we only get NEW assets
+            const discoveryStartTime = new Date(Date.now() - (attempts * 2000 + 60000)); // Buffer for discovery duration
+            const allAssets = await storage.getCloudAssetsByConnection(connectionId);
+            
+            // Only include assets that:
+            // 1. Don't have an agent installed
+            // 2. Were discovered recently (within this discovery job's timeframe)
+            // 3. Have no previous deployment attempts
+            const newAssetsList = allAssets
+              .filter(asset => {
+                const isNewlyDiscovered = asset.createdAt && new Date(asset.createdAt) >= discoveryStartTime;
+                const noAgentInstalled = !asset.agentInstalled;
+                const noPreviousDeployment = !asset.agentDeploymentStatus || asset.agentDeploymentStatus === "pending";
+                return noAgentInstalled && isNewlyDiscovered && noPreviousDeployment;
+              })
+              .slice(0, newAssetCount) // Limit to expected new asset count
+              .map(asset => ({
+                id: asset.id,
+                assetType: asset.assetType,
+                provider: asset.provider,
+                region: asset.region || undefined,
+                platform: asset.platform || undefined,
+                tags: asset.tags as Record<string, string> | undefined,
+                agentInstalled: asset.agentInstalled || false,
+              }));
+            
+            if (newAssetsList.length > 0) {
+              console.log(`[CloudDiscovery] Triggering auto-deploy for ${newAssetsList.length} newly discovered assets`);
+              
+              const autoDeployResult = await triggerAutoDeployForNewAssets(
+                organizationId,
+                tenantId,
+                connectionId,
+                newAssetsList
+              );
+              
+              if (autoDeployResult.deploymentsTriggered > 0) {
+                console.log(`[CloudDiscovery] Auto-deploy triggered ${autoDeployResult.deploymentsTriggered} deployments`);
+              }
+            } else {
+              console.log(`[CloudDiscovery] No newly discovered assets eligible for auto-deploy`);
+            }
+          } catch (autoDeployError) {
+            console.error(`[CloudDiscovery] Auto-deploy check failed:`, autoDeployError);
+          }
+        }
+
         return {
           success: true,
           data: {

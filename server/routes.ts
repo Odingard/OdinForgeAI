@@ -2931,6 +2931,167 @@ export async function registerRoutes(
     }
   });
 
+  // ========== AUTO-DEPLOY CONFIGURATION ==========
+
+  // Validation schemas for auto-deploy configuration
+  const validProviders = ["aws", "azure", "gcp"] as const;
+  const validAssetTypes = ["ec2", "vm", "gce", "rds", "lambda", "s3", "ecs", "eks", "aks", "gke"] as const;
+  const validPlatforms = ["linux", "windows", "macos", "container", "kubernetes"] as const;
+
+  const autoDeployConfigSchema = z.object({
+    enabled: z.boolean().optional(),
+    providers: z.array(z.enum(validProviders)).optional(),
+    assetTypes: z.array(z.enum(validAssetTypes)).optional(),
+    targetPlatforms: z.array(z.enum(validPlatforms)).optional(),
+    deploymentOptions: z.object({
+      maxConcurrentDeployments: z.number().int().min(1).max(50).optional(),
+      deploymentTimeoutSeconds: z.number().int().min(60).max(3600).optional(),
+      retryFailedDeployments: z.boolean().optional(),
+      maxRetries: z.number().int().min(0).max(10).optional(),
+      skipOfflineAssets: z.boolean().optional(),
+    }).optional(),
+    filterRules: z.object({
+      includeTags: z.record(z.string()).optional(),
+      excludeTags: z.record(z.string()).optional(),
+      includeRegions: z.array(z.string()).optional(),
+      excludeRegions: z.array(z.string()).optional(),
+      minInstanceSize: z.string().optional(),
+    }).nullable().optional(),
+  });
+
+  const autoDeployToggleSchema = z.object({
+    enabled: z.boolean(),
+  });
+
+  // Get auto-deploy configuration for organization - requires authenticated user
+  app.get("/api/auto-deploy/config", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      let config = await storage.getAutoDeployConfig(organizationId);
+      
+      // Return default config if none exists
+      if (!config) {
+        config = {
+          id: "",
+          organizationId,
+          enabled: false,
+          providers: ["aws", "azure", "gcp"],
+          assetTypes: ["ec2", "vm", "gce"],
+          targetPlatforms: ["linux", "windows"],
+          deploymentOptions: {
+            maxConcurrentDeployments: 10,
+            deploymentTimeoutSeconds: 300,
+            retryFailedDeployments: true,
+            maxRetries: 3,
+            skipOfflineAssets: true,
+          },
+          filterRules: null,
+          totalDeploymentsTriggered: 0,
+          lastDeploymentTriggeredAt: null,
+          createdAt: null,
+          updatedAt: null,
+          createdBy: null,
+        };
+      }
+      
+      res.json(config);
+    } catch (error) {
+      console.error("Error fetching auto-deploy config:", error);
+      res.status(500).json({ error: "Failed to fetch auto-deploy configuration" });
+    }
+  });
+
+  // Create or update auto-deploy configuration (requires admin)
+  app.put("/api/auto-deploy/config", uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      
+      // Validate request body
+      const parseResult = autoDeployConfigSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          error: "Invalid configuration", 
+          details: parseResult.error.errors 
+        });
+      }
+      
+      const existingConfig = await storage.getAutoDeployConfig(organizationId);
+      
+      const configData = {
+        ...parseResult.data,
+        organizationId,
+      };
+      
+      let config;
+      if (existingConfig) {
+        config = await storage.updateAutoDeployConfig(organizationId, configData);
+      } else {
+        config = await storage.createAutoDeployConfig(configData);
+      }
+      
+      console.log(`[AutoDeploy] Configuration ${existingConfig ? 'updated' : 'created'} for org ${organizationId}: enabled=${config?.enabled}`);
+      
+      res.json(config);
+    } catch (error) {
+      console.error("Error updating auto-deploy config:", error);
+      res.status(500).json({ error: "Failed to update auto-deploy configuration" });
+    }
+  });
+
+  // Toggle auto-deploy on/off (convenience endpoint) - requires admin
+  app.post("/api/auto-deploy/toggle", uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      
+      // Validate request body
+      const parseResult = autoDeployToggleSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "enabled must be a boolean" });
+      }
+      
+      const { enabled } = parseResult.data;
+      
+      let existingConfig = await storage.getAutoDeployConfig(organizationId);
+      
+      let config;
+      if (existingConfig) {
+        config = await storage.updateAutoDeployConfig(organizationId, { enabled });
+      } else {
+        config = await storage.createAutoDeployConfig({ organizationId, enabled });
+      }
+      
+      console.log(`[AutoDeploy] Auto-deploy ${enabled ? 'ENABLED' : 'DISABLED'} for org ${organizationId}`);
+      
+      res.json({ 
+        success: true, 
+        enabled: config?.enabled,
+        message: `Auto-deploy ${enabled ? 'enabled' : 'disabled'} successfully`
+      });
+    } catch (error) {
+      console.error("Error toggling auto-deploy:", error);
+      res.status(500).json({ error: "Failed to toggle auto-deploy" });
+    }
+  });
+
+  // Get auto-deploy statistics - requires authenticated user
+  app.get("/api/auto-deploy/stats", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const config = await storage.getAutoDeployConfig(organizationId);
+      
+      res.json({
+        enabled: config?.enabled || false,
+        totalDeploymentsTriggered: config?.totalDeploymentsTriggered || 0,
+        lastDeploymentTriggeredAt: config?.lastDeploymentTriggeredAt || null,
+        providers: config?.providers || [],
+        assetTypes: config?.assetTypes || [],
+      });
+    } catch (error) {
+      console.error("Error fetching auto-deploy stats:", error);
+      res.status(500).json({ error: "Failed to fetch auto-deploy statistics" });
+    }
+  });
+
   // ========== AI VS AI SIMULATION API ==========
 
   // Import the AI simulation runner
