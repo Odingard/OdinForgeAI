@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ImpactFindings } from "./types";
 import { generateAdversaryPromptContext } from "./adversary-profile";
+import { wrapAgentError } from "./error-classifier";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -121,8 +122,7 @@ Provide your impact assessment as a JSON object with this structure:
       processingTime: Date.now() - startTime,
     };
   } catch (error) {
-    console.error("Impact Agent error:", error);
-    throw error;
+    throw wrapAgentError("Impact Agent", error);
   }
 }
 

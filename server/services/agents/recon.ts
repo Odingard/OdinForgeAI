@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ReconFindings } from "./types";
 import { generateAdversaryPromptContext } from "./adversary-profile";
+import { wrapAgentError } from "./error-classifier";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -93,7 +94,6 @@ Provide your reconnaissance findings as a JSON object with this structure:
       processingTime: Date.now() - startTime,
     };
   } catch (error) {
-    console.error("Recon Agent error:", error);
-    throw error;
+    throw wrapAgentError("Recon Agent", error);
   }
 }
