@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ProgressCallback, ExploitFindings, LateralFindings, BusinessLogicFindings, MultiVectorFindings } from "./types";
+import { wrapAgentError } from "./error-classifier";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -203,8 +204,7 @@ Provide your defensive analysis as a JSON object with this structure:
       processingTime: Date.now() - startTime,
     };
   } catch (error) {
-    console.error("Defender Agent error:", error);
-    throw error;
+    throw wrapAgentError("Defender Agent", error);
   }
 }
 

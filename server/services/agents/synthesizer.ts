@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AgentMemory } from "./types";
 import type { AttackPathStep, Recommendation } from "@shared/schema";
+import { wrapAgentError } from "./error-classifier";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -145,8 +146,7 @@ Provide your synthesis as a JSON object with this structure:
         : [],
     };
   } catch (error) {
-    console.error("Synthesizer error:", error);
-    throw error;
+    throw wrapAgentError("Synthesizer Agent", error);
   }
 }
 
