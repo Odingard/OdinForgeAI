@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -60,10 +60,60 @@ export default function Assets() {
   const { hasPermission } = useAuth();
   const [deleteAsset, setDeleteAsset] = useState<UnifiedAsset | null>(null);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const { data: discoveredAssets = [], isLoading: loadingAssets } = useQuery<DiscoveredAsset[]>({
     queryKey: ["/api/assets"],
   });
+
+  // WebSocket listener for real-time asset updates
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'assets_updated') {
+            // Auto-refresh assets when new ones are discovered
+            queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+            
+            if (data.newAssets > 0) {
+              toast({
+                title: "New assets discovered",
+                description: `${data.newAssets} new asset(s) from ${data.provider?.toUpperCase() || 'cloud'} discovery`,
+              });
+            }
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      };
+
+      ws.onerror = () => {
+        // Silent fallback - polling will handle updates
+      };
+
+      ws.onclose = () => {
+        wsRef.current = null;
+      };
+
+    } catch {
+      // WebSocket not available - polling will handle updates
+    }
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [toast]);
 
   const { data: evaluations = [], isLoading: loadingEvals } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],

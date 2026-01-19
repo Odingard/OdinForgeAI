@@ -186,6 +186,32 @@ export async function handleCloudDiscoveryJob(
           updatedAssets: discoveryJob.updatedAssets || 0,
         });
 
+        // Broadcast assets_updated event to tenant/org channel so UI can auto-refresh
+        try {
+          const { wsService } = require("../../websocket");
+          if (wsService) {
+            const assetUpdateEvent = {
+              type: "assets_updated",
+              source: "cloud_discovery",
+              provider,
+              connectionId,
+              organizationId,
+              tenantId,
+              newAssets: discoveryJob.newAssets || 0,
+              updatedAssets: discoveryJob.updatedAssets || 0,
+              totalAssets: discoveryJob.totalAssets || 0,
+              timestamp: new Date().toISOString(),
+            };
+            // Broadcast to organization-specific channel for multi-tenant isolation
+            wsService.broadcastToChannel(`assets:${organizationId}`, assetUpdateEvent);
+            // Also broadcast globally for clients that haven't subscribed to specific channels
+            wsService.broadcast(assetUpdateEvent);
+            console.log(`[CloudDiscovery] Broadcasted assets_updated event for ${discoveryJob.newAssets} new assets`);
+          }
+        } catch {
+          // WebSocket broadcast is best-effort
+        }
+
         // Trigger auto-deployment for ONLY newly discovered assets if enabled
         const newAssetCount = discoveryJob.newAssets || 0;
         if (newAssetCount > 0) {
