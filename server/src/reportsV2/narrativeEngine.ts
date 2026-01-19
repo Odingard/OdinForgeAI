@@ -34,6 +34,8 @@ function getOpenAIClient(): OpenAI {
     openaiClient = new OpenAI({ 
       apiKey,
       baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined,
+      timeout: 90000, // 90 second timeout to prevent hanging
+      maxRetries: 2,
     });
   }
   return openaiClient;
