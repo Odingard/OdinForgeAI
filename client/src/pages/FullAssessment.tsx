@@ -25,7 +25,8 @@ import {
   RefreshCw,
   TrendingUp,
   AlertCircle,
-  Globe
+  Globe,
+  Server
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -796,6 +797,8 @@ export default function FullAssessmentPage() {
   const [selectedAssessment, setSelectedAssessment] = useState<FullAssessment | null>(null);
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  // Assessment mode: 'agent' (requires endpoint agents) or 'external' (serverless, no agents needed)
+  const [assessmentMode, setAssessmentMode] = useState<"agent" | "external">("agent");
   // Enhanced assessment options
   const [targetUrl, setTargetUrl] = useState("");
   const [enableWebAppRecon, setEnableWebAppRecon] = useState(true);
@@ -812,6 +815,7 @@ export default function FullAssessmentPage() {
     mutationFn: async (data: { 
       name: string; 
       description: string;
+      assessmentMode?: "agent" | "external";
       targetUrl?: string;
       enableWebAppRecon?: boolean;
       enableParallelAgents?: boolean;
@@ -821,17 +825,23 @@ export default function FullAssessmentPage() {
       return apiRequest("POST", "/api/full-assessments", data);
     },
     onSuccess: () => {
-      const isEnhanced = targetUrl.trim().length > 0;
+      const isExternal = assessmentMode === "external";
+      const isEnhanced = !isExternal && targetUrl.trim().length > 0;
       toast({ 
-        title: isEnhanced ? "Enhanced Assessment Started" : "Assessment Started", 
-        description: isEnhanced 
-          ? "Full security assessment with web app reconnaissance is now running" 
-          : "Full security assessment is now running" 
+        title: isExternal 
+          ? "External Assessment Started" 
+          : (isEnhanced ? "Enhanced Assessment Started" : "Assessment Started"), 
+        description: isExternal 
+          ? "Security assessment for serverless application is now running (no agents required)" 
+          : (isEnhanced 
+              ? "Full security assessment with web app reconnaissance is now running" 
+              : "Full security assessment is now running")
       });
       setIsCreateOpen(false);
       setNewName("");
       setNewDescription("");
       setTargetUrl("");
+      setAssessmentMode("agent");
       queryClient.invalidateQueries({ queryKey: ["/api/full-assessments"] });
     },
     onError: (error) => {
@@ -855,9 +865,14 @@ export default function FullAssessmentPage() {
       toast({ title: "Name required", variant: "destructive" });
       return;
     }
+    if (assessmentMode === "external" && !targetUrl.trim()) {
+      toast({ title: "Target URL required for serverless assessment", variant: "destructive" });
+      return;
+    }
     createMutation.mutate({ 
       name: newName, 
       description: newDescription,
+      assessmentMode,
       targetUrl: targetUrl.trim() || undefined,
       enableWebAppRecon: targetUrl.trim() ? enableWebAppRecon : undefined,
       enableParallelAgents: targetUrl.trim() ? enableParallelAgents : undefined,
@@ -911,20 +926,60 @@ export default function FullAssessmentPage() {
                   />
                 </div>
                 
-                {/* Enhanced Web App Reconnaissance Section */}
+                {/* Assessment Mode Selector */}
+                <div className="border rounded-md p-3 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-primary" />
+                    <label className="text-sm font-medium">Assessment Mode</label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={assessmentMode === "agent" ? "default" : "outline"}
+                      className="h-auto py-3 flex flex-col items-start"
+                      onClick={() => setAssessmentMode("agent")}
+                      data-testid="button-mode-agent"
+                    >
+                      <span className="font-medium">Agent-Based</span>
+                      <span className="text-xs opacity-75 text-left">Requires endpoint agents for infrastructure testing</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={assessmentMode === "external" ? "default" : "outline"}
+                      className="h-auto py-3 flex flex-col items-start"
+                      onClick={() => setAssessmentMode("external")}
+                      data-testid="button-mode-external"
+                    >
+                      <span className="font-medium">External Only</span>
+                      <span className="text-xs opacity-75 text-left">For serverless apps - no agents needed</span>
+                    </Button>
+                  </div>
+                  {assessmentMode === "external" && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      External mode performs web scanning only. Ideal for serverless, API-only, or SaaS applications.
+                    </p>
+                  )}
+                </div>
+                
+                {/* Web Application Target Section */}
                 <div className="border rounded-md p-3 space-y-3">
                   <div className="flex items-center gap-2">
                     <Globe className="w-4 h-4 text-primary" />
-                    <label className="text-sm font-medium">Web Application Target (optional)</label>
+                    <label className="text-sm font-medium">
+                      Web Application Target {assessmentMode === "external" ? "(required)" : "(optional)"}
+                    </label>
                   </div>
                   <Input
                     value={targetUrl}
                     onChange={(e) => setTargetUrl(e.target.value)}
                     placeholder="https://example.com"
                     data-testid="input-target-url"
+                    required={assessmentMode === "external"}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Provide a URL to enable enhanced web app reconnaissance with parallel security agent testing
+                    {assessmentMode === "external" 
+                      ? "URL of the serverless application or API to scan" 
+                      : "Provide a URL to enable enhanced web app reconnaissance with parallel security agent testing"}
                   </p>
                   
                   {targetUrl.trim() && (

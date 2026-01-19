@@ -5520,6 +5520,8 @@ export async function registerRoutes(
         description, 
         agentIds, 
         organizationId,
+        // Assessment mode: 'agent' (default) requires agents, 'external' is for serverless (no agents needed)
+        assessmentMode,
         // Enhanced assessment options
         targetUrl,
         enableWebAppRecon,
@@ -5532,18 +5534,32 @@ export async function registerRoutes(
       if (!name) {
         return res.status(400).json({ error: "Assessment name is required" });
       }
+      
+      // Validate external mode requires target URL
+      const mode = assessmentMode === "external" ? "external" : "agent";
+      if (mode === "external" && !targetUrl) {
+        return res.status(400).json({ error: "Target URL is required for external (serverless) assessments" });
+      }
 
       const assessment = await storage.createFullAssessment({
         name,
         description,
         agentIds: agentIds || null,
         organizationId: organizationId || "default",
+        assessmentMode: mode,
+        targetUrl: targetUrl || null,
         status: "pending",
-        currentPhase: targetUrl ? "web_recon" : "reconnaissance",
+        currentPhase: mode === "external" ? "web_recon" : (targetUrl ? "web_recon" : "reconnaissance"),
       });
 
-      // Use enhanced assessment if target URL provided
-      if (targetUrl) {
+      // External mode: Uses only web app scanning (no agents required)
+      if (mode === "external") {
+        runFullAssessment(assessment.id).catch(error => {
+          console.error("External assessment failed:", error);
+        });
+      }
+      // Enhanced mode: Agent-based with additional web app recon
+      else if (targetUrl) {
         const { runEnhancedFullAssessment } = await import("./services/full-assessment");
         runEnhancedFullAssessment(assessment.id, {
           targetUrl,
@@ -5555,7 +5571,9 @@ export async function registerRoutes(
         }).catch(error => {
           console.error("Enhanced full assessment failed:", error);
         });
-      } else {
+      } 
+      // Standard mode: Agent-based only
+      else {
         runFullAssessment(assessment.id).catch(error => {
           console.error("Full assessment failed:", error);
         });
@@ -5563,8 +5581,12 @@ export async function registerRoutes(
 
       res.json({ 
         assessmentId: assessment.id,
-        message: targetUrl ? "Enhanced full assessment started with web application reconnaissance" : "Full assessment started",
-        mode: targetUrl ? "enhanced" : "standard",
+        message: mode === "external" 
+          ? "External assessment started (no agents required)" 
+          : targetUrl 
+            ? "Enhanced full assessment started with web application reconnaissance" 
+            : "Full assessment started",
+        mode: mode === "external" ? "external" : (targetUrl ? "enhanced" : "standard"),
       });
     } catch (error) {
       console.error("Create full assessment error:", error);

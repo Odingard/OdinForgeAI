@@ -3101,6 +3101,10 @@ export const fullAssessments = pgTable("full_assessments", {
   name: varchar("name").notNull(),
   description: text("description"),
   
+  // Assessment mode: 'agent' (default) requires endpoint agents, 'external' uses web app/API scanning for serverless
+  assessmentMode: varchar("assessment_mode").notNull().default("agent"), // 'agent' | 'external'
+  targetUrl: varchar("target_url"), // Required for external mode
+  
   // Scope
   agentIds: jsonb("agent_ids").$type<string[]>(), // Which agents to include (null = all)
   findingIds: jsonb("finding_ids").$type<string[]>(), // Findings included in assessment
