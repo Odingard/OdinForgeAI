@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,9 +33,66 @@ import {
   Target,
   ExternalLink,
   FileDown,
-  FileText
+  FileText,
+  RefreshCw
 } from "lucide-react";
 import { useLocation } from "wouter";
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: ReactNode;
+  onReset?: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ScanErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[ScanErrorBoundary] Caught error:', error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+    this.props.onReset?.();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+      return (
+        <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-md">
+          <div className="flex items-center gap-2 text-destructive mb-2">
+            <AlertTriangle className="h-5 w-5" />
+            <span className="font-medium">Display Error</span>
+          </div>
+          <p className="text-sm text-muted-foreground mb-3">
+            An error occurred while displaying scan results. The scan may still be running.
+          </p>
+          <Button variant="outline" size="sm" onClick={this.handleReset}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Try Again
+          </Button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 interface ScanProgress {
   phase: 'dns' | 'ports' | 'ssl' | 'http' | 'complete';
@@ -1131,68 +1188,71 @@ export function ExternalRecon() {
               </div>
               
               {webAppPolling && (
-                <div className="space-y-4 p-4 bg-muted/30 rounded-md border" data-testid="webapp-progress-tracker">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <span className="text-sm font-medium">{webAppProgress?.message || 'Initializing web application scan...'}</span>
+                <ScanErrorBoundary onReset={() => setWebAppPolling(false)}>
+                  <div className="space-y-4 p-4 bg-muted/30 rounded-md border" data-testid="webapp-progress-tracker">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                        <span className="text-sm font-medium">{webAppProgress?.message || 'Initializing web application scan...'}</span>
+                      </div>
+                      <span className="text-sm text-muted-foreground">{typeof webAppProgress?.progress === 'number' ? webAppProgress.progress : 5}%</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{webAppProgress?.progress || 5}%</span>
+                    <Progress value={typeof webAppProgress?.progress === 'number' ? webAppProgress.progress : 5} className="h-2" />
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                        webAppProgress?.phase && ['web_recon', 'web_recon_complete'].includes(webAppProgress.phase) ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                        webAppProgress?.phase && ['agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'opacity-100' : 'opacity-40'
+                      }`}>
+                        <Search className={`h-5 w-5 ${webAppProgress?.phase && ['web_recon_complete', 'agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'text-green-500' : 'text-cyan-400'}`} />
+                        <span className="text-xs text-center">Reconnaissance</span>
+                      </div>
+                      <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                        webAppProgress?.phase === 'agent_dispatch' ? 'bg-primary/10 ring-1 ring-primary/30' : 
+                        webAppProgress?.phase === 'completed' ? 'opacity-100' : 'opacity-40'
+                      }`}>
+                        <Target className={`h-5 w-5 ${webAppProgress?.phase === 'completed' ? 'text-green-500' : 'text-yellow-400'}`} />
+                        <span className="text-xs text-center">Agent Dispatch</span>
+                      </div>
+                      <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
+                        webAppProgress?.phase === 'completed' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'opacity-40'
+                      }`}>
+                        <CheckCircle className={`h-5 w-5 ${webAppProgress?.phase === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />
+                        <span className="text-xs text-center">Complete</span>
+                      </div>
+                    </div>
+                    {webAppProgress && (typeof webAppProgress.endpointsFound === 'number' || typeof webAppProgress.vulnerabilitiesValidated === 'number') && (
+                      <div className="flex gap-4 text-sm">
+                        {typeof webAppProgress.endpointsFound === 'number' && webAppProgress.endpointsFound > 0 && (
+                          <div className="flex items-center gap-1">
+                            <Code className="h-3 w-3 text-cyan-400" />
+                            <span>{webAppProgress.endpointsFound} endpoints</span>
+                          </div>
+                        )}
+                        {typeof webAppProgress.vulnerabilitiesValidated === 'number' && webAppProgress.vulnerabilitiesValidated > 0 && (
+                          <div className="flex items-center gap-1">
+                            <Bug className="h-3 w-3 text-red-400" />
+                            <span>{webAppProgress.vulnerabilitiesValidated} validated</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <Progress value={webAppProgress?.progress || 5} className="h-2" />
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
-                      webAppProgress && ['web_recon', 'web_recon_complete'].includes(webAppProgress.phase) ? 'bg-primary/10 ring-1 ring-primary/30' : 
-                      webAppProgress && ['agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'opacity-100' : 'opacity-40'
-                    }`}>
-                      <Search className={`h-5 w-5 ${webAppProgress && ['web_recon_complete', 'agent_dispatch', 'completed'].includes(webAppProgress.phase) ? 'text-green-500' : 'text-cyan-400'}`} />
-                      <span className="text-xs text-center">Reconnaissance</span>
-                    </div>
-                    <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
-                      webAppProgress?.phase === 'agent_dispatch' ? 'bg-primary/10 ring-1 ring-primary/30' : 
-                      webAppProgress?.phase === 'completed' ? 'opacity-100' : 'opacity-40'
-                    }`}>
-                      <Target className={`h-5 w-5 ${webAppProgress?.phase === 'completed' ? 'text-green-500' : 'text-yellow-400'}`} />
-                      <span className="text-xs text-center">Agent Dispatch</span>
-                    </div>
-                    <div className={`flex flex-col items-center gap-1 p-2 rounded-md transition-all ${
-                      webAppProgress?.phase === 'completed' ? 'bg-green-500/10 ring-1 ring-green-500/30' : 'opacity-40'
-                    }`}>
-                      <CheckCircle className={`h-5 w-5 ${webAppProgress?.phase === 'completed' ? 'text-green-500' : 'text-muted-foreground'}`} />
-                      <span className="text-xs text-center">Complete</span>
-                    </div>
-                  </div>
-                  {webAppProgress && (webAppProgress.endpointsFound || webAppProgress.vulnerabilitiesValidated) && (
-                    <div className="flex gap-4 text-sm">
-                      {webAppProgress.endpointsFound && webAppProgress.endpointsFound > 0 && (
-                        <div className="flex items-center gap-1">
-                          <Code className="h-3 w-3 text-cyan-400" />
-                          <span>{webAppProgress.endpointsFound} endpoints</span>
-                        </div>
-                      )}
-                      {webAppProgress.vulnerabilitiesValidated && webAppProgress.vulnerabilitiesValidated > 0 && (
-                        <div className="flex items-center gap-1">
-                          <Bug className="h-3 w-3 text-red-400" />
-                          <span>{webAppProgress.vulnerabilitiesValidated} validated</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                </ScanErrorBoundary>
               )}
               
               {webAppResults && webAppResults.status === 'completed' && (
-                <div className="space-y-4">
-                  {/* Report Generation Buttons */}
-                  {webAppScanId && (
-                    <div className="flex items-center justify-between p-3 bg-muted/30 rounded-md border">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                        <span className="font-medium">Scan Complete</span>
-                        <span className="text-sm text-muted-foreground">
-                          {webAppResults.validatedFindings?.length || 0} vulnerabilities found
-                        </span>
-                      </div>
+                <ScanErrorBoundary onReset={() => setWebAppResults(null)}>
+                  <div className="space-y-4">
+                    {/* Report Generation Buttons */}
+                    {webAppScanId && (
+                      <div className="flex items-center justify-between p-3 bg-muted/30 rounded-md border">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-5 w-5 text-green-500" />
+                          <span className="font-medium">Scan Complete</span>
+                          <span className="text-sm text-muted-foreground">
+                            {Array.isArray(webAppResults.validatedFindings) ? webAppResults.validatedFindings.length : 0} vulnerabilities found
+                          </span>
+                        </div>
                       <div className="flex gap-2">
                         <Button
                           variant="outline"
@@ -1362,14 +1422,15 @@ export function ExternalRecon() {
                   )}
                   
                   {/* No findings message */}
-                  {(!webAppResults.validatedFindings || webAppResults.validatedFindings.length === 0) && (
-                    <div className="text-center py-8 text-muted-foreground">
-                      <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
-                      <p className="font-medium">No Vulnerabilities Found</p>
-                      <p className="text-sm mt-1">The web application scan completed without finding any validated vulnerabilities.</p>
-                    </div>
-                  )}
-                </div>
+                    {(!Array.isArray(webAppResults.validatedFindings) || webAppResults.validatedFindings.length === 0) && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-500" />
+                        <p className="font-medium">No Vulnerabilities Found</p>
+                        <p className="text-sm mt-1">The web application scan completed without finding any validated vulnerabilities.</p>
+                      </div>
+                    )}
+                  </div>
+                </ScanErrorBoundary>
               )}
               
               {webAppResults && webAppResults.status === 'failed' && (
