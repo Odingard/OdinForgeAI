@@ -94,6 +94,64 @@ class ScanErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
   }
 }
 
+class PageErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[PageErrorBoundary] Caught page-level error:', error, errorInfo);
+  }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+    this.props.onReset?.();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                Page Error
+              </CardTitle>
+              <CardDescription>
+                An unexpected error occurred. Please try refreshing the page.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-md">
+                <p className="text-sm font-mono text-destructive">
+                  {this.state.error?.message || 'Unknown error'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={this.handleReset}>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Try Again
+                </Button>
+                <Button variant="default" onClick={() => window.location.reload()}>
+                  Refresh Page
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 interface ScanProgress {
   phase: 'dns' | 'ports' | 'ssl' | 'http' | 'complete';
   progress: number;
@@ -494,7 +552,7 @@ interface WebAppScanResult {
   updatedAt: string;
 }
 
-export function ExternalRecon() {
+function ExternalReconContent() {
   // Main tab state
   const [activeTab, setActiveTab] = useState<"domain" | "webapp">("domain");
   
@@ -536,6 +594,27 @@ export function ExternalRecon() {
 
   // Track if we've received real WebSocket progress
   const hasRealProgressRef = useRef(false);
+  
+  // Global error capture for async errors that don't get caught by React
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      console.error('[GlobalErrorHandler] Uncaught error:', event.error || event.message);
+      event.preventDefault();
+    };
+    
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      console.error('[GlobalErrorHandler] Unhandled rejection:', event.reason);
+      event.preventDefault();
+    };
+    
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, []);
   
   // Simulate progress when WebSocket events aren't available
   useEffect(() => {
@@ -2294,5 +2373,17 @@ export function ExternalRecon() {
         </Card>
       )}
     </div>
+  );
+}
+
+export function ExternalRecon() {
+  const handleReset = () => {
+    window.location.reload();
+  };
+  
+  return (
+    <PageErrorBoundary onReset={handleReset}>
+      <ExternalReconContent />
+    </PageErrorBoundary>
   );
 }
