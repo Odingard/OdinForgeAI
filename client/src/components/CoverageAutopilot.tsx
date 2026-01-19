@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,11 +57,53 @@ export function CoverageAutopilot() {
   const { toast } = useToast();
   const [enrollmentToken, setEnrollmentToken] = useState<EnrollmentToken | null>(null);
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const coverageQuery = useQuery<CoverageStats>({
     queryKey: ["/api/coverage"],
     refetchInterval: 30000,
   });
+
+  // WebSocket listener for real-time coverage updates when assets are discovered
+  useEffect(() => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    
+    try {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'assets_updated' || data.type === 'agent_registered') {
+            // Auto-refresh coverage stats when assets or agents change
+            queryClient.invalidateQueries({ queryKey: ["/api/coverage"] });
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      };
+
+      ws.onerror = () => {
+        // Silent fallback - polling will handle updates
+      };
+
+      ws.onclose = () => {
+        wsRef.current = null;
+      };
+
+    } catch {
+      // WebSocket not available - polling will handle updates
+    }
+
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
 
   const bootstrapQuery = useQuery<BootstrapCommands>({
     queryKey: ["/api/bootstrap", enrollmentToken?.token],
