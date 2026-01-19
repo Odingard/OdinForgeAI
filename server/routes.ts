@@ -2715,10 +2715,16 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Cloud connection not found" });
       }
 
+      // Frontend sends flat credentials, wrap them under the provider key
+      let credentials = req.body;
+      if (!credentials[connection.provider]) {
+        credentials = { [connection.provider]: req.body };
+      }
+
       const result = await cloudIntegrationService.validateAndStoreCredentials(
         req.params.id,
         connection.provider,
-        req.body
+        credentials
       );
 
       if (!result.success) {
