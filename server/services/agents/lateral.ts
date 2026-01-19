@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, LateralFindings, LateralShadowAdminIndicator } from "./types";
 import { generateAdversaryPromptContext } from "./adversary-profile";
+import { wrapAgentError } from "./error-classifier";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -145,8 +146,7 @@ Provide your lateral movement analysis as a JSON object with this structure:
       processingTime: Date.now() - startTime,
     };
   } catch (error) {
-    console.error("Lateral Movement Agent error:", error);
-    throw error;
+    throw wrapAgentError("Lateral Movement Agent", error);
   }
 }
 

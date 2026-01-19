@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import type { BusinessLogicFinding, WorkflowStateMachine, BusinessLogicCategory } from "@shared/schema";
 import { businessLogicCategories } from "@shared/schema";
+import { wrapAgentError } from "./error-classifier";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -122,8 +123,7 @@ Provide your business logic analysis as a JSON object with this structure:
       processingTime: Date.now() - startTime,
     };
   } catch (error) {
-    console.error("Business Logic Agent error:", error);
-    throw error;
+    throw wrapAgentError("Business Logic Agent", error);
   }
 }
 
