@@ -595,15 +595,25 @@ function ExternalReconContent() {
   // Track if we've received real WebSocket progress
   const hasRealProgressRef = useRef(false);
   
+  // Component-level async error state (for errors outside React lifecycle)
+  const [asyncError, setAsyncError] = useState<string | null>(null);
+  
   // Global error capture for async errors that don't get caught by React
+  // This captures ALL uncaught errors to prevent black screen
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      console.error('[GlobalErrorHandler] Uncaught error:', event.error || event.message);
+      const errorMessage = event.error?.message || event.message || 'An unexpected error occurred';
+      console.error('[GlobalErrorHandler] Uncaught error:', errorMessage);
+      // Always set error state for any uncaught error to prevent black screen
+      setAsyncError(errorMessage);
       event.preventDefault();
     };
     
     const handleRejection = (event: PromiseRejectionEvent) => {
-      console.error('[GlobalErrorHandler] Unhandled rejection:', event.reason);
+      const reason = event.reason?.message || String(event.reason) || 'An unexpected error occurred';
+      console.error('[GlobalErrorHandler] Unhandled rejection:', reason);
+      // Always set error state for any unhandled rejection
+      setAsyncError(reason);
       event.preventDefault();
     };
     
@@ -817,7 +827,20 @@ function ExternalReconContent() {
           headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
           credentials: 'include'
         });
-        const data = await response.json();
+        
+        let data: Record<string, unknown>;
+        try {
+          data = await response.json();
+        } catch {
+          console.error('[WebAppPoll] Failed to parse JSON response');
+          return; // Continue polling on parse error
+        }
+        
+        // Validate data is an object
+        if (!data || typeof data !== 'object') {
+          console.error('[WebAppPoll] Invalid response data');
+          return;
+        }
         
         if (response.status === 404) {
           setWebAppPolling(false);
@@ -830,40 +853,54 @@ function ExternalReconContent() {
         }
         
         if (response.ok) {
-          setWebAppResults(data);
+          // Safely set results with validated data
+          setWebAppResults(data as unknown as WebAppScanResult);
           
-          // Update progress based on status
-          const endpointsCount = data.reconResult?.endpoints?.length || data.reconResult?.attackSurface?.totalEndpoints || 0;
+          // Update progress based on status with safe access
+          const reconResult = data.reconResult as Record<string, unknown> | undefined;
+          const endpoints = reconResult?.endpoints;
+          const attackSurface = reconResult?.attackSurface as Record<string, unknown> | undefined;
+          const validatedFindings = data.validatedFindings;
+          
+          const endpointsCount = (Array.isArray(endpoints) ? endpoints.length : 0) || 
+                                 (typeof attackSurface?.totalEndpoints === 'number' ? attackSurface.totalEndpoints : 0);
+          const findingsCount = Array.isArray(validatedFindings) ? validatedFindings.length : 0;
+          const status = typeof data.status === 'string' ? data.status : 'pending';
+          const progress = typeof data.progress === 'number' ? data.progress : 10;
+          const currentPhase = typeof data.currentPhase === 'string' ? data.currentPhase : '';
+          const errorMsg = typeof data.error === 'string' ? data.error : '';
+          
           const progressMap: Record<string, WebAppReconProgress> = {
-            pending: { phase: 'pending', progress: data.progress || 10, message: data.currentPhase || 'Initializing scan...' },
-            web_recon: { phase: 'web_recon', progress: data.progress || 25, message: data.currentPhase || 'Crawling web application...', endpointsFound: endpointsCount },
-            web_recon_complete: { phase: 'web_recon_complete', progress: data.progress || 40, message: data.currentPhase || 'Web reconnaissance complete', endpointsFound: endpointsCount },
-            agent_dispatch: { phase: 'agent_dispatch', progress: data.progress || 65, message: data.currentPhase || 'Dispatching validation agents...', endpointsFound: endpointsCount },
-            completed: { phase: 'completed', progress: 100, message: 'Scan complete!', endpointsFound: endpointsCount, vulnerabilitiesValidated: data.validatedFindings?.length || 0 },
-            failed: { phase: 'failed', progress: 0, message: data.currentPhase || data.error || 'Scan failed' },
+            pending: { phase: 'pending', progress: progress || 10, message: currentPhase || 'Initializing scan...' },
+            web_recon: { phase: 'web_recon', progress: progress || 25, message: currentPhase || 'Crawling web application...', endpointsFound: endpointsCount },
+            web_recon_complete: { phase: 'web_recon_complete', progress: progress || 40, message: currentPhase || 'Web reconnaissance complete', endpointsFound: endpointsCount },
+            agent_dispatch: { phase: 'agent_dispatch', progress: progress || 65, message: currentPhase || 'Dispatching validation agents...', endpointsFound: endpointsCount },
+            completed: { phase: 'completed', progress: 100, message: 'Scan complete!', endpointsFound: endpointsCount, vulnerabilitiesValidated: findingsCount },
+            failed: { phase: 'failed', progress: 0, message: currentPhase || errorMsg || 'Scan failed' },
           };
           
-          setWebAppProgress(progressMap[data.status] || { phase: 'pending', progress: data.progress || 10, message: data.currentPhase || 'Processing...' });
+          setWebAppProgress(progressMap[status] || { phase: 'pending', progress: progress || 10, message: currentPhase || 'Processing...' });
           
-          if (data.status === 'completed' || data.status === 'failed') {
+          if (status === 'completed' || status === 'failed') {
             setWebAppPolling(false);
             
-            if (data.status === 'completed') {
+            if (status === 'completed') {
               toast({
                 title: "Web App Scan Complete",
-                description: `Found ${data.validatedFindings?.length || 0} validated vulnerabilities.`,
+                description: `Found ${findingsCount} validated vulnerabilities.`,
               });
             } else {
               toast({
                 title: "Web App Scan Failed",
-                description: data.error || "The scan encountered an error.",
+                description: errorMsg || "The scan encountered an error.",
                 variant: "destructive",
               });
             }
           }
         }
-      } catch {
-        // Network error, continue polling
+      } catch (err) {
+        // Network error or other issue, continue polling
+        console.error('[WebAppPoll] Error during poll:', err);
       }
     }, 2000);
     
@@ -1028,6 +1065,21 @@ function ExternalReconContent() {
 
   return (
     <div className="space-y-6">
+      {asyncError && (
+        <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-md">
+          <div className="flex items-center gap-2 text-destructive mb-2">
+            <AlertTriangle className="h-5 w-5" />
+            <span className="font-medium">An error occurred</span>
+          </div>
+          <p className="text-sm text-muted-foreground mb-3">
+            {asyncError}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => setAsyncError(null)}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Dismiss
+          </Button>
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1422,12 +1474,12 @@ function ExternalReconContent() {
                           </div>
                         </div>
                         
-                        {webAppResults.reconResult.applicationInfo?.technologies && webAppResults.reconResult.applicationInfo.technologies.length > 0 && (
+                        {Array.isArray(webAppResults.reconResult?.applicationInfo?.technologies) && webAppResults.reconResult.applicationInfo.technologies.length > 0 && (
                           <div className="space-y-2">
                             <Label className="text-xs">Detected Technologies</Label>
                             <div className="flex flex-wrap gap-1">
                               {webAppResults.reconResult.applicationInfo.technologies.map((tech, i) => (
-                                <Badge key={i} variant="secondary" className="text-xs">{tech}</Badge>
+                                <Badge key={i} variant="secondary" className="text-xs">{String(tech || '')}</Badge>
                               ))}
                             </div>
                           </div>
@@ -1437,7 +1489,7 @@ function ExternalReconContent() {
                   )}
                   
                   {/* Validated Findings */}
-                  {webAppResults.validatedFindings && webAppResults.validatedFindings.length > 0 && (
+                  {Array.isArray(webAppResults.validatedFindings) && webAppResults.validatedFindings.length > 0 && (
                     <Card>
                       <CardHeader className="pb-2">
                         <CardTitle className="text-sm flex items-center gap-2">
@@ -1446,7 +1498,7 @@ function ExternalReconContent() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {webAppResults.validatedFindings.map((finding, i) => {
+                        {(Array.isArray(webAppResults.validatedFindings) ? webAppResults.validatedFindings : []).map((finding, i) => {
                           if (!finding || typeof finding !== 'object') return null;
                           const severity = finding.severity || 'unknown';
                           const vulnType = finding.vulnerabilityType || 'Unknown Vulnerability';
@@ -1631,10 +1683,10 @@ function ExternalReconContent() {
                     <p className="text-sm text-muted-foreground mt-1">
                       {results.error || "The scan encountered an error. This may be due to network restrictions or an unreachable target."}
                     </p>
-                    {results.result.errors && results.result.errors.length > 0 && (
+                    {Array.isArray(results.result?.errors) && results.result.errors.length > 0 && (
                       <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside">
                         {results.result.errors.map((err, i) => (
-                          <li key={i}>{err}</li>
+                          <li key={i}>{String(err || '')}</li>
                         ))}
                       </ul>
                     )}
@@ -1773,7 +1825,7 @@ function ExternalReconContent() {
                     </div>
                     
                     {/* AEV Next Actions */}
-                    {results.result.attackReadiness.aevNextActions.length > 0 && (
+                    {Array.isArray(results.result?.attackReadiness?.aevNextActions) && results.result.attackReadiness.aevNextActions.length > 0 && (
                       <div className="space-y-3">
                         <h4 className="font-medium">AEV Next Actions</h4>
                         <div className="space-y-2">
@@ -1795,7 +1847,7 @@ function ExternalReconContent() {
                     )}
                     
                     {/* Prioritized Remediations */}
-                    {results.result.attackReadiness.prioritizedRemediations.length > 0 && (
+                    {Array.isArray(results.result?.attackReadiness?.prioritizedRemediations) && results.result.attackReadiness.prioritizedRemediations.length > 0 && (
                       <div className="space-y-3">
                         <h4 className="font-medium">Prioritized Remediations</h4>
                         <div className="space-y-2">
@@ -1832,7 +1884,7 @@ function ExternalReconContent() {
               
               {/* Section 1: Network Exposure */}
               <TabsContent value="network" className="space-y-4 mt-4">
-                {results.result.portScan && results.result.portScan.length > 0 ? (
+                {Array.isArray(results.result?.portScan) && results.result.portScan.length > 0 ? (
                   <div className="space-y-4" data-testid="network-exposure">
                     {/* Network Stats */}
                     {results.result.networkExposure && (
@@ -1851,13 +1903,13 @@ function ExternalReconContent() {
                         </Card>
                         <Card>
                           <CardContent className="pt-4">
-                            <div className="text-2xl font-bold">{results.result.networkExposure.serviceVersions.length}</div>
+                            <div className="text-2xl font-bold">{Array.isArray(results.result.networkExposure?.serviceVersions) ? results.result.networkExposure.serviceVersions.length : 0}</div>
                             <p className="text-xs text-muted-foreground">Version Disclosed</p>
                           </CardContent>
                         </Card>
                         <Card>
                           <CardContent className="pt-4">
-                            <div className="text-2xl font-bold">{results.result.networkExposure.protocolFindings.length}</div>
+                            <div className="text-2xl font-bold">{Array.isArray(results.result.networkExposure?.protocolFindings) ? results.result.networkExposure.protocolFindings.length : 0}</div>
                             <p className="text-xs text-muted-foreground">Protocol Issues</p>
                           </CardContent>
                         </Card>
@@ -2367,7 +2419,7 @@ function ExternalReconContent() {
 
             </Tabs>
 
-            {results.result.errors.length > 0 && (
+            {Array.isArray(results.result?.errors) && results.result.errors.length > 0 && (
               <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-md">
                 <div className="flex items-center gap-2 text-red-400 text-sm">
                   <AlertTriangle className="h-4 w-4" />
@@ -2375,7 +2427,7 @@ function ExternalReconContent() {
                 </div>
                 <ul className="mt-2 space-y-1 text-sm text-red-400">
                   {results.result.errors.map((error, i) => (
-                    <li key={i}>{error}</li>
+                    <li key={i}>{String(error || '')}</li>
                   ))}
                 </ul>
               </div>
