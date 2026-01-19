@@ -957,6 +957,26 @@ export class DatabaseStorage implements IStorage {
 
   // Cloud Credential operations
   async createCloudCredential(data: InsertCloudCredential): Promise<CloudCredential> {
+    const existing = await this.getCloudCredentialByConnectionId(data.connectionId);
+    
+    if (existing) {
+      await db
+        .update(cloudCredentials)
+        .set({
+          encryptedData: data.encryptedData,
+          encryptionKeyId: data.encryptionKeyId,
+          credentialType: data.credentialType,
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudCredentials.id, existing.id));
+      
+      const [updated] = await db
+        .select()
+        .from(cloudCredentials)
+        .where(eq(cloudCredentials.id, existing.id));
+      return updated;
+    }
+    
     const id = `cred-${randomUUID().slice(0, 8)}`;
     const [credential] = await db
       .insert(cloudCredentials)
