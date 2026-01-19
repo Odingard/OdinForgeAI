@@ -1446,56 +1446,67 @@ function ExternalReconContent() {
                         </CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        {webAppResults.validatedFindings.map((finding, i) => (
-                          <div key={i} className="p-3 bg-muted/30 rounded-md border space-y-2" data-testid={`finding-${i}`}>
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <Badge className={getSeverityColor(finding.severity)}>{finding.severity}</Badge>
-                                  <span className="font-medium">{finding.vulnerabilityType}</span>
-                                  {finding.cvssEstimate && (
-                                    <Badge variant="outline" className="text-xs">CVSS {finding.cvssEstimate.toFixed(1)}</Badge>
+                        {webAppResults.validatedFindings.map((finding, i) => {
+                          if (!finding || typeof finding !== 'object') return null;
+                          const severity = finding.severity || 'unknown';
+                          const vulnType = finding.vulnerabilityType || 'Unknown Vulnerability';
+                          const confidence = typeof finding.confidence === 'number' ? finding.confidence : 0;
+                          const endpointUrl = finding.endpointUrl || '';
+                          const verdict = finding.verdict || 'unknown';
+                          
+                          return (
+                            <div key={i} className="p-3 bg-muted/30 rounded-md border space-y-2" data-testid={`finding-${i}`}>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Badge className={getSeverityColor(severity)}>{severity}</Badge>
+                                    <span className="font-medium">{vulnType}</span>
+                                    {typeof finding.cvssEstimate === 'number' && (
+                                      <Badge variant="outline" className="text-xs">CVSS {finding.cvssEstimate.toFixed(1)}</Badge>
+                                    )}
+                                    <Badge variant="secondary" className="text-xs">{Math.round(confidence)}% confidence</Badge>
+                                  </div>
+                                  {endpointUrl && (
+                                    <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground">
+                                      <ExternalLink className="h-3 w-3" />
+                                      <span className="truncate">{endpointUrl}</span>
+                                    </div>
                                   )}
-                                  <Badge variant="secondary" className="text-xs">{Math.round(finding.confidence)}% confidence</Badge>
+                                  {finding.parameter && (
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      Parameter: <code className="bg-muted px-1 rounded">{finding.parameter}</code>
+                                    </div>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-1 mt-1 text-sm text-muted-foreground">
-                                  <ExternalLink className="h-3 w-3" />
-                                  <span className="truncate">{finding.endpointUrl}</span>
+                              </div>
+                              
+                              {Array.isArray(finding.evidence) && finding.evidence.length > 0 && (
+                                <div className="text-xs bg-background/50 p-2 rounded border overflow-x-auto">
+                                  <code className="text-muted-foreground whitespace-pre-wrap">{String(finding.evidence[0])}</code>
                                 </div>
-                                {finding.parameter && (
-                                  <div className="text-xs text-muted-foreground mt-1">
-                                    Parameter: <code className="bg-muted px-1 rounded">{finding.parameter}</code>
+                              )}
+                              
+                              <div className="flex flex-wrap gap-2 text-xs">
+                                <div>
+                                  <span className="text-muted-foreground">Verdict:</span>
+                                  <span className="ml-1 capitalize">{verdict}</span>
+                                </div>
+                                {finding.mitreAttackId && (
+                                  <div>
+                                    <span className="text-muted-foreground">MITRE:</span>
+                                    <span className="ml-1">{finding.mitreAttackId}</span>
                                   </div>
                                 )}
                               </div>
-                            </div>
-                            
-                            {finding.evidence && finding.evidence.length > 0 && (
-                              <div className="text-xs bg-background/50 p-2 rounded border overflow-x-auto">
-                                <code className="text-muted-foreground whitespace-pre-wrap">{finding.evidence[0]}</code>
-                              </div>
-                            )}
-                            
-                            <div className="flex flex-wrap gap-2 text-xs">
-                              <div>
-                                <span className="text-muted-foreground">Verdict:</span>
-                                <span className="ml-1 capitalize">{finding.verdict}</span>
-                              </div>
-                              {finding.mitreAttackId && (
-                                <div>
-                                  <span className="text-muted-foreground">MITRE:</span>
-                                  <span className="ml-1">{finding.mitreAttackId}</span>
+                              
+                              {Array.isArray(finding.recommendations) && finding.recommendations.length > 0 && (
+                                <div className="text-xs text-muted-foreground mt-2">
+                                  <span className="font-medium">Recommendation:</span> {String(finding.recommendations[0])}
                                 </div>
                               )}
                             </div>
-                            
-                            {finding.recommendations && finding.recommendations.length > 0 && (
-                              <div className="text-xs text-muted-foreground mt-2">
-                                <span className="font-medium">Recommendation:</span> {finding.recommendations[0]}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </CardContent>
                     </Card>
                   )}
