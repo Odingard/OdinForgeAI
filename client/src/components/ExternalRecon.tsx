@@ -754,9 +754,21 @@ export function ExternalRecon() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
     
+    let ws: WebSocket | null = null;
+    
     try {
-      const ws = new WebSocket(wsUrl);
+      ws = new WebSocket(wsUrl);
       webAppWsRef.current = ws;
+      
+      ws.onerror = () => {
+        // WebSocket error - silently handle, polling will take over
+        console.log('[WebSocket] Connection error, falling back to polling');
+      };
+      
+      ws.onclose = () => {
+        // Connection closed - this is expected
+        webAppWsRef.current = null;
+      };
       
       ws.onmessage = (event) => {
         try {
@@ -768,24 +780,32 @@ export function ExternalRecon() {
             
             setWebAppProgress({
               phase: normalizedPhase as WebAppReconProgress['phase'],
-              progress: data.progress || 0,
-              message: data.message || '',
-              endpointsFound: data.endpointsFound,
-              vulnerabilitiesValidated: data.vulnerabilitiesValidated,
+              progress: typeof data.progress === 'number' ? data.progress : 0,
+              message: typeof data.message === 'string' ? data.message : '',
+              endpointsFound: typeof data.endpointsFound === 'number' ? data.endpointsFound : undefined,
+              vulnerabilitiesValidated: typeof data.vulnerabilitiesValidated === 'number' ? data.vulnerabilitiesValidated : undefined,
             });
           }
         } catch {
           // Ignore parse errors
         }
       };
-      
-      return () => {
-        ws.close();
-        webAppWsRef.current = null;
-      };
     } catch {
-      // WebSocket creation failed
+      // WebSocket creation failed - polling will handle updates
+      console.log('[WebSocket] Failed to create connection, falling back to polling');
     }
+    
+    // Always return cleanup function
+    return () => {
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
+      webAppWsRef.current = null;
+    };
   }, [webAppScanId, webAppPolling]);
 
   // Poll for results
