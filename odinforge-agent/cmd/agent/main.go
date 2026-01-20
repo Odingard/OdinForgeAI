@@ -102,8 +102,7 @@ Examples:
   odinforge-agent status
 
   # Uninstall service
-  sudo odinforge-agent uninstall
-`)
+  sudo odinforge-agent uninstall`)
 }
 
 func runInstallCommand() {
