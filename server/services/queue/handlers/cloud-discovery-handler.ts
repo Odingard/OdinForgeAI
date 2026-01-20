@@ -97,7 +97,7 @@ export async function handleCloudDiscoveryJob(
     return {
       success: false,
       error: governanceCheck.reason,
-      metadata: {
+      data: {
         blockedByGovernance: true,
         reason: governanceCheck.reason,
       },
@@ -240,8 +240,8 @@ export async function handleCloudDiscoveryJob(
                 assetType: asset.assetType,
                 provider: asset.provider,
                 region: asset.region || undefined,
-                platform: asset.platform || undefined,
-                tags: asset.tags as Record<string, string> | undefined,
+                platform: undefined,
+                tags: asset.providerTags as Record<string, string> | undefined,
                 agentInstalled: asset.agentInstalled || false,
               }));
             
