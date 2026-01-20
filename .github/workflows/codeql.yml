@@ -26,17 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: ${{ matrix.language }}
-
-      # JS/TS
-      - name: Autobuild (JS/TS)
-        if: ${{ matrix.language == 'javascript-typescript' }}
-        uses: github/codeql-action/autobuild@v3
-
-      # Go (explicit)
+      # Install language toolchains BEFORE CodeQL init
       - name: Setup Go
         if: ${{ matrix.language == 'go' }}
         uses: actions/setup-go@v5
@@ -44,6 +34,24 @@ jobs:
           go-version: "1.22"
           cache: true
 
+      - name: Setup Node
+        if: ${{ matrix.language == 'javascript-typescript' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      # JS/TS autobuild
+      - name: Autobuild (JS/TS)
+        if: ${{ matrix.language == 'javascript-typescript' }}
+        uses: github/codeql-action/autobuild@v3
+
+      # Go build (explicit)
       - name: Build (Go agent)
         if: ${{ matrix.language == 'go' }}
         working-directory: odinforge-agent
