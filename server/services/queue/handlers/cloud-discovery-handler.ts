@@ -212,71 +212,67 @@ export async function handleCloudDiscoveryJob(
           // WebSocket broadcast is best-effort
         }
 
-        // Trigger auto-deployment for ONLY newly discovered assets if enabled
-        const newAssetCount = discoveryJob.newAssets || 0;
-        if (newAssetCount > 0) {
-          try {
-            const { triggerAutoDeployForNewAssets } = await import("../../auto-deploy-orchestrator");
-            
-            // Get only assets discovered in THIS job (recently created, no agent installed)
-            // Filter by createdAt being within the last few minutes to ensure we only get NEW assets
-            const discoveryStartTime = new Date(Date.now() - (attempts * 2000 + 60000)); // Buffer for discovery duration
-            const allAssets = await storage.getCloudAssetsByConnection(connectionId);
-            
-            // Only include assets that:
-            // 1. Don't have an agent installed
-            // 2. Were discovered recently (within this discovery job's timeframe)
-            // 3. Have no previous deployment attempts
-            const newAssetsList = allAssets
-              .filter(asset => {
-                const isNewlyDiscovered = asset.createdAt && new Date(asset.createdAt) >= discoveryStartTime;
-                const noAgentInstalled = !asset.agentInstalled;
-                const noPreviousDeployment = !asset.agentDeploymentStatus || asset.agentDeploymentStatus === "pending";
-                return noAgentInstalled && isNewlyDiscovered && noPreviousDeployment;
-              })
-              .slice(0, newAssetCount) // Limit to expected new asset count
-              .map(asset => {
-                // Extract platform from rawMetadata (AWS: platform, Azure: osType)
-                const rawMeta = asset.rawMetadata as Record<string, any> | null;
-                let platform: string | undefined;
-                if (rawMeta?.platform) {
-                  platform = String(rawMeta.platform).toLowerCase();
-                } else if (rawMeta?.osType) {
-                  platform = String(rawMeta.osType).toLowerCase();
-                } else if (rawMeta?.Platform) {
-                  platform = String(rawMeta.Platform).toLowerCase();
-                }
-                
-                return {
-                  id: asset.id,
-                  assetType: asset.assetType,
-                  provider: asset.provider,
-                  region: asset.region || undefined,
-                  platform,
-                  tags: asset.providerTags as Record<string, string> | undefined,
-                  agentInstalled: asset.agentInstalled || false,
-                };
-              });
-            
-            if (newAssetsList.length > 0) {
-              console.log(`[CloudDiscovery] Triggering auto-deploy for ${newAssetsList.length} newly discovered assets`);
-              
-              const autoDeployResult = await triggerAutoDeployForNewAssets(
-                organizationId,
-                tenantId,
-                connectionId,
-                newAssetsList
-              );
-              
-              if (autoDeployResult.deploymentsTriggered > 0) {
-                console.log(`[CloudDiscovery] Auto-deploy triggered ${autoDeployResult.deploymentsTriggered} deployments`);
+        // Trigger auto-deployment for assets without agents
+        // This runs on every scan to catch both new assets AND existing assets that still need agents
+        try {
+          const { triggerAutoDeployForNewAssets } = await import("../../auto-deploy-orchestrator");
+          
+          const allAssets = await storage.getCloudAssetsByConnection(connectionId);
+          
+          // Include assets that:
+          // 1. Don't have an agent installed
+          // 2. Have no previous deployment attempts OR previous attempt was pending/failed
+          const eligibleAssets = allAssets
+            .filter(asset => {
+              const noAgentInstalled = !asset.agentInstalled;
+              const eligibleForDeployment = !asset.agentDeploymentStatus || 
+                asset.agentDeploymentStatus === "pending" || 
+                asset.agentDeploymentStatus === "failed";
+              return noAgentInstalled && eligibleForDeployment;
+            })
+            .map(asset => {
+              // Extract platform from rawMetadata (AWS: platform, Azure: osType)
+              const rawMeta = asset.rawMetadata as Record<string, any> | null;
+              let platform: string | undefined;
+              if (rawMeta?.platform) {
+                platform = String(rawMeta.platform).toLowerCase();
+              } else if (rawMeta?.osType) {
+                platform = String(rawMeta.osType).toLowerCase();
+              } else if (rawMeta?.Platform) {
+                platform = String(rawMeta.Platform).toLowerCase();
               }
-            } else {
-              console.log(`[CloudDiscovery] No newly discovered assets eligible for auto-deploy`);
+              
+              return {
+                id: asset.id,
+                assetType: asset.assetType,
+                provider: asset.provider,
+                region: asset.region || undefined,
+                platform,
+                tags: asset.providerTags as Record<string, string> | undefined,
+                agentInstalled: asset.agentInstalled || false,
+              };
+            });
+          
+          if (eligibleAssets.length > 0) {
+            console.log(`[CloudDiscovery] Found ${eligibleAssets.length} assets eligible for auto-deploy`);
+            
+            const autoDeployResult = await triggerAutoDeployForNewAssets(
+              organizationId,
+              tenantId,
+              connectionId,
+              eligibleAssets
+            );
+            
+            if (autoDeployResult.deploymentsTriggered > 0) {
+              console.log(`[CloudDiscovery] Auto-deploy triggered ${autoDeployResult.deploymentsTriggered} deployments`);
+            } else if (autoDeployResult.skippedAssets > 0) {
+              console.log(`[CloudDiscovery] Auto-deploy skipped ${autoDeployResult.skippedAssets} assets (filtered by config)`);
             }
-          } catch (autoDeployError) {
-            console.error(`[CloudDiscovery] Auto-deploy check failed:`, autoDeployError);
+          } else {
+            console.log(`[CloudDiscovery] No assets eligible for auto-deploy (all have agents or deployment in progress)`);
           }
+        } catch (autoDeployError) {
+          console.error(`[CloudDiscovery] Auto-deploy check failed:`, autoDeployError);
         }
 
         return {
