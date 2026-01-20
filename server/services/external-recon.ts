@@ -608,7 +608,6 @@ async function checkAuthPath(baseUrl: string, authPath: { path: string; type: st
       path: url.pathname,
       method: 'GET',
       timeout: 5000,
-      rejectUnauthorized: false,
       headers: {
         'User-Agent': 'OdinForge-Scanner/1.0',
         'Accept': 'text/html,application/json',
