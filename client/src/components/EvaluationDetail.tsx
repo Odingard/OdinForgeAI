@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play, Trash2, Archive, ArchiveRestore, MoreVertical, FileOutput } from "lucide-react";
+import { DTGDisplay } from "@/components/ui/dtg-display";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -279,8 +280,7 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              <span>{new Date(evaluation.createdAt).toLocaleString()}</span>
+              <DTGDisplay date={evaluation.createdAt} showIcon />
             </div>
             {evaluation.duration && (
               <div className="flex items-center gap-2">

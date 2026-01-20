@@ -41,6 +41,8 @@ import pdfFonts from "pdfmake/build/vfs_fonts";
 pdfMake.vfs = pdfFonts.vfs;
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
+import { DTGRangeDisplay } from "@/components/ui/dtg-display";
+import { formatDTG, formatDTGWithLocal } from "@/lib/utils";
 
 const reportTypes = [
   { value: "executive_summary", label: "Executive Summary", icon: Briefcase, description: "High-level overview for leadership" },
@@ -399,13 +401,13 @@ export default function Reports() {
       },
       footer: (currentPage: number, pageCount: number) => ({
         columns: [
-          { text: `Generated: ${format(new Date(report.createdAt || new Date()), "MMM d, yyyy HH:mm")}`, style: "footerText", margin: [40, 0, 0, 0] },
+          { text: `Generated: ${formatDTGWithLocal(report.createdAt || new Date())}`, style: "footerText", margin: [40, 0, 0, 0] },
           { text: `Page ${currentPage} of ${pageCount}`, style: "footerText", alignment: "right", margin: [0, 0, 40, 0] },
         ],
       }),
       content: [
         { text: report.title, style: "title" },
-        { text: `Date Range: ${format(new Date(report.dateRangeFrom), "MMM d, yyyy")} - ${format(new Date(report.dateRangeTo), "MMM d, yyyy")}`, style: "subtitle" },
+        { text: `Date Range: ${formatDTG(report.dateRangeFrom)} — ${formatDTG(report.dateRangeTo)}`, style: "subtitle" },
         report.framework && { text: `Compliance Framework: ${report.framework.toUpperCase()}`, style: "subtitle" },
         { text: "", margin: [0, 10, 0, 10] },
         ...buildPdfContent(content, report.reportType),
@@ -1060,10 +1062,11 @@ export default function Reports() {
                         <div>
                           <h3 className="font-medium">{report.title}</h3>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Calendar className="w-3 h-3" />
-                            <span>
-                              {format(new Date(report.dateRangeFrom), "MMM d, yyyy")} - {format(new Date(report.dateRangeTo), "MMM d, yyyy")}
-                            </span>
+                            <DTGRangeDisplay 
+                              startDate={report.dateRangeFrom} 
+                              endDate={report.dateRangeTo} 
+                              compact 
+                            />
                             {report.framework && (
                               <Badge variant="outline" className="text-xs">
                                 {report.framework.toUpperCase()}

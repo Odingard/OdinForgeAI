@@ -39,8 +39,17 @@ import {
   Clock,
   Play,
   Eye,
-  Trash2
+  Trash2,
+  FileBarChart,
+  Briefcase,
+  FileCode,
+  Download
 } from "lucide-react";
+import { DTGDisplay } from "@/components/ui/dtg-display";
+import { formatDTG } from "@/lib/utils";
+import { DialogFooter } from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useLocation } from "wouter";
@@ -609,6 +618,15 @@ function ExternalReconContent() {
   const [selectedScanDetails, setSelectedScanDetails] = useState<WebAppScanResult | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   
+  // Report generation state
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [reportScanId, setReportScanId] = useState<string | null>(null);
+  const [reportScanTarget, setReportScanTarget] = useState<string>("");
+  const [reportScanDate, setReportScanDate] = useState<string>("");
+  const [reportFindingsCount, setReportFindingsCount] = useState<number>(0);
+  const [includeCompliance, setIncludeCompliance] = useState(false);
+  const [complianceFramework, setComplianceFramework] = useState<string>("soc2");
+  
   // Fetch recent web app scans
   const { data: recentScans = [], refetch: refetchScans } = useQuery<WebAppScanResult[]>({
     queryKey: ["/api/web-app-recon"],
@@ -636,6 +654,45 @@ function ExternalReconContent() {
       });
     },
   });
+  
+  // Generate report mutation
+  const generateReportMutation = useMutation({
+    mutationFn: async ({ scanId, includeCompliance, framework }: { scanId: string; includeCompliance: boolean; framework?: string }) => {
+      const res = await apiRequest("POST", `/api/reports/web-app-scan/${scanId}`, {
+        includeCompliance,
+        framework: includeCompliance ? framework : undefined,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setReportDialogOpen(false);
+      
+      // Invalidate reports list so new report appears
+      queryClient.invalidateQueries({ queryKey: ["/api/reports"] });
+      
+      toast({
+        title: "Report Generated",
+        description: `${data.title} has been saved. View it in the Reports page.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Report Generation Failed",
+        description: "Could not generate report for this scan",
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Open report dialog with scan details
+  const openReportDialog = (scan: WebAppScanResult) => {
+    setReportScanId(scan.id);
+    setReportScanTarget(scan.targetUrl);
+    setReportScanDate(scan.createdAt);
+    setReportFindingsCount(scan.validatedFindings?.length || 0);
+    setIncludeCompliance(false);
+    setReportDialogOpen(true);
+  };
   
   // Global error capture for async errors that don't get caught by React
   // This captures ALL uncaught errors to prevent black screen
@@ -2555,10 +2612,7 @@ function ExternalReconContent() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          {new Date(scan.createdAt).toLocaleDateString()}
-                        </div>
+                        <DTGDisplay date={scan.createdAt} showIcon />
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -2693,6 +2747,18 @@ function ExternalReconContent() {
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
+                          
+                          {scan.status === "completed" && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => openReportDialog(scan)}
+                              title="Generate Report"
+                              data-testid={`button-report-scan-${scan.id}`}
+                            >
+                              <FileBarChart className="h-4 w-4 text-cyan-400" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -2703,6 +2769,142 @@ function ExternalReconContent() {
           )}
         </CardContent>
       </Card>
+      
+      {/* Report Generation Dialog */}
+      <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileBarChart className="h-5 w-5 text-cyan-400" />
+              Generate Security Report
+            </DialogTitle>
+            <DialogDescription>
+              Create a comprehensive security report from your scan results
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Data Provenance */}
+            <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <Shield className="h-4 w-4 text-cyan-400" />
+                Report Source
+              </h4>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Target:</span>
+                  <p className="font-mono text-xs truncate" title={reportScanTarget}>{reportScanTarget}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Scan ID:</span>
+                  <p className="font-mono text-xs">{reportScanId}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">DTG:</span>
+                  {reportScanDate && <DTGDisplay date={reportScanDate} />}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Findings:</span>
+                  <p className="font-medium">{reportFindingsCount} vulnerabilities</p>
+                </div>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            {/* Report Contents */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium">Report Contents</h4>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 p-2 bg-muted/30 rounded-md">
+                  <Briefcase className="h-4 w-4 text-cyan-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Executive Summary</p>
+                    <p className="text-xs text-muted-foreground">High-level overview for leadership</p>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">Included</Badge>
+                </div>
+                <div className="flex items-center gap-3 p-2 bg-muted/30 rounded-md">
+                  <FileCode className="h-4 w-4 text-cyan-400" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">Technical Deep-Dive</p>
+                    <p className="text-xs text-muted-foreground">Detailed findings for engineers</p>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">Included</Badge>
+                </div>
+              </div>
+            </div>
+            
+            <Separator />
+            
+            {/* Compliance Add-on */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-muted-foreground" />
+                  <Label htmlFor="include-compliance" className="text-sm font-medium">
+                    Include Compliance Mapping
+                  </Label>
+                </div>
+                <Switch 
+                  id="include-compliance" 
+                  checked={includeCompliance} 
+                  onCheckedChange={setIncludeCompliance}
+                  data-testid="switch-compliance"
+                />
+              </div>
+              
+              {includeCompliance && (
+                <div className="pl-6 space-y-2">
+                  <Label htmlFor="framework" className="text-xs text-muted-foreground">
+                    Compliance Framework
+                  </Label>
+                  <Select value={complianceFramework} onValueChange={setComplianceFramework}>
+                    <SelectTrigger id="framework" className="h-9" data-testid="select-framework">
+                      <SelectValue placeholder="Select framework" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="soc2">SOC 2</SelectItem>
+                      <SelectItem value="pci_dss">PCI DSS</SelectItem>
+                      <SelectItem value="hipaa">HIPAA</SelectItem>
+                      <SelectItem value="gdpr">GDPR</SelectItem>
+                      <SelectItem value="nist_csf">NIST CSF</SelectItem>
+                      <SelectItem value="iso27001">ISO 27001</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReportDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => reportScanId && generateReportMutation.mutate({ 
+                scanId: reportScanId, 
+                includeCompliance,
+                framework: includeCompliance ? complianceFramework : undefined
+              })}
+              disabled={generateReportMutation.isPending}
+              data-testid="button-generate-report"
+            >
+              {generateReportMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Generate & Download
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
