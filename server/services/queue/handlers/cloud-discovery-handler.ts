@@ -235,15 +235,28 @@ export async function handleCloudDiscoveryJob(
                 return noAgentInstalled && isNewlyDiscovered && noPreviousDeployment;
               })
               .slice(0, newAssetCount) // Limit to expected new asset count
-              .map(asset => ({
-                id: asset.id,
-                assetType: asset.assetType,
-                provider: asset.provider,
-                region: asset.region || undefined,
-                platform: undefined,
-                tags: asset.providerTags as Record<string, string> | undefined,
-                agentInstalled: asset.agentInstalled || false,
-              }));
+              .map(asset => {
+                // Extract platform from rawMetadata (AWS: platform, Azure: osType)
+                const rawMeta = asset.rawMetadata as Record<string, any> | null;
+                let platform: string | undefined;
+                if (rawMeta?.platform) {
+                  platform = String(rawMeta.platform).toLowerCase();
+                } else if (rawMeta?.osType) {
+                  platform = String(rawMeta.osType).toLowerCase();
+                } else if (rawMeta?.Platform) {
+                  platform = String(rawMeta.Platform).toLowerCase();
+                }
+                
+                return {
+                  id: asset.id,
+                  assetType: asset.assetType,
+                  provider: asset.provider,
+                  region: asset.region || undefined,
+                  platform,
+                  tags: asset.providerTags as Record<string, string> | undefined,
+                  agentInstalled: asset.agentInstalled || false,
+                };
+              });
             
             if (newAssetsList.length > 0) {
               console.log(`[CloudDiscovery] Triggering auto-deploy for ${newAssetsList.length} newly discovered assets`);
