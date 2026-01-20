@@ -2393,53 +2393,63 @@ export async function registerRoutes(
 
   app.get("/api/assets", async (req, res) => {
     try {
-      // Fetch both discovered assets and cloud assets
-      const [discoveredAssets, cloudAssetsList] = await Promise.all([
+      // Fetch discovered assets, cloud assets, and endpoint agents
+      const [discoveredAssets, cloudAssetsList, allAgents] = await Promise.all([
         storage.getDiscoveredAssets(),
-        storage.getCloudAssets()
+        storage.getCloudAssets(),
+        storage.getEndpointAgents()
       ]);
       
+      // Create a map of agent IDs to agent records for quick lookup
+      const agentMap = new Map(allAgents.map(agent => [agent.id, agent]));
+      
       // Transform cloud assets to a unified format compatible with the Assets page
-      const transformedCloudAssets = cloudAssetsList.map(ca => ({
-        id: ca.id,
-        organizationId: ca.organizationId,
-        assetIdentifier: ca.providerResourceId,
-        displayName: ca.assetName,
-        assetType: ca.assetType,
-        status: ca.powerState === 'running' ? 'active' : (ca.powerState === 'stopped' ? 'inactive' : 'active'),
-        ipAddresses: [...(ca.publicIpAddresses || []), ...(ca.privateIpAddresses || [])],
-        hostname: ca.assetName,
-        fqdn: null,
-        macAddress: null,
-        cloudProvider: ca.provider,
-        cloudRegion: ca.region,
-        cloudAccountId: null,
-        cloudResourceId: ca.providerResourceId,
-        cloudTags: ca.providerTags,
-        operatingSystem: null,
-        osVersion: null,
-        installedSoftware: null,
-        discoveredPorts: null,
-        discoveredServices: null,
-        source: 'cloud_discovery' as const,
-        sourceId: ca.connectionId,
-        lastSeen: ca.lastSeenAt,
-        firstSeen: ca.firstDiscoveredAt,
-        agentId: ca.agentId,
-        agentStatus: ca.agentInstalled ? 'connected' : null,
-        metadata: {
-          instanceType: ca.instanceType,
-          cpuCount: ca.cpuCount,
-          memoryMb: ca.memoryMb,
-          availabilityZone: ca.availabilityZone,
-          powerState: ca.powerState,
-          healthStatus: ca.healthStatus,
-          agentDeployable: ca.agentDeployable,
-          agentDeploymentStatus: ca.agentDeploymentStatus
-        },
-        createdAt: ca.createdAt,
-        updatedAt: ca.updatedAt
-      }));
+      const transformedCloudAssets = cloudAssetsList.map(ca => {
+        // Verify agent exists in endpoint_agents table - don't trust cloud_assets fields alone
+        const agent = ca.agentId ? agentMap.get(ca.agentId) : null;
+        const hasValidAgent = agent !== undefined && agent !== null;
+        
+        return {
+          id: ca.id,
+          organizationId: ca.organizationId,
+          assetIdentifier: ca.providerResourceId,
+          displayName: ca.assetName,
+          assetType: ca.assetType,
+          status: ca.powerState === 'running' ? 'active' : (ca.powerState === 'stopped' ? 'inactive' : 'active'),
+          ipAddresses: [...(ca.publicIpAddresses || []), ...(ca.privateIpAddresses || [])],
+          hostname: ca.assetName,
+          fqdn: null,
+          macAddress: null,
+          cloudProvider: ca.provider,
+          cloudRegion: ca.region,
+          cloudAccountId: null,
+          cloudResourceId: ca.providerResourceId,
+          cloudTags: ca.providerTags,
+          operatingSystem: null,
+          osVersion: null,
+          installedSoftware: null,
+          discoveredPorts: null,
+          discoveredServices: null,
+          source: 'cloud_discovery' as const,
+          sourceId: ca.connectionId,
+          lastSeen: ca.lastSeenAt,
+          firstSeen: ca.firstDiscoveredAt,
+          agentId: hasValidAgent ? ca.agentId : null,
+          agentStatus: hasValidAgent ? agent.status : null,
+          metadata: {
+            instanceType: ca.instanceType,
+            cpuCount: ca.cpuCount,
+            memoryMb: ca.memoryMb,
+            availabilityZone: ca.availabilityZone,
+            powerState: ca.powerState,
+            healthStatus: ca.healthStatus,
+            agentDeployable: ca.agentDeployable,
+            agentDeploymentStatus: hasValidAgent ? ca.agentDeploymentStatus : null
+          },
+          createdAt: ca.createdAt,
+          updatedAt: ca.updatedAt
+        };
+      });
       
       // Combine both lists - cloud assets first (most recently discovered)
       const allAssets = [...transformedCloudAssets, ...discoveredAssets];
