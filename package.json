@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "aev:ci": "node ./scripts/aev-ci.js"
     "smoke": "node ./scripts/aev-smoke.js"
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
