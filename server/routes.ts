@@ -20,6 +20,7 @@ import {
   evaluationRateLimiter,
   reportRateLimiter,
   simulationRateLimiter,
+  batchRateLimiter,
   getAllRateLimitStatuses
 } from "./services/rate-limiter";
 import {
@@ -6459,7 +6460,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get scan results by scan ID
-  app.get("/api/scans/:scanId", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/scans/:scanId", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const { scanId } = req.params;
       const organizationId = req.uiUser?.organizationId || "default";
@@ -6481,7 +6482,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Submit external recon job
-  app.post("/api/jobs/external-recon", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/jobs/external-recon", evaluationRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const tenantId = req.uiUser?.tenantId || "default";
       const organizationId = req.uiUser?.organizationId || "default";
@@ -6517,7 +6518,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Submit web app reconnaissance scan
-  app.post("/api/jobs/web-app-recon", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/jobs/web-app-recon", evaluationRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const tenantId = req.uiUser?.tenantId || "default";
       const organizationId = req.uiUser?.organizationId || "default";
@@ -6705,7 +6706,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Delete web app recon scan
-  app.delete("/api/web-app-recon/:scanId", uiAuthMiddleware, async (req, res) => {
+  app.delete("/api/web-app-recon/:scanId", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
     try {
       await storage.deleteWebAppReconScan(req.params.scanId);
       res.json({ success: true });
@@ -6793,7 +6794,7 @@ function registerJobQueueRoutes(app: Express) {
   // ============================================================================
 
   // POST /api/enrollment/token - Create a new enrollment token (60 min expiry)
-  app.post("/api/enrollment/token", requireAdminAuth, async (req, res) => {
+  app.post("/api/enrollment/token", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       
@@ -6831,7 +6832,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // GET /api/enrollment/tokens - List active enrollment tokens (no raw tokens)
-  app.get("/api/enrollment/tokens", requireAdminAuth, async (req, res) => {
+  app.get("/api/enrollment/tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       
@@ -6853,7 +6854,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // DELETE /api/enrollment/tokens/:id - Revoke an enrollment token
-  app.delete("/api/enrollment/tokens/:id", requireAdminAuth, async (req, res) => {
+  app.delete("/api/enrollment/tokens/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const organizationId = getOrganizationId(req) || "default";
@@ -6944,7 +6945,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/inventory/assets - Ingest discovered assets
-  app.post("/api/inventory/assets", requireAdminAuth, async (req, res) => {
+  app.post("/api/inventory/assets", batchRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       const { provider, assets } = req.body;
@@ -6992,7 +6993,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/coverage - Get coverage statistics
-  app.get("/api/coverage", requireAdminAuth, async (req, res) => {
+  app.get("/api/coverage", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       
