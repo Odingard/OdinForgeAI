@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ "javascript-typescript", "python" ]
+        language: [ "javascript-typescript", "go" ]
 
     steps:
       - name: Checkout
@@ -31,6 +31,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
+      # For JS/TS and Go, autobuild usually works.
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
 
