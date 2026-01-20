@@ -189,13 +189,20 @@ export async function triggerAutoDeployForNewAssets(
     skipOfflineAssets: true,
   };
   
+  // Normalize to lowercase for case-insensitive matching
+  const normalizedProviders = providers.map(p => p.toLowerCase());
+  const normalizedAssetTypes = assetTypes.map(t => t.toLowerCase());
+  
   const eligibleAssets = newAssets.filter(asset => {
-    if (!providers.includes(asset.provider)) {
+    const assetProvider = asset.provider.toLowerCase();
+    const assetType = asset.assetType.toLowerCase();
+    
+    if (!normalizedProviders.includes(assetProvider)) {
       console.log(`[AutoDeploy] Skipping asset ${asset.id}: provider ${asset.provider} not in allowed list`);
       return false;
     }
     
-    if (!assetTypes.includes(asset.assetType)) {
+    if (!normalizedAssetTypes.includes(assetType)) {
       console.log(`[AutoDeploy] Skipping asset ${asset.id}: type ${asset.assetType} not in allowed list`);
       return false;
     }
@@ -316,16 +323,23 @@ export async function getAutoDeployEligibleAssets(
   const assetTypes = config.assetTypes || ["ec2", "vm", "gce"];
   const targetPlatforms = config.targetPlatforms || ["linux", "windows"];
   
+  // Normalize to lowercase for case-insensitive matching
+  const normalizedProviders = providers.map(p => p.toLowerCase());
+  const normalizedAssetTypes = assetTypes.map(t => t.toLowerCase());
+  
   const eligible: NewAsset[] = [];
   const ineligible: Array<{ asset: NewAsset; reason: string }> = [];
   
   for (const asset of assets) {
-    if (!providers.includes(asset.provider)) {
+    const assetProvider = asset.provider.toLowerCase();
+    const assetType = asset.assetType.toLowerCase();
+    
+    if (!normalizedProviders.includes(assetProvider)) {
       ineligible.push({ asset, reason: `Provider ${asset.provider} not allowed` });
       continue;
     }
     
-    if (!assetTypes.includes(asset.assetType)) {
+    if (!normalizedAssetTypes.includes(assetType)) {
       ineligible.push({ asset, reason: `Asset type ${asset.assetType} not allowed` });
       continue;
     }
