@@ -552,6 +552,71 @@ export function parseQualysXml(
     return match ? match[1].trim() : undefined;
   };
 
+  // ReDoS-safe tag content extraction using indexOf (no backtracking)
+  // Single-pass extraction preserves document order for multiple tag names
+  const extractTagContents = (content: string, tagNames: string[]): string[] => {
+    const results: string[] = [];
+    let searchStart = 0;
+    
+    while (searchStart < content.length) {
+      // Find the earliest matching tag from any of the tagNames
+      let earliestStart = -1;
+      let matchedTagName = "";
+      
+      for (const tagName of tagNames) {
+        const openTagPrefix = `<${tagName}`;
+        let pos = searchStart;
+        
+        // Search for valid tag opening
+        while (pos < content.length) {
+          const openStart = content.indexOf(openTagPrefix, pos);
+          if (openStart === -1) break;
+          
+          // Check next char - accept any char that's valid for XML tag (> or whitespace or /)
+          const nextChar = content[openStart + openTagPrefix.length];
+          if (nextChar === ">" || nextChar === " " || nextChar === "\t" || nextChar === "\n" || nextChar === "/" || nextChar === undefined) {
+            if (earliestStart === -1 || openStart < earliestStart) {
+              earliestStart = openStart;
+              matchedTagName = tagName;
+            }
+            break;
+          }
+          // Not a valid tag, continue searching
+          pos = openStart + 1;
+        }
+      }
+      
+      if (earliestStart === -1 || !matchedTagName) break;
+      
+      const openTagPrefix = `<${matchedTagName}`;
+      const closeTag = `</${matchedTagName}>`;
+      
+      // Find the end of the opening tag (the '>')
+      const openEnd = content.indexOf(">", earliestStart + openTagPrefix.length);
+      if (openEnd === -1) {
+        // Malformed tag, skip past it and continue
+        searchStart = earliestStart + openTagPrefix.length;
+        continue;
+      }
+      
+      // Find the closing tag
+      const closeStart = content.indexOf(closeTag, openEnd + 1);
+      if (closeStart === -1) {
+        // Missing closing tag, skip past opening and continue
+        searchStart = openEnd + 1;
+        continue;
+      }
+      
+      // Extract content between opening and closing tags
+      const tagContent = content.substring(openEnd + 1, closeStart);
+      results.push(tagContent);
+      
+      searchStart = closeStart + closeTag.length;
+    }
+    
+    return results;
+  };
+
   let hostMatch;
   while ((hostMatch = hostRegex.exec(content)) !== null) {
     const hostContent = hostMatch[1];
@@ -581,11 +646,10 @@ export function parseQualysXml(
     }
 
     // Parse vulnerabilities (VULN or DETECTION tags)
-    const vulnRegex = /<(?:VULN|DETECTION)[^>]*>([\s\S]*?)<\/(?:VULN|DETECTION)>/g;
-    let vulnMatch;
-    while ((vulnMatch = vulnRegex.exec(hostContent)) !== null) {
+    // Using programmatic extraction to avoid ReDoS vulnerability (CWE-1333, CWE-400, CWE-730)
+    const vulnContents = extractTagContents(hostContent, ["VULN", "DETECTION"]);
+    for (const vulnContent of vulnContents) {
       try {
-        const vulnContent = vulnMatch[1];
         
         const qid = getTag(vulnContent, "QID");
         const title = getTag(vulnContent, "TITLE") || getTag(vulnContent, "VULN_TITLE");
