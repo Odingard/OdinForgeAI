@@ -288,32 +288,6 @@ const SECURITY_HEADERS = [
   'Permissions-Policy',
 ];
 
-// ============================================================================
-// TLS POLICY (PRODUCTION-SAFE)
-// ============================================================================
-
-type TlsMode = 'strict' | 'allow-insecure';
-
-/**
- * Strict in production. In non-prod, can be relaxed only when explicitly enabled.
- * Set ALLOW_INSECURE_TLS=true ONLY in controlled lab/test scenarios.
- */
-function getTlsMode(): TlsMode {
-  const inProd = process.env.NODE_ENV === 'production';
-  const allowInsecure = process.env.ALLOW_INSECURE_TLS === 'true';
-  return !inProd && allowInsecure ? 'allow-insecure' : 'strict';
-}
-
-function tlsRejectUnauthorized(): boolean {
-  return getTlsMode() !== 'allow-insecure';
-}
-
-function httpsAgent(): https.Agent {
-  return new https.Agent({
-    rejectUnauthorized: tlsRejectUnauthorized(),
-  });
-}
-
 /**
  * Scan a single port
  */
