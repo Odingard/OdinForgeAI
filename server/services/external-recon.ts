@@ -459,7 +459,6 @@ export async function httpFingerprint(target: string): Promise<HTTPFingerprintRe
       path: url.pathname || '/',
       method: 'HEAD',
       timeout: 10000,
-      rejectUnauthorized: false,
     }, (res) => {
       const headers: Record<string, string> = {};
       const technologies: string[] = [];
