@@ -210,7 +210,7 @@ export async function registerRoutes(
   // Serve install.sh script for curl-based installation (no auth required)
   // Automatically injects the server URL so users don't need to enter it manually
   // Optional: ?token=<registration-token> to embed the token in the script
-  app.get("/api/agents/install.sh", (req, res) => {
+  app.get("/api/agents/install.sh", apiRateLimiter, (req, res) => {
     const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.sh");
     
     if (fs.existsSync(scriptPath)) {
@@ -232,7 +232,7 @@ export async function registerRoutes(
   // Serve install.ps1 script for PowerShell-based installation (no auth required)
   // Automatically injects the server URL so users don't need to enter it manually
   // Optional: ?token=<registration-token> to embed the token in the script
-  app.get("/api/agents/install.ps1", (req, res) => {
+  app.get("/api/agents/install.ps1", apiRateLimiter, (req, res) => {
     const scriptPath = path.join(process.cwd(), "odinforge-agent", "install.ps1");
     
     if (fs.existsSync(scriptPath)) {
@@ -252,7 +252,7 @@ export async function registerRoutes(
   });
 
   // Agent release info endpoint (no auth required for download center)
-  app.get("/api/agent-releases/latest", (req, res) => {
+  app.get("/api/agent-releases/latest", apiRateLimiter, (req, res) => {
     res.json({
       release: AGENT_RELEASE,
       instructions: INSTALLATION_INSTRUCTIONS
@@ -628,7 +628,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/evaluations", async (req, res) => {
+  app.get("/api/aev/evaluations", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const evaluations = await storage.getEvaluations(organizationId);
@@ -653,7 +653,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/evaluations/:id", async (req, res) => {
+  app.get("/api/aev/evaluations/:id", apiRateLimiter, async (req, res) => {
     try {
       const evaluation = await storage.getEvaluation(req.params.id);
       if (!evaluation) {
@@ -685,7 +685,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/aev/evaluations/:id", async (req, res) => {
+  app.delete("/api/aev/evaluations/:id", apiRateLimiter, async (req, res) => {
     try {
       const evaluationId = req.params.id;
       const evaluation = await storage.getEvaluation(evaluationId);
@@ -704,7 +704,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/aev/evaluations/:id/archive", async (req, res) => {
+  app.patch("/api/aev/evaluations/:id/archive", apiRateLimiter, async (req, res) => {
     try {
       const evaluationId = req.params.id;
       const evaluation = await storage.getEvaluation(evaluationId);
@@ -722,7 +722,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/aev/evaluations/:id/unarchive", async (req, res) => {
+  app.patch("/api/aev/evaluations/:id/unarchive", apiRateLimiter, async (req, res) => {
     try {
       const evaluationId = req.params.id;
       const evaluation = await storage.getEvaluation(evaluationId);
@@ -741,7 +741,7 @@ export async function registerRoutes(
   });
 
   // Live scan results endpoints
-  app.get("/api/aev/live-scans", async (req, res) => {
+  app.get("/api/aev/live-scans", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const results = await storage.getLiveScanResults(organizationId);
@@ -752,7 +752,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/live-scans/:evaluationId", async (req, res) => {
+  app.get("/api/aev/live-scans/:evaluationId", apiRateLimiter, async (req, res) => {
     try {
       const result = await storage.getLiveScanResultByEvaluationId(req.params.evaluationId);
       if (!result) {
@@ -766,7 +766,7 @@ export async function registerRoutes(
   });
 
   // Abort a running live scan
-  app.post("/api/aev/live-scans/:evaluationId/abort", async (req, res) => {
+  app.post("/api/aev/live-scans/:evaluationId/abort", apiRateLimiter, async (req, res) => {
     try {
       const { abortCurrentScan } = await import("./services/live-network-testing");
       const aborted = abortCurrentScan();
@@ -785,7 +785,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/stats", async (req, res) => {
+  app.get("/api/aev/stats", apiRateLimiter, async (req, res) => {
     try {
       const evaluations = await storage.getEvaluations();
       const resultsPromises = evaluations.map(e => storage.getResultByEvaluationId(e.id));
@@ -815,7 +815,7 @@ export async function registerRoutes(
 
   // ========== EXECUTION MODE ENDPOINTS ==========
   
-  app.get("/api/aev/execution-modes", async (req, res) => {
+  app.get("/api/aev/execution-modes", apiRateLimiter, async (req, res) => {
     try {
       const { 
         getExecutionModeSummary, 
@@ -842,7 +842,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/execution-modes/current", async (req, res) => {
+  app.get("/api/aev/execution-modes/current", apiRateLimiter, async (req, res) => {
     try {
       const { 
         getExecutionModeSummary, 
@@ -867,7 +867,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/execution-modes/set", async (req, res) => {
+  app.post("/api/aev/execution-modes/set", apiRateLimiter, async (req, res) => {
     try {
       const { 
         executionModeEnforcer,
@@ -931,7 +931,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/execution-modes/validate-operation", async (req, res) => {
+  app.post("/api/aev/execution-modes/validate-operation", apiRateLimiter, async (req, res) => {
     try {
       const { 
         validateOperation,
@@ -968,7 +968,7 @@ export async function registerRoutes(
 
   // ========== APPROVAL WORKFLOW ENDPOINTS ==========
   
-  app.get("/api/aev/approval-requests", async (req, res) => {
+  app.get("/api/aev/approval-requests", apiRateLimiter, async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const organizationId = req.query.organizationId as string || "default";
@@ -986,7 +986,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/approval-requests/:id", async (req, res) => {
+  app.get("/api/aev/approval-requests/:id", apiRateLimiter, async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const request = await approvalWorkflowService.getApprovalRequest(req.params.id);
@@ -1002,7 +1002,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests", async (req, res) => {
+  app.post("/api/aev/approval-requests", apiRateLimiter, async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       
@@ -1055,7 +1055,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests/:id/approve", async (req, res) => {
+  app.post("/api/aev/approval-requests/:id/approve", apiRateLimiter, async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const { approverId, approverName, notes } = req.body;
@@ -1078,7 +1078,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests/:id/deny", async (req, res) => {
+  app.post("/api/aev/approval-requests/:id/deny", apiRateLimiter, async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const { denierId, denierName, reason } = req.body;
@@ -1101,7 +1101,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests/:id/cancel", async (req, res) => {
+  app.post("/api/aev/approval-requests/:id/cancel", apiRateLimiter, async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const { cancelledBy } = req.body;
@@ -1116,7 +1116,7 @@ export async function registerRoutes(
 
   // ========== VALIDATION AUDIT LOG ENDPOINTS ==========
   
-  app.get("/api/aev/audit-logs", async (req, res) => {
+  app.get("/api/aev/audit-logs", apiRateLimiter, async (req, res) => {
     try {
       const { auditService } = await import("./services/validation/audit-service");
       const organizationId = req.query.organizationId as string || "default";
@@ -1137,7 +1137,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/audit-logs/verify", async (req, res) => {
+  app.get("/api/aev/audit-logs/verify", apiRateLimiter, async (req, res) => {
     try {
       const { auditService } = await import("./services/validation/audit-service");
       const organizationId = req.query.organizationId as string || "default";
@@ -1153,7 +1153,7 @@ export async function registerRoutes(
 
   // ========== SANDBOX EXECUTION ENDPOINTS ==========
   
-  app.get("/api/aev/sandbox/config", async (req, res) => {
+  app.get("/api/aev/sandbox/config", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const tenantId = req.query.tenantId as string || "default";
@@ -1166,7 +1166,7 @@ export async function registerRoutes(
     }
   });
   
-  app.put("/api/aev/sandbox/config", async (req, res) => {
+  app.put("/api/aev/sandbox/config", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { tenantId, ...config } = req.body;
@@ -1184,7 +1184,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/sandbox/stats", async (req, res) => {
+  app.get("/api/aev/sandbox/stats", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const tenantId = req.query.tenantId as string | undefined;
@@ -1199,7 +1199,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/sandbox/kill-switch", async (req, res) => {
+  app.get("/api/aev/sandbox/kill-switch", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const state = sandboxExecutor.getKillSwitchState();
@@ -1210,7 +1210,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/kill-switch/engage", async (req, res) => {
+  app.post("/api/aev/sandbox/kill-switch/engage", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { scope = "global", reason, engagedBy, affectedTenants, affectedOperations } = req.body;
@@ -1234,7 +1234,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/kill-switch/disengage", async (req, res) => {
+  app.post("/api/aev/sandbox/kill-switch/disengage", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { disengagedBy } = req.body;
@@ -1251,7 +1251,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/abort/:operationId", async (req, res) => {
+  app.post("/api/aev/sandbox/abort/:operationId", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { reason } = req.body;
@@ -1269,7 +1269,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/abort-all", async (req, res) => {
+  app.post("/api/aev/sandbox/abort-all", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { tenantId, reason } = req.body;
@@ -1282,7 +1282,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/validate-target", async (req, res) => {
+  app.post("/api/aev/sandbox/validate-target", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { target, tenantId = "default" } = req.body;
@@ -1299,7 +1299,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/check-limits", async (req, res) => {
+  app.post("/api/aev/sandbox/check-limits", apiRateLimiter, async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { tenantId = "default" } = req.body;
@@ -1321,7 +1321,7 @@ export async function registerRoutes(
 
   // ========== SYSTEM MONITORING ENDPOINTS ==========
   
-  app.get("/api/system/websocket-stats", async (req, res) => {
+  app.get("/api/system/websocket-stats", apiRateLimiter, async (req, res) => {
     try {
       const stats = wsService.getStats();
       res.json(stats);
@@ -1489,7 +1489,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/reports", async (req, res) => {
+  app.get("/api/reports", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const reports = await storage.getReports(organizationId);
@@ -1500,7 +1500,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/reports/:id", async (req, res) => {
+  app.get("/api/reports/:id", apiRateLimiter, async (req, res) => {
     try {
       const report = await storage.getReport(req.params.id);
       if (!report) {
@@ -1513,7 +1513,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/reports/:id", async (req, res) => {
+  app.delete("/api/reports/:id", apiRateLimiter, async (req, res) => {
     try {
       const report = await storage.getReport(req.params.id);
       if (!report) {
@@ -1527,7 +1527,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/reports/:id/download", async (req, res) => {
+  app.get("/api/reports/:id/download", apiRateLimiter, async (req, res) => {
     try {
       const report = await storage.getReport(req.params.id);
       if (!report) {
@@ -1566,7 +1566,7 @@ export async function registerRoutes(
   });
 
   // Domain Scan Report Generation
-  app.get("/api/reports/domain-scan/:scanId", async (req, res) => {
+  app.get("/api/reports/domain-scan/:scanId", apiRateLimiter, async (req, res) => {
     try {
       const { scanId } = req.params;
       const format = (req.query.format as string) || "json";
@@ -1600,7 +1600,7 @@ export async function registerRoutes(
   });
 
   // Web App Scan Report Generation
-  app.get("/api/reports/web-app-scan/:scanId", async (req, res) => {
+  app.get("/api/reports/web-app-scan/:scanId", apiRateLimiter, async (req, res) => {
     try {
       const { scanId } = req.params;
       const format = (req.query.format as string) || "json";
@@ -1692,7 +1692,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/enhanced/:evaluationId", async (req, res) => {
+  app.get("/api/reports/enhanced/:evaluationId", apiRateLimiter, async (req, res) => {
     try {
       const { evaluationId } = req.params;
       const includeKillChain = req.query.includeKillChain !== "false";
@@ -1749,7 +1749,7 @@ export async function registerRoutes(
 
   // ========== EVIDENCE EXPORT ENDPOINT ==========
   
-  app.post("/api/evidence/:evaluationId/export", async (req, res) => {
+  app.post("/api/evidence/:evaluationId/export", apiRateLimiter, async (req, res) => {
     try {
       const { evaluationId } = req.params;
       const { format = "json" } = req.body;
@@ -1846,7 +1846,7 @@ export async function registerRoutes(
     return nextRun;
   }
   
-  app.post("/api/scheduled-scans", async (req, res) => {
+  app.post("/api/scheduled-scans", apiRateLimiter, async (req, res) => {
     try {
       const parsed = insertScheduledScanSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1865,7 +1865,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scheduled-scans", async (req, res) => {
+  app.get("/api/scheduled-scans", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const scans = await storage.getScheduledScans(organizationId);
@@ -1876,7 +1876,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scheduled-scans/:id", async (req, res) => {
+  app.get("/api/scheduled-scans/:id", apiRateLimiter, async (req, res) => {
     try {
       const scan = await storage.getScheduledScan(req.params.id);
       if (!scan) {
@@ -1889,7 +1889,7 @@ export async function registerRoutes(
     }
   });
   
-  app.patch("/api/scheduled-scans/:id", async (req, res) => {
+  app.patch("/api/scheduled-scans/:id", apiRateLimiter, async (req, res) => {
     try {
       const scan = await storage.getScheduledScan(req.params.id);
       if (!scan) {
@@ -1904,7 +1904,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/scheduled-scans/:id", async (req, res) => {
+  app.delete("/api/scheduled-scans/:id", apiRateLimiter, async (req, res) => {
     try {
       const scan = await storage.getScheduledScan(req.params.id);
       if (!scan) {
@@ -1918,7 +1918,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/scheduled-scans/:id/trigger", async (req, res) => {
+  app.post("/api/scheduled-scans/:id/trigger", apiRateLimiter, async (req, res) => {
     try {
       const { triggerImmediateScan } = await import("./services/scheduler/scan-scheduler");
       const result = await triggerImmediateScan(req.params.id);
@@ -1935,7 +1935,7 @@ export async function registerRoutes(
   // ========== VALIDATION EVIDENCE ENDPOINTS ==========
   // Tenant context provided by global tenantMiddleware; enforce org scoping per route
   
-  app.get("/api/evidence", async (req, res) => {
+  app.get("/api/evidence", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -1948,7 +1948,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evidence/summary", async (req, res) => {
+  app.get("/api/evidence/summary", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -1960,7 +1960,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evidence/:id", async (req, res) => {
+  app.get("/api/evidence/:id", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const artifact = await evidenceStorageService.getEvidence(req.params.id);
@@ -1977,7 +1977,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evaluations/:evaluationId/evidence", async (req, res) => {
+  app.get("/api/evaluations/:evaluationId/evidence", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -1989,7 +1989,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/findings/:findingId/evidence", async (req, res) => {
+  app.get("/api/findings/:findingId/evidence", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -2001,7 +2001,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/evidence/:id", async (req, res) => {
+  app.delete("/api/evidence/:id", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const artifact = await evidenceStorageService.getEvidence(req.params.id);
@@ -2019,7 +2019,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/evidence/cleanup", async (req, res) => {
+  app.post("/api/evidence/cleanup", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const result = await evidenceStorageService.cleanupOldArtifacts();
@@ -2033,7 +2033,7 @@ export async function registerRoutes(
   // ========== GOVERNANCE ENDPOINTS ==========
   
   // Rate Limit Status - MUST come before :organizationId route
-  app.get("/api/governance/rate-limits", async (req, res) => {
+  app.get("/api/governance/rate-limits", apiRateLimiter, async (req, res) => {
     try {
       const statuses = getAllRateLimitStatuses();
       res.json(statuses);
@@ -2044,7 +2044,7 @@ export async function registerRoutes(
   });
 
   // Get or create organization governance settings
-  app.get("/api/governance/:organizationId", async (req, res) => {
+  app.get("/api/governance/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       let governance = await storage.getOrganizationGovernance(req.params.organizationId);
       if (!governance) {
@@ -2059,7 +2059,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/governance/:organizationId", async (req, res) => {
+  app.patch("/api/governance/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       await storage.updateOrganizationGovernance(req.params.organizationId, req.body);
       
@@ -2084,7 +2084,7 @@ export async function registerRoutes(
   });
 
   // Kill Switch
-  app.post("/api/governance/:organizationId/kill-switch", async (req, res) => {
+  app.post("/api/governance/:organizationId/kill-switch", apiRateLimiter, async (req, res) => {
     try {
       const { activate, activatedBy } = req.body;
       
@@ -2122,7 +2122,7 @@ export async function registerRoutes(
   });
 
   // Authorization Logs
-  app.get("/api/authorization-logs/:organizationId", async (req, res) => {
+  app.get("/api/authorization-logs/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const logs = await storage.getAuthorizationLogs(req.params.organizationId, limit);
@@ -2134,7 +2134,7 @@ export async function registerRoutes(
   });
 
   // Scope Rules
-  app.get("/api/scope-rules/:organizationId", async (req, res) => {
+  app.get("/api/scope-rules/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       const rules = await storage.getScopeRules(req.params.organizationId);
       res.json(rules);
@@ -2144,7 +2144,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/scope-rules", async (req, res) => {
+  app.post("/api/scope-rules", apiRateLimiter, async (req, res) => {
     try {
       const rule = await storage.createScopeRule(req.body);
       
@@ -2166,7 +2166,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/scope-rules/:id", async (req, res) => {
+  app.delete("/api/scope-rules/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.deleteScopeRule(req.params.id);
       
@@ -2184,7 +2184,7 @@ export async function registerRoutes(
   // ========== ADVANCED AI ENDPOINTS ==========
 
   // Adversary Profiles
-  app.get("/api/adversary-profiles", async (req, res) => {
+  app.get("/api/adversary-profiles", apiRateLimiter, async (req, res) => {
     try {
       let profiles = await storage.getAdversaryProfiles();
       
@@ -2312,7 +2312,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/adversary-profiles/:id", async (req, res) => {
+  app.get("/api/adversary-profiles/:id", apiRateLimiter, async (req, res) => {
     try {
       const profile = await storage.getAdversaryProfile(req.params.id);
       if (!profile) {
@@ -2325,7 +2325,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/adversary-profiles", async (req, res) => {
+  app.post("/api/adversary-profiles", apiRateLimiter, async (req, res) => {
     try {
       const profile = await storage.createAdversaryProfile(req.body);
       res.json(profile);
@@ -2336,7 +2336,7 @@ export async function registerRoutes(
   });
 
   // Attack Predictions - computed from real evaluation data
-  app.get("/api/attack-predictions/:organizationId", async (req, res) => {
+  app.get("/api/attack-predictions/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       const timeHorizon = req.query.timeHorizon as string || "30d";
       const predictions = await calculateAttackPredictions(req.params.organizationId, timeHorizon);
@@ -2347,7 +2347,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/attack-predictions/generate", async (req, res) => {
+  app.post("/api/attack-predictions/generate", apiRateLimiter, async (req, res) => {
     try {
       const { organizationId, timeHorizon } = req.body;
       const predictions = await calculateAttackPredictions(organizationId, timeHorizon || "30d");
@@ -2359,7 +2359,7 @@ export async function registerRoutes(
   });
 
   // Defensive Posture - computed from real evaluation data
-  app.get("/api/defensive-posture/:organizationId", async (req, res) => {
+  app.get("/api/defensive-posture/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       const posture = await calculateDefensivePosture(req.params.organizationId);
       res.json(posture);
@@ -2369,7 +2369,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/defensive-posture/:organizationId/history", async (req, res) => {
+  app.get("/api/defensive-posture/:organizationId/history", apiRateLimiter, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 30;
       const history = await storage.getDefensivePostureHistory(req.params.organizationId, limit);
@@ -2381,7 +2381,7 @@ export async function registerRoutes(
   });
 
   // Purple Team Findings
-  app.get("/api/purple-team/:organizationId", async (req, res) => {
+  app.get("/api/purple-team/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       const findings = await storage.getPurpleTeamFindings(req.params.organizationId);
       res.json(findings);
@@ -2391,7 +2391,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/purple-team", async (req, res) => {
+  app.post("/api/purple-team", apiRateLimiter, async (req, res) => {
     try {
       const finding = await storage.createPurpleTeamFinding(req.body);
       res.json(finding);
@@ -2401,7 +2401,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/purple-team/:id", async (req, res) => {
+  app.patch("/api/purple-team/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.updatePurpleTeamFinding(req.params.id, req.body);
       res.json({ success: true });
@@ -2412,7 +2412,7 @@ export async function registerRoutes(
   });
 
   // AI Simulations
-  app.get("/api/ai-simulations/:organizationId", async (req, res) => {
+  app.get("/api/ai-simulations/:organizationId", apiRateLimiter, async (req, res) => {
     try {
       const simulations = await storage.getAiSimulations(req.params.organizationId);
       res.json(simulations);
@@ -2422,7 +2422,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/ai-simulations", async (req, res) => {
+  app.post("/api/ai-simulations", simulationRateLimiter, async (req, res) => {
     try {
       const simulation = await storage.createAiSimulation({
         ...req.body,
@@ -2439,7 +2439,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/ai-simulations/detail/:id", async (req, res) => {
+  app.get("/api/ai-simulations/detail/:id", apiRateLimiter, async (req, res) => {
     try {
       const simulation = await storage.getAiSimulation(req.params.id);
       if (!simulation) {
@@ -2457,7 +2457,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get infrastructure statistics
-  app.get("/api/infrastructure/stats", async (req, res) => {
+  app.get("/api/infrastructure/stats", apiRateLimiter, async (req, res) => {
     try {
       const stats = await storage.getInfrastructureStats();
       res.json(stats);
@@ -2469,7 +2469,7 @@ export async function registerRoutes(
 
   // ========== DISCOVERED ASSETS ==========
 
-  app.get("/api/assets", async (req, res) => {
+  app.get("/api/assets", apiRateLimiter, async (req, res) => {
     try {
       // Fetch discovered assets, cloud assets, and endpoint agents
       const [discoveredAssets, cloudAssetsList, allAgents] = await Promise.all([
@@ -2538,7 +2538,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/assets/:id", async (req, res) => {
+  app.get("/api/assets/:id", apiRateLimiter, async (req, res) => {
     try {
       const asset = await storage.getDiscoveredAsset(req.params.id);
       if (!asset) {
@@ -2551,7 +2551,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/assets/:id/vulnerabilities", async (req, res) => {
+  app.get("/api/assets/:id/vulnerabilities", apiRateLimiter, async (req, res) => {
     try {
       const vulns = await storage.getVulnerabilityImportsByAssetId(req.params.id);
       res.json(vulns);
@@ -2561,7 +2561,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/assets/:id", async (req, res) => {
+  app.patch("/api/assets/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.updateDiscoveredAsset(req.params.id, req.body);
       const updated = await storage.getDiscoveredAsset(req.params.id);
@@ -2572,7 +2572,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/assets/:id", async (req, res) => {
+  app.delete("/api/assets/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.deleteDiscoveredAsset(req.params.id);
       res.json({ success: true });
@@ -2584,7 +2584,7 @@ export async function registerRoutes(
 
   // ========== VULNERABILITY IMPORTS ==========
 
-  app.get("/api/vulnerabilities", async (req, res) => {
+  app.get("/api/vulnerabilities", apiRateLimiter, async (req, res) => {
     try {
       const vulns = await storage.getVulnerabilityImports();
       res.json(vulns);
@@ -2594,7 +2594,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/vulnerabilities/:id", async (req, res) => {
+  app.get("/api/vulnerabilities/:id", apiRateLimiter, async (req, res) => {
     try {
       const vuln = await storage.getVulnerabilityImport(req.params.id);
       if (!vuln) {
@@ -2607,7 +2607,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/vulnerabilities/:id", async (req, res) => {
+  app.patch("/api/vulnerabilities/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.updateVulnerabilityImport(req.params.id, req.body);
       const updated = await storage.getVulnerabilityImport(req.params.id);
@@ -2619,7 +2619,7 @@ export async function registerRoutes(
   });
 
   // Create AEV evaluation from imported vulnerability
-  app.post("/api/vulnerabilities/:id/evaluate", async (req, res) => {
+  app.post("/api/vulnerabilities/:id/evaluate", evaluationRateLimiter, async (req, res) => {
     try {
       const vuln = await storage.getVulnerabilityImport(req.params.id);
       if (!vuln) {
@@ -2657,7 +2657,7 @@ export async function registerRoutes(
 
   // ========== IMPORT JOBS ==========
 
-  app.get("/api/imports", async (req, res) => {
+  app.get("/api/imports", apiRateLimiter, async (req, res) => {
     try {
       const jobs = await storage.getImportJobs();
       res.json(jobs);
@@ -2667,7 +2667,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/imports/:id", async (req, res) => {
+  app.get("/api/imports/:id", apiRateLimiter, async (req, res) => {
     try {
       const job = await storage.getImportJob(req.params.id);
       if (!job) {
@@ -2680,7 +2680,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/imports/:id/vulnerabilities", async (req, res) => {
+  app.get("/api/imports/:id/vulnerabilities", apiRateLimiter, async (req, res) => {
     try {
       const vulns = await storage.getVulnerabilityImportsByJobId(req.params.id);
       res.json(vulns);
@@ -2690,7 +2690,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/imports/:id", async (req, res) => {
+  app.delete("/api/imports/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.deleteImportJob(req.params.id);
       res.json({ success: true });
@@ -2701,7 +2701,7 @@ export async function registerRoutes(
   });
 
   // Upload and parse scanner file
-  app.post("/api/imports/upload", async (req, res) => {
+  app.post("/api/imports/upload", apiRateLimiter, async (req, res) => {
     try {
       const { content, fileName, mimeType, name, sourceType } = req.body;
       
@@ -2766,7 +2766,7 @@ export async function registerRoutes(
 
   // ========== CLOUD CONNECTIONS ==========
 
-  app.get("/api/cloud-connections", async (req, res) => {
+  app.get("/api/cloud-connections", apiRateLimiter, async (req, res) => {
     try {
       const connections = await storage.getCloudConnections();
       res.json(connections);
@@ -2776,7 +2776,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/cloud-connections/:id", async (req, res) => {
+  app.get("/api/cloud-connections/:id", apiRateLimiter, async (req, res) => {
     try {
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
@@ -2789,7 +2789,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cloud-connections", async (req, res) => {
+  app.post("/api/cloud-connections", apiRateLimiter, async (req, res) => {
     try {
       const connection = await storage.createCloudConnection(req.body);
       res.json(connection);
@@ -2799,7 +2799,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/cloud-connections/:id", async (req, res) => {
+  app.patch("/api/cloud-connections/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.updateCloudConnection(req.params.id, req.body);
       const updated = await storage.getCloudConnection(req.params.id);
@@ -2810,7 +2810,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/cloud-connections/:id", async (req, res) => {
+  app.delete("/api/cloud-connections/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.deleteCloudConnection(req.params.id);
       res.json({ success: true });
@@ -2821,7 +2821,7 @@ export async function registerRoutes(
   });
 
   // Test cloud connection
-  app.post("/api/cloud-connections/:id/test", async (req, res) => {
+  app.post("/api/cloud-connections/:id/test", apiRateLimiter, async (req, res) => {
     try {
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
@@ -2843,7 +2843,7 @@ export async function registerRoutes(
   });
 
   // Store credentials for cloud connection (encrypted)
-  app.post("/api/cloud-connections/:id/credentials", async (req, res) => {
+  app.post("/api/cloud-connections/:id/credentials", apiRateLimiter, async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -2886,7 +2886,7 @@ export async function registerRoutes(
   });
 
   // Start asset discovery for a cloud connection
-  app.post("/api/cloud-connections/:id/discover", async (req, res) => {
+  app.post("/api/cloud-connections/:id/discover", apiRateLimiter, async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -2917,7 +2917,7 @@ export async function registerRoutes(
   });
 
   // Get discovered cloud assets for a connection
-  app.get("/api/cloud-connections/:id/assets", async (req, res) => {
+  app.get("/api/cloud-connections/:id/assets", apiRateLimiter, async (req, res) => {
     try {
       const assets = await storage.getCloudAssetsByConnection(req.params.id);
       res.json(assets);
@@ -2928,7 +2928,7 @@ export async function registerRoutes(
   });
 
   // Get discovery jobs for a connection
-  app.get("/api/cloud-connections/:id/discovery-jobs", async (req, res) => {
+  app.get("/api/cloud-connections/:id/discovery-jobs", apiRateLimiter, async (req, res) => {
     try {
       const jobs = await storage.getCloudDiscoveryJobs(req.params.id);
       res.json(jobs);
@@ -2939,7 +2939,7 @@ export async function registerRoutes(
   });
 
   // Deploy agent to a specific cloud asset
-  app.post("/api/cloud-assets/:id/deploy-agent", async (req, res) => {
+  app.post("/api/cloud-assets/:id/deploy-agent", apiRateLimiter, async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -2964,7 +2964,7 @@ export async function registerRoutes(
   });
 
   // Redeploy agent to a cloud asset (force reinstall)
-  app.post("/api/cloud-assets/:id/redeploy-agent", async (req, res) => {
+  app.post("/api/cloud-assets/:id/redeploy-agent", apiRateLimiter, async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -3026,7 +3026,7 @@ export async function registerRoutes(
   });
 
   // Deploy agents to all assets in a connection
-  app.post("/api/cloud-connections/:id/deploy-all-agents", async (req, res) => {
+  app.post("/api/cloud-connections/:id/deploy-all-agents", batchRateLimiter, async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -3053,7 +3053,7 @@ export async function registerRoutes(
   });
 
   // Get all cloud assets
-  app.get("/api/cloud-assets", async (req, res) => {
+  app.get("/api/cloud-assets", apiRateLimiter, async (req, res) => {
     try {
       const assets = await storage.getCloudAssets();
       res.json(assets);
@@ -3064,7 +3064,7 @@ export async function registerRoutes(
   });
 
   // Get deployment jobs for a connection
-  app.get("/api/cloud-connections/:id/deployment-jobs", async (req, res) => {
+  app.get("/api/cloud-connections/:id/deployment-jobs", apiRateLimiter, async (req, res) => {
     try {
       const jobs = await storage.getAgentDeploymentJobs(req.params.id);
       res.json(jobs);
@@ -3107,7 +3107,7 @@ export async function registerRoutes(
   });
 
   // Get auto-deploy configuration for organization - requires authenticated user
-  app.get("/api/auto-deploy/config", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/auto-deploy/config", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
       let config = await storage.getAutoDeployConfig(organizationId);
@@ -3145,7 +3145,7 @@ export async function registerRoutes(
   });
 
   // Create or update auto-deploy configuration (requires admin)
-  app.put("/api/auto-deploy/config", uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+  app.put("/api/auto-deploy/config", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
       
@@ -3182,7 +3182,7 @@ export async function registerRoutes(
   });
 
   // Toggle auto-deploy on/off (convenience endpoint) - requires admin
-  app.post("/api/auto-deploy/toggle", uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/auto-deploy/toggle", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
       
@@ -3217,7 +3217,7 @@ export async function registerRoutes(
   });
 
   // Get auto-deploy statistics - requires authenticated user
-  app.get("/api/auto-deploy/stats", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/auto-deploy/stats", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
       const config = await storage.getAutoDeployConfig(organizationId);
@@ -3336,7 +3336,7 @@ export async function registerRoutes(
   });
 
   // Get all simulations
-  app.get("/api/simulations", async (req, res) => {
+  app.get("/api/simulations", apiRateLimiter, async (req, res) => {
     try {
       const simulations = await storage.getAllAiSimulations();
       res.json(simulations);
@@ -3347,7 +3347,7 @@ export async function registerRoutes(
   });
 
   // Get a specific simulation
-  app.get("/api/simulations/:id", async (req, res) => {
+  app.get("/api/simulations/:id", apiRateLimiter, async (req, res) => {
     try {
       const simulation = await storage.getAiSimulation(req.params.id);
       if (!simulation) {
@@ -3361,7 +3361,7 @@ export async function registerRoutes(
   });
 
   // Delete a simulation
-  app.delete("/api/simulations/:id", async (req, res) => {
+  app.delete("/api/simulations/:id", apiRateLimiter, async (req, res) => {
     try {
       const simulation = await storage.getAiSimulation(req.params.id);
       if (!simulation) {
@@ -3491,7 +3491,7 @@ export async function registerRoutes(
 
   // Get registration token for display in UI
   // Note: The Agents page requires login to access, so this is effectively protected
-  app.get("/api/agents/registration-token", async (req, res) => {
+  app.get("/api/agents/registration-token", apiRateLimiter, async (req, res) => {
     const token = process.env.AGENT_REGISTRATION_TOKEN;
     if (!token) {
       return res.json({ 
@@ -3673,7 +3673,7 @@ export async function registerRoutes(
   });
 
   // Agent heartbeat
-  app.post("/api/agents/heartbeat", authenticateAgent, async (req: any, res) => {
+  app.post("/api/agents/heartbeat", apiRateLimiter, authenticateAgent, async (req: any, res) => {
     try {
       await storage.updateAgentHeartbeat(req.agent.id);
       res.json({ success: true, timestamp: new Date().toISOString() });
@@ -4110,7 +4110,7 @@ export async function registerRoutes(
   });
 
   // Serve Kubernetes DaemonSet manifest (no auth required)
-  app.get("/api/agents/kubernetes/daemonset.yaml", async (req, res) => {
+  app.get("/api/agents/kubernetes/daemonset.yaml", apiRateLimiter, async (req, res) => {
     try {
       const fs = await import("fs");
       const path = await import("path");
@@ -4131,7 +4131,7 @@ export async function registerRoutes(
   });
 
   // Agent build status endpoint
-  app.get("/api/agents/build-status", async (req, res) => {
+  app.get("/api/agents/build-status", apiRateLimiter, async (req, res) => {
     try {
       const { getAgentBuildStatus } = await import("./services/agent-builder");
       const status = getAgentBuildStatus();
@@ -4147,7 +4147,7 @@ export async function registerRoutes(
   });
 
   // Download agent binary by platform - serves locally built binaries
-  app.get("/api/agents/download/:platform", async (req, res) => {
+  app.get("/api/agents/download/:platform", apiRateLimiter, async (req, res) => {
     try {
       const { platform } = req.params;
       const { getAgentBinaryPath } = await import("./services/agent-builder");
@@ -4200,7 +4200,7 @@ export async function registerRoutes(
   }
 
   // Get all agents (for dashboard)
-  app.get("/api/agents", async (req, res) => {
+  app.get("/api/agents", apiRateLimiter, async (req, res) => {
     try {
       const agents = await storage.getEndpointAgents();
       // Don't expose API keys in list view, calculate real-time status
@@ -4216,7 +4216,7 @@ export async function registerRoutes(
   });
 
   // Agent stats for dashboard (must be before :id route)
-  app.get("/api/agents/stats/summary", async (req, res) => {
+  app.get("/api/agents/stats/summary", apiRateLimiter, async (req, res) => {
     try {
       // Get agents and calculate real-time status for accurate counts
       const agents = await storage.getEndpointAgents();
@@ -4293,7 +4293,7 @@ export async function registerRoutes(
   };
 
   // Get auto-cleanup settings (must be before /api/agents/:id)
-  app.get("/api/agents/auto-cleanup", async (req, res) => {
+  app.get("/api/agents/auto-cleanup", apiRateLimiter, async (req, res) => {
     res.json({
       enabled: autoCleanupConfig.enabled,
       intervalHours: autoCleanupConfig.intervalHours,
@@ -4305,7 +4305,7 @@ export async function registerRoutes(
   });
 
   // Update auto-cleanup settings
-  app.post("/api/agents/auto-cleanup", async (req, res) => {
+  app.post("/api/agents/auto-cleanup", apiRateLimiter, async (req, res) => {
     try {
       const { enabled, intervalHours, maxAgeHours } = req.body;
       
@@ -4340,7 +4340,7 @@ export async function registerRoutes(
   });
 
   // Trigger immediate auto-cleanup run
-  app.post("/api/agents/auto-cleanup/run-now", async (req, res) => {
+  app.post("/api/agents/auto-cleanup/run-now", apiRateLimiter, async (req, res) => {
     try {
       const result = await storage.deleteStaleAgents(autoCleanupConfig.maxAgeHours);
       autoCleanupConfig.lastRun = new Date().toISOString();
@@ -4359,7 +4359,7 @@ export async function registerRoutes(
   });
 
   // Get agent by ID
-  app.get("/api/agents/:id", async (req, res) => {
+  app.get("/api/agents/:id", apiRateLimiter, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4378,7 +4378,7 @@ export async function registerRoutes(
   });
 
   // Force agent check-in - queue command for agent to execute on next heartbeat
-  app.post("/api/agents/:id/force-checkin", async (req, res) => {
+  app.post("/api/agents/:id/force-checkin", apiRateLimiter, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4409,7 +4409,7 @@ export async function registerRoutes(
   });
 
   // Queue validation probe command for agent to execute from inside target network
-  app.post("/api/agents/:id/validation-probe", async (req, res) => {
+  app.post("/api/agents/:id/validation-probe", apiRateLimiter, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4479,7 +4479,7 @@ export async function registerRoutes(
   });
 
   // Get pending commands for an agent (called by agent during heartbeat)
-  app.get("/api/agents/:id/commands", async (req, res) => {
+  app.get("/api/agents/:id/commands", apiRateLimiter, async (req, res) => {
     try {
       const apiKey = req.headers["x-api-key"] as string;
       if (!apiKey) {
@@ -4510,7 +4510,7 @@ export async function registerRoutes(
   });
 
   // Complete a command (called by agent after executing)
-  app.post("/api/agents/:id/commands/:commandId/complete", async (req, res) => {
+  app.post("/api/agents/:id/commands/:commandId/complete", apiRateLimiter, async (req, res) => {
     try {
       const apiKey = req.headers["x-api-key"] as string;
       if (!apiKey) {
@@ -4534,7 +4534,7 @@ export async function registerRoutes(
   });
 
   // Get agent telemetry
-  app.get("/api/agents/:id/telemetry", async (req, res) => {
+  app.get("/api/agents/:id/telemetry", apiRateLimiter, async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const telemetry = await storage.getAgentTelemetry(req.params.id, limit);
@@ -4578,7 +4578,7 @@ export async function registerRoutes(
   });
 
   // Get agent findings
-  app.get("/api/agents/:id/findings", async (req, res) => {
+  app.get("/api/agents/:id/findings", apiRateLimiter, async (req, res) => {
     try {
       const includeNoise = req.query.includeNoise === "true";
       let findings = await storage.getAgentFindings(req.params.id);
@@ -4595,7 +4595,7 @@ export async function registerRoutes(
   });
 
   // Delete agent
-  app.delete("/api/agents/:id", async (req, res) => {
+  app.delete("/api/agents/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.deleteEndpointAgent(req.params.id);
       res.json({ success: true });
@@ -4606,7 +4606,7 @@ export async function registerRoutes(
   });
 
   // Cleanup stale agents (agents that haven't checked in for specified hours)
-  app.post("/api/agents/cleanup", async (req, res) => {
+  app.post("/api/agents/cleanup", apiRateLimiter, async (req, res) => {
     try {
       const maxAgeHours = Math.max(1, Math.min(720, Number(req.body.maxAgeHours) || 24));
       if (isNaN(maxAgeHours)) {
@@ -4626,7 +4626,7 @@ export async function registerRoutes(
   });
 
   // Get all agent findings
-  app.get("/api/agent-findings", async (req, res) => {
+  app.get("/api/agent-findings", apiRateLimiter, async (req, res) => {
     try {
       const includeNoise = req.query.includeNoise === "true";
       let findings = await storage.getAgentFindings();
@@ -4643,7 +4643,7 @@ export async function registerRoutes(
   });
 
   // Update agent finding status
-  app.patch("/api/agent-findings/:id", async (req, res) => {
+  app.patch("/api/agent-findings/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.updateAgentFinding(req.params.id, req.body);
       const finding = await storage.getAgentFinding(req.params.id);
@@ -4661,7 +4661,7 @@ export async function registerRoutes(
     verificationNotes: z.string().max(2000).optional(),
   });
   
-  app.post("/api/agent-findings/:id/verify", uiAuthMiddleware, requireRole("security_analyst", "security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/agent-findings/:id/verify", apiRateLimiter, uiAuthMiddleware, requireRole("security_analyst", "security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const parseResult = verifyFindingSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -4718,7 +4718,7 @@ export async function registerRoutes(
   };
 
   // Request a new certificate for an agent
-  app.post("/api/agents/:id/certificates", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/certificates", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4753,7 +4753,7 @@ export async function registerRoutes(
   });
 
   // List certificates for an agent
-  app.get("/api/agents/:id/certificates", async (req, res) => {
+  app.get("/api/agents/:id/certificates", apiRateLimiter, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4778,7 +4778,7 @@ export async function registerRoutes(
   });
 
   // Renew a certificate
-  app.post("/api/agents/:id/certificates/:certId/renew", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/certificates/:certId/renew", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4808,7 +4808,7 @@ export async function registerRoutes(
   });
 
   // Revoke a certificate
-  app.delete("/api/agents/:id/certificates/:certId", requireAdminAuth, async (req, res) => {
+  app.delete("/api/agents/:id/certificates/:certId", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const reason = req.body.reason || "Manually revoked";
       const success = await mtlsAuthService.revokeCertificate(req.params.certId, reason);
@@ -4832,7 +4832,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Generate JWT tokens for an agent
-  app.post("/api/agents/:id/tokens", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4863,7 +4863,7 @@ export async function registerRoutes(
   });
 
   // Refresh JWT tokens
-  app.post("/api/auth/refresh", async (req, res) => {
+  app.post("/api/auth/refresh", authRateLimiter, async (req, res) => {
     try {
       const { refreshToken } = req.body;
       if (!refreshToken) {
@@ -4888,7 +4888,7 @@ export async function registerRoutes(
   });
 
   // Revoke all credentials for an agent
-  app.post("/api/agents/:id/revoke-all", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/revoke-all", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4911,7 +4911,7 @@ export async function registerRoutes(
   });
 
   // Get agent authentication status
-  app.get("/api/agents/:id/auth-status", async (req, res) => {
+  app.get("/api/agents/:id/auth-status", apiRateLimiter, async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4937,7 +4937,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Generate a new single-use registration token
-  app.post("/api/agents/registration-tokens", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/registration-tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const { organizationId, label, expiresInHours } = req.body;
       const org = organizationId || "default";
@@ -4974,7 +4974,7 @@ export async function registerRoutes(
   });
 
   // List registration tokens for an organization (admin only)
-  app.get("/api/agents/registration-tokens", requireAdminAuth, async (req, res) => {
+  app.get("/api/agents/registration-tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const organizationId = (req.query.organizationId as string) || "default";
       const tokens = await storage.getAgentRegistrationTokens(organizationId);
@@ -4998,7 +4998,7 @@ export async function registerRoutes(
   });
 
   // Delete a registration token
-  app.delete("/api/agents/registration-tokens/:id", requireAdminAuth, async (req, res) => {
+  app.delete("/api/agents/registration-tokens/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       await storage.deleteAgentRegistrationToken(req.params.id);
       console.log(`[AUDIT] Registration token ${req.params.id} deleted`);
@@ -5010,7 +5010,7 @@ export async function registerRoutes(
   });
 
   // Cleanup expired/used tokens (maintenance endpoint)
-  app.post("/api/agents/registration-tokens/cleanup", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/registration-tokens/cleanup", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const deletedCount = await storage.cleanupExpiredAgentRegistrationTokens();
       console.log(`[AUDIT] Cleaned up ${deletedCount} expired/used registration tokens`);
@@ -5023,7 +5023,7 @@ export async function registerRoutes(
 
   // Generate a ready-to-use install command with embedded token (zero user interaction)
   // This is the primary endpoint for automated agent deployment
-  app.post("/api/agents/install-command", requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/install-command", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const { platform, organizationId, label, expiresInHours, serverUrl: customServerUrl } = req.body;
       const org = organizationId || "default";
@@ -5098,7 +5098,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Create a new tenant
-  app.post("/api/tenants", requireAdminAuth, async (req, res) => {
+  app.post("/api/tenants", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const { name, organizationId, allowedScopes, accessTokenTTL, refreshTokenTTL } = req.body;
       if (!name) {
@@ -5133,7 +5133,7 @@ export async function registerRoutes(
   });
 
   // List tenants
-  app.get("/api/tenants", async (req, res) => {
+  app.get("/api/tenants", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const tenants = await jwtAuthService.listTenants(organizationId);
@@ -5145,7 +5145,7 @@ export async function registerRoutes(
   });
 
   // Get tenant by ID
-  app.get("/api/tenants/:id", async (req, res) => {
+  app.get("/api/tenants/:id", apiRateLimiter, async (req, res) => {
     try {
       const tenant = await jwtAuthService.getTenant(req.params.id);
       if (!tenant) {
@@ -5170,7 +5170,7 @@ export async function registerRoutes(
   });
 
   // Deactivate tenant
-  app.delete("/api/tenants/:id", requireAdminAuth, async (req, res) => {
+  app.delete("/api/tenants/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const success = await jwtAuthService.deactivateTenant(req.params.id);
       if (!success) {
@@ -5192,7 +5192,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Get authentication configuration (read-only, no auth required)
-  app.get("/api/auth/config", async (req, res) => {
+  app.get("/api/auth/config", authRateLimiter, async (req, res) => {
     try {
       const config = unifiedAuthService.getConfig();
       res.json(config);
@@ -5203,7 +5203,7 @@ export async function registerRoutes(
   });
 
   // Update authentication configuration (admin only)
-  app.patch("/api/auth/config", requireAdminAuth, async (req, res) => {
+  app.patch("/api/auth/config", authRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const updates = req.body;
       unifiedAuthService.configure(updates);
@@ -5253,7 +5253,7 @@ export async function registerRoutes(
   };
 
   // Get organization settings
-  app.get("/api/organization/settings", requireAdminAuth, async (req, res) => {
+  app.get("/api/organization/settings", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       res.json(organizationSettings);
     } catch (error) {
@@ -5263,7 +5263,7 @@ export async function registerRoutes(
   });
 
   // Update organization settings
-  app.patch("/api/organization/settings", requireAdminAuth, async (req, res) => {
+  app.patch("/api/organization/settings", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const updates = req.body;
       Object.keys(updates).forEach(key => {
@@ -5285,7 +5285,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Get all users
-  app.get("/api/users", requireAdminAuth, async (req, res) => {
+  app.get("/api/users", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const users = await storage.getAllUsers(organizationId);
@@ -5297,7 +5297,7 @@ export async function registerRoutes(
   });
 
   // Create a new user
-  app.post("/api/users", requireAdminAuth, async (req, res) => {
+  app.post("/api/users", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const { username, password, role, displayName, email } = req.body;
       
@@ -5328,7 +5328,7 @@ export async function registerRoutes(
   });
 
   // Update a user
-  app.patch("/api/users/:id", requireAdminAuth, async (req, res) => {
+  app.patch("/api/users/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const { role, displayName, email, password } = req.body;
       const user = await storage.getUser(req.params.id);
@@ -5355,7 +5355,7 @@ export async function registerRoutes(
   });
 
   // Delete a user
-  app.delete("/api/users/:id", requireAdminAuth, async (req, res) => {
+  app.delete("/api/users/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       
@@ -5483,7 +5483,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/recon/results/:scanId", async (req, res) => {
+  app.get("/api/recon/results/:scanId", apiRateLimiter, async (req, res) => {
     try {
       const { scanId } = req.params;
       const scan = await storage.getReconScan(scanId);
@@ -5738,7 +5738,7 @@ export async function registerRoutes(
   });
 
   // Get all full assessments
-  app.get("/api/full-assessments", async (req, res) => {
+  app.get("/api/full-assessments", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const assessments = await storage.getFullAssessments(organizationId);
@@ -5750,7 +5750,7 @@ export async function registerRoutes(
   });
 
   // Get a specific full assessment
-  app.get("/api/full-assessments/:id", async (req, res) => {
+  app.get("/api/full-assessments/:id", apiRateLimiter, async (req, res) => {
     try {
       const assessment = await storage.getFullAssessment(req.params.id);
       if (!assessment) {
@@ -5764,7 +5764,7 @@ export async function registerRoutes(
   });
 
   // Delete a full assessment
-  app.delete("/api/full-assessments/:id", async (req, res) => {
+  app.delete("/api/full-assessments/:id", apiRateLimiter, async (req, res) => {
     try {
       await storage.deleteFullAssessment(req.params.id);
       res.json({ success: true });
@@ -6261,7 +6261,7 @@ function registerJobQueueRoutes(app: Express) {
   };
 
   // Get queue stats
-  app.get("/api/jobs/stats", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/jobs/stats", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const stats = await queueService.getQueueStats();
       res.json({
@@ -6275,7 +6275,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // List jobs for tenant
-  app.get("/api/jobs", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/jobs", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const tenantId = req.uiUser?.tenantId || "default";
       const status = req.query.status as string | undefined;
@@ -6298,7 +6298,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get single job
-  app.get("/api/jobs/:jobId", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/jobs/:jobId", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const job = await queueService.getJob(req.params.jobId);
       if (!job) {
@@ -6319,7 +6319,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Cancel job
-  app.post("/api/jobs/:jobId/cancel", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/jobs/:jobId/cancel", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const job = await queueService.getJob(req.params.jobId);
       if (!job) {
@@ -6344,7 +6344,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Retry failed job
-  app.post("/api/jobs/:jobId/retry", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/jobs/:jobId/retry", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const job = await queueService.getJob(req.params.jobId);
       if (!job) {
@@ -6411,7 +6411,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Submit network scan job
-  app.post("/api/jobs/network-scan", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/jobs/network-scan", evaluationRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const tenantId = req.uiUser?.tenantId || "default";
       const organizationId = req.uiUser?.organizationId || "default";
@@ -6448,7 +6448,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get all scan results for the organization
-  app.get("/api/scans", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/scans", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.uiUser?.organizationId || "default";
       const results = await storage.getLiveScanResults(organizationId);
@@ -6680,7 +6680,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get web app recon scan status
-  app.get("/api/web-app-recon/:scanId", async (req, res) => {
+  app.get("/api/web-app-recon/:scanId", apiRateLimiter, async (req, res) => {
     try {
       const scan = await storage.getWebAppReconScan(req.params.scanId);
       if (!scan) {
@@ -6694,7 +6694,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get all web app recon scans
-  app.get("/api/web-app-recon", async (req, res) => {
+  app.get("/api/web-app-recon", apiRateLimiter, async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const scans = await storage.getWebAppReconScans(organizationId);
@@ -6869,7 +6869,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // GET /api/bootstrap?token= - Generate bootstrap commands for all platforms
-  app.get("/api/bootstrap", async (req, res) => {
+  app.get("/api/bootstrap", apiRateLimiter, async (req, res) => {
     try {
       const { token } = req.query;
       
