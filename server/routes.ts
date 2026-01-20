@@ -144,6 +144,24 @@ export async function registerRoutes(
   // Register tenant routes
   registerTenantRoutes(app);
   
+  // ========== HEALTH CHECK ENDPOINTS ==========
+  // K8s / CI / Load Balancer friendly health checks
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({
+      ok: true,
+      service: "odinforge-backend",
+      ts: new Date().toISOString(),
+    });
+  });
+
+  app.get("/readyz", async (_req, res) => {
+    res.status(200).json({
+      ok: true,
+      ready: true,
+      ts: new Date().toISOString(),
+    });
+  });
+  
   // ========== AGENT BINARY DOWNLOADS ==========
   // Serve agent binaries from public/agents directory (no auth required for download)
   app.get("/agents/:filename", (req, res) => {
