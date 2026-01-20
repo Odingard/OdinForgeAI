@@ -31,10 +31,18 @@ jobs:
         with:
           languages: ${{ matrix.language }}
 
-      # For JS/TS and Go, autobuild usually works.
+      # JS/TS
       - name: Autobuild (JS/TS)
         if: ${{ matrix.language == 'javascript-typescript' }}
         uses: github/codeql-action/autobuild@v3
+
+      # Go (explicit)
+      - name: Setup Go
+        if: ${{ matrix.language == 'go' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
 
       - name: Build (Go agent)
         if: ${{ matrix.language == 'go' }}
@@ -46,3 +54,6 @@ jobs:
             echo "No go.mod in odinforge-agent; skipping."
             exit 0
           fi
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
