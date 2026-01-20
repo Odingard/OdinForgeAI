@@ -1,0 +1,61 @@
+name: AEV (CI)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  aev:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      NODE_ENV: test
+      BACKEND_URL:  http://127.0.0.1:5000
+      FRONTEND_URL: http://127.0.0.1:5173
+      AEV_MODE: ci
+      AEV_MAX_REQUESTS: "150"
+      AEV_TIMEOUT_SECONDS: "45"
+      AEV_FAIL_ON: "exploitable"  # your gate condition
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Start app
+        run: |
+          export PORT=5000
+          export VITE_PORT=5173
+          nohup npm run dev > dev.log 2>&1 &
+          sleep 2
+
+      - name: Wait for readiness
+        run: |
+          npx --yes wait-on@7 -t 180000 \
+            "$BACKEND_URL/healthz" \
+            "$BACKEND_URL/readyz" \
+            "$FRONTEND_URL/"
+
+      - name: Run AEV in CI mode
+        run: |
+          mkdir -p artifacts
+          npm run aev:ci -- \
+            --frontend "$FRONTEND_URL" \
+            --backend "$BACKEND_URL" \
+            --out artifacts/aev-findings.json
+
+      - name: Upload AEV artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aev-artifacts
+          path: |
+            artifacts/aev-findings.json
+            dev.log
