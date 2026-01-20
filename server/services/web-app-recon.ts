@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import dns from "dns";
+import net from "net";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -8,6 +10,83 @@ const openai = new OpenAI({
   timeout: OPENAI_TIMEOUT_MS,
   maxRetries: 2,
 });
+
+function isPrivateIp(ip: string): boolean {
+  const family = net.isIP(ip);
+  if (!family) return false;
+
+  // IPv4 checks
+  if (family === 4) {
+    const parts = ip.split(".").map(p => parseInt(p, 10));
+    if (parts.length !== 4 || parts.some(n => Number.isNaN(n))) return false;
+
+    const [a, b] = parts;
+
+    // 10.0.0.0/8
+    if (a === 10) return true;
+    // 172.16.0.0/12
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    // 192.168.0.0/16
+    if (a === 192 && b === 168) return true;
+    // 127.0.0.0/8 (loopback)
+    if (a === 127) return true;
+    // 169.254.0.0/16 (link-local)
+    if (a === 169 && b === 254) return true;
+  }
+
+  // IPv6 checks
+  if (family === 6) {
+    const normalized = ip.toLowerCase();
+    // Loopback
+    if (normalized === "::1") return true;
+    // Link-local fe80::/10
+    if (normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb")) {
+      return true;
+    }
+    // Unique local fc00::/7
+    if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function validateAndNormalizeTargetUrl(rawUrl: string): Promise<string> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid target URL: ${rawUrl}`);
+  }
+
+  const protocol = url.protocol.toLowerCase();
+  if (protocol !== "http:" && protocol !== "https:") {
+    throw new Error("Only http and https URLs are allowed for web application reconnaissance");
+  }
+
+  const hostname = url.hostname;
+  if (!hostname) {
+    throw new Error("Target URL must include a hostname");
+  }
+
+  try {
+    const addresses = await dns.promises.lookup(hostname, { all: true });
+    for (const addr of addresses) {
+      if (isPrivateIp(addr.address)) {
+        throw new Error("Target URL resolves to a private or internal IP address, which is not allowed");
+      }
+    }
+  } catch (err) {
+    // If DNS lookup itself fails, surface a clear error
+    if (err instanceof Error && /private or internal IP/.test(err.message)) {
+      throw err;
+    }
+    throw new Error(`Could not resolve target host: ${hostname}`);
+  }
+
+  return url.toString();
+}
 
 export interface DiscoveredEndpoint {
   url: string;
@@ -81,11 +160,14 @@ export type ReconProgressCallback = (
 ) => void;
 
 async function fetchWithTimeout(url: string, timeout: number = 10000): Promise<Response> {
+  // SSRF Protection: Use centralized validation to prevent SSRF attacks
+  const validatedUrl = await validateAndNormalizeTargetUrl(url);
+  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
   try {
-    const response = await fetch(url, {
+    const response = await fetch(validatedUrl, {
       signal: controller.signal,
       headers: {
         "User-Agent": "OdinForge-Security-Scanner/1.0",
@@ -484,10 +566,11 @@ export async function runWebAppReconnaissance(
   
   onProgress?.("initialization", 5, "Starting web application reconnaissance...");
   
-  // Validate target URL
+  // Validate and normalize target URL, and prevent SSRF to internal addresses
+  const safeTargetUrl = await validateAndNormalizeTargetUrl(targetUrl);
   let baseUrl: string;
   try {
-    const url = new URL(targetUrl);
+    const url = new URL(safeTargetUrl);
     baseUrl = url.origin;
   } catch {
     throw new Error(`Invalid target URL: ${targetUrl}`);
@@ -499,7 +582,7 @@ export async function runWebAppReconnaissance(
   let mainPageHtml = "";
   let mainResponse: Response | null = null;
   try {
-    mainResponse = await fetchWithTimeout(targetUrl, 15000);
+    mainResponse = await fetchWithTimeout(safeTargetUrl, 15000);
     mainPageHtml = await mainResponse.text();
   } catch (error) {
     console.error("[WebAppRecon] Failed to fetch main page:", error);

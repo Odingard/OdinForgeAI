@@ -1,0 +1,71 @@
+name: AEV (CI)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  aev:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Only needed if you post PR comments later:
+      # pull-requests: write
+
+    env:
+      NODE_ENV: test
+      BACKEND_URL: http://127.0.0.1:5000
+      FRONTEND_URL: http://127.0.0.1:5173
+
+      # CI budgets (tune later)
+      AEV_TIMEOUT_SECONDS: "600"     # 10 minutes max
+      AEV_POLL_INTERVAL_MS: "3000"   # poll every 3s
+
+      # Gate policy
+      AEV_FAIL_ON_SEVERITIES: "critical,high"
+      AEV_FAIL_ON_EXPLOITABLE: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Start app
+        run: |
+          export PORT=5000
+          export VITE_PORT=5173
+          nohup npm run dev > dev.log 2>&1 &
+          sleep 2
+
+      - name: Wait for readiness (backend + frontend)
+        run: |
+          npx --yes wait-on@7 -t 180000 \
+            "$BACKEND_URL/healthz" \
+            "$BACKEND_URL/readyz" \
+            "$FRONTEND_URL/"
+
+      - name: Run AEV CI runner (calls backend)
+        run: |
+          mkdir -p artifacts
+          node ./scripts/aev-ci-backend.js \
+            --backend "$BACKEND_URL" \
+            --target "$FRONTEND_URL" \
+            --targetType "url" \
+            --scanType "full" \
+            --out "artifacts/aev-findings.json"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aev-ci-artifacts
+          path: |
+            artifacts/aev-findings.json
+            artifacts/aev-summary.md
+            dev.log

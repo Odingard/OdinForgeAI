@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  node:
+    name: Node (test/lint/build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+      - run: npm test --if-present
+      - run: npm run lint --if-present
+      - run: npm run build --if-present
+
+  go:
+    name: Go Agent (test/vet)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Verify Go module exists
+        run: |
+          if [ -d "odinforge-agent" ] && [ ! -f "odinforge-agent/go.mod" ]; then
+            echo "odinforge-agent directory exists but go.mod is missing."
+            exit 1
+          fi
+
+      - name: Go test
+        working-directory: odinforge-agent
+        run: go test ./...
+
+      - name: Go vet
+        working-directory: odinforge-agent
+        run: go vet ./...

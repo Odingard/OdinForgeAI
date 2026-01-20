@@ -1,0 +1,59 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: "17 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ "javascript-typescript", "go" ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      # JS/TS
+      - name: Autobuild (JS/TS)
+        if: ${{ matrix.language == 'javascript-typescript' }}
+        uses: github/codeql-action/autobuild@v3
+
+      # Go (explicit)
+      - name: Setup Go
+        if: ${{ matrix.language == 'go' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Build (Go agent)
+        if: ${{ matrix.language == 'go' }}
+        working-directory: odinforge-agent
+        run: |
+          if [ -f go.mod ]; then
+            go build ./...
+          else
+            echo "No go.mod in odinforge-agent; skipping."
+            exit 0
+          fi
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3

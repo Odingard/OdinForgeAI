@@ -1,0 +1,31 @@
+name: AEV Smoke
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      AEV_MODE: "smoke"
+      # Keep this conservative
+      AEV_MAX_REQUESTS: "25"
+      AEV_TIMEOUT_SECONDS: "30"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      # If your project has a defined smoke script, use it.
+      # This step won't fail if the script doesn't exist.
+      - name: Run smoke checks
+        run: npm run smoke --if-present

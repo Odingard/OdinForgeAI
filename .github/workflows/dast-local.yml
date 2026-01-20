@@ -1,0 +1,110 @@
+name: DAST (Local)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  dast:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    env:
+      NODE_ENV: test
+      BACKEND_URL:  http://127.0.0.1:5000
+      FRONTEND_URL: http://127.0.0.1:5173
+
+      # ZAP config
+      ZAP_FAIL_ON: "HIGH"   # only fail on HIGH (keeps PR noise down)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Start app
+        run: |
+          export PORT=5000
+          export VITE_PORT=5173
+          nohup npm run dev > dev.log 2>&1 &
+          sleep 2
+
+      - name: Wait for readiness
+        run: |
+          npx --yes wait-on@7 -t 180000 \
+            "$BACKEND_URL/healthz" \
+            "$BACKEND_URL/readyz" \
+            "$FRONTEND_URL/"
+
+      # Use host.docker.internal to reach the runner from inside Docker.
+      # This is more reliable than --network=host in CI.
+      - name: ZAP baseline scan (frontend)
+        run: |
+          docker run --rm \
+            --add-host=host.docker.internal:host-gateway \
+            -v ${{ github.workspace }}:/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t "http://host.docker.internal:5173/" \
+              -r zap-frontend.html \
+              -w zap-frontend.md \
+              -J zap-frontend.json \
+              -a \
+              -I
+
+      - name: ZAP baseline scan (backend)
+        run: |
+          docker run --rm \
+            --add-host=host.docker.internal:host-gateway \
+            -v ${{ github.workspace }}:/zap/wrk:rw \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t "http://host.docker.internal:5000/" \
+              -r zap-backend.html \
+              -w zap-backend.md \
+              -J zap-backend.json \
+              -a \
+              -I
+
+      # Optional: fail the job if ZAP reports HIGHs
+      - name: Enforce ZAP threshold (fail on HIGH)
+        run: |
+          node -e "
+          const fs=require('fs');
+          const p=['zap-frontend.json','zap-backend.json'].filter(f=>fs.existsSync(f));
+          let high=0;
+          for (const f of p) {
+            const j=JSON.parse(fs.readFileSync(f,'utf8'));
+            const sites=j.site||[];
+            for (const s of sites) {
+              const alerts=s.alerts||[];
+              for (const a of alerts) {
+                // riskcode: 3=HIGH, 2=MED, 1=LOW, 0=INFO (ZAP)
+                if (Number(a.riskcode)===3) high++;
+              }
+            }
+          }
+          console.log('ZAP HIGH alerts:', high);
+          process.exit(high>0?1:0);
+          "
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-reports
+          path: |
+            zap-frontend.html
+            zap-backend.html
+            zap-frontend.md
+            zap-backend.md
+            zap-frontend.json
+            zap-backend.json
+            dev.log
