@@ -21,19 +21,33 @@ jobs:
       - run: npm run lint --if-present
 
   go:
-    name: Go (test)
+    name: Go Agent (test/vet)
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
           cache: true
-      - run: |
+
+      - name: Go test
+        working-directory: odinforge-agent
+        run: |
           if [ -f go.mod ]; then
             go test ./...
           else
-            echo "No go.mod at repo root; skipping."
+            echo "No go.mod in odinforge-agent; skipping."
+            exit 0
+          fi
+
+      - name: Go vet
+        working-directory: odinforge-agent
+        run: |
+          if [ -f go.mod ]; then
+            go vet ./...
+          else
+            exit 0
           fi
