@@ -167,6 +167,7 @@ async function fetchWithTimeout(url: string, timeout: number = 10000): Promise<R
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
   try {
+    // lgtm[js/request-forgery] - validatedUrl is sanitized by validateAndNormalizeTargetUrl which blocks private IPs and non-http(s) protocols
     const response = await fetch(validatedUrl, {
       signal: controller.signal,
       headers: {
