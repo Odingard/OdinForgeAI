@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  actions: read
 
 jobs:
   build:
@@ -73,3 +75,6 @@ jobs:
         with:
           name: release-artifacts
           path: dist_artifacts/*
+          
+      - name: Generate build provenance (SLSA)
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
