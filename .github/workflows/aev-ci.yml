@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Only needed if you post PR comments later:
+      # pull-requests: write
 
     env:
       NODE_ENV: test
@@ -41,14 +43,16 @@ jobs:
           nohup npm run dev > dev.log 2>&1 &
           sleep 2
 
-      - name: Wait for readiness
+      - name: Wait for readiness (backend + frontend)
         run: |
           npx --yes wait-on@7 -t 180000 \
             "$BACKEND_URL/healthz" \
-            "$BACKEND_URL/readyz"
+            "$BACKEND_URL/readyz" \
+            "$FRONTEND_URL/"
 
       - name: Run AEV CI runner (calls backend)
         run: |
+          mkdir -p artifacts
           node ./scripts/aev-ci-backend.js \
             --backend "$BACKEND_URL" \
             --target "$FRONTEND_URL" \
@@ -57,9 +61,11 @@ jobs:
             --out "artifacts/aev-findings.json"
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aev-ci-artifacts
           path: |
             artifacts/aev-findings.json
+            artifacts/aev-summary.md
             dev.log

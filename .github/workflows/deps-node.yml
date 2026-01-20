@@ -21,4 +21,12 @@ jobs:
         run: npm ci
 
       - name: Audit (high+ only)
-        run: npm audit --audit-level=high
+        run: |
+          npm audit --audit-level=high --json > npm-audit.json
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: npm-audit.json
