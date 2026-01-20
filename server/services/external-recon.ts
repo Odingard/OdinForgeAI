@@ -352,7 +352,6 @@ export async function sslCheck(host: string, port: number = 443): Promise<SSLChe
       host,
       port,
       servername: host,
-      rejectUnauthorized: false,
       timeout: 10000,
     };
     
