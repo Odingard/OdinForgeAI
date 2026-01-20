@@ -147,6 +147,9 @@ export async function registerRoutes(
   
   // ========== HEALTH CHECK ENDPOINTS ==========
   // K8s / CI / Load Balancer friendly health checks
+  // Note: Health endpoints intentionally excluded from rate limiting to ensure
+  // Kubernetes probes, load balancer checks, and monitoring systems always succeed.
+  // These endpoints return minimal data and pose negligible abuse risk.
   app.get("/healthz", (_req, res) => {
     res.status(200).json({
       ok: true,
@@ -165,7 +168,8 @@ export async function registerRoutes(
   
   // ========== AGENT BINARY DOWNLOADS ==========
   // Serve agent binaries from public/agents directory (no auth required for download)
-  app.get("/agents/:filename", (req, res) => {
+  // Rate limited to prevent bandwidth abuse on large binary downloads
+  app.get("/agents/:filename", apiRateLimiter, (req, res) => {
     const filename = req.params.filename;
     // Only allow specific binary filenames
     const validBinaries = [
