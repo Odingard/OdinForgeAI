@@ -12,12 +12,16 @@ jobs:
 
     env:
       NODE_ENV: test
-      BACKEND_URL:  http://127.0.0.1:5000
+      BACKEND_URL: http://127.0.0.1:5000
       FRONTEND_URL: http://127.0.0.1:5173
-      AEV_MODE: ci
-      AEV_MAX_REQUESTS: "150"
-      AEV_TIMEOUT_SECONDS: "45"
-      AEV_FAIL_ON: "exploitable"  # your gate condition
+
+      # CI budgets (tune later)
+      AEV_TIMEOUT_SECONDS: "600"     # 10 minutes max
+      AEV_POLL_INTERVAL_MS: "3000"   # poll every 3s
+
+      # Gate policy
+      AEV_FAIL_ON_SEVERITIES: "critical,high"
+      AEV_FAIL_ON_EXPLOITABLE: "true"
 
     steps:
       - uses: actions/checkout@v4
@@ -41,21 +45,21 @@ jobs:
         run: |
           npx --yes wait-on@7 -t 180000 \
             "$BACKEND_URL/healthz" \
-            "$BACKEND_URL/readyz" \
-            "$FRONTEND_URL/"
+            "$BACKEND_URL/readyz"
 
-      - name: Run AEV in CI mode
+      - name: Run AEV CI runner (calls backend)
         run: |
-          mkdir -p artifacts
-          npm run aev:ci -- \
-            --frontend "$FRONTEND_URL" \
+          node ./scripts/aev-ci-backend.js \
             --backend "$BACKEND_URL" \
-            --out artifacts/aev-findings.json
+            --target "$FRONTEND_URL" \
+            --targetType "url" \
+            --scanType "full" \
+            --out "artifacts/aev-findings.json"
 
-      - name: Upload AEV artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: aev-artifacts
+          name: aev-ci-artifacts
           path: |
             artifacts/aev-findings.json
             dev.log
