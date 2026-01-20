@@ -2393,8 +2393,57 @@ export async function registerRoutes(
 
   app.get("/api/assets", async (req, res) => {
     try {
-      const assets = await storage.getDiscoveredAssets();
-      res.json(assets);
+      // Fetch both discovered assets and cloud assets
+      const [discoveredAssets, cloudAssetsList] = await Promise.all([
+        storage.getDiscoveredAssets(),
+        storage.getCloudAssets()
+      ]);
+      
+      // Transform cloud assets to a unified format compatible with the Assets page
+      const transformedCloudAssets = cloudAssetsList.map(ca => ({
+        id: ca.id,
+        organizationId: ca.organizationId,
+        assetIdentifier: ca.providerResourceId,
+        displayName: ca.assetName,
+        assetType: ca.assetType,
+        status: ca.powerState === 'running' ? 'active' : (ca.powerState === 'stopped' ? 'inactive' : 'active'),
+        ipAddresses: [...(ca.publicIpAddresses || []), ...(ca.privateIpAddresses || [])],
+        hostname: ca.assetName,
+        fqdn: null,
+        macAddress: null,
+        cloudProvider: ca.provider,
+        cloudRegion: ca.region,
+        cloudAccountId: null,
+        cloudResourceId: ca.providerResourceId,
+        cloudTags: ca.providerTags,
+        operatingSystem: null,
+        osVersion: null,
+        installedSoftware: null,
+        discoveredPorts: null,
+        discoveredServices: null,
+        source: 'cloud_discovery' as const,
+        sourceId: ca.connectionId,
+        lastSeen: ca.lastSeenAt,
+        firstSeen: ca.firstDiscoveredAt,
+        agentId: ca.agentId,
+        agentStatus: ca.agentInstalled ? 'connected' : null,
+        metadata: {
+          instanceType: ca.instanceType,
+          cpuCount: ca.cpuCount,
+          memoryMb: ca.memoryMb,
+          availabilityZone: ca.availabilityZone,
+          powerState: ca.powerState,
+          healthStatus: ca.healthStatus,
+          agentDeployable: ca.agentDeployable,
+          agentDeploymentStatus: ca.agentDeploymentStatus
+        },
+        createdAt: ca.createdAt,
+        updatedAt: ca.updatedAt
+      }));
+      
+      // Combine both lists - cloud assets first (most recently discovered)
+      const allAssets = [...transformedCloudAssets, ...discoveredAssets];
+      res.json(allAssets);
     } catch (error) {
       console.error("Error fetching assets:", error);
       res.status(500).json({ error: "Failed to fetch assets" });
