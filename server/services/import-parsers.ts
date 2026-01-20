@@ -75,6 +75,158 @@ const defaultMappings: Record<string, CsvColumnMapping> = {
   }
 };
 
+// ============================================================================
+// ReDoS-safe XML parsing helpers using indexOf (no regex backtracking)
+// ============================================================================
+
+/**
+ * Extract content from a single XML tag using indexOf.
+ * Returns the content between opening and closing tags, or undefined if not found.
+ */
+function safeGetTagContent(content: string, tagName: string, startPos: number = 0): { content: string; endPos: number } | undefined {
+  const openTagPrefix = `<${tagName}`;
+  let pos = startPos;
+  
+  while (pos < content.length) {
+    const openStart = content.indexOf(openTagPrefix, pos);
+    if (openStart === -1) return undefined;
+    
+    // Verify it's a valid tag (next char is > or whitespace)
+    const nextChar = content[openStart + openTagPrefix.length];
+    if (nextChar !== ">" && nextChar !== " " && nextChar !== "\t" && nextChar !== "\n" && nextChar !== "/") {
+      pos = openStart + 1;
+      continue;
+    }
+    
+    // Find the end of opening tag
+    const openEnd = content.indexOf(">", openStart + openTagPrefix.length);
+    if (openEnd === -1) return undefined;
+    
+    // Find closing tag
+    const closeTag = `</${tagName}>`;
+    const closeStart = content.indexOf(closeTag, openEnd + 1);
+    if (closeStart === -1) return undefined;
+    
+    return {
+      content: content.substring(openEnd + 1, closeStart),
+      endPos: closeStart + closeTag.length
+    };
+  }
+  
+  return undefined;
+}
+
+/**
+ * Extract all tag contents with optional attribute capture.
+ * Returns array of { content, attrs, endPos } for each match.
+ */
+function safeExtractAllTags(
+  content: string, 
+  tagName: string,
+  captureAttrs: boolean = false
+): Array<{ content: string; attrs?: string; endPos: number }> {
+  const results: Array<{ content: string; attrs?: string; endPos: number }> = [];
+  const openTagPrefix = `<${tagName}`;
+  const closeTag = `</${tagName}>`;
+  let pos = 0;
+  
+  while (pos < content.length) {
+    const openStart = content.indexOf(openTagPrefix, pos);
+    if (openStart === -1) break;
+    
+    // Verify valid tag start
+    const nextChar = content[openStart + openTagPrefix.length];
+    if (nextChar !== ">" && nextChar !== " " && nextChar !== "\t" && nextChar !== "\n" && nextChar !== "/") {
+      pos = openStart + 1;
+      continue;
+    }
+    
+    // Find end of opening tag
+    const openEnd = content.indexOf(">", openStart + openTagPrefix.length);
+    if (openEnd === -1) {
+      pos = openStart + 1;
+      continue;
+    }
+    
+    // Find closing tag
+    const closeStart = content.indexOf(closeTag, openEnd + 1);
+    if (closeStart === -1) {
+      pos = openEnd + 1;
+      continue;
+    }
+    
+    const tagContent = content.substring(openEnd + 1, closeStart);
+    const attrs = captureAttrs 
+      ? content.substring(openStart + openTagPrefix.length, openEnd).trim()
+      : undefined;
+    
+    results.push({ content: tagContent, attrs, endPos: closeStart + closeTag.length });
+    pos = closeStart + closeTag.length;
+  }
+  
+  return results;
+}
+
+/**
+ * Extract tag content with attribute from opening tag (e.g., name="value")
+ * Used for tags like <ReportHost name="hostname">
+ */
+function safeExtractTagsWithNameAttr(
+  content: string,
+  tagName: string
+): Array<{ name: string; content: string; endPos: number }> {
+  const results: Array<{ name: string; content: string; endPos: number }> = [];
+  const openTagPrefix = `<${tagName}`;
+  const closeTag = `</${tagName}>`;
+  let pos = 0;
+  
+  while (pos < content.length) {
+    const openStart = content.indexOf(openTagPrefix, pos);
+    if (openStart === -1) break;
+    
+    // Find end of opening tag
+    const openEnd = content.indexOf(">", openStart + openTagPrefix.length);
+    if (openEnd === -1) {
+      pos = openStart + 1;
+      continue;
+    }
+    
+    // Extract name attribute
+    const attrSection = content.substring(openStart + openTagPrefix.length, openEnd);
+    const nameMatch = attrSection.match(/name="([^"]+)"/);
+    if (!nameMatch) {
+      pos = openEnd + 1;
+      continue;
+    }
+    
+    // Find closing tag
+    const closeStart = content.indexOf(closeTag, openEnd + 1);
+    if (closeStart === -1) {
+      pos = openEnd + 1;
+      continue;
+    }
+    
+    results.push({
+      name: nameMatch[1],
+      content: content.substring(openEnd + 1, closeStart),
+      endPos: closeStart + closeTag.length
+    });
+    pos = closeStart + closeTag.length;
+  }
+  
+  return results;
+}
+
+/**
+ * Safe getTag replacement - extracts content from a tag using indexOf
+ */
+function safeGetTag(content: string, tagName: string): string | undefined {
+  const result = safeGetTagContent(content, tagName);
+  return result ? result.content.trim() : undefined;
+}
+
+// ============================================================================
+
 // Normalize severity from different formats
 function normalizeSeverity(value: string): typeof vulnSeverities[number] {
   const lower = value?.toLowerCase()?.trim() || "";
@@ -410,26 +562,21 @@ export function parseNessusXml(
   let successfulRecords = 0;
   let failedRecords = 0;
 
-  // Simple XML parser for Nessus format
-  const hostRegex = /<ReportHost name="([^"]+)"[^>]*>([\s\S]*?)<\/ReportHost>/g;
-  const itemRegex = /<ReportItem[^>]*>([\s\S]*?)<\/ReportItem>/g;
-  const tagRegex = /<(\w+)[^>]*>([^<]*)<\/\1>/g;
-  const attrRegex = /<ReportItem([^>]*)>/;
-
-  let hostMatch;
-  while ((hostMatch = hostRegex.exec(content)) !== null) {
-    const hostName = hostMatch[1];
-    const hostContent = hostMatch[2];
+  // ReDoS-safe XML parser for Nessus format using indexOf-based extraction
+  const reportHosts = safeExtractTagsWithNameAttr(content, "ReportHost");
+  
+  for (const hostData of reportHosts) {
+    const hostName = hostData.name;
+    const hostContent = hostData.content;
     
-    // Extract host properties
+    // Extract host properties using safe extraction
     const hostTags: Record<string, string> = {};
-    const hostPropsRegex = /<HostProperties>([\s\S]*?)<\/HostProperties>/g;
-    let hostPropsMatch;
-    while ((hostPropsMatch = hostPropsRegex.exec(hostContent)) !== null) {
-      const tagRegexLocal = /<tag name="([^"]+)">([^<]*)<\/tag>/g;
-      let tagMatch;
-      while ((tagMatch = tagRegexLocal.exec(hostPropsMatch[1])) !== null) {
-        hostTags[tagMatch[1]] = tagMatch[2];
+    const hostPropsContents = safeExtractAllTags(hostContent, "HostProperties");
+    for (const hostProps of hostPropsContents) {
+      // Extract <tag name="...">value</tag> patterns
+      const tagMatches = safeExtractTagsWithNameAttr(hostProps.content, "tag");
+      for (const tagMatch of tagMatches) {
+        hostTags[tagMatch.name] = tagMatch.content;
       }
     }
 
@@ -452,24 +599,22 @@ export function parseNessusXml(
       });
     }
 
-    // Parse ReportItems (vulnerabilities)
-    let itemMatch;
-    const itemRegexLocal = /<ReportItem([^>]*)>([\s\S]*?)<\/ReportItem>/g;
-    while ((itemMatch = itemRegexLocal.exec(hostContent)) !== null) {
+    // Parse ReportItems (vulnerabilities) using safe extraction
+    const reportItems = safeExtractAllTags(hostContent, "ReportItem", true);
+    for (const item of reportItems) {
       try {
-        const attrs = itemMatch[1];
-        const itemContent = itemMatch[2];
+        const attrs = item.attrs || "";
+        const itemContent = item.content;
 
-        // Parse attributes
+        // Parse attributes (safe - no backtracking risk with [^"]+ pattern)
         const getAttr = (name: string): string | undefined => {
           const match = new RegExp(`${name}="([^"]+)"`).exec(attrs);
           return match ? match[1] : undefined;
         };
 
-        // Parse child tags
-        const getTag = (name: string): string | undefined => {
-          const match = new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`).exec(itemContent);
-          return match ? match[1].trim() : undefined;
+        // Parse child tags using safe extraction
+        const getTagSafe = (name: string): string | undefined => {
+          return safeGetTag(itemContent, name);
         };
 
         const port = parseInt(getAttr("port") || "0");
@@ -494,23 +639,23 @@ export function parseNessusXml(
 
         // Create vulnerability
         if (pluginName && severityNum > 0) {
-          const cveRaw = getTag("cve");
+          const cveRaw = getTagSafe("cve");
           vulnerabilities.push({
             importJobId,
             title: pluginName,
-            description: getTag("synopsis") || getTag("description"),
+            description: getTagSafe("synopsis") || getTagSafe("description"),
             severity: normalizeSeverity(severity),
             cveId: cveRaw || undefined,
-            cvssScore: parseFloat(getTag("cvss3_base_score") || getTag("cvss_base_score") || "0") * 10 || undefined,
-            cvssVector: getTag("cvss3_vector") || getTag("cvss_vector") || undefined,
+            cvssScore: parseFloat(getTagSafe("cvss3_base_score") || getTagSafe("cvss_base_score") || "0") * 10 || undefined,
+            cvssVector: getTagSafe("cvss3_vector") || getTagSafe("cvss_vector") || undefined,
             scannerPluginId: pluginId,
             scannerName: "nessus",
             affectedHost: assetIdentifier,
             affectedPort: port > 0 ? port : undefined,
             affectedService: svcName || undefined,
-            solution: getTag("solution") || undefined,
-            exploitAvailable: getTag("exploit_available") === "true",
-            patchAvailable: getTag("patch_publication_date") ? true : undefined,
+            solution: getTagSafe("solution") || undefined,
+            exploitAvailable: getTagSafe("exploit_available") === "true",
+            patchAvailable: getTagSafe("patch_publication_date") ? true : undefined,
             rawData: { pluginId, pluginName, host: hostName },
           });
         }
@@ -544,45 +689,42 @@ export function parseQualysXml(
   let successfulRecords = 0;
   let failedRecords = 0;
 
-  // Qualys format parser (simplified)
-  const hostRegex = /<HOST>([\s\S]*?)<\/HOST>/g;
+  // ReDoS-safe Qualys format parser using indexOf-based extraction
+  const hostContents = safeExtractAllTags(content, "HOST");
   
-  const getTag = (content: string, name: string): string | undefined => {
-    const match = new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`).exec(content);
-    return match ? match[1].trim() : undefined;
+  // Helper using module-level safe function
+  const getTagLocal = (content: string, name: string): string | undefined => {
+    return safeGetTag(content, name);
   };
 
-  // ReDoS-safe tag content extraction using indexOf (no backtracking)
-  // Single-pass extraction preserves document order for multiple tag names
-  const extractTagContents = (content: string, tagNames: string[]): string[] => {
+  // ReDoS-safe, order-preserving tag extraction for VULN/DETECTION
+  // Scans content once and returns tags in document order
+  const extractTagContentsLocal = (content: string, tagNames: string[]): string[] => {
     const results: string[] = [];
-    let searchStart = 0;
+    let pos = 0;
     
-    while (searchStart < content.length) {
-      // Find the earliest matching tag from any of the tagNames
+    while (pos < content.length) {
       let earliestStart = -1;
       let matchedTagName = "";
       
+      // Find earliest occurrence of any tag
       for (const tagName of tagNames) {
         const openTagPrefix = `<${tagName}`;
-        let pos = searchStart;
+        let searchPos = pos;
         
-        // Search for valid tag opening
-        while (pos < content.length) {
-          const openStart = content.indexOf(openTagPrefix, pos);
+        while (searchPos < content.length) {
+          const openStart = content.indexOf(openTagPrefix, searchPos);
           if (openStart === -1) break;
           
-          // Check next char - accept any char that's valid for XML tag (> or whitespace or /)
           const nextChar = content[openStart + openTagPrefix.length];
-          if (nextChar === ">" || nextChar === " " || nextChar === "\t" || nextChar === "\n" || nextChar === "/" || nextChar === undefined) {
+          if (nextChar === ">" || nextChar === " " || nextChar === "\t" || nextChar === "\n" || nextChar === "/") {
             if (earliestStart === -1 || openStart < earliestStart) {
               earliestStart = openStart;
               matchedTagName = tagName;
             }
             break;
           }
-          // Not a valid tag, continue searching
-          pos = openStart + 1;
+          searchPos = openStart + 1;
         }
       }
       
@@ -591,40 +733,32 @@ export function parseQualysXml(
       const openTagPrefix = `<${matchedTagName}`;
       const closeTag = `</${matchedTagName}>`;
       
-      // Find the end of the opening tag (the '>')
       const openEnd = content.indexOf(">", earliestStart + openTagPrefix.length);
       if (openEnd === -1) {
-        // Malformed tag, skip past it and continue
-        searchStart = earliestStart + openTagPrefix.length;
+        pos = earliestStart + 1;
         continue;
       }
       
-      // Find the closing tag
       const closeStart = content.indexOf(closeTag, openEnd + 1);
       if (closeStart === -1) {
-        // Missing closing tag, skip past opening and continue
-        searchStart = openEnd + 1;
+        pos = openEnd + 1;
         continue;
       }
       
-      // Extract content between opening and closing tags
-      const tagContent = content.substring(openEnd + 1, closeStart);
-      results.push(tagContent);
-      
-      searchStart = closeStart + closeTag.length;
+      results.push(content.substring(openEnd + 1, closeStart));
+      pos = closeStart + closeTag.length;
     }
     
     return results;
   };
 
-  let hostMatch;
-  while ((hostMatch = hostRegex.exec(content)) !== null) {
-    const hostContent = hostMatch[1];
+  for (const hostData of hostContents) {
+    const hostContent = hostData.content;
     
-    const ip = getTag(hostContent, "IP");
-    const dns = getTag(hostContent, "DNS");
-    const netbios = getTag(hostContent, "NETBIOS");
-    const os = getTag(hostContent, "OPERATING_SYSTEM");
+    const ip = getTagLocal(hostContent, "IP");
+    const dns = getTagLocal(hostContent, "DNS");
+    const netbios = getTagLocal(hostContent, "NETBIOS");
+    const os = getTagLocal(hostContent, "OPERATING_SYSTEM");
     
     const assetIdentifier = ip || dns || netbios;
     if (!assetIdentifier) continue;
@@ -647,29 +781,29 @@ export function parseQualysXml(
 
     // Parse vulnerabilities (VULN or DETECTION tags)
     // Using programmatic extraction to avoid ReDoS vulnerability (CWE-1333, CWE-400, CWE-730)
-    const vulnContents = extractTagContents(hostContent, ["VULN", "DETECTION"]);
+    const vulnContents = extractTagContentsLocal(hostContent, ["VULN", "DETECTION"]);
     for (const vulnContent of vulnContents) {
       try {
         
-        const qid = getTag(vulnContent, "QID");
-        const title = getTag(vulnContent, "TITLE") || getTag(vulnContent, "VULN_TITLE");
-        const severity = getTag(vulnContent, "SEVERITY");
-        const port = parseInt(getTag(vulnContent, "PORT") || "0");
-        const protocol = getTag(vulnContent, "PROTOCOL");
-        const cveList = getTag(vulnContent, "CVE_LIST") || getTag(vulnContent, "CVE_ID");
+        const qid = getTagLocal(vulnContent, "QID");
+        const title = getTagLocal(vulnContent, "TITLE") || getTagLocal(vulnContent, "VULN_TITLE");
+        const severity = getTagLocal(vulnContent, "SEVERITY");
+        const port = parseInt(getTagLocal(vulnContent, "PORT") || "0");
+        const protocol = getTagLocal(vulnContent, "PROTOCOL");
+        const cveList = getTagLocal(vulnContent, "CVE_LIST") || getTagLocal(vulnContent, "CVE_ID");
 
         if (title || qid) {
           vulnerabilities.push({
             importJobId,
             title: title || `Qualys QID ${qid}`,
-            description: getTag(vulnContent, "DIAGNOSIS") || getTag(vulnContent, "CONSEQUENCE"),
+            description: getTagLocal(vulnContent, "DIAGNOSIS") || getTagLocal(vulnContent, "CONSEQUENCE"),
             severity: normalizeSeverity(severity || "3"),
             cveId: cveList?.split(",")[0]?.trim() || undefined,
             scannerPluginId: qid,
             scannerName: "qualys",
             affectedHost: assetIdentifier,
             affectedPort: port > 0 ? port : undefined,
-            solution: getTag(vulnContent, "SOLUTION"),
+            solution: getTagLocal(vulnContent, "SOLUTION"),
             rawData: { qid, host: assetIdentifier },
           });
         }
