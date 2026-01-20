@@ -1614,6 +1614,65 @@ export async function registerRoutes(
     }
   });
 
+  // Web App Scan Report Generation with persistence
+  app.post("/api/reports/web-app-scan/:scanId", reportRateLimiter, async (req, res) => {
+    try {
+      const { scanId } = req.params;
+      const { includeCompliance = false, framework, organizationId = "default" } = req.body;
+      
+      // Get scan data
+      const scan = await storage.getWebAppReconScan(scanId);
+      if (!scan) {
+        return res.status(404).json({ error: "Scan not found" });
+      }
+      
+      // Generate report data
+      const reportData = await reconReportGenerator.generateWebAppScanReport(scanId);
+      if (!reportData) {
+        return res.status(404).json({ error: "Failed to generate report data" });
+      }
+      
+      // Create report title
+      const reportType = includeCompliance ? "technical_deep_dive" : "executive_summary";
+      const title = `Web App Security Assessment - ${scan.targetUrl}`;
+      
+      // Save report to database
+      const report = await storage.createReport({
+        organizationId,
+        title,
+        reportType,
+        status: "completed",
+        dateRangeFrom: new Date(scan.createdAt),
+        dateRangeTo: new Date(),
+        framework: includeCompliance ? framework : null,
+        content: {
+          executiveSummary: {
+            overview: `Security assessment of ${scan.targetUrl}`,
+            findingsCount: scan.validatedFindings?.length || 0,
+            riskLevel: (scan.validatedFindings?.length || 0) > 0 ? "High" : "Low",
+          },
+          technicalFindings: scan.validatedFindings || [],
+          reconResult: scan.reconResult,
+          scanMetadata: {
+            scanId: scan.id,
+            targetUrl: scan.targetUrl,
+            completedAt: scan.updatedAt || scan.createdAt,
+          }
+        },
+      });
+      
+      res.json({
+        success: true,
+        reportId: report.id,
+        title: report.title,
+        message: "Report generated and saved successfully"
+      });
+    } catch (error) {
+      console.error("Error generating web app scan report:", error);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
   app.get("/api/reports/enhanced/:evaluationId", async (req, res) => {
     try {
       const { evaluationId } = req.params;

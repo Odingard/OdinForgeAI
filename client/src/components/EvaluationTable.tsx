@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DTGDisplay } from "@/components/ui/dtg-display";
 
 export interface Evaluation {
   id: string;
@@ -215,9 +216,7 @@ export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation, o
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <span className="text-sm text-muted-foreground">
-                    {new Date(evaluation.createdAt).toLocaleDateString()}
-                  </span>
+                  <DTGDisplay date={evaluation.createdAt} />
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
