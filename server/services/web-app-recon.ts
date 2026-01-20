@@ -160,11 +160,14 @@ export type ReconProgressCallback = (
 ) => void;
 
 async function fetchWithTimeout(url: string, timeout: number = 10000): Promise<Response> {
+  // SSRF Protection: Use centralized validation to prevent SSRF attacks
+  const validatedUrl = await validateAndNormalizeTargetUrl(url);
+  
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
   
   try {
-    const response = await fetch(url, {
+    const response = await fetch(validatedUrl, {
       signal: controller.signal,
       headers: {
         "User-Agent": "OdinForge-Security-Scanner/1.0",
