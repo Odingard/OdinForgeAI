@@ -6,6 +6,10 @@ import {
   vulnSeverities
 } from "@shared/schema";
 
+// Security limits to prevent DoS via large input files
+const MAX_LINE_LENGTH = 1_000_000;  // Max characters per CSV line
+const MAX_IMPORT_RECORDS = 100_000; // Max records to process per import
+
 // Result of parsing an import file
 export interface ParseResult {
   assets: InsertDiscoveredAsset[];
@@ -293,7 +297,9 @@ function parseCsvLine(line: string): string[] {
   let current = "";
   let inQuotes = false;
   
-  for (let i = 0; i < line.length; i++) {
+  // Limit iteration to prevent DoS via extremely long lines
+  const maxLen = Math.min(line.length, MAX_LINE_LENGTH);
+  for (let i = 0; i < maxLen; i++) {
     const char = line[i];
     
     if (char === '"') {
@@ -365,7 +371,9 @@ export function parseCsv(
   let successfulRecords = 0;
   let failedRecords = 0;
 
-  for (let i = 1; i < lines.length; i++) {
+  // Limit iteration to prevent DoS via extremely large files
+  const maxRecords = Math.min(lines.length, MAX_IMPORT_RECORDS + 1); // +1 for header
+  for (let i = 1; i < maxRecords; i++) {
     try {
       const values = parseCsvLine(lines[i]);
       
