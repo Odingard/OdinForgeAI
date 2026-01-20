@@ -1,6 +1,6 @@
 /**
  * External Reconnaissance Service
- * 
+ *
  * Performs external scanning of internet-facing assets without requiring
  * an agent installation. Gathers real data about exposed services.
  */
@@ -12,6 +12,16 @@ import dns from 'dns';
 import { promisify } from 'util';
 import net from 'net';
 import tls from 'tls';
+
+function tlsRejectUnauthorized(): boolean {
+  const inProd = process.env.NODE_ENV === "production";
+  const allowInsecure = process.env.ALLOW_INSECURE_TLS === "true";
+  return !( !inProd && allowInsecure ); // true unless explicitly allowed in non-prod
+}
+
+function httpsAgent(): https.Agent {
+  return new https.Agent({ rejectUnauthorized: tlsRejectUnauthorized() });
+}
 
 const dnsResolve = promisify(dns.resolve);
 const dnsResolve4 = promisify(dns.resolve4);
@@ -149,7 +159,7 @@ export interface AttackReadinessSummary {
   overallScore: number; // 0-100 (100 = most exposed)
   riskLevel: 'critical' | 'high' | 'medium' | 'low' | 'minimal';
   executiveSummary: string;
-  
+
   // Breakdown by category
   categoryScores: {
     networkExposure: number;
@@ -158,7 +168,7 @@ export interface AttackReadinessSummary {
     authenticationSurface: number;
     dnsInfrastructure: number;
   };
-  
+
   // AEV integration signals
   aevNextActions: Array<{
     priority: number;
@@ -168,7 +178,7 @@ export interface AttackReadinessSummary {
     confidence: number;
     requiredMode: 'observe' | 'passive' | 'active' | 'exploit';
   }>;
-  
+
   // Kill chain positioning
   attackVectors: Array<{
     vector: string;
@@ -176,7 +186,7 @@ export interface AttackReadinessSummary {
     feasibility: 'confirmed' | 'likely' | 'possible' | 'unlikely';
     prerequisites: string[];
   }>;
-  
+
   // Quick wins for defenders
   prioritizedRemediations: Array<{
     priority: number;
@@ -203,7 +213,7 @@ export interface DNSEnumResult {
 export interface ReconResult {
   target: string;
   scanTime: Date;
-  
+
   // Section 1: Network Exposure (ports + service intelligence)
   portScan?: PortScanResult[];
   networkExposure?: {
@@ -212,11 +222,11 @@ export interface ReconResult {
     serviceVersions: Array<{ port: number; service: string; version?: string; cpe?: string }>;
     protocolFindings: Array<{ protocol: string; finding: string; severity: string }>;
   };
-  
+
   // Section 2: Transport Security (TLS posture + downgrade risk)
   sslCheck?: SSLCheckResult;
   transportSecurity?: TransportSecurityResult;
-  
+
   // Section 3: Application Identity (tech stack + framework signals)
   httpFingerprint?: HTTPFingerprintResult;
   applicationIdentity?: {
@@ -227,17 +237,17 @@ export interface ReconResult {
     libraries: string[];
     wafDetected?: string;
   };
-  
+
   // Section 4: Authentication Surface (login, admin, OAuth indicators)
   authenticationSurface?: AuthenticationSurfaceResult;
-  
+
   // Section 5: DNS & Infrastructure (records, hosting patterns, shadow assets)
   dnsEnum?: DNSEnumResult;
   infrastructure?: InfrastructureResult;
-  
+
   // Section 6: Attack Readiness Summary (exposure score + AEV signals)
   attackReadiness?: AttackReadinessSummary;
-  
+
   errors: string[];
 }
 
@@ -278,34 +288,60 @@ const SECURITY_HEADERS = [
   'Permissions-Policy',
 ];
 
+// ============================================================================
+// TLS POLICY (PRODUCTION-SAFE)
+// ============================================================================
+
+type TlsMode = 'strict' | 'allow-insecure';
+
+/**
+ * Strict in production. In non-prod, can be relaxed only when explicitly enabled.
+ * Set ALLOW_INSECURE_TLS=true ONLY in controlled lab/test scenarios.
+ */
+function getTlsMode(): TlsMode {
+  const inProd = process.env.NODE_ENV === 'production';
+  const allowInsecure = process.env.ALLOW_INSECURE_TLS === 'true';
+  return !inProd && allowInsecure ? 'allow-insecure' : 'strict';
+}
+
+function tlsRejectUnauthorized(): boolean {
+  return getTlsMode() !== 'allow-insecure';
+}
+
+function httpsAgent(): https.Agent {
+  return new https.Agent({
+    rejectUnauthorized: tlsRejectUnauthorized(),
+  });
+}
+
 /**
  * Scan a single port
  */
 async function scanPort(host: string, port: number, timeout: number = 3000): Promise<PortScanResult> {
   const service = COMMON_PORTS.find(p => p.port === port)?.service;
-  
+
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let banner = '';
-    
+
     socket.setTimeout(timeout);
-    
+
     socket.on('connect', () => {
       // Try to grab banner
       socket.write('HEAD / HTTP/1.0\r\n\r\n');
     });
-    
+
     socket.on('data', (data) => {
       banner = data.toString().substring(0, 200);
       socket.destroy();
       resolve({ port, state: 'open', service, banner: banner || undefined });
     });
-    
+
     socket.on('timeout', () => {
       socket.destroy();
       resolve({ port, state: 'filtered', service });
     });
-    
+
     socket.on('error', (err: NodeJS.ErrnoException) => {
       socket.destroy();
       if (err.code === 'ECONNREFUSED') {
@@ -314,7 +350,7 @@ async function scanPort(host: string, port: number, timeout: number = 3000): Pro
         resolve({ port, state: 'filtered', service });
       }
     });
-    
+
     socket.connect(port, host);
   });
 }
@@ -324,11 +360,11 @@ async function scanPort(host: string, port: number, timeout: number = 3000): Pro
  */
 export async function portScan(host: string, ports?: number[]): Promise<PortScanResult[]> {
   const portsToScan = ports || COMMON_PORTS.map(p => p.port);
-  
+
   // Scan in batches to avoid overwhelming the target
   const batchSize = 10;
   const results: PortScanResult[] = [];
-  
+
   for (let i = 0; i < portsToScan.length; i += batchSize) {
     const batch = portsToScan.slice(i, i + batchSize);
     const batchResults = await Promise.all(
@@ -336,7 +372,7 @@ export async function portScan(host: string, ports?: number[]): Promise<PortScan
     );
     results.push(...batchResults);
   }
-  
+
   // Return only open ports for cleaner results
   return results.filter(r => r.state === 'open');
 }
@@ -347,25 +383,25 @@ export async function portScan(host: string, ports?: number[]): Promise<PortScan
 export async function sslCheck(host: string, port: number = 443): Promise<SSLCheckResult> {
   return new Promise((resolve) => {
     const vulnerabilities: string[] = [];
-    
-    const options = {
+
+    const options: tls.ConnectionOptions = {
       host,
       port,
       servername: host,
-      rejectUnauthorized: false,
+      rejectUnauthorized: tlsRejectUnauthorized(),
       timeout: 10000,
     };
-    
+
     const socket = tls.connect(options, () => {
       const cert = socket.getPeerCertificate();
       const cipher = socket.getCipher();
       const protocol = socket.getProtocol();
-      
+
       // Check for vulnerabilities
       if (protocol === 'TLSv1' || protocol === 'TLSv1.1') {
         vulnerabilities.push(`Deprecated protocol: ${protocol}`);
       }
-      
+
       if (cipher && cipher.name) {
         if (cipher.name.includes('RC4')) {
           vulnerabilities.push('Weak cipher: RC4');
@@ -377,21 +413,21 @@ export async function sslCheck(host: string, port: number = 443): Promise<SSLChe
           vulnerabilities.push('No encryption: NULL cipher');
         }
       }
-      
+
       // Check certificate expiry
       let daysUntilExpiry: number | undefined;
       if (cert.valid_to) {
         const expiryDate = new Date(cert.valid_to);
         const now = new Date();
         daysUntilExpiry = Math.floor((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        
+
         if (daysUntilExpiry < 0) {
           vulnerabilities.push('Certificate expired');
         } else if (daysUntilExpiry < 30) {
           vulnerabilities.push(`Certificate expires in ${daysUntilExpiry} days`);
         }
       }
-      
+
       // Check if self-signed
       if (cert.issuer && cert.subject) {
         const issuerCN = typeof cert.issuer === 'object' ? cert.issuer.CN : cert.issuer;
@@ -400,12 +436,12 @@ export async function sslCheck(host: string, port: number = 443): Promise<SSLChe
           vulnerabilities.push('Self-signed certificate');
         }
       }
-      
+
       socket.end();
-      
+
       resolve({
         valid: socket.authorized,
-        issuer: typeof cert.issuer === 'object' ? cert.issuer.CN || cert.issuer.O : String(cert.issuer),
+        issuer: typeof cert.issuer === 'object' ? (cert.issuer.CN || cert.issuer.O) : String(cert.issuer),
         subject: typeof cert.subject === 'object' ? cert.subject.CN : String(cert.subject),
         validFrom: cert.valid_from,
         validTo: cert.valid_to,
@@ -416,14 +452,14 @@ export async function sslCheck(host: string, port: number = 443): Promise<SSLChe
         vulnerabilities,
       });
     });
-    
+
     socket.on('error', (err) => {
       resolve({
         valid: false,
         vulnerabilities: [`Connection error: ${err.message}`],
       });
     });
-    
+
     socket.on('timeout', () => {
       socket.destroy();
       resolve({
@@ -450,39 +486,39 @@ export async function httpFingerprint(target: string): Promise<HTTPFingerprintRe
       });
       return;
     }
-    
+
     const client = url.protocol === 'https:' ? https : http;
-    
+
     const req = client.request({
       hostname: url.hostname,
       port: url.port || (url.protocol === 'https:' ? 443 : 80),
       path: url.pathname || '/',
       method: 'HEAD',
       timeout: 10000,
-      rejectUnauthorized: false,
+      ...(url.protocol === 'https:' ? { agent: httpsAgent() } : {}),
     }, (res) => {
       const headers: Record<string, string> = {};
       const technologies: string[] = [];
-      
+
       // Collect headers
       for (const [key, value] of Object.entries(res.headers)) {
         if (value) {
           headers[key] = Array.isArray(value) ? value.join(', ') : value;
         }
       }
-      
+
       // Detect server
       const server = res.headers['server'];
       if (server) {
         technologies.push(`Server: ${server}`);
       }
-      
+
       // Detect X-Powered-By
       const poweredBy = res.headers['x-powered-by'];
       if (poweredBy) {
         technologies.push(`Powered by: ${poweredBy}`);
       }
-      
+
       // Check for common technologies in headers
       if (res.headers['x-aspnet-version']) {
         technologies.push(`ASP.NET: ${res.headers['x-aspnet-version']}`);
@@ -493,15 +529,15 @@ export async function httpFingerprint(target: string): Promise<HTTPFingerprintRe
       if (res.headers['x-generator']) {
         technologies.push(`Generator: ${res.headers['x-generator']}`);
       }
-      
+
       // Check security headers
-      const presentHeaders = SECURITY_HEADERS.filter(h => 
+      const presentHeaders = SECURITY_HEADERS.filter(h =>
         res.headers[h.toLowerCase()]
       );
-      const missingHeaders = SECURITY_HEADERS.filter(h => 
+      const missingHeaders = SECURITY_HEADERS.filter(h =>
         !res.headers[h.toLowerCase()]
       );
-      
+
       resolve({
         server: typeof server === 'string' ? server : undefined,
         poweredBy: typeof poweredBy === 'string' ? poweredBy : undefined,
@@ -515,7 +551,7 @@ export async function httpFingerprint(target: string): Promise<HTTPFingerprintRe
         },
       });
     });
-    
+
     req.on('error', (err) => {
       resolve({
         technologies: [`Error: ${err.message}`],
@@ -523,7 +559,7 @@ export async function httpFingerprint(target: string): Promise<HTTPFingerprintRe
         securityHeaders: { present: [], missing: SECURITY_HEADERS },
       });
     });
-    
+
     req.on('timeout', () => {
       req.destroy();
       resolve({
@@ -532,7 +568,7 @@ export async function httpFingerprint(target: string): Promise<HTTPFingerprintRe
         securityHeaders: { present: [], missing: SECURITY_HEADERS },
       });
     });
-    
+
     req.end();
   });
 }
@@ -549,7 +585,7 @@ export async function dnsEnumeration(domain: string): Promise<DNSEnumResult> {
     txt: [],
     cname: [],
   };
-  
+
   // Run all DNS queries in parallel
   const queries = [
     dnsResolve4(domain).then(r => { result.ipv4 = r; }).catch(() => {}),
@@ -559,9 +595,9 @@ export async function dnsEnumeration(domain: string): Promise<DNSEnumResult> {
     dnsResolveTxt(domain).then(r => { result.txt = r.map(t => t.join('')); }).catch(() => {}),
     dnsResolveCname(domain).then(r => { result.cname = r; }).catch(() => {}),
   ];
-  
+
   await Promise.all(queries);
-  
+
   return result;
 }
 
@@ -592,7 +628,10 @@ const AUTH_PATHS = [
   { path: '/api/v1/auth', type: 'api_auth' },
 ];
 
-async function checkAuthPath(baseUrl: string, authPath: { path: string; type: string }): Promise<{
+async function checkAuthPath(
+  baseUrl: string,
+  authPath: { path: string; type: string }
+): Promise<{
   exists: boolean;
   statusCode?: number;
   indicators: string[];
@@ -600,59 +639,69 @@ async function checkAuthPath(baseUrl: string, authPath: { path: string; type: st
 }> {
   return new Promise((resolve) => {
     const url = new URL(authPath.path, baseUrl);
-    const client = url.protocol === 'https:' ? https : http;
-    
-    const req = client.request({
-      hostname: url.hostname,
-      port: url.port || (url.protocol === 'https:' ? 443 : 80),
-      path: url.pathname,
-      method: 'GET',
-      timeout: 5000,
-      rejectUnauthorized: false,
-      headers: {
-        'User-Agent': 'OdinForge-Scanner/1.0',
-        'Accept': 'text/html,application/json',
+    const client = url.protocol === "https:" ? https : http;
+
+    const req = client.request(
+      {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: url.pathname,
+        method: "GET",
+        timeout: 5000,
+        ...(url.protocol === "https:" ? { agent: httpsAgent() } : {}),
+        headers: {
+          "User-Agent": "OdinForge-Scanner/1.0",
+          Accept: "text/html,application/json",
+        },
       },
-    }, (res) => {
-      const indicators: string[] = [];
-      const headers: Record<string, string> = {};
-      
-      for (const [key, value] of Object.entries(res.headers)) {
-        if (value) {
-          headers[key] = Array.isArray(value) ? value.join(', ') : value;
+      (res) => {
+        const indicators: string[] = [];
+        const headers: Record<string, string> = {};
+
+        for (const [key, value] of Object.entries(res.headers)) {
+          if (value) {
+            headers[key] = Array.isArray(value) ? value.join(", ") : value;
+          }
         }
-      }
-      
-      // Check for auth-related response patterns
-      if (res.headers['www-authenticate']) {
-        indicators.push('WWW-Authenticate header present');
-      }
-      if (res.headers['set-cookie']) {
-        const cookies = Array.isArray(res.headers['set-cookie']) 
-          ? res.headers['set-cookie'].join(';') 
-          : res.headers['set-cookie'];
-        if (cookies.toLowerCase().includes('session') || cookies.toLowerCase().includes('auth')) {
-          indicators.push('Session/auth cookie detected');
+
+        // Check for auth-related response patterns
+        if (res.headers["www-authenticate"]) {
+          indicators.push("WWW-Authenticate header present");
         }
-      }
+
+        if (res.headers["set-cookie"]) {
+          const cookies = Array.isArray(res.headers["set-cookie"])
+            ? res.headers["set-cookie"].join(";")
+            : res.headers["set-cookie"];
+
+          if (
+            cookies.toLowerCase().includes("session") ||
+            cookies.toLowerCase().includes("auth")
+          ) {
+            indicators.push("Session/auth cookie detected");
+          }
+        }
       
       // 200 or redirect indicates the path exists
-      const exists = res.statusCode !== undefined && 
-        (res.statusCode >= 200 && res.statusCode < 400);
-      
-      if (res.statusCode === 401 || res.statusCode === 403) {
-        indicators.push(`Protected endpoint (${res.statusCode})`);
+        const exists =
+          res.statusCode !== undefined &&
+          res.statusCode >= 200 &&
+          res.statusCode < 400;
+
+        if (res.statusCode === 401 || res.statusCode === 403) {
+          indicators.push(`Protected endpoint (${res.statusCode})`);
+        }
+
+        resolve({ exists, statusCode: res.statusCode, indicators, headers });
       }
-      
-      resolve({ exists, statusCode: res.statusCode, indicators, headers });
-    });
-    
-    req.on('error', () => resolve({ exists: false, indicators: [] }));
-    req.on('timeout', () => {
+    );
+
+    req.on("error", () => resolve({ exists: false, indicators: [] }));
+    req.on("timeout", () => {
       req.destroy();
       resolve({ exists: false, indicators: [] });
     });
-    
+
     req.end();
   });
 }
