@@ -456,10 +456,22 @@ export default function Reports() {
       return content;
     }
 
+    // Handle Web App Scan Report structure
+    if (data.scanMetadata || data.technicalFindings || data.reconResult) {
+      return buildWebAppScanPdfContent(data);
+    }
+
     if (data.executiveSummary || reportType === "executive_summary") {
       content.push({ text: "Executive Summary", style: "sectionHeader" });
       if (data.executiveSummary) {
-        content.push({ text: data.executiveSummary, style: "bodyText" });
+        // Handle both string and object executiveSummary
+        if (typeof data.executiveSummary === "string") {
+          content.push({ text: data.executiveSummary, style: "bodyText" });
+        } else if (typeof data.executiveSummary === "object") {
+          if (data.executiveSummary.overview) {
+            content.push({ text: data.executiveSummary.overview, style: "bodyText" });
+          }
+        }
       }
       
       if (data.keyMetrics) {
@@ -726,6 +738,183 @@ export default function Reports() {
       content.push({ text: JSON.stringify(data, null, 2), style: "bodyText", preserveLeadingSpaces: true });
     }
 
+    return content;
+  };
+
+  const buildWebAppScanPdfContent = (data: any): any[] => {
+    const content: any[] = [];
+    
+    // Executive Summary section
+    content.push({ text: "Executive Summary", style: "sectionHeader" });
+    
+    if (data.executiveSummary) {
+      const summary = data.executiveSummary;
+      if (summary.overview) {
+        content.push({ text: summary.overview, style: "bodyText" });
+      }
+      
+      // Key metrics table
+      const metricsData = [
+        ["Risk Level", summary.riskLevel || "Unknown"],
+        ["Findings Count", String(summary.findingsCount || 0)],
+      ];
+      
+      if (data.scanMetadata?.targetUrl) {
+        metricsData.unshift(["Target URL", data.scanMetadata.targetUrl]);
+      }
+      
+      const metricsTable = {
+        table: {
+          widths: ["auto", "*"],
+          body: metricsData.map(([label, value]) => [
+            { text: label, style: "tableCell", bold: true },
+            { text: value, style: "tableCell" },
+          ]),
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 10, 0, 15],
+      };
+      content.push(metricsTable);
+    }
+    
+    // Attack Surface Analysis section (from reconResult)
+    if (data.reconResult) {
+      const recon = data.reconResult;
+      
+      if (recon.attackSurface) {
+        content.push({ text: "Attack Surface Analysis", style: "sectionHeader" });
+        
+        const surfaceData = [
+          ["Total Endpoints", String(recon.attackSurface.totalEndpoints || 0)],
+          ["High Priority Endpoints", String(recon.attackSurface.highPriorityEndpoints || 0)],
+          ["Input Parameters", String(recon.attackSurface.inputParameters || 0)],
+          ["Authentication Points", String(recon.attackSurface.authenticationPoints || 0)],
+          ["File Upload Points", String(recon.attackSurface.fileUploadPoints || 0)],
+          ["API Endpoints", String(recon.attackSurface.apiEndpoints || 0)],
+        ];
+        
+        const surfaceTable = {
+          table: {
+            widths: ["*", "auto"],
+            body: surfaceData.map(([label, value]) => [
+              { text: label, style: "tableCell" },
+              { text: value, style: "tableCell", alignment: "right" },
+            ]),
+          },
+          layout: "lightHorizontalLines",
+          margin: [0, 5, 0, 15],
+        };
+        content.push(surfaceTable);
+      }
+      
+      // Application Security Headers
+      if (recon.applicationInfo) {
+        content.push({ text: "Application Security Headers", style: "sectionHeader" });
+        
+        const appInfo = recon.applicationInfo;
+        
+        if (appInfo.securityHeaders && Object.keys(appInfo.securityHeaders).length > 0) {
+          content.push({ text: "Present Headers:", style: "subHeader" });
+          const presentHeaders = Object.entries(appInfo.securityHeaders).map(([header, value]) => 
+            `${header}: ${String(value).substring(0, 60)}${String(value).length > 60 ? "..." : ""}`
+          );
+          content.push({ ul: presentHeaders, style: "listItem", margin: [0, 5, 0, 10] });
+        }
+        
+        if (appInfo.missingSecurityHeaders && appInfo.missingSecurityHeaders.length > 0) {
+          content.push({ text: "Missing Headers (Recommended):", style: "subHeader" });
+          content.push({ 
+            ul: appInfo.missingSecurityHeaders.slice(0, 10), 
+            style: "listItem", 
+            margin: [0, 5, 0, 15] 
+          });
+        }
+      }
+    }
+    
+    // Technical Findings section
+    if (data.technicalFindings && Array.isArray(data.technicalFindings) && data.technicalFindings.length > 0) {
+      content.push({ text: "Security Findings", style: "sectionHeader" });
+      content.push({ 
+        text: `${data.technicalFindings.length} validated finding(s) identified during the assessment.`, 
+        style: "bodyText" 
+      });
+      
+      const findingsTable = {
+        table: {
+          headerRows: 1,
+          widths: ["auto", "*", "auto", "auto"],
+          body: [
+            [
+              { text: "Severity", style: "tableHeader" },
+              { text: "Vulnerability", style: "tableHeader" },
+              { text: "CVSS", style: "tableHeader" },
+              { text: "Confidence", style: "tableHeader" },
+            ],
+            ...data.technicalFindings.slice(0, 20).map((finding: any) => [
+              { text: (finding.severity || "medium").toUpperCase(), style: getSeverityStyle(finding.severity) },
+              { text: `${finding.vulnerabilityType?.replace(/_/g, " ").toUpperCase() || "Unknown"}\n${finding.endpointPath || ""}`, style: "tableCell" },
+              { text: finding.cvssEstimate || "N/A", style: "tableCell" },
+              { text: `${finding.confidence || 0}%`, style: "tableCell" },
+            ]),
+          ],
+        },
+        layout: "lightHorizontalLines",
+        margin: [0, 10, 0, 15],
+      };
+      content.push(findingsTable);
+      
+      // Detailed findings
+      content.push({ text: "Finding Details", style: "sectionHeader" });
+      
+      for (const [idx, finding] of data.technicalFindings.slice(0, 10).entries()) {
+        content.push({ 
+          text: `${idx + 1}. ${finding.vulnerabilityType?.replace(/_/g, " ").toUpperCase() || "Finding"} - ${finding.endpointPath || "Unknown Path"}`, 
+          style: "subHeader" 
+        });
+        
+        const findingDetails = [
+          `Parameter: ${finding.parameter || "N/A"}`,
+          `MITRE ATT&CK: ${finding.mitreAttackId || "N/A"}`,
+          `Verdict: ${finding.verdict || "N/A"}`,
+        ];
+        content.push({ text: findingDetails.join(" | "), style: "bodyText", color: "#64748b" });
+        
+        // Evidence
+        if (finding.evidence && Array.isArray(finding.evidence) && finding.evidence.length > 0) {
+          content.push({ text: "Evidence:", style: "listLabel", margin: [0, 5, 0, 2] });
+          content.push({ 
+            ul: finding.evidence.slice(0, 3).map((e: string) => e.substring(0, 100) + (e.length > 100 ? "..." : "")), 
+            style: "listItem",
+            margin: [10, 0, 0, 5]
+          });
+        }
+        
+        // Reproduction Steps
+        if (finding.reproductionSteps && Array.isArray(finding.reproductionSteps)) {
+          content.push({ text: "Reproduction Steps:", style: "listLabel", margin: [0, 5, 0, 2] });
+          content.push({ 
+            ol: finding.reproductionSteps.slice(0, 5), 
+            style: "listItem",
+            margin: [10, 0, 0, 5]
+          });
+        }
+        
+        // Recommendations
+        if (finding.recommendations && Array.isArray(finding.recommendations) && finding.recommendations.length > 0) {
+          content.push({ text: "Recommendations:", style: "listLabel", margin: [0, 5, 0, 2] });
+          content.push({ 
+            ul: finding.recommendations.slice(0, 5), 
+            style: "listItem",
+            margin: [10, 0, 0, 15]
+          });
+        }
+      }
+    } else {
+      content.push({ text: "Security Findings", style: "sectionHeader" });
+      content.push({ text: "No validated security findings were identified during this assessment.", style: "bodyText" });
+    }
+    
     return content;
   };
 
