@@ -8,6 +8,7 @@ import { ensureAgentBinaries } from "./services/agent-builder";
 import { queueService } from "./services/queue";
 import { registerJobHandlers } from "./services/queue/handlers";
 import { initScheduler } from "./services/scheduler/scan-scheduler";
+import { startReconciliationScheduler, runReconciliation } from "./services/data-reconciliation";
 import { gunzipSync, inflateSync } from "zlib";
 
 const app = express();
@@ -198,6 +199,17 @@ app.use((req, res, next) => {
     initScheduler();
   } catch (error) {
     console.warn("Scheduler initialization failed:", error instanceof Error ? error.message : error);
+  }
+  
+  // Initialize data reconciliation scheduler and run initial cleanup
+  try {
+    startReconciliationScheduler();
+    // Run an initial reconciliation on startup to clean any stale data
+    runReconciliation().catch(err => {
+      console.warn("Initial data reconciliation failed:", err instanceof Error ? err.message : err);
+    });
+  } catch (error) {
+    console.warn("Data reconciliation scheduler initialization failed:", error instanceof Error ? error.message : error);
   }
   
   // Production environment warnings
