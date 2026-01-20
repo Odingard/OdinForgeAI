@@ -1,0 +1,75 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node build (root)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Node install/build
+        run: |
+          npm ci
+          npm run build --if-present
+
+      - name: Pack Node artifact
+        run: |
+          mkdir -p dist_artifacts
+          tar -czf dist_artifacts/odinforge-node.tgz \
+            package.json package-lock.json \
+            $(test -d dist && echo dist) \
+            $(test -d build && echo build) \
+            $(test -d server && echo server) \
+            $(test -d src && echo src)
+
+      # Go agent build
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache: true
+
+      - name: Build Go agent binaries
+        working-directory: odinforge-agent
+        run: |
+          mkdir -p ../dist_artifacts
+          if [ ! -f go.mod ]; then
+            echo "No go.mod in odinforge-agent"
+            exit 1
+          fi
+
+          # Linux amd64
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags "-s -w" \
+            -o ../dist_artifacts/odinforge-agent-linux-amd64 \
+            ./cmd/agent
+
+          # Linux arm64
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags "-s -w" \
+            -o ../dist_artifacts/odinforge-agent-linux-arm64 \
+            ./cmd/agent
+
+          # macOS arm64 (optional)
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags "-s -w" \
+            -o ../dist_artifacts/odinforge-agent-darwin-arm64 \
+            ./cmd/agent
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist_artifacts/*
