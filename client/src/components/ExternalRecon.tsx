@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Component, ErrorInfo, ReactNode } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,8 +34,15 @@ import {
   ExternalLink,
   FileDown,
   FileText,
-  RefreshCw
+  RefreshCw,
+  History,
+  Clock,
+  Play,
+  Eye,
+  Trash2
 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useLocation } from "wouter";
 
 interface ErrorBoundaryProps {
@@ -597,6 +604,38 @@ function ExternalReconContent() {
   
   // Component-level async error state (for errors outside React lifecycle)
   const [asyncError, setAsyncError] = useState<string | null>(null);
+  
+  // Recent scans state
+  const [selectedScanDetails, setSelectedScanDetails] = useState<WebAppScanResult | null>(null);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  
+  // Fetch recent web app scans
+  const { data: recentScans = [], refetch: refetchScans } = useQuery<WebAppScanResult[]>({
+    queryKey: ["/api/web-app-recon"],
+    refetchInterval: webAppPolling ? 5000 : false,
+  });
+  
+  // Delete scan mutation
+  const deleteScanMutation = useMutation({
+    mutationFn: async (scanId: string) => {
+      const res = await apiRequest("DELETE", `/api/web-app-recon/${scanId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/web-app-recon"] });
+      toast({
+        title: "Scan Deleted",
+        description: "The scan has been removed from history",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Delete Failed",
+        description: "Could not delete the scan",
+        variant: "destructive",
+      });
+    },
+  });
   
   // Global error capture for async errors that don't get caught by React
   // This captures ALL uncaught errors to prevent black screen
@@ -2435,6 +2474,235 @@ function ExternalReconContent() {
           </CardContent>
         </Card>
       )}
+      
+      {/* Recent Scans Section */}
+      <Card data-testid="card-recent-scans">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <History className="h-5 w-5 text-cyan-400" />
+              <CardTitle className="text-lg">Recent Scans</CardTitle>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetchScans()}
+              data-testid="button-refresh-scans"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+          <CardDescription>
+            View and manage your previous web application scans
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentScans.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Bug className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>No scans yet. Run a Web App Scan to see results here.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Target</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Findings</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentScans.slice(0, 10).map((scan) => (
+                    <TableRow key={scan.id} data-testid={`row-scan-${scan.id}`}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Globe className="h-4 w-4 text-cyan-400 flex-shrink-0" />
+                          <span className="font-mono text-sm truncate max-w-[200px]" title={scan.targetUrl}>
+                            {scan.targetUrl}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={
+                            scan.status === "completed" ? "default" :
+                            ["web_recon", "agent_dispatch", "pending"].includes(scan.status) ? "secondary" :
+                            scan.status === "failed" ? "destructive" : "outline"
+                          }
+                          className={scan.status === "completed" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : ""}
+                        >
+                          {["web_recon", "agent_dispatch", "pending"].includes(scan.status) && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                          {scan.status === "completed" && <CheckCircle className="h-3 w-3 mr-1" />}
+                          {scan.status === "failed" && <XCircle className="h-3 w-3 mr-1" />}
+                          {scan.status === "pending" ? "starting" : scan.status === "web_recon" ? "scanning" : scan.status === "agent_dispatch" ? "validating" : scan.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {scan.validatedFindings && scan.validatedFindings.length > 0 ? (
+                          <Badge variant="destructive" className="bg-red-500/20 text-red-400 border-red-500/30">
+                            {scan.validatedFindings.length} vulnerabilities
+                          </Badge>
+                        ) : scan.status === "completed" ? (
+                          <Badge variant="outline" className="text-muted-foreground">
+                            No issues
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          {new Date(scan.createdAt).toLocaleDateString()}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Dialog open={detailsDialogOpen && selectedScanDetails?.id === scan.id} onOpenChange={(open) => {
+                            setDetailsDialogOpen(open);
+                            if (!open) setSelectedScanDetails(null);
+                          }}>
+                            <DialogTrigger asChild>
+                              <Button 
+                                variant="ghost" 
+                                size="icon"
+                                onClick={() => {
+                                  setSelectedScanDetails(scan);
+                                  setDetailsDialogOpen(true);
+                                }}
+                                data-testid={`button-view-scan-${scan.id}`}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                              <DialogHeader>
+                                <DialogTitle className="flex items-center gap-2">
+                                  <Bug className="h-5 w-5 text-cyan-400" />
+                                  Scan Details
+                                </DialogTitle>
+                                <DialogDescription>
+                                  {selectedScanDetails?.targetUrl}
+                                </DialogDescription>
+                              </DialogHeader>
+                              {selectedScanDetails && (
+                                <div className="space-y-4 mt-4">
+                                  <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                      <span className="text-muted-foreground">Scan ID:</span>
+                                      <p className="font-mono">{selectedScanDetails.id}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Status:</span>
+                                      <p className="capitalize">{selectedScanDetails.status}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Progress:</span>
+                                      <p>{selectedScanDetails.progress}%</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Phase:</span>
+                                      <p>{selectedScanDetails.currentPhase || "N/A"}</p>
+                                    </div>
+                                  </div>
+                                  
+                                  {selectedScanDetails.validatedFindings && selectedScanDetails.validatedFindings.length > 0 && (
+                                    <div>
+                                      <h4 className="font-medium mb-2 flex items-center gap-2">
+                                        <AlertTriangle className="h-4 w-4 text-amber-400" />
+                                        Validated Findings ({selectedScanDetails.validatedFindings.length})
+                                      </h4>
+                                      <div className="space-y-2">
+                                        {selectedScanDetails.validatedFindings.map((finding: any, idx: number) => (
+                                          <div key={idx} className="p-3 bg-muted/50 rounded-md border">
+                                            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                                              <Badge variant="destructive" className="bg-red-500/20 text-red-400 border-red-500/30">
+                                                {finding.vulnerabilityType?.toUpperCase()}
+                                              </Badge>
+                                              <Badge variant="outline">
+                                                CVSS: {finding.cvssEstimate || "N/A"}
+                                              </Badge>
+                                            </div>
+                                            <p className="text-sm text-muted-foreground mb-1">
+                                              <strong>Parameter:</strong> {finding.parameter}
+                                            </p>
+                                            <p className="text-sm text-muted-foreground mb-1">
+                                              <strong>Confidence:</strong> {finding.confidence}%
+                                            </p>
+                                            <p className="text-sm text-muted-foreground">
+                                              <strong>Endpoint:</strong> {finding.endpointPath}
+                                            </p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  
+                                  {selectedScanDetails.reconResult?.attackSurface && (
+                                    <div>
+                                      <h4 className="font-medium mb-2">Attack Surface</h4>
+                                      <div className="grid grid-cols-3 gap-2 text-sm">
+                                        <div className="p-2 bg-muted/50 rounded">
+                                          <span className="text-muted-foreground">Endpoints:</span>
+                                          <p className="font-medium">{selectedScanDetails.reconResult.attackSurface.totalEndpoints}</p>
+                                        </div>
+                                        <div className="p-2 bg-muted/50 rounded">
+                                          <span className="text-muted-foreground">Parameters:</span>
+                                          <p className="font-medium">{selectedScanDetails.reconResult.attackSurface.parameterizedEndpoints}</p>
+                                        </div>
+                                        <div className="p-2 bg-muted/50 rounded">
+                                          <span className="text-muted-foreground">High Risk:</span>
+                                          <p className="font-medium">{selectedScanDetails.reconResult.attackSurface.highRiskEndpoints}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </DialogContent>
+                          </Dialog>
+                          
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => {
+                              setWebAppTarget(scan.targetUrl);
+                              setActiveTab("webapp");
+                              toast({
+                                title: "Target Loaded",
+                                description: "Click Scan to re-run the test",
+                              });
+                            }}
+                            title="Re-run scan"
+                            data-testid={`button-rerun-scan-${scan.id}`}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                          
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => deleteScanMutation.mutate(scan.id)}
+                            disabled={deleteScanMutation.isPending}
+                            title="Delete scan"
+                            data-testid={`button-delete-scan-${scan.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
