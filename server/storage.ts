@@ -122,6 +122,9 @@ import {
   autoDeployConfigs,
   type AutoDeployConfig,
   type InsertAutoDeployConfig,
+  sshCredentials,
+  type SshCredential,
+  type InsertSshCredential,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -247,6 +250,16 @@ export interface IStorage {
   createAutoDeployConfig(data: InsertAutoDeployConfig): Promise<AutoDeployConfig>;
   updateAutoDeployConfig(organizationId: string, updates: Partial<InsertAutoDeployConfig>): Promise<AutoDeployConfig | undefined>;
   incrementAutoDeployStats(organizationId: string): Promise<void>;
+  
+  // SSH Credential operations
+  createSshCredential(data: InsertSshCredential): Promise<SshCredential>;
+  getSshCredential(id: string): Promise<SshCredential | undefined>;
+  getSshCredentialForAsset(assetId: string, organizationId: string): Promise<SshCredential | undefined>;
+  getSshCredentialsByConnection(connectionId: string): Promise<SshCredential[]>;
+  getSshCredentials(organizationId: string): Promise<SshCredential[]>;
+  updateSshCredential(id: string, updates: Partial<SshCredential>): Promise<void>;
+  updateSshCredentialLastUsed(id: string): Promise<void>;
+  deleteSshCredential(id: string): Promise<void>;
   
   // Coverage Stats operations
   getCoverageStats(organizationId: string): Promise<{
@@ -2232,6 +2245,84 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(webAppReconScans)
       .where(eq(webAppReconScans.id, id));
+  }
+  
+  // SSH Credential operations
+  async createSshCredential(data: InsertSshCredential): Promise<SshCredential> {
+    const id = `ssh-${randomUUID().slice(0, 8)}`;
+    const [credential] = await db
+      .insert(sshCredentials)
+      .values({ ...data, id } as typeof sshCredentials.$inferInsert)
+      .returning();
+    return credential;
+  }
+  
+  async getSshCredential(id: string): Promise<SshCredential | undefined> {
+    const [credential] = await db
+      .select()
+      .from(sshCredentials)
+      .where(eq(sshCredentials.id, id));
+    return credential;
+  }
+  
+  async getSshCredentialForAsset(assetId: string, organizationId: string): Promise<SshCredential | undefined> {
+    // First try to find asset-specific credential
+    const [assetCred] = await db
+      .select()
+      .from(sshCredentials)
+      .where(and(
+        eq(sshCredentials.assetId, assetId),
+        eq(sshCredentials.organizationId, organizationId),
+        eq(sshCredentials.status, "active")
+      ));
+    if (assetCred) return assetCred;
+    
+    // Fall back to organization-wide default (no asset, no connection)
+    const [orgDefault] = await db
+      .select()
+      .from(sshCredentials)
+      .where(and(
+        sql`${sshCredentials.assetId} IS NULL`,
+        sql`${sshCredentials.connectionId} IS NULL`,
+        eq(sshCredentials.organizationId, organizationId),
+        eq(sshCredentials.status, "active")
+      ));
+    return orgDefault;
+  }
+  
+  async getSshCredentialsByConnection(connectionId: string): Promise<SshCredential[]> {
+    return db
+      .select()
+      .from(sshCredentials)
+      .where(eq(sshCredentials.connectionId, connectionId));
+  }
+  
+  async getSshCredentials(organizationId: string): Promise<SshCredential[]> {
+    return db
+      .select()
+      .from(sshCredentials)
+      .where(eq(sshCredentials.organizationId, organizationId))
+      .orderBy(desc(sshCredentials.createdAt));
+  }
+  
+  async updateSshCredential(id: string, updates: Partial<SshCredential>): Promise<void> {
+    await db
+      .update(sshCredentials)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sshCredentials.id, id));
+  }
+  
+  async updateSshCredentialLastUsed(id: string): Promise<void> {
+    await db
+      .update(sshCredentials)
+      .set({ lastUsedAt: new Date(), updatedAt: new Date() })
+      .where(eq(sshCredentials.id, id));
+  }
+  
+  async deleteSshCredential(id: string): Promise<void> {
+    await db
+      .delete(sshCredentials)
+      .where(eq(sshCredentials.id, id));
   }
 }
 
