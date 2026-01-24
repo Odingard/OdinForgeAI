@@ -612,22 +612,44 @@ export class AWSAdapter implements ProviderAdapter {
           });
         }
         
-        // Check for dangerous actions
+        // Check for dangerous actions - detect both wildcard and specific resource scenarios
         const foundDangerousActions = findDangerousActions(actions);
-        if (foundDangerousActions.length > 0 && hasWildcardResource) {
-          policyFindings.push({
-            id: `${context.findingIdPrefix}-dangerous-${context.policyName}-${stmt.Sid || "stmt"}`,
-            provider: "aws",
-            findingType: context.findingType,
-            resourceId: context.resourceId,
-            resourceName: context.resourceName,
-            severity: "high",
-            title: "Policy Contains Dangerous Permissions",
-            description: `${context.resourceName} has ${context.policySource} policy "${context.policyName}" with dangerous permissions: ${foundDangerousActions.join(", ")}`,
-            riskFactors: ["privilege_escalation", "iam_modification"],
-            recommendation: "Review and restrict these permissions to specific resources.",
-            metadata: { resourceName: context.resourceName, policyName: context.policyName, dangerousActions: foundDangerousActions },
-          });
+        if (foundDangerousActions.length > 0) {
+          // High-risk actions (PassRole, AssumeRole, etc.) are dangerous even with specific resources
+          const highRiskActions = ["iam:PassRole", "sts:AssumeRole", "iam:CreateAccessKey", "iam:UpdateAssumeRolePolicy"];
+          const hasHighRiskAction = foundDangerousActions.some(a => highRiskActions.includes(a) || a === "iam:*");
+          
+          if (hasWildcardResource) {
+            // Wildcard resource with dangerous actions = high severity
+            policyFindings.push({
+              id: `${context.findingIdPrefix}-dangerous-${context.policyName}-${stmt.Sid || "stmt"}`,
+              provider: "aws",
+              findingType: context.findingType,
+              resourceId: context.resourceId,
+              resourceName: context.resourceName,
+              severity: "high",
+              title: "Policy Contains Dangerous Permissions",
+              description: `${context.resourceName} has ${context.policySource} policy "${context.policyName}" with dangerous permissions on all resources: ${foundDangerousActions.join(", ")}`,
+              riskFactors: ["privilege_escalation", "iam_modification", "wildcard_resource"],
+              recommendation: "Review and restrict these permissions to specific resources.",
+              metadata: { resourceName: context.resourceName, policyName: context.policyName, dangerousActions: foundDangerousActions, resources },
+            });
+          } else if (hasHighRiskAction) {
+            // High-risk actions on specific resources = medium severity (still worth flagging)
+            policyFindings.push({
+              id: `${context.findingIdPrefix}-highrisk-${context.policyName}-${stmt.Sid || "stmt"}`,
+              provider: "aws",
+              findingType: context.findingType,
+              resourceId: context.resourceId,
+              resourceName: context.resourceName,
+              severity: "medium",
+              title: "Policy Contains High-Risk Permissions",
+              description: `${context.resourceName} has ${context.policySource} policy "${context.policyName}" with high-risk permissions: ${foundDangerousActions.join(", ")}`,
+              riskFactors: ["privilege_escalation", "specific_resource"],
+              recommendation: "Verify these permissions are necessary and the target resources are appropriate.",
+              metadata: { resourceName: context.resourceName, policyName: context.policyName, dangerousActions: foundDangerousActions, resources },
+            });
+          }
         }
       }
       
