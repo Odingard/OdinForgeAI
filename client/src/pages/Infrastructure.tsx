@@ -182,6 +182,16 @@ function CloudConnectionCard({
   const { toast } = useToast();
   const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
   const [assetsDialogOpen, setAssetsDialogOpen] = useState(false);
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false);
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const [deploymentMethod, setDeploymentMethod] = useState<"cloud-api" | "ssh">("cloud-api");
+  const [sshHost, setSSHHost] = useState("");
+  const [sshPort, setSSHPort] = useState("22");
+  const [sshUsername, setSSHUsername] = useState("");
+  const [sshPassword, setSSHPassword] = useState("");
+  const [sshPrivateKey, setSSHPrivateKey] = useState("");
+  const [sshAuthType, setSSHAuthType] = useState<"password" | "key">("password");
+  const [useSudo, setUseSudo] = useState(true);
 
   const { data: cloudAssets = [], isLoading: assetsLoading } = useQuery<CloudAsset[]>({
     queryKey: ["/api/cloud-connections", connection.id, "assets"],
@@ -221,15 +231,85 @@ function CloudConnectionCard({
   });
 
   const deployAgentMutation = useMutation({
-    mutationFn: async (assetId: string) => {
-      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/deploy-agent`);
+    mutationFn: async (params: { assetId: string; method: "cloud-api" | "ssh"; sshCredentials?: any }) => {
+      const body: any = { deploymentMethod: params.method };
+      if (params.method === "ssh" && params.sshCredentials) {
+        body.sshHost = params.sshCredentials.host;
+        body.sshPort = params.sshCredentials.port;
+        body.sshUsername = params.sshCredentials.username;
+        body.sshPassword = params.sshCredentials.password;
+        body.sshPrivateKey = params.sshCredentials.privateKey;
+        body.useSudo = params.sshCredentials.useSudo;
+      }
+      const res = await apiRequest("POST", `/api/cloud-assets/${params.assetId}/deploy-agent`, body);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
+      setDeployDialogOpen(false);
+      resetDeployForm();
       toast({ title: "Agent Deployment Started" });
     },
+    onError: (error: any) => {
+      toast({ title: "Deployment Failed", description: error.message, variant: "destructive" });
+    },
   });
+  
+  const resetDeployForm = () => {
+    setDeploymentMethod("cloud-api");
+    setSSHHost("");
+    setSSHPort("22");
+    setSSHUsername("");
+    setSSHPassword("");
+    setSSHPrivateKey("");
+    setSSHAuthType("password");
+    setUseSudo(true);
+    setSelectedAssetId(null);
+  };
+  
+  const handleDeployClick = (asset: CloudAsset) => {
+    setSelectedAssetId(asset.id);
+    // Pre-fill SSH host from asset's IP addresses if available
+    const metadata = asset.metadata as any;
+    const publicIp = metadata?.publicIpAddresses?.[0] || metadata?.publicIpAddress;
+    const privateIp = metadata?.privateIpAddresses?.[0] || metadata?.privateIpAddress;
+    setSSHHost(publicIp || privateIp || "");
+    setDeployDialogOpen(true);
+  };
+  
+  const handleDeploySubmit = () => {
+    if (!selectedAssetId) return;
+    
+    if (deploymentMethod === "ssh") {
+      if (!sshHost || !sshUsername) {
+        toast({ title: "SSH host and username are required", variant: "destructive" });
+        return;
+      }
+      if (sshAuthType === "password" && !sshPassword) {
+        toast({ title: "SSH password is required", variant: "destructive" });
+        return;
+      }
+      if (sshAuthType === "key" && !sshPrivateKey) {
+        toast({ title: "SSH private key is required", variant: "destructive" });
+        return;
+      }
+      
+      deployAgentMutation.mutate({
+        assetId: selectedAssetId,
+        method: "ssh",
+        sshCredentials: {
+          host: sshHost,
+          port: parseInt(sshPort) || 22,
+          username: sshUsername,
+          password: sshAuthType === "password" ? sshPassword : undefined,
+          privateKey: sshAuthType === "key" ? sshPrivateKey : undefined,
+          useSudo,
+        },
+      });
+    } else {
+      deployAgentMutation.mutate({ assetId: selectedAssetId, method: "cloud-api" });
+    }
+  };
 
   const redeployAgentMutation = useMutation({
     mutationFn: async (assetId: string) => {
@@ -488,7 +568,7 @@ function CloudConnectionCard({
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => deployAgentMutation.mutate(asset.id)}
+                            onClick={() => handleDeployClick(asset)}
                             disabled={deployAgentMutation.isPending}
                             data-testid={`button-deploy-agent-${asset.id}`}
                             title="Deploy Agent"
@@ -516,6 +596,128 @@ function CloudConnectionCard({
               </Table>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Agent Deployment Dialog */}
+      <Dialog open={deployDialogOpen} onOpenChange={(open) => { if (!open) resetDeployForm(); setDeployDialogOpen(open); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Deploy Agent</DialogTitle>
+            <DialogDescription>
+              Choose how to deploy the monitoring agent to this asset.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Deployment Method</Label>
+              <Select value={deploymentMethod} onValueChange={(v) => setDeploymentMethod(v as "cloud-api" | "ssh")}>
+                <SelectTrigger data-testid="select-deployment-method">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cloud-api">Cloud API (SSM/Run Command)</SelectItem>
+                  <SelectItem value="ssh">SSH Connection</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {deploymentMethod === "cloud-api" 
+                  ? "Uses cloud provider APIs to install the agent. Requires SSM agent or equivalent."
+                  : "Connects directly via SSH to install the agent. Requires SSH access to the instance."}
+              </p>
+            </div>
+            
+            {deploymentMethod === "ssh" && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="ssh-host">SSH Host</Label>
+                  <Input 
+                    id="ssh-host"
+                    value={sshHost}
+                    onChange={(e) => setSSHHost(e.target.value)}
+                    placeholder="IP address or hostname"
+                    data-testid="input-ssh-host"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="ssh-port">Port</Label>
+                    <Input 
+                      id="ssh-port"
+                      value={sshPort}
+                      onChange={(e) => setSSHPort(e.target.value)}
+                      placeholder="22"
+                      data-testid="input-ssh-port"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ssh-username">Username</Label>
+                    <Input 
+                      id="ssh-username"
+                      value={sshUsername}
+                      onChange={(e) => setSSHUsername(e.target.value)}
+                      placeholder="e.g., ubuntu, ec2-user"
+                      data-testid="input-ssh-username"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Authentication</Label>
+                  <Select value={sshAuthType} onValueChange={(v) => setSSHAuthType(v as "password" | "key")}>
+                    <SelectTrigger data-testid="select-ssh-auth-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="password">Password</SelectItem>
+                      <SelectItem value="key">Private Key</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {sshAuthType === "password" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="ssh-password">Password</Label>
+                    <Input 
+                      id="ssh-password"
+                      type="password"
+                      value={sshPassword}
+                      onChange={(e) => setSSHPassword(e.target.value)}
+                      placeholder="SSH password"
+                      data-testid="input-ssh-password"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="ssh-key">Private Key</Label>
+                    <textarea 
+                      id="ssh-key"
+                      className="w-full min-h-[100px] p-2 text-sm font-mono border rounded-md bg-background"
+                      value={sshPrivateKey}
+                      onChange={(e) => setSSHPrivateKey(e.target.value)}
+                      placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                      data-testid="input-ssh-private-key"
+                    />
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Switch 
+                    id="use-sudo"
+                    checked={useSudo}
+                    onCheckedChange={setUseSudo}
+                    data-testid="switch-use-sudo"
+                  />
+                  <Label htmlFor="use-sudo" className="text-sm">Use sudo for installation</Label>
+                </div>
+              </>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { resetDeployForm(); setDeployDialogOpen(false); }} data-testid="button-cancel-deploy">
+              Cancel
+            </Button>
+            <Button onClick={handleDeploySubmit} disabled={deployAgentMutation.isPending} data-testid="button-confirm-deploy">
+              {deployAgentMutation.isPending ? "Deploying..." : "Deploy Agent"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

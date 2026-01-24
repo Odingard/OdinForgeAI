@@ -3020,10 +3020,49 @@ export async function registerRoutes(
   app.post("/api/cloud-assets/:id/deploy-agent", apiRateLimiter, async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
+      const { deploymentMethod, sshHost, sshPort, sshUsername, sshPassword, sshPrivateKey, useSudo } = req.body;
+      
+      // Validate SSH credentials when SSH method is selected
+      if (deploymentMethod === "ssh") {
+        if (!sshHost || typeof sshHost !== "string" || sshHost.trim() === "") {
+          return res.status(400).json({ error: "SSH host is required" });
+        }
+        if (!sshUsername || typeof sshUsername !== "string" || sshUsername.trim() === "") {
+          return res.status(400).json({ error: "SSH username is required" });
+        }
+        if (!sshPassword && !sshPrivateKey) {
+          return res.status(400).json({ error: "Either SSH password or private key is required" });
+        }
+        // Validate port if provided
+        if (sshPort !== undefined && sshPort !== null) {
+          const portNum = typeof sshPort === "string" ? parseInt(sshPort, 10) : sshPort;
+          if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+            return res.status(400).json({ error: "SSH port must be a valid port number (1-65535)" });
+          }
+        }
+      }
+      
+      // Build deployment options
+      const deployOptions: any = { 
+        initiatedBy: req.body.userId,
+        deploymentMethod: deploymentMethod || "cloud-api",
+      };
+      
+      if (deploymentMethod === "ssh") {
+        const portNum = sshPort ? (typeof sshPort === "string" ? parseInt(sshPort, 10) : sshPort) : 22;
+        deployOptions.sshCredentials = {
+          host: sshHost.trim(),
+          port: portNum,
+          username: sshUsername.trim(),
+          password: sshPassword,
+          privateKey: sshPrivateKey,
+          useSudo: useSudo !== false, // Default to true
+        };
+      }
       
       const result = await cloudIntegrationService.deployAgentToAsset(
         req.params.id,
-        { initiatedBy: req.body.userId }
+        deployOptions
       );
 
       if (result.error) {
