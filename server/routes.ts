@@ -2849,19 +2849,27 @@ export async function registerRoutes(
   // Store credentials for cloud connection (encrypted)
   app.post("/api/cloud-connections/:id/credentials", apiRateLimiter, async (req, res) => {
     try {
+      console.log(`[CloudCredentials] Received credential update for connection ${req.params.id}`);
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
+        console.log(`[CloudCredentials] Connection ${req.params.id} not found`);
         return res.status(404).json({ error: "Cloud connection not found" });
       }
+      console.log(`[CloudCredentials] Found connection: provider=${connection.provider}, name=${connection.name}`);
 
       // Frontend sends flat credentials, wrap them under the provider key
       let credentials = req.body;
+      const receivedKeys = Object.keys(req.body);
+      console.log(`[CloudCredentials] Received credential keys: ${receivedKeys.join(', ')}`);
+      
       if (!credentials[connection.provider]) {
         credentials = { [connection.provider]: req.body };
+        console.log(`[CloudCredentials] Wrapped credentials under provider key: ${connection.provider}`);
       }
 
+      console.log(`[CloudCredentials] Validating credentials for ${connection.provider}...`);
       const result = await cloudIntegrationService.validateAndStoreCredentials(
         req.params.id,
         connection.provider,
@@ -2869,22 +2877,25 @@ export async function registerRoutes(
       );
 
       if (!result.success) {
+        console.log(`[CloudCredentials] Validation failed: ${result.error}`);
         return res.status(400).json({ error: result.error });
       }
 
+      console.log(`[CloudCredentials] Validation successful, updating connection status`);
       await storage.updateCloudConnection(req.params.id, {
         status: "connected",
         lastSyncAt: new Date(),
         lastSyncStatus: "success",
       });
 
+      console.log(`[CloudCredentials] Connection ${req.params.id} credentials stored successfully`);
       res.json({ 
         success: true, 
         message: "Credentials validated and stored securely",
         accountInfo: result.accountInfo 
       });
     } catch (error) {
-      console.error("Error storing credentials:", error);
+      console.error("[CloudCredentials] Error storing credentials:", error);
       res.status(500).json({ error: "Failed to store credentials" });
     }
   });
@@ -2892,13 +2903,17 @@ export async function registerRoutes(
   // Start asset discovery for a cloud connection
   app.post("/api/cloud-connections/:id/discover", apiRateLimiter, async (req, res) => {
     try {
+      console.log(`[CloudDiscovery] Starting discovery for connection ${req.params.id}`);
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
+        console.log(`[CloudDiscovery] Connection ${req.params.id} not found`);
         return res.status(404).json({ error: "Cloud connection not found" });
       }
+      console.log(`[CloudDiscovery] Found connection: provider=${connection.provider}, name=${connection.name}, status=${connection.status}`);
 
+      console.log(`[CloudDiscovery] Queuing discovery job for org ${connection.organizationId}...`);
       const result = await cloudIntegrationService.startDiscoveryJob(
         req.params.id,
         connection.organizationId,
@@ -2906,16 +2921,18 @@ export async function registerRoutes(
       );
 
       if (result.error) {
+        console.log(`[CloudDiscovery] Failed to start discovery: ${result.error}`);
         return res.status(400).json({ error: result.error });
       }
 
+      console.log(`[CloudDiscovery] Discovery job queued successfully, jobId: ${result.jobId}`);
       res.json({ 
         success: true, 
         jobId: result.jobId,
         message: "Asset discovery started" 
       });
     } catch (error) {
-      console.error("Error starting discovery:", error);
+      console.error("[CloudDiscovery] Error starting discovery:", error);
       res.status(500).json({ error: "Failed to start asset discovery" });
     }
   });
