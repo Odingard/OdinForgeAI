@@ -335,28 +335,6 @@ function CloudConnectionCard({
     },
   });
 
-  const scanIamMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/scan-iam`);
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setIamScanResult(data);
-      setIamDialogOpen(true);
-      toast({ 
-        title: "IAM Scan Complete", 
-        description: `Found ${data.findings?.length || 0} security findings` 
-      });
-    },
-    onError: (error: any) => {
-      toast({ 
-        title: "IAM Scan Failed", 
-        description: error.message, 
-        variant: "destructive" 
-      });
-    },
-  });
-
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
       case "critical": return "bg-red-500/10 text-red-500 border-red-500/30";
@@ -423,14 +401,6 @@ function CloudConnectionCard({
                     <Server className="h-4 w-4 mr-2" />
                     View Assets
                   </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => scanIamMutation.mutate()} 
-                    disabled={scanIamMutation.isPending}
-                    data-testid={`menu-iam-scan-${connection.id}`}
-                  >
-                    <Shield className="h-4 w-4 mr-2" />
-                    {scanIamMutation.isPending ? "Scanning IAM..." : "Scan IAM"}
-                  </DropdownMenuItem>
                   <DropdownMenuItem className="text-destructive" onClick={onDelete} data-testid={`menu-delete-${connection.id}`}>
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete
@@ -448,6 +418,43 @@ function CloudConnectionCard({
           {connection.lastSyncAt && (
             <div className="text-xs text-muted-foreground">
               Last sync: {new Date(connection.lastSyncAt).toLocaleString()}
+            </div>
+          )}
+          {(connection as any).iamFindings && (
+            <div 
+              className="rounded-lg border p-2 space-y-1 cursor-pointer hover-elevate"
+              onClick={() => {
+                setIamScanResult((connection as any).iamFindings);
+                setIamDialogOpen(true);
+              }}
+              data-testid={`iam-findings-summary-${connection.id}`}
+            >
+              <div className="flex items-center gap-1 text-xs font-medium">
+                <Shield className="h-3 w-3 text-cyan-400" />
+                <span>IAM Security</span>
+              </div>
+              <div className="flex gap-2 text-xs">
+                {((connection as any).iamFindings?.summary?.criticalFindings || 0) > 0 && (
+                  <Badge className="bg-red-500/10 text-red-500 border-red-500/30 text-xs px-1">
+                    {(connection as any).iamFindings.summary.criticalFindings} Critical
+                  </Badge>
+                )}
+                {((connection as any).iamFindings?.summary?.highFindings || 0) > 0 && (
+                  <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/30 text-xs px-1">
+                    {(connection as any).iamFindings.summary.highFindings} High
+                  </Badge>
+                )}
+                {((connection as any).iamFindings?.summary?.mediumFindings || 0) > 0 && (
+                  <Badge className="bg-yellow-500/10 text-yellow-500 border-yellow-500/30 text-xs px-1">
+                    {(connection as any).iamFindings.summary.mediumFindings} Medium
+                  </Badge>
+                )}
+                {((connection as any).iamFindings?.summary?.criticalFindings || 0) === 0 && 
+                 ((connection as any).iamFindings?.summary?.highFindings || 0) === 0 && 
+                 ((connection as any).iamFindings?.summary?.mediumFindings || 0) === 0 && (
+                  <span className="text-muted-foreground">No security issues</span>
+                )}
+              </div>
             </div>
           )}
           {latestJob && latestJob.status === "running" && (
@@ -871,11 +878,11 @@ function CloudConnectionCard({
               Close
             </Button>
             <Button 
-              onClick={() => scanIamMutation.mutate()} 
-              disabled={scanIamMutation.isPending}
+              onClick={() => { setIamDialogOpen(false); discoverMutation.mutate(); }}
+              disabled={discoverMutation.isPending || (latestJob?.status === "running")}
               data-testid="button-rescan-iam"
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${scanIamMutation.isPending ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 mr-2 ${latestJob?.status === "running" ? "animate-spin" : ""}`} />
               Rescan
             </Button>
           </DialogFooter>

@@ -2402,6 +2402,40 @@ export const cloudConnections = pgTable("cloud_connections", {
   assetsDiscovered: integer("assets_discovered").default(0),
   lastAssetCount: integer("last_asset_count").default(0),
   
+  // IAM Security Findings (populated during discovery)
+  iamFindings: jsonb("iam_findings").$type<{
+    findings: Array<{
+      id: string;
+      provider: string;
+      findingType: string;
+      resourceId: string;
+      resourceName: string;
+      severity: "critical" | "high" | "medium" | "low";
+      title: string;
+      description: string;
+      riskFactors: string[];
+      recommendation: string;
+      metadata?: Record<string, any>;
+    }>;
+    summary: {
+      criticalFindings: number;
+      highFindings: number;
+      mediumFindings: number;
+      lowFindings: number;
+      totalUsers?: number;
+      totalRoles?: number;
+      totalAccessKeys?: number;
+      totalSubscriptions?: number;
+      totalRoleAssignments?: number;
+      totalServicePrincipals?: number;
+      totalCustomRoles?: number;
+      totalBindings?: number;
+      totalServiceAccounts?: number;
+      totalGroups?: number;
+    };
+    scannedAt: string;
+  }>(),
+  
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

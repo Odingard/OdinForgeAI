@@ -171,12 +171,57 @@ export class CloudIntegrationService {
         updatedAssets,
       });
 
+      // Run IAM security scan as part of discovery
+      let iamFindings: any = null;
+      try {
+        console.log(`[CloudDiscovery] Running IAM security scan for ${connection.provider}...`);
+        const iamResult = await adapter.scanIAM(credentials);
+        
+        if (iamResult.findings && iamResult.findings.length > 0) {
+          const criticalCount = iamResult.findings.filter((f: any) => f.severity === "critical").length;
+          const highCount = iamResult.findings.filter((f: any) => f.severity === "high").length;
+          const mediumCount = iamResult.findings.filter((f: any) => f.severity === "medium").length;
+          const lowCount = iamResult.findings.filter((f: any) => f.severity === "low").length;
+          
+          iamFindings = {
+            findings: iamResult.findings,
+            summary: {
+              ...iamResult.summary,
+              criticalFindings: criticalCount,
+              highFindings: highCount,
+              mediumFindings: mediumCount,
+              lowFindings: lowCount,
+            },
+            scannedAt: new Date().toISOString(),
+          };
+          
+          console.log(`[CloudDiscovery] IAM scan complete: ${criticalCount} critical, ${highCount} high, ${mediumCount} medium, ${lowCount} low findings`);
+        } else {
+          iamFindings = {
+            findings: [],
+            summary: {
+              ...iamResult.summary,
+              criticalFindings: 0,
+              highFindings: 0,
+              mediumFindings: 0,
+              lowFindings: 0,
+            },
+            scannedAt: new Date().toISOString(),
+          };
+          console.log(`[CloudDiscovery] IAM scan complete: No security issues found`);
+        }
+      } catch (iamError: any) {
+        console.error(`[CloudDiscovery] IAM scan failed (non-blocking):`, iamError.message);
+        // IAM scan failure is non-blocking - asset discovery still succeeds
+      }
+
       await storage.updateCloudConnection(connection.id, {
         status: "connected",
         lastSyncAt: new Date(),
         lastSyncStatus: "success",
         assetsDiscovered: assets.length,
         lastAssetCount: assets.length,
+        ...(iamFindings && { iamFindings }),
       });
     } catch (error: any) {
       await storage.updateCloudDiscoveryJob(jobId, {

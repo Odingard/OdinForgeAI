@@ -87,6 +87,11 @@ export interface ProviderAdapter {
     asset: CloudAssetInfo,
     deploymentId: string
   ): Promise<{ status: string; error?: string }>;
+  
+  scanIAM(credentials: CloudCredentials): Promise<{ 
+    findings: IAMFinding[]; 
+    summary: Record<string, any>;
+  }>;
 }
 
 export interface CloudIntegrationConfig {
