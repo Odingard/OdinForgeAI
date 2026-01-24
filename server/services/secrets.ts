@@ -78,6 +78,26 @@ export class SecretsService {
     return JSON.parse(plaintext) as T;
   }
 
+  encryptField(value: string): { encryptedData: string; keyId: string } {
+    const encrypted = this.encrypt(value);
+    return {
+      encryptedData: JSON.stringify({
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        authTag: encrypted.authTag,
+      }),
+      keyId: encrypted.keyId,
+    };
+  }
+
+  decryptField(encryptedData: string, keyId: string): string {
+    const parsed = JSON.parse(encryptedData);
+    return this.decrypt({
+      ...parsed,
+      keyId,
+    });
+  }
+
   maskSensitiveValue(value: string, visibleChars: number = 4): string {
     if (value.length <= visibleChars * 2) {
       return "*".repeat(value.length);

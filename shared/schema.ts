@@ -2444,6 +2444,54 @@ export const insertCloudCredentialSchema = createInsertSchema(cloudCredentials).
 export type InsertCloudCredential = z.infer<typeof insertCloudCredentialSchema>;
 export type CloudCredential = typeof cloudCredentials.$inferSelect;
 
+// SSH Credentials - Per-asset SSH access credentials for agent deployment
+export const sshCredentials = pgTable("ssh_credentials", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Target identification - can be asset ID or connection-wide default
+  assetId: varchar("asset_id"), // Reference to discoveredAssets (optional for defaults)
+  connectionId: varchar("connection_id"), // Reference to cloudConnections (for connection-level defaults)
+  
+  // SSH connection details
+  host: varchar("host"), // IP or hostname (can be derived from asset if linked)
+  port: integer("port").default(22),
+  username: varchar("username").notNull(),
+  
+  // Authentication method
+  authMethod: varchar("auth_method").notNull().default("key"), // key, password
+  
+  // Encrypted credentials
+  encryptedPrivateKey: text("encrypted_private_key"), // AES-256 encrypted SSH private key
+  encryptedPassword: text("encrypted_password"), // AES-256 encrypted password
+  encryptionKeyId: varchar("encryption_key_id").notNull(), // Reference to encryption key
+  
+  // Key metadata
+  keyFingerprint: varchar("key_fingerprint"), // SHA256 fingerprint for identification
+  
+  // Sudo/privilege escalation
+  useSudo: boolean("use_sudo").default(true),
+  sudoPassword: boolean("sudo_password").default(false), // Whether sudo requires password
+  
+  // Status
+  status: varchar("status").default("active"), // active, revoked, expired
+  lastUsedAt: timestamp("last_used_at"),
+  lastValidatedAt: timestamp("last_validated_at"),
+  validationError: text("validation_error"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSshCredentialSchema = createInsertSchema(sshCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSshCredential = z.infer<typeof insertSshCredentialSchema>;
+export type SshCredential = typeof sshCredentials.$inferSelect;
+
 // Cloud Discovery Jobs - Track asset discovery runs
 export const cloudDiscoveryJobStatuses = ["pending", "running", "completed", "failed", "cancelled"] as const;
 export type CloudDiscoveryJobStatus = typeof cloudDiscoveryJobStatuses[number];
