@@ -54,7 +54,21 @@ Supports live agent deployment for monitoring, including registration, telemetry
 Monitors long-running AI validation agents, detecting and recovering from stalled agents via retries and timeouts, with real-time status updates via WebSockets.
 
 ### Cloud Agent Deployment
-Facilitates agent deployment on AWS, Azure, and GCP, tracking deployment status per cloud asset.
+Facilitates agent deployment on AWS, Azure, and GCP, tracking deployment status per cloud asset. Supports two deployment methods:
+- **Cloud API Deployment**: Uses native cloud provider APIs (SSM, Run Command, etc.) for agent installation
+- **SSH-Based Deployment**: Direct SSH connection using password or private key authentication with sudo support
+
+### Cloud IAM Security Scanning
+Analyzes identity and access management configurations for security risks:
+- **AWS IAM Scanning**: Detects old access keys (90+ days), inactive users/keys, administrator access, dangerous permissions (PassRole, AssumeRole, CreateAccessKey, etc.), wildcard trust policies, and full-access patterns. Scans user/role attached policies, inline policies, customer-managed policies, and group-inherited policies.
+- **Azure IAM**: Coming soon
+- **GCP IAM**: Coming soon
+
+**Severity levels**:
+- Critical: Admin access, full wildcard access (*:* on *)
+- High: Dangerous permissions on wildcard resources
+- Medium: High-risk actions on specific resources, inactive keys
+- Low: Informational findings
 
 ### Coverage Autopilot
 A hands-off system for bulk agent deployment using short-lived enrollment tokens and platform-specific bootstrap commands (host, cloud user-data, Kubernetes DaemonSet). It provides coverage metrics for assets versus agents.
