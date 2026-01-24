@@ -26,6 +26,14 @@ export class CloudIntegrationService {
     return adapter;
   }
 
+  async validateCredentials(
+    provider: string,
+    credentials: CloudCredentials
+  ): Promise<{ valid: boolean; error?: string; accountInfo?: Record<string, any> }> {
+    const adapter = this.getAdapter(provider);
+    return adapter.validateCredentials(credentials);
+  }
+
   async validateAndStoreCredentials(
     connectionId: string,
     provider: string,
