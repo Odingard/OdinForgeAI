@@ -15,15 +15,20 @@ export class GCPAdapter implements ProviderAdapter {
   readonly provider = "gcp" as const;
 
   async validateCredentials(credentials: CloudCredentials): Promise<{ valid: boolean; error?: string; accountInfo?: Record<string, any> }> {
+    console.log(`[GCP] validateCredentials called`);
     const gcpCreds = credentials.gcp;
     if (!gcpCreds) {
+      console.log(`[GCP] No GCP credentials in payload, keys received: ${Object.keys(credentials).join(', ')}`);
       return { valid: false, error: "GCP credentials not provided" };
     }
+    console.log(`[GCP] GCP credentials found, keys: ${Object.keys(gcpCreds).join(', ')}`);
 
     // Accept both serviceAccountJson and serviceAccountKey field names
     const serviceAccountData = gcpCreds.serviceAccountJson || (gcpCreds as any).serviceAccountKey;
+    console.log(`[GCP] serviceAccountData present: ${!!serviceAccountData}, useWorkloadIdentity: ${!!gcpCreds.useWorkloadIdentity}`);
 
     if (!serviceAccountData && !gcpCreds.useWorkloadIdentity) {
+      console.log(`[GCP] No service account data or workload identity configured`);
       return { valid: false, error: "GCP Service Account JSON or Workload Identity must be configured" };
     }
 
@@ -34,11 +39,14 @@ export class GCPAdapter implements ProviderAdapter {
       if (serviceAccountData) {
         try {
           serviceAccount = JSON.parse(serviceAccountData);
-        } catch {
+          console.log(`[GCP] Parsed service account JSON successfully`);
+        } catch (parseError) {
+          console.log(`[GCP] Failed to parse service account JSON: ${parseError}`);
           return { valid: false, error: "Invalid JSON format in service account key" };
         }
         
         if (!serviceAccount.client_email || !serviceAccount.private_key || !serviceAccount.project_id) {
+          console.log(`[GCP] Missing required fields - client_email: ${!!serviceAccount.client_email}, private_key: ${!!serviceAccount.private_key}, project_id: ${!!serviceAccount.project_id}`);
           return { valid: false, error: "Service account JSON missing required fields (client_email, private_key, project_id)" };
         }
         
@@ -47,6 +55,7 @@ export class GCPAdapter implements ProviderAdapter {
         projectId = gcpCreds.projectId;
       }
 
+      console.log(`[GCP] Attempting to validate credentials...`);
       const clientOptions: any = {};
       
       if (serviceAccount) {
@@ -57,12 +66,15 @@ export class GCPAdapter implements ProviderAdapter {
         clientOptions.projectId = projectId;
       }
 
+      console.log(`[GCP] Creating ProjectsClient...`);
       const projectsClient = new ProjectsClient(clientOptions);
       
+      console.log(`[GCP] Calling GCP API to verify project access...`);
       const [project] = await projectsClient.getProject({
         name: `projects/${projectId}`,
       });
 
+      console.log(`[GCP] Validation successful - project verified`);
       return {
         valid: true,
         accountInfo: {
@@ -74,6 +86,7 @@ export class GCPAdapter implements ProviderAdapter {
       };
     } catch (error: any) {
       const errorMessage = error.message || "Unknown error";
+      console.log(`[GCP] Validation error: ${errorMessage}`);
       if (errorMessage.includes("PERMISSION_DENIED")) {
         return { valid: false, error: "Service account lacks required permissions" };
       }
