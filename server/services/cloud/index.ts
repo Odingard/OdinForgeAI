@@ -196,7 +196,18 @@ export class CloudIntegrationService {
 
   async deployAgentToAsset(
     assetId: string,
-    options?: { initiatedBy?: string }
+    options?: { 
+      initiatedBy?: string;
+      deploymentMethod?: "cloud-api" | "ssh";
+      sshCredentials?: {
+        host: string;
+        port?: number;
+        username: string;
+        password?: string;
+        privateKey?: string;
+        useSudo?: boolean;
+      };
+    }
   ): Promise<{ jobId: string; error?: string }> {
     const asset = await storage.getCloudAsset(assetId);
     if (!asset) {
@@ -212,24 +223,157 @@ export class CloudIntegrationService {
       return { jobId: "", error: "Connection not found" };
     }
 
-    const credentials = await this.getConnectionCredentials(asset.connectionId);
-    if (!credentials) {
-      return { jobId: "", error: "Credentials not found" };
+    // Determine deployment method - prefer explicit option, then asset config, then default
+    const deploymentMethod = options?.deploymentMethod || asset.agentDeploymentMethod || "cloud-api";
+    
+    // For SSH deployment, validate credentials
+    if (deploymentMethod === "ssh") {
+      if (!options?.sshCredentials) {
+        return { jobId: "", error: "SSH credentials required for SSH deployment" };
+      }
+      if (!options.sshCredentials.host || !options.sshCredentials.username) {
+        return { jobId: "", error: "SSH host and username are required" };
+      }
+      if (!options.sshCredentials.password && !options.sshCredentials.privateKey) {
+        return { jobId: "", error: "Either SSH password or private key is required" };
+      }
+    }
+
+    // For cloud-api deployment, ensure we have cloud credentials
+    let credentials: CloudCredentials | null = null;
+    if (deploymentMethod === "cloud-api") {
+      credentials = await this.getConnectionCredentials(asset.connectionId);
+      if (!credentials) {
+        return { jobId: "", error: "Cloud credentials not found" };
+      }
     }
 
     const job = await storage.createAgentDeploymentJob({
       cloudAssetId: assetId,
       connectionId: asset.connectionId,
       organizationId: asset.organizationId,
-      deploymentMethod: asset.agentDeploymentMethod || "manual",
+      deploymentMethod: deploymentMethod,
       status: "pending",
       scheduledAt: new Date(),
       initiatedBy: options?.initiatedBy,
     });
 
-    this.runDeployment(job.id, asset, connection, credentials).catch(console.error);
+    // Run deployment based on method
+    if (deploymentMethod === "ssh" && options?.sshCredentials) {
+      this.runSSHDeployment(job.id, asset, options.sshCredentials).catch(console.error);
+    } else {
+      this.runDeployment(job.id, asset, connection, credentials!).catch(console.error);
+    }
 
     return { jobId: job.id };
+  }
+  
+  private async runSSHDeployment(
+    jobId: string,
+    asset: any,
+    sshCredentials: {
+      host: string;
+      port?: number;
+      username: string;
+      password?: string;
+      privateKey?: string;
+      useSudo?: boolean;
+    }
+  ): Promise<void> {
+    const { sshDeploymentService } = await import("../ssh-deployment");
+    
+    await storage.updateAgentDeploymentJob(jobId, {
+      status: "deploying",
+      startedAt: new Date(),
+    });
+
+    await storage.updateCloudAsset(asset.id, {
+      agentDeploymentStatus: "deploying",
+      lastAgentDeploymentAttempt: new Date(),
+    });
+
+    try {
+      const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
+      
+      // Get server URL for agent configuration
+      const serverUrl = process.env.PUBLIC_ODINFORGE_URL || `https://${process.env.REPLIT_DEV_DOMAIN || "localhost:5000"}`;
+      
+      // Create a registration token for this deployment
+      const registrationToken = `reg-${randomUUID()}`;
+      
+      // Pre-register the agent with pending status
+      const platform = "linux";
+      const apiKey = `ak-${randomUUID()}`;
+      
+      const newAgent = await storage.createEndpointAgent({
+        organizationId: asset.organizationId,
+        agentName: `${assetName} (SSH)`,
+        apiKey,
+        hostname: asset.assetName || asset.providerResourceId,
+        platform,
+        architecture: "x86_64",
+        ipAddresses: [sshCredentials.host],
+        capabilities: ["telemetry", "vulnerability_scan"],
+        status: "pending",
+        tags: [
+          "ssh-deployed",
+          `asset:${asset.id}`,
+          "auto-deployed",
+        ],
+        environment: "production",
+      });
+
+      // Deploy via SSH using the deployment service
+      const result = await sshDeploymentService.deployAgent(
+        {
+          host: sshCredentials.host,
+          port: sshCredentials.port || 22,
+          username: sshCredentials.username,
+          password: sshCredentials.password,
+          privateKey: sshCredentials.privateKey,
+          useSudo: sshCredentials.useSudo !== false,
+        },
+        {
+          serverUrl,
+          registrationToken,
+          organizationId: asset.organizationId,
+          platform: "linux",
+        }
+      );
+
+      if (result.success) {
+        await storage.updateAgentDeploymentJob(jobId, {
+          status: "completed",
+          completedAt: new Date(),
+        });
+
+        await storage.updateCloudAsset(asset.id, {
+          agentDeploymentStatus: "success",
+          agentInstalled: true,
+          agentId: result.agentId || newAgent.id,
+          agentDeploymentError: null,
+        });
+
+        await storage.updateEndpointAgent(newAgent.id, {
+          status: "online",
+        });
+      } else {
+        throw new Error(result.errorMessage || "SSH deployment failed");
+      }
+    } catch (error: any) {
+      console.error(`[SSH Deploy] Error deploying to asset ${asset.id}:`, error);
+      
+      await storage.updateAgentDeploymentJob(jobId, {
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: error.message,
+      });
+
+      await storage.updateCloudAsset(asset.id, {
+        agentDeploymentStatus: "failed",
+        agentDeploymentError: error.message,
+      });
+    }
   }
 
   private async runDeployment(
