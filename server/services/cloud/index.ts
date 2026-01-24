@@ -17,7 +17,9 @@ const adapters: Record<CloudProvider, ProviderAdapter> = {
 
 export class CloudIntegrationService {
   private getAdapter(provider: string): ProviderAdapter {
-    const adapter = adapters[provider as CloudProvider];
+    // Normalize provider to lowercase for consistent adapter lookup
+    const normalizedProvider = provider.toLowerCase();
+    const adapter = adapters[normalizedProvider as CloudProvider];
     if (!adapter) {
       throw new Error(`Unsupported cloud provider: ${provider}`);
     }
@@ -445,12 +447,14 @@ export class CloudIntegrationService {
     const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
     
     // Determine platform from asset type/metadata
+    // Normalize provider to lowercase for consistent comparison
+    const normalizedProvider = connection.provider.toLowerCase();
     let platform = "linux";
     if (asset.rawMetadata?.platform === "windows" || asset.rawMetadata?.osType === "Windows") {
       platform = "windows";
-    } else if (connection.provider === "azure" && asset.rawMetadata?.osType === "Linux") {
+    } else if (normalizedProvider === "azure" && asset.rawMetadata?.osType === "Linux") {
       platform = "linux";
-    } else if (connection.provider === "gcp" || connection.provider === "aws") {
+    } else if (normalizedProvider === "gcp" || normalizedProvider === "aws") {
       platform = "linux";
     }
 

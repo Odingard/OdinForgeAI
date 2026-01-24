@@ -2860,19 +2860,22 @@ export async function registerRoutes(
       console.log(`[CloudCredentials] Found connection: provider=${connection.provider}, name=${connection.name}`);
 
       // Frontend sends flat credentials, wrap them under the provider key
+      // Normalize provider to lowercase for consistent credential structure
+      const normalizedProvider = connection.provider.toLowerCase();
       let credentials = req.body;
       const receivedKeys = Object.keys(req.body);
       console.log(`[CloudCredentials] Received credential keys: ${receivedKeys.join(', ')}`);
+      console.log(`[CloudCredentials] Provider: ${connection.provider} -> normalized: ${normalizedProvider}`);
       
-      if (!credentials[connection.provider]) {
-        credentials = { [connection.provider]: req.body };
-        console.log(`[CloudCredentials] Wrapped credentials under provider key: ${connection.provider}`);
+      if (!credentials[normalizedProvider]) {
+        credentials = { [normalizedProvider]: req.body };
+        console.log(`[CloudCredentials] Wrapped credentials under provider key: ${normalizedProvider}`);
       }
 
-      console.log(`[CloudCredentials] Validating credentials for ${connection.provider}...`);
+      console.log(`[CloudCredentials] Validating credentials for ${normalizedProvider}...`);
       const result = await cloudIntegrationService.validateAndStoreCredentials(
         req.params.id,
-        connection.provider,
+        normalizedProvider,
         credentials
       );
 
@@ -2981,7 +2984,10 @@ export async function registerRoutes(
         storedCredential.encryptionKeyId
       );
       
-      if (connection.provider === "aws") {
+      // Normalize provider to lowercase for consistent comparison
+      const normalizedProvider = connection.provider.toLowerCase();
+      
+      if (normalizedProvider === "aws") {
         const { awsAdapter } = await import("./services/cloud/aws-adapter");
         const result = await awsAdapter.scanIAM({ aws: credentials });
         res.json({
@@ -2991,7 +2997,7 @@ export async function registerRoutes(
           summary: result.summary,
           scannedAt: new Date().toISOString(),
         });
-      } else if (connection.provider === "azure") {
+      } else if (normalizedProvider === "azure") {
         const { azureAdapter } = await import("./services/cloud/azure-adapter");
         const result = await azureAdapter.scanIAM({ azure: credentials });
         res.json({
@@ -3001,7 +3007,7 @@ export async function registerRoutes(
           summary: result.summary,
           scannedAt: new Date().toISOString(),
         });
-      } else if (connection.provider === "gcp") {
+      } else if (normalizedProvider === "gcp") {
         const { gcpAdapter } = await import("./services/cloud/gcp-adapter");
         const result = await gcpAdapter.scanIAM({ gcp: credentials });
         res.json({
@@ -3012,7 +3018,7 @@ export async function registerRoutes(
           scannedAt: new Date().toISOString(),
         });
       } else {
-        res.status(400).json({ error: `IAM scanning not supported for provider: ${connection.provider}` });
+        res.status(400).json({ error: `IAM scanning not supported for provider: ${normalizedProvider}` });
       }
     } catch (error) {
       console.error("Error scanning IAM:", error);
