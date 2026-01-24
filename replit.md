@@ -59,16 +59,19 @@ Facilitates agent deployment on AWS, Azure, and GCP, tracking deployment status 
 - **SSH-Based Deployment**: Direct SSH connection using password or private key authentication with sudo support
 
 ### Cloud IAM Security Scanning
-Analyzes identity and access management configurations for security risks:
+Analyzes identity and access management configurations for security risks across all major cloud providers. Access via the Infrastructure page cloud connection dropdown menu ("Scan IAM") with visual findings display.
+
 - **AWS IAM Scanning**: Detects old access keys (90+ days), inactive users/keys, administrator access, dangerous permissions (PassRole, AssumeRole, CreateAccessKey, etc.), wildcard trust policies, and full-access patterns. Scans user/role attached policies, inline policies, customer-managed policies, and group-inherited policies.
-- **Azure IAM**: Coming soon
-- **GCP IAM**: Coming soon
+- **Azure IAM Scanning**: Detects Owner/Contributor/User Access Administrator roles at subscription level, custom roles with wildcard permissions, and service principals with elevated privileges. Scans role assignments across all subscriptions.
+- **GCP IAM Scanning**: Detects Owner/Editor/Security Admin roles at project level, public access bindings (allUsers/allAuthenticatedUsers), service account privilege escalation risks (serviceAccountKeyAdmin, serviceAccountTokenCreator), and dangerous IAM bindings.
 
 **Severity levels**:
-- Critical: Admin access, full wildcard access (*:* on *)
-- High: Dangerous permissions on wildcard resources
+- Critical: Admin access, full wildcard access (*:* on *), public access
+- High: Dangerous permissions on wildcard resources, privilege escalation risk
 - Medium: High-risk actions on specific resources, inactive keys
 - Low: Informational findings
+
+**IAM Findings UI**: Displays findings in a modal with severity-based color coding, summary statistics by provider, and actionable recommendations for each finding.
 
 ### Coverage Autopilot
 A hands-off system for bulk agent deployment using short-lived enrollment tokens and platform-specific bootstrap commands (host, cloud user-data, Kubernetes DaemonSet). It provides coverage metrics for assets versus agents.

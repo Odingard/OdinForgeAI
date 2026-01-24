@@ -3,7 +3,8 @@ import { SubscriptionClient } from "@azure/arm-subscriptions";
 import { ComputeManagementClient } from "@azure/arm-compute";
 import { ResourceManagementClient } from "@azure/arm-resources";
 import { SqlManagementClient } from "@azure/arm-sql";
-import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult } from "./types";
+import { AuthorizationManagementClient } from "@azure/arm-authorization";
+import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult, IAMFinding } from "./types";
 
 const AZURE_REGIONS = [
   "eastus", "eastus2", "westus", "westus2", "westus3",
@@ -452,6 +453,204 @@ export class AzureAdapter implements ProviderAdapter {
     // If we got here, deployment already completed (success or failure was determined inline)
     // Return success since Azure Run Command waits for completion
     return { status: "success" };
+  }
+
+  async scanIAM(credentials: CloudCredentials): Promise<{ findings: IAMFinding[]; summary: Record<string, any> }> {
+    const azureCreds = credentials.azure;
+    if (!azureCreds) {
+      throw new Error("Azure credentials not provided");
+    }
+
+    const findings: IAMFinding[] = [];
+    
+    // Build Azure credential
+    let credential: TokenCredential;
+    if (azureCreds.useManagedIdentity) {
+      credential = azureCreds.clientId 
+        ? new ManagedIdentityCredential(azureCreds.clientId)
+        : new ManagedIdentityCredential();
+    } else {
+      if (!azureCreds.tenantId || !azureCreds.clientId || !azureCreds.clientSecret) {
+        throw new Error("Azure tenant ID, client ID, and client secret are required");
+      }
+      credential = new ClientSecretCredential(
+        azureCreds.tenantId,
+        azureCreds.clientId,
+        azureCreds.clientSecret
+      );
+    }
+
+    // Get subscriptions
+    const subscriptionClient = new SubscriptionClient(credential);
+    const subscriptions: string[] = [];
+    
+    try {
+      const subscriptionsList = (subscriptionClient as any).subscriptions.list();
+      for await (const sub of subscriptionsList) {
+        if (sub.subscriptionId) {
+          subscriptions.push(sub.subscriptionId);
+        }
+      }
+    } catch (err: any) {
+      console.error("[Azure IAM] Error listing subscriptions:", err.message);
+    }
+
+    // High-risk Azure built-in roles
+    const dangerousRoleDefinitions: Record<string, { severity: "critical" | "high"; description: string }> = {
+      "Owner": { severity: "critical", description: "Full access to all resources including role assignments" },
+      "Contributor": { severity: "high", description: "Full access to manage all resources except role assignments" },
+      "User Access Administrator": { severity: "critical", description: "Can manage user access to Azure resources" },
+      "Security Admin": { severity: "high", description: "Can manage security policies and view security state" },
+    };
+
+    // Track statistics
+    let totalRoleAssignments = 0;
+    let totalServicePrincipals = 0;
+    let totalCustomRoles = 0;
+
+    // Scan role assignments per subscription
+    for (const subscriptionId of subscriptions) {
+      try {
+        const authClient = new AuthorizationManagementClient(credential, subscriptionId);
+        
+        // List role assignments at subscription scope
+        const roleAssignments: Array<{
+          id?: string;
+          principalId?: string;
+          principalType?: string;
+          roleDefinitionId?: string;
+          scope?: string;
+        }> = [];
+        
+        for await (const assignment of authClient.roleAssignments.listForSubscription()) {
+          roleAssignments.push(assignment);
+          totalRoleAssignments++;
+        }
+
+        // Get role definitions to map IDs to names
+        const roleDefinitions = new Map<string, { roleName?: string; roleType?: string; permissions?: any[] }>();
+        for await (const roleDef of authClient.roleDefinitions.list(`/subscriptions/${subscriptionId}`)) {
+          if (roleDef.id) {
+            roleDefinitions.set(roleDef.id, {
+              roleName: roleDef.roleName,
+              roleType: roleDef.roleType,
+              permissions: roleDef.permissions,
+            });
+            if (roleDef.roleType === "CustomRole") {
+              totalCustomRoles++;
+            }
+          }
+        }
+
+        // Analyze role assignments for security issues
+        for (const assignment of roleAssignments) {
+          if (!assignment.roleDefinitionId) continue;
+          
+          const roleDef = roleDefinitions.get(assignment.roleDefinitionId);
+          const roleName = roleDef?.roleName || "Unknown Role";
+          const principalType = assignment.principalType || "Unknown";
+          const scope = assignment.scope || "";
+          
+          // Check if this is a dangerous built-in role
+          const dangerousRole = dangerousRoleDefinitions[roleName];
+          if (dangerousRole) {
+            // Check if assigned at subscription or management group level (broad scope)
+            const isBroadScope = scope.includes("/subscriptions/") && 
+              !scope.includes("/resourceGroups/") && 
+              !scope.includes("/providers/");
+            
+            if (isBroadScope) {
+              const findingType = principalType === "ServicePrincipal" ? "service_account" : 
+                                  principalType === "Group" ? "group" : "user";
+              
+              findings.push({
+                id: `azure-role-${assignment.id?.split("/").pop() || assignment.principalId}`,
+                provider: "azure",
+                findingType,
+                resourceId: assignment.principalId || "",
+                resourceName: `Principal ${assignment.principalId?.slice(0, 8)}`,
+                severity: dangerousRole.severity,
+                title: `${roleName} Role Assigned at Subscription Level`,
+                description: `A ${principalType.toLowerCase()} has been assigned the "${roleName}" role at subscription scope. ${dangerousRole.description}.`,
+                riskFactors: [
+                  "broad_scope",
+                  roleName === "Owner" || roleName === "User Access Administrator" ? "admin_access" : "elevated_privileges",
+                  principalType === "ServicePrincipal" ? "service_principal" : "identity_risk",
+                ],
+                recommendation: `Review if ${roleName} role is necessary at this scope. Consider assigning at resource group level instead.`,
+                metadata: {
+                  subscriptionId,
+                  roleName,
+                  principalType,
+                  scope,
+                  roleDefinitionId: assignment.roleDefinitionId,
+                },
+              });
+            }
+          }
+
+          // Check for custom roles with dangerous permissions
+          if (roleDef?.roleType === "CustomRole" && roleDef.permissions) {
+            for (const perm of roleDef.permissions) {
+              const actions = perm.actions || [];
+              const hasWildcardAction = actions.some((a: string) => a === "*" || a === "*/write");
+              
+              if (hasWildcardAction) {
+                const findingType = principalType === "ServicePrincipal" ? "service_account" : 
+                                    principalType === "Group" ? "group" : "user";
+                
+                findings.push({
+                  id: `azure-customrole-${assignment.id?.split("/").pop()}`,
+                  provider: "azure",
+                  findingType,
+                  resourceId: assignment.principalId || "",
+                  resourceName: roleName,
+                  severity: "high",
+                  title: "Custom Role with Wildcard Permissions",
+                  description: `Custom role "${roleName}" grants wildcard permissions (${hasWildcardAction ? "*" : "*/write"}) and is assigned to a ${principalType.toLowerCase()}.`,
+                  riskFactors: ["custom_role", "wildcard_permissions", "excessive_permissions"],
+                  recommendation: "Review and restrict the custom role's permissions to follow least privilege principles.",
+                  metadata: {
+                    subscriptionId,
+                    roleName,
+                    principalType,
+                    actions,
+                  },
+                });
+              }
+            }
+          }
+
+          // Track service principals for summary
+          if (principalType === "ServicePrincipal") {
+            totalServicePrincipals++;
+          }
+        }
+
+      } catch (err: any) {
+        console.error(`[Azure IAM] Error scanning subscription ${subscriptionId}:`, err.message);
+        // Continue with other subscriptions
+      }
+    }
+
+    // Calculate summary
+    const criticalFindings = findings.filter(f => f.severity === "critical").length;
+    const highFindings = findings.filter(f => f.severity === "high").length;
+    const mediumFindings = findings.filter(f => f.severity === "medium").length;
+
+    return {
+      findings,
+      summary: {
+        totalSubscriptions: subscriptions.length,
+        totalRoleAssignments,
+        totalCustomRoles,
+        totalServicePrincipals,
+        criticalFindings,
+        highFindings,
+        mediumFindings,
+        scannedAt: new Date().toISOString(),
+      },
+    };
   }
 }
 

@@ -2992,19 +2992,23 @@ export async function registerRoutes(
           scannedAt: new Date().toISOString(),
         });
       } else if (connection.provider === "azure") {
+        const { azureAdapter } = await import("./services/cloud/azure-adapter");
+        const result = await azureAdapter.scanIAM({ azure: credentials });
         res.json({
           success: true,
           provider: "azure",
-          findings: [],
-          summary: { totalFindings: 0, message: "Azure IAM scanning coming soon" },
+          findings: result.findings,
+          summary: result.summary,
           scannedAt: new Date().toISOString(),
         });
       } else if (connection.provider === "gcp") {
+        const { gcpAdapter } = await import("./services/cloud/gcp-adapter");
+        const result = await gcpAdapter.scanIAM({ gcp: credentials });
         res.json({
           success: true,
           provider: "gcp",
-          findings: [],
-          summary: { totalFindings: 0, message: "GCP IAM scanning coming soon" },
+          findings: result.findings,
+          summary: result.summary,
           scannedAt: new Date().toISOString(),
         });
       } else {
