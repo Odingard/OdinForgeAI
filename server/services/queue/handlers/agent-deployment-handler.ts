@@ -6,6 +6,7 @@ import {
   JobResult,
   JobProgress,
 } from "../job-types";
+import { sshDeploymentService } from "../../ssh-deployment";
 
 interface AgentDeploymentJob {
   id?: string;
@@ -59,11 +60,27 @@ async function deployToGCP(instanceId: string): Promise<{ success: boolean; agen
   return { success: true, agentId: `agent-gcp-${instanceId.slice(-8)}` };
 }
 
+async function deployViaSSH(
+  assetId: string,
+  organizationId: string,
+  serverUrl: string
+): Promise<{ success: boolean; agentId?: string; error?: string }> {
+  console.log(`[AgentDeployment] Deploying via SSH to asset ${assetId}`);
+  
+  const result = await sshDeploymentService.deployToAsset(assetId, organizationId, serverUrl);
+  
+  return {
+    success: result.success,
+    agentId: result.agentId,
+    error: result.errorMessage,
+  };
+}
+
 export async function handleAgentDeploymentJob(
   job: Job<AgentDeploymentJobData> | AgentDeploymentJob
 ): Promise<JobResult> {
   const startTime = Date.now();
-  const { deploymentId, provider, instanceIds, tenantId, organizationId } = job.data;
+  const { deploymentId, provider, instanceIds, tenantId, organizationId, deploymentMethod, serverUrl } = job.data;
 
   console.log(`[AgentDeployment] Starting ${provider} deployment for ${instanceIds.length} instances`);
 
@@ -128,18 +145,25 @@ export async function handleAgentDeploymentJob(
 
       let result: { success: boolean; agentId?: string; error?: string };
       
-      switch (provider) {
-        case "aws":
-          result = await deployToAWS(instanceId);
-          break;
-        case "azure":
-          result = await deployToAzure(instanceId);
-          break;
-        case "gcp":
-          result = await deployToGCP(instanceId);
-          break;
-        default:
-          result = { success: false, error: `Unsupported provider: ${provider}` };
+      // Check if SSH deployment method is explicitly requested
+      if (deploymentMethod === "ssh" || provider === "ssh") {
+        const sshServerUrl = serverUrl || process.env.PUBLIC_ODINFORGE_URL || "https://localhost:5000";
+        result = await deployViaSSH(instanceId, organizationId, sshServerUrl);
+      } else {
+        // Default to cloud API method
+        switch (provider) {
+          case "aws":
+            result = await deployToAWS(instanceId);
+            break;
+          case "azure":
+            result = await deployToAzure(instanceId);
+            break;
+          case "gcp":
+            result = await deployToGCP(instanceId);
+            break;
+          default:
+            result = { success: false, error: `Unsupported provider: ${provider}` };
+        }
       }
 
       deploymentResults.push({
