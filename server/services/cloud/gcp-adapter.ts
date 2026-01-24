@@ -20,7 +20,10 @@ export class GCPAdapter implements ProviderAdapter {
       return { valid: false, error: "GCP credentials not provided" };
     }
 
-    if (!gcpCreds.serviceAccountJson && !gcpCreds.useWorkloadIdentity) {
+    // Accept both serviceAccountJson and serviceAccountKey field names
+    const serviceAccountData = gcpCreds.serviceAccountJson || (gcpCreds as any).serviceAccountKey;
+
+    if (!serviceAccountData && !gcpCreds.useWorkloadIdentity) {
       return { valid: false, error: "GCP Service Account JSON or Workload Identity must be configured" };
     }
 
@@ -28,9 +31,9 @@ export class GCPAdapter implements ProviderAdapter {
       let serviceAccount: any = null;
       let projectId: string | undefined;
 
-      if (gcpCreds.serviceAccountJson) {
+      if (serviceAccountData) {
         try {
-          serviceAccount = JSON.parse(gcpCreds.serviceAccountJson);
+          serviceAccount = JSON.parse(serviceAccountData);
         } catch {
           return { valid: false, error: "Invalid JSON format in service account key" };
         }
@@ -123,8 +126,10 @@ export class GCPAdapter implements ProviderAdapter {
   }
 
   private getClientOptions(creds: NonNullable<CloudCredentials["gcp"]>): any {
-    if (creds.serviceAccountJson) {
-      const serviceAccount = JSON.parse(creds.serviceAccountJson);
+    // Accept both serviceAccountJson and serviceAccountKey field names
+    const serviceAccountData = creds.serviceAccountJson || (creds as any).serviceAccountKey;
+    if (serviceAccountData) {
+      const serviceAccount = JSON.parse(serviceAccountData);
       return {
         credentials: {
           client_email: serviceAccount.client_email,
@@ -137,8 +142,10 @@ export class GCPAdapter implements ProviderAdapter {
   }
 
   private getProjectId(creds: NonNullable<CloudCredentials["gcp"]>): string {
-    if (creds.serviceAccountJson) {
-      const serviceAccount = JSON.parse(creds.serviceAccountJson);
+    // Accept both serviceAccountJson and serviceAccountKey field names
+    const serviceAccountData = creds.serviceAccountJson || (creds as any).serviceAccountKey;
+    if (serviceAccountData) {
+      const serviceAccount = JSON.parse(serviceAccountData);
       return serviceAccount.project_id;
     }
     return creds.projectId || "";
