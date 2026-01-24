@@ -183,6 +183,19 @@ function CloudConnectionCard({
   const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
   const [assetsDialogOpen, setAssetsDialogOpen] = useState(false);
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
+  const [iamDialogOpen, setIamDialogOpen] = useState(false);
+  const [iamScanResult, setIamScanResult] = useState<{
+    findings: Array<{
+      id: string;
+      findingType: string;
+      resourceName: string;
+      severity: string;
+      title: string;
+      description: string;
+      recommendation: string;
+    }>;
+    summary: Record<string, any>;
+  } | null>(null);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [deploymentMethod, setDeploymentMethod] = useState<"cloud-api" | "ssh">("cloud-api");
   const [sshHost, setSSHHost] = useState("");
@@ -322,6 +335,38 @@ function CloudConnectionCard({
     },
   });
 
+  const scanIamMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/scan-iam`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setIamScanResult(data);
+      setIamDialogOpen(true);
+      toast({ 
+        title: "IAM Scan Complete", 
+        description: `Found ${data.findings?.length || 0} security findings` 
+      });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "IAM Scan Failed", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    },
+  });
+
+  const getSeverityBadge = (severity: string) => {
+    switch (severity) {
+      case "critical": return "bg-red-500/10 text-red-500 border-red-500/30";
+      case "high": return "bg-orange-500/10 text-orange-500 border-orange-500/30";
+      case "medium": return "bg-yellow-500/10 text-yellow-500 border-yellow-500/30";
+      case "low": return "bg-blue-500/10 text-blue-500 border-blue-500/30";
+      default: return "bg-muted";
+    }
+  };
+
   const getProviderIcon = () => {
     switch (connection.provider) {
       case "aws": return "AWS";
@@ -377,6 +422,14 @@ function CloudConnectionCard({
                   <DropdownMenuItem onClick={() => setAssetsDialogOpen(true)} data-testid={`menu-assets-${connection.id}`}>
                     <Server className="h-4 w-4 mr-2" />
                     View Assets
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => scanIamMutation.mutate()} 
+                    disabled={scanIamMutation.isPending}
+                    data-testid={`menu-iam-scan-${connection.id}`}
+                  >
+                    <Shield className="h-4 w-4 mr-2" />
+                    {scanIamMutation.isPending ? "Scanning IAM..." : "Scan IAM"}
                   </DropdownMenuItem>
                   <DropdownMenuItem className="text-destructive" onClick={onDelete} data-testid={`menu-delete-${connection.id}`}>
                     <Trash2 className="h-4 w-4 mr-2" />
@@ -716,6 +769,114 @@ function CloudConnectionCard({
             </Button>
             <Button onClick={handleDeploySubmit} disabled={deployAgentMutation.isPending} data-testid="button-confirm-deploy">
               {deployAgentMutation.isPending ? "Deploying..." : "Deploy Agent"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={iamDialogOpen} onOpenChange={setIamDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-cyan-400" />
+              IAM Security Findings
+            </DialogTitle>
+            <DialogDescription>
+              Security analysis of IAM configurations for {connection.name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {iamScanResult && (
+            <div className="flex-1 overflow-hidden flex flex-col space-y-4">
+              <div className="flex flex-wrap gap-4 p-3 bg-muted/50 rounded-lg">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-500">{iamScanResult.summary?.criticalFindings || 0}</div>
+                  <div className="text-xs text-muted-foreground">Critical</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-500">{iamScanResult.summary?.highFindings || 0}</div>
+                  <div className="text-xs text-muted-foreground">High</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-yellow-500">{iamScanResult.summary?.mediumFindings || 0}</div>
+                  <div className="text-xs text-muted-foreground">Medium</div>
+                </div>
+                <div className="border-l pl-4 ml-2 flex-1">
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    {connection.provider === "aws" && (
+                      <>
+                        <div>Users: {iamScanResult.summary?.totalUsers ?? 0}</div>
+                        <div>Roles: {iamScanResult.summary?.totalRoles ?? 0}</div>
+                        <div>Access Keys: {iamScanResult.summary?.totalAccessKeys ?? 0}</div>
+                      </>
+                    )}
+                    {connection.provider === "azure" && (
+                      <>
+                        <div>Subscriptions: {iamScanResult.summary?.totalSubscriptions ?? 0}</div>
+                        <div>Role Assignments: {iamScanResult.summary?.totalRoleAssignments ?? 0}</div>
+                        <div>Service Principals: {iamScanResult.summary?.totalServicePrincipals ?? 0}</div>
+                      </>
+                    )}
+                    {connection.provider === "gcp" && (
+                      <>
+                        <div>IAM Bindings: {iamScanResult.summary?.totalBindings ?? 0}</div>
+                        <div>Service Accounts: {iamScanResult.summary?.totalServiceAccounts ?? 0}</div>
+                        <div>Users: {iamScanResult.summary?.totalUsers ?? 0}</div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+                {iamScanResult.findings?.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Shield className="h-12 w-12 mx-auto mb-2 opacity-20" />
+                    <p>No security issues found</p>
+                  </div>
+                ) : (
+                  iamScanResult.findings?.map((finding) => (
+                    <div 
+                      key={finding.id} 
+                      className="border rounded-lg p-4 space-y-2"
+                      data-testid={`iam-finding-${finding.id}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge className={getSeverityBadge(finding.severity)}>
+                            {finding.severity.toUpperCase()}
+                          </Badge>
+                          <span className="font-medium text-sm">{finding.title}</span>
+                        </div>
+                        <Badge variant="outline" className="text-xs">
+                          {finding.findingType}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{finding.description}</p>
+                      <div className="text-xs text-cyan-400">
+                        <span className="font-medium">Recommendation:</span> {finding.recommendation}
+                      </div>
+                      <div className="text-xs text-muted-foreground font-mono">
+                        Resource: {finding.resourceName}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIamDialogOpen(false)} data-testid="button-close-iam">
+              Close
+            </Button>
+            <Button 
+              onClick={() => scanIamMutation.mutate()} 
+              disabled={scanIamMutation.isPending}
+              data-testid="button-rescan-iam"
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${scanIamMutation.isPending ? "animate-spin" : ""}`} />
+              Rescan
             </Button>
           </DialogFooter>
         </DialogContent>
