@@ -230,16 +230,30 @@ function CloudConnectionCard({
 
   const updateCredentialsMutation = useMutation({
     mutationFn: async (credentials: Record<string, string>) => {
-      const res = await apiRequest("POST", `/api/cloud-connections/${connection.id}/credentials`, credentials);
-      return res.json();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      const accessToken = localStorage.getItem("odinforge_access_token");
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+      const res = await fetch(`/api/cloud-connections/${connection.id}/credentials`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(credentials),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update credentials");
+      }
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections"] });
       setCredentialsDialogOpen(false);
       toast({ title: "Credentials Updated" });
     },
-    onError: () => {
-      toast({ title: "Failed to update credentials", variant: "destructive" });
+    onError: (error: Error) => {
+      toast({ title: "Failed to update credentials", description: error.message, variant: "destructive" });
     },
   });
 
