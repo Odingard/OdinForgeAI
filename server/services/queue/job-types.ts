@@ -145,8 +145,11 @@ export const remediationJobDataSchema = baseJobDataSchema.extend({
 export const agentDeploymentJobDataSchema = baseJobDataSchema.extend({
   type: z.literal("agent_deployment"),
   deploymentId: z.string(),
-  provider: z.enum(["aws", "azure", "gcp"]),
+  provider: z.enum(["aws", "azure", "gcp", "ssh"]),
   instanceIds: z.array(z.string()),
+  deploymentMethod: z.enum(["cloud_api", "ssh"]).optional(), // cloud_api uses provider APIs, ssh uses direct SSH
+  serverUrl: z.string().optional(), // OdinForge server URL for agent registration
+  sshCredentialId: z.string().optional(), // Reference to SSH credential for SSH deployment
 });
 
 export const protocolProbeJobDataSchema = baseJobDataSchema.extend({

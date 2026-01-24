@@ -2958,6 +2958,63 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch discovery jobs" });
     }
   });
+  
+  // Scan IAM for a cloud connection
+  app.post("/api/cloud-connections/:id/scan-iam", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const connection = await storage.getCloudConnection(req.params.id);
+      if (!connection) {
+        res.status(404).json({ error: "Cloud connection not found" });
+        return;
+      }
+      
+      const { secretsService } = await import("./services/secrets");
+      
+      const storedCredential = await storage.getCloudCredentialByConnectionId(req.params.id);
+      if (!storedCredential) {
+        res.status(400).json({ error: "No credentials stored for this connection" });
+        return;
+      }
+      
+      const credentials = secretsService.decryptCredentials(
+        storedCredential.encryptedData,
+        storedCredential.encryptionKeyId
+      );
+      
+      if (connection.provider === "aws") {
+        const { awsAdapter } = await import("./services/cloud/aws-adapter");
+        const result = await awsAdapter.scanIAM({ aws: credentials });
+        res.json({
+          success: true,
+          provider: "aws",
+          findings: result.findings,
+          summary: result.summary,
+          scannedAt: new Date().toISOString(),
+        });
+      } else if (connection.provider === "azure") {
+        res.json({
+          success: true,
+          provider: "azure",
+          findings: [],
+          summary: { totalFindings: 0, message: "Azure IAM scanning coming soon" },
+          scannedAt: new Date().toISOString(),
+        });
+      } else if (connection.provider === "gcp") {
+        res.json({
+          success: true,
+          provider: "gcp",
+          findings: [],
+          summary: { totalFindings: 0, message: "GCP IAM scanning coming soon" },
+          scannedAt: new Date().toISOString(),
+        });
+      } else {
+        res.status(400).json({ error: `IAM scanning not supported for provider: ${connection.provider}` });
+      }
+    } catch (error) {
+      console.error("Error scanning IAM:", error);
+      res.status(500).json({ error: "Failed to scan IAM" });
+    }
+  });
 
   // Deploy agent to a specific cloud asset
   app.post("/api/cloud-assets/:id/deploy-agent", apiRateLimiter, async (req, res) => {
@@ -3092,6 +3149,202 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching deployment jobs:", error);
       res.status(500).json({ error: "Failed to fetch deployment jobs" });
+    }
+  });
+
+  // ========== SSH CREDENTIALS MANAGEMENT ==========
+  
+  const sshCredentialSchema = z.object({
+    assetId: z.string().optional(),
+    connectionId: z.string().optional(),
+    host: z.string().optional(),
+    port: z.number().int().min(1).max(65535).default(22),
+    username: z.string().min(1),
+    authMethod: z.enum(["key", "password"]).default("key"),
+    privateKey: z.string().optional(),
+    password: z.string().optional(),
+    useSudo: z.boolean().default(true),
+    sudoPassword: z.boolean().default(false),
+  });
+  
+  // List SSH credentials for organization
+  app.get("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const credentials = await storage.getSshCredentials(organizationId);
+      
+      // Return credentials without sensitive data
+      const sanitized = credentials.map(cred => ({
+        id: cred.id,
+        organizationId: cred.organizationId,
+        assetId: cred.assetId,
+        connectionId: cred.connectionId,
+        host: cred.host,
+        port: cred.port,
+        username: cred.username,
+        authMethod: cred.authMethod,
+        useSudo: cred.useSudo,
+        sudoPassword: cred.sudoPassword,
+        status: cred.status,
+        lastUsedAt: cred.lastUsedAt,
+        lastValidatedAt: cred.lastValidatedAt,
+        validationError: cred.validationError,
+        keyFingerprint: cred.keyFingerprint,
+        createdAt: cred.createdAt,
+        updatedAt: cred.updatedAt,
+      }));
+      
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching SSH credentials:", error);
+      res.status(500).json({ error: "Failed to fetch SSH credentials" });
+    }
+  });
+  
+  // Create SSH credential
+  app.post("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const parsed = sshCredentialSchema.safeParse(req.body);
+      
+      if (!parsed.success) {
+        res.status(400).json({ error: "Invalid SSH credential data", details: parsed.error.issues });
+        return;
+      }
+      
+      const data = parsed.data;
+      
+      // Validate that we have either key or password
+      if (data.authMethod === "key" && !data.privateKey) {
+        res.status(400).json({ error: "Private key is required for key authentication" });
+        return;
+      }
+      if (data.authMethod === "password" && !data.password) {
+        res.status(400).json({ error: "Password is required for password authentication" });
+        return;
+      }
+      
+      // Encrypt sensitive fields
+      const { secretsService } = await import("./services/secrets");
+      let encryptedPrivateKey: string | undefined;
+      let encryptedPassword: string | undefined;
+      let encryptionKeyId = "";
+      
+      if (data.privateKey) {
+        const encrypted = secretsService.encryptField(data.privateKey);
+        encryptedPrivateKey = encrypted.encryptedData;
+        encryptionKeyId = encrypted.keyId;
+      }
+      if (data.password) {
+        const encrypted = secretsService.encryptField(data.password);
+        encryptedPassword = encrypted.encryptedData;
+        encryptionKeyId = encrypted.keyId;
+      }
+      
+      // Generate key fingerprint if we have a private key
+      let keyFingerprint: string | undefined;
+      if (data.privateKey) {
+        const crypto = await import("crypto");
+        keyFingerprint = crypto.createHash("sha256").update(data.privateKey).digest("hex").slice(0, 32);
+      }
+      
+      const credential = await storage.createSshCredential({
+        organizationId,
+        assetId: data.assetId,
+        connectionId: data.connectionId,
+        host: data.host,
+        port: data.port,
+        username: data.username,
+        authMethod: data.authMethod,
+        encryptedPrivateKey,
+        encryptedPassword,
+        encryptionKeyId,
+        keyFingerprint,
+        useSudo: data.useSudo,
+        sudoPassword: data.sudoPassword,
+        status: "active",
+      });
+      
+      res.json({
+        id: credential.id,
+        host: credential.host,
+        port: credential.port,
+        username: credential.username,
+        authMethod: credential.authMethod,
+        status: credential.status,
+        createdAt: credential.createdAt,
+      });
+    } catch (error) {
+      console.error("Error creating SSH credential:", error);
+      res.status(500).json({ error: "Failed to create SSH credential" });
+    }
+  });
+  
+  // Test SSH connection
+  app.post("/api/ssh-credentials/:id/test", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { sshDeploymentService } = await import("./services/ssh-deployment");
+      
+      const config = await sshDeploymentService.getDecryptedCredentials(req.params.id);
+      if (!config) {
+        res.status(404).json({ error: "SSH credential not found" });
+        return;
+      }
+      
+      // If no host in credential, try to get from request body
+      if (!config.host && req.body.host) {
+        config.host = req.body.host;
+      }
+      
+      if (!config.host) {
+        res.status(400).json({ error: "No host specified for connection test" });
+        return;
+      }
+      
+      const result = await sshDeploymentService.testConnection(config);
+      
+      // Update validation status
+      await storage.updateSshCredential(req.params.id, {
+        lastValidatedAt: new Date(),
+        validationError: result.success ? null : result.error,
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing SSH connection:", error);
+      res.status(500).json({ error: "Failed to test SSH connection" });
+    }
+  });
+  
+  // Delete SSH credential
+  app.delete("/api/ssh-credentials/:id", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      await storage.deleteSshCredential(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting SSH credential:", error);
+      res.status(500).json({ error: "Failed to delete SSH credential" });
+    }
+  });
+  
+  // Deploy agent via SSH to a specific asset
+  app.post("/api/ssh-credentials/:id/deploy/:assetId", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const serverUrl = process.env.PUBLIC_ODINFORGE_URL || `https://${req.headers.host}`;
+      
+      const { sshDeploymentService } = await import("./services/ssh-deployment");
+      
+      const result = await sshDeploymentService.deployToAsset(
+        req.params.assetId,
+        organizationId,
+        serverUrl
+      );
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error deploying via SSH:", error);
+      res.status(500).json({ error: "Failed to deploy agent via SSH" });
     }
   });
 

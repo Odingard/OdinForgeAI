@@ -94,3 +94,35 @@ export interface CloudIntegrationConfig {
   registrationToken: string;
   agentVersion?: string;
 }
+
+export interface IAMFinding {
+  id: string;
+  provider: CloudProvider;
+  findingType: "user" | "role" | "policy" | "access_key" | "service_account" | "group";
+  resourceId: string;
+  resourceName: string;
+  severity: "critical" | "high" | "medium" | "low" | "informational";
+  title: string;
+  description: string;
+  riskFactors: string[];
+  recommendation: string;
+  metadata: Record<string, any>;
+  createdAt?: Date;
+  lastActivity?: Date;
+}
+
+export interface IAMScanResult {
+  provider: CloudProvider;
+  findings: IAMFinding[];
+  summary: {
+    totalUsers?: number;
+    totalRoles?: number;
+    totalPolicies?: number;
+    totalServiceAccounts?: number;
+    criticalFindings: number;
+    highFindings: number;
+    mediumFindings: number;
+    lowFindings: number;
+  };
+  scannedAt: Date;
+}
