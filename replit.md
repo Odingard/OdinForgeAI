@@ -59,7 +59,7 @@ Facilitates agent deployment on AWS, Azure, and GCP, tracking deployment status 
 - **SSH-Based Deployment**: Direct SSH connection using password or private key authentication with sudo support
 
 ### Cloud IAM Security Scanning
-Analyzes identity and access management configurations for security risks across all major cloud providers. Access via the Infrastructure page cloud connection dropdown menu ("Scan IAM") with visual findings display.
+Analyzes identity and access management configurations for security risks across all major cloud providers. IAM scanning runs automatically as part of cloud discovery - when you run discovery, both asset discovery and IAM security analysis are performed together. Findings are displayed inline on cloud connection cards.
 
 - **AWS IAM Scanning**: Detects old access keys (90+ days), inactive users/keys, administrator access, dangerous permissions (PassRole, AssumeRole, CreateAccessKey, etc.), wildcard trust policies, and full-access patterns. Scans user/role attached policies, inline policies, customer-managed policies, and group-inherited policies.
 - **Azure IAM Scanning**: Detects Owner/Contributor/User Access Administrator roles at subscription level, custom roles with wildcard permissions, and service principals with elevated privileges. Scans role assignments across all subscriptions.
