@@ -2827,22 +2827,65 @@ export async function registerRoutes(
   // Test cloud connection
   app.post("/api/cloud-connections/:id/test", apiRateLimiter, async (req, res) => {
     try {
+      const { cloudIntegrationService } = await import("./services/cloud/index");
+      const { secretsService } = await import("./services/secrets");
+      
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
         return res.status(404).json({ error: "Cloud connection not found" });
       }
 
-      // Simulate testing connection (in production, would use AWS/Azure/GCP SDKs)
+      // Get stored credentials
+      const storedCredential = await storage.getCloudCredentialByConnectionId(req.params.id);
+      if (!storedCredential) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "No credentials configured. Please add credentials first." 
+        });
+      }
+
+      // Decrypt credentials - they're already in CloudCredentials format { gcp: {...} } or { aws: {...} }
+      const credentials = secretsService.decryptCredentials(
+        storedCredential.encryptedData,
+        storedCredential.encryptionKeyId
+      );
+
+      // Normalize provider to lowercase for adapter lookup
+      const normalizedProvider = connection.provider.toLowerCase();
+
+      // Actually test the credentials with the cloud provider
+      // Credentials are already wrapped, e.g., { gcp: { serviceAccountJson: "..." } }
+      const validation = await cloudIntegrationService.validateCredentials(
+        normalizedProvider,
+        credentials
+      );
+
+      if (!validation.valid) {
+        await storage.updateCloudConnection(req.params.id, {
+          status: "error",
+          lastSyncStatus: "failed",
+        });
+        return res.status(400).json({ 
+          success: false, 
+          error: validation.error || "Failed to validate credentials with cloud provider" 
+        });
+      }
+
+      // Update connection status on success
       await storage.updateCloudConnection(req.params.id, {
         status: "connected",
         lastSyncAt: new Date(),
         lastSyncStatus: "success",
       });
 
-      res.json({ success: true, message: "Connection test successful" });
-    } catch (error) {
+      res.json({ 
+        success: true, 
+        message: "Connection test successful - credentials validated with cloud provider",
+        accountInfo: validation.accountInfo
+      });
+    } catch (error: any) {
       console.error("Error testing cloud connection:", error);
-      res.status(500).json({ error: "Failed to test cloud connection" });
+      res.status(500).json({ error: error.message || "Failed to test cloud connection" });
     }
   });
 
