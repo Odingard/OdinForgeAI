@@ -14,6 +14,7 @@ import {
   Users,
   ScanSearch,
   Globe,
+  FlaskConical,
 } from "lucide-react";
 import {
   Sidebar,
@@ -45,6 +46,7 @@ const mainNavItems = [
 
 const analysisItems = [
   { title: "Full Assessment", href: "/full-assessment", icon: ScanSearch },
+  { title: "Security Testing", href: "/security-testing", icon: FlaskConical },
   { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
   { title: "Simulations", href: "/simulations", icon: Swords },

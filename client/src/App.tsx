@@ -24,6 +24,7 @@ import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import FullAssessment from "@/pages/FullAssessment";
+import SecurityTesting from "@/pages/SecurityTesting";
 import { ExternalRecon } from "@/components/ExternalRecon";
 import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ function Router() {
       <Route path="/agents" component={Agents} />
       <Route path="/simulations" component={Simulations} />
       <Route path="/full-assessment" component={FullAssessment} />
+      <Route path="/security-testing" component={SecurityTesting} />
       <Route path="/recon" component={ExternalRecon} />
       <Route path="/advanced" component={Advanced} />
       <Route path="/admin/users" component={UserManagement} />
