@@ -8730,25 +8730,78 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // POST /api/lateral-movement/test - Test a specific lateral movement technique
   app.post("/api/lateral-movement/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
     try {
-      const { sourceHost, targetHost, technique, credentialId, customCredential } = req.body;
+      const { sourceHost, targetHost, technique, credentialId, customCredential, useRealConnection, timeout } = req.body;
 
       if (!targetHost || !technique) {
         return res.status(400).json({ error: "Target host and technique are required" });
       }
 
       const { lateralMovementService } = await import("./services/lateral-movement");
-      const result = await lateralMovementService.testLateralMovement({
-        sourceHost: sourceHost || "attacker",
-        targetHost,
-        technique,
-        credentialId,
-        customCredential,
-      });
+      const result = await lateralMovementService.testLateralMovement(
+        {
+          sourceHost: sourceHost || "attacker",
+          targetHost,
+          technique,
+          credentialId,
+          customCredential,
+        },
+        {
+          useRealConnection: useRealConnection === true,
+          timeout: timeout || 10000,
+        }
+      );
 
       res.json(result);
     } catch (error: any) {
       console.error("Failed to test lateral movement:", error);
       res.status(500).json({ error: error.message || "Failed to test lateral movement" });
+    }
+  });
+
+  // POST /api/lateral-movement/probe-host - Probe a host for lateral movement protocols
+  app.post("/api/lateral-movement/probe-host", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { host, protocols, timeout } = req.body;
+
+      if (!host) {
+        return res.status(400).json({ error: "Host is required" });
+      }
+
+      const { protocolConnectors } = await import("./services/lateral-movement/protocol-connectors");
+      const validProtocols = protocols || ["smb", "winrm", "ssh"];
+      const result = await protocolConnectors.probeHost(host, validProtocols, timeout || 5000);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to probe host:", error);
+      res.status(500).json({ error: error.message || "Failed to probe host" });
+    }
+  });
+
+  // POST /api/lateral-movement/test-protocol - Test a specific protocol connection
+  app.post("/api/lateral-movement/test-protocol", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { targetHost, port, protocol, username, domain, credential, timeout } = req.body;
+
+      if (!targetHost || !protocol) {
+        return res.status(400).json({ error: "Target host and protocol are required" });
+      }
+
+      const { protocolConnectors } = await import("./services/lateral-movement/protocol-connectors");
+      const result = await protocolConnectors.testProtocolConnection({
+        targetHost,
+        port: port || protocolConnectors.DEFAULT_PORTS[protocol as keyof typeof protocolConnectors.DEFAULT_PORTS] || 445,
+        protocol,
+        username,
+        domain,
+        credential,
+        timeout: timeout || 10000,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to test protocol:", error);
+      res.status(500).json({ error: error.message || "Failed to test protocol" });
     }
   });
 

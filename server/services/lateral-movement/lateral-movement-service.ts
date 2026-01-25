@@ -1,5 +1,6 @@
 import { randomUUID, createHash } from "crypto";
 import { storage } from "../../storage";
+import { testProtocolConnection, probeHost, type ConnectionResult } from "./protocol-connectors";
 import type {
   DiscoveredCredential,
   LateralMovementFinding,
@@ -248,7 +249,10 @@ class LateralMovementService {
     };
   }
 
-  async testLateralMovement(request: LateralMovementTestRequest): Promise<LateralMovementResult> {
+  async testLateralMovement(
+    request: LateralMovementTestRequest,
+    options?: { useRealConnection?: boolean; timeout?: number }
+  ): Promise<LateralMovementResult> {
     const techniqueInfo = LATERAL_MOVEMENT_TECHNIQUES[request.technique as keyof typeof LATERAL_MOVEMENT_TECHNIQUES];
     const findingId = `lm-${randomUUID().slice(0, 8)}`;
     
@@ -279,12 +283,33 @@ class LateralMovementService {
     }
 
     const startTime = Date.now();
-    await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
+    const useReal = options?.useRealConnection ?? false;
+    
+    let connectionResult: ConnectionResult | null = null;
+    let success = false;
+    let accessLevel = "none";
 
-    const success = Math.random() > 0.35;
-    const accessLevel = success 
-      ? (Math.random() > 0.5 ? "admin" : "user") 
-      : "none";
+    if (useReal) {
+      const protocol = this.getProtocolForTechnique(request.technique);
+      if (protocol) {
+        connectionResult = await testProtocolConnection({
+          targetHost: request.targetHost,
+          port: this.getDefaultPort(protocol),
+          protocol: protocol as "smb" | "winrm" | "ssh" | "rdp" | "wmi",
+          username: request.customCredential?.username,
+          domain: request.customCredential?.domain,
+          credential: request.customCredential?.value,
+          timeout: options?.timeout || 10000,
+        });
+        
+        success = connectionResult.connected && connectionResult.portOpen;
+        accessLevel = success ? "unknown" : "none";
+      }
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
+      success = Math.random() > 0.35;
+      accessLevel = success ? (Math.random() > 0.5 ? "admin" : "user") : "none";
+    }
 
     const credentialUsed = request.customCredential 
       ? `${request.customCredential.username}@${request.customCredential.domain || "local"}`
@@ -295,11 +320,19 @@ class LateralMovementService {
       sourceHost: request.sourceHost,
       targetHost: request.targetHost,
       credentialUsed,
-      commandExecuted: success ? "whoami /all" : undefined,
-      outputCaptured: success 
+      commandExecuted: success && !useReal ? "whoami /all" : undefined,
+      outputCaptured: success && !useReal
         ? `${request.customCredential?.domain || "CORP"}\\${request.customCredential?.username || "admin"}\nUser is member of: Domain Admins`
         : undefined,
       timing: Date.now() - startTime,
+      realConnection: useReal,
+      connectionResult: connectionResult ? {
+        connected: connectionResult.connected,
+        portOpen: connectionResult.portOpen,
+        banner: connectionResult.banner,
+        timing: connectionResult.timing,
+        evidence: connectionResult.evidence,
+      } : undefined,
     };
 
     const findingData: InsertLateralMovementFinding & { id: string } = {
@@ -560,6 +593,33 @@ class LateralMovementService {
     if (accessLevel === "admin" || accessLevel === "system") return "critical";
     if (accessLevel === "user") return "high";
     return "medium";
+  }
+
+  private getProtocolForTechnique(technique: string): string | null {
+    const protocolMap: Record<string, string> = {
+      pass_the_hash: "smb",
+      pass_the_ticket: "smb",
+      credential_reuse: "smb",
+      ssh_pivot: "ssh",
+      rdp_pivot: "rdp",
+      smb_relay: "smb",
+      wmi_exec: "wmi",
+      psexec: "smb",
+      dcom_exec: "wmi",
+      winrm: "winrm",
+    };
+    return protocolMap[technique] || null;
+  }
+
+  private getDefaultPort(protocol: string): number {
+    const portMap: Record<string, number> = {
+      smb: 445,
+      winrm: 5985,
+      ssh: 22,
+      rdp: 3389,
+      wmi: 135,
+    };
+    return portMap[protocol] || 445;
   }
 
   private generateHostsToScan(startingHost: string, depth: number): string[] {
