@@ -206,7 +206,7 @@ function ApiFuzzingTab({ adminPassword }: { adminPassword: string }) {
     try {
       const result = await securityApiRequest("/api/fuzz/generate", {
         apiDefinition: {
-          baseUrl: parsedSpec.baseUrl || "https://api.example.com",
+          baseUrl: parsedSpec.baseUrl || "",
           endpoints: parsedSpec.endpoints || [],
         },
         options: {
@@ -362,7 +362,7 @@ function AuthTestingTab({ adminPassword }: { adminPassword: string }) {
   const [jwtAnalysis, setJwtAnalysis] = useState<any>(null);
   const [jwtTestResults, setJwtTestResults] = useState<any>(null);
   const [redirectUri, setRedirectUri] = useState("");
-  const [allowedDomains, setAllowedDomains] = useState("example.com");
+  const [allowedDomains, setAllowedDomains] = useState("");
   const [oauthResults, setOauthResults] = useState<any>(null);
   const [samlAssertion, setSamlAssertion] = useState("");
   const [samlAnalysis, setSamlAnalysis] = useState<any>(null);
