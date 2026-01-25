@@ -92,6 +92,55 @@ All job handlers validate governance before execution, logging blocked operation
 ### Enhanced Reporting System
 Provides comprehensive, logic-based reporting including a vulnerability catalog, kill chain visualization mapping to MITRE ATT&CK, and a report logic engine for generating executive summaries, technical reports, and compliance assessments.
 
+### API Security Testing (Phase 2)
+Comprehensive API security testing with schema-aware fuzzing and authentication flow testing:
+
+- **API Fuzzing Engine**: Schema-aware mutation engine with 100+ payloads across 7 categories (type mutation, null injection, boundary values, format violations, encoding, injection, overflow). Supports OpenAPI/Swagger spec parsing and automatic endpoint discovery.
+- **Response Validator**: Detects anomalies including SQL error disclosure, XSS reflection, sensitive data exposure (API keys, tokens, credentials), schema deviations, and timing attacks.
+- **Fuzzing Executor**: Parallel execution with configurable concurrency, timeout handling, and rate limiting.
+
+API Endpoints:
+- `POST /api/fuzz/generate` - Generate fuzz test cases from API definitions
+- `POST /api/fuzz/execute` - Execute fuzz tests against target endpoints
+- `POST /api/fuzz/openapi/parse` - Parse OpenAPI/Swagger specifications
+- `POST /api/fuzz/schema/infer` - Infer schema from sample responses
+- `GET /api/fuzz/categories` - List available fuzzing categories
+
+### OAuth/SAML Security Testing (Phase 2)
+Authentication protocol security testing:
+
+- **JWT Token Testing**: Algorithm confusion (CVE-2016-5431), signature stripping, none algorithm attacks (CVE-2015-9235), weak secret detection, KID header injection. MITRE ATT&CK mappings: T1550.001 (Pass the Ticket).
+- **OAuth Redirect Testing**: Open redirect detection, state parameter abuse, subdomain takeover testing, path traversal in redirect URIs. MITRE ATT&CK mappings: T1557 (Adversary-in-the-Middle).
+- **SAML Flow Testing**: Signature bypass, XML Signature Wrapping attacks (XSW1-8), XXE injection, assertion replay, attribute manipulation, certificate tampering. MITRE ATT&CK mappings: T1606.002 (SAML Tokens).
+
+API Endpoints:
+- `POST /api/auth-test/jwt/analyze` - Analyze JWT token structure and claims
+- `POST /api/auth-test/jwt/test` - Run JWT security tests
+- `POST /api/auth-test/oauth/redirect` - Test OAuth redirect URI validation
+- `POST /api/auth-test/saml/analyze` - Analyze SAML assertion
+- `POST /api/auth-test/saml/test` - Run SAML security tests
+
+### Container/Kubernetes Security (Phase 2)
+Container and Kubernetes manifest security analysis:
+
+- **Container Security Scanner**: Detects privileged containers, dangerous capabilities (30+ including SYS_ADMIN, NET_ADMIN, SYS_PTRACE), host path mounts, Docker socket exposure, root user execution, writable root filesystem, missing resource limits.
+- **K8s Manifest Analyzer**: Analyzes YAML/JSON manifests for network policy gaps, RBAC misconfigurations, host namespace sharing (network, PID, IPC), sensitive volume mounts.
+- **K8s RBAC Scanner**: Detects cluster-admin bindings, wildcard permissions, privilege escalation paths, anonymous/unauthenticated bindings, impersonation permissions.
+- **Dockerfile Scanner**: Detects root USER, chmod 777 permissions, hardcoded secrets, curl-pipe-to-shell patterns, missing non-root user.
+
+CIS Kubernetes Benchmark Controls:
+- 5.1.x: RBAC security (5.1.1, 5.1.3, 5.1.5, 5.1.6)
+- 5.2.x: Pod security policies (5.2.1-5.2.13)
+- 5.3.x: Network policies (5.3.2)
+- 5.4.x: Resource management (5.4.1)
+- 5.5.x: Container images (5.5.1)
+
+API Endpoints:
+- `POST /api/container-security/scan-manifest` - Scan single K8s manifest
+- `POST /api/container-security/scan-manifests` - Scan multiple K8s manifests (YAML/JSON)
+- `POST /api/container-security/scan-dockerfile` - Scan Dockerfile for security issues
+- `POST /api/container-security/scan-pod-spec` - Scan pod spec directly
+
 ### Design System
 Follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
 
