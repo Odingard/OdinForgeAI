@@ -70,6 +70,8 @@ const DEFAULT_CONFIG: SandboxConfig = {
     "credential_test",
     "network_scan",
     "port_scan",
+    "payload_injection",
+    "exploit_execution",
   ],
   blockedTargetPatterns: [
     "localhost",

@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { sandboxExecutor, type SandboxedOperationType } from "../validation/sandbox-executor";
 import { storage } from "../../storage";
+import { httpExploitDispatcher, type DispatchResult } from "./http-exploit-dispatcher";
 import type { 
   SandboxSession, 
   SandboxSnapshot, 
@@ -207,16 +208,22 @@ class SandboxSessionManager {
     await storage.updateSandboxSession(sessionId, { status: "executing" });
 
     try {
+      const executionMode = session.executionMode as "safe" | "simulation" | "live";
+      
       const sandboxResult = await sandboxExecutor.execute(
         "payload_injection" as SandboxedOperationType,
         session.targetUrl || session.targetHost || "unknown",
         async (signal) => {
-          return this.simulatePayloadExecution(payload, session.executionMode as string, signal);
+          if (executionMode === "safe") {
+            return this.simulatePayloadExecution(payload, executionMode, signal);
+          } else {
+            return this.executeRealPayload(payload, session, executionMode, signal);
+          }
         },
         {
           tenantId: session.tenantId,
           organizationId: session.organizationId,
-          executionMode: session.executionMode as "safe" | "simulation" | "live",
+          executionMode,
           timeoutMs: (session.resourceLimits as any)?.maxExecutionTimeMs || 30000,
           payloadSizeBytes: Buffer.byteLength(payload.payloadContent),
         }
@@ -347,6 +354,81 @@ class SandboxSessionManager {
 
     return {
       success: isVulnerable && executionMode !== "safe",
+      evidence,
+    };
+  }
+
+  private async executeRealPayload(
+    payload: PayloadExecution,
+    session: SandboxSession,
+    executionMode: "simulation" | "live",
+    signal: AbortSignal
+  ): Promise<{ success: boolean; evidence: ExecutionResult["evidence"] }> {
+    const targetUrl = payload.targetEndpoint || session.targetUrl || session.targetHost;
+    
+    if (!targetUrl) {
+      throw new Error("No target URL specified for payload execution");
+    }
+
+    let fullUrl = targetUrl;
+    if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
+      fullUrl = `https://${fullUrl}`;
+    }
+
+    console.log(`[SandboxSession] Executing REAL ${executionMode} payload against ${fullUrl}`);
+
+    let body: string | undefined;
+    let headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (["POST", "PUT", "PATCH"].includes(payload.targetMethod.toUpperCase())) {
+      body = JSON.stringify({ data: payload.payloadContent });
+    } else if (payload.targetMethod.toUpperCase() === "GET") {
+      const separator = fullUrl.includes("?") ? "&" : "?";
+      fullUrl = `${fullUrl}${separator}q=${encodeURIComponent(payload.payloadContent)}`;
+    }
+
+    const dispatchResult: DispatchResult = await httpExploitDispatcher.dispatch(
+      {
+        method: payload.targetMethod.toUpperCase(),
+        url: fullUrl,
+        headers,
+        body,
+        timeout: (session.resourceLimits as any)?.maxExecutionTimeMs || 30000,
+        followRedirects: true,
+        verifySsl: false,
+      },
+      payload.payloadCategory,
+      payload.payloadContent
+    );
+
+    if (signal.aborted) {
+      throw new Error("Execution aborted");
+    }
+
+    const indicators = dispatchResult.indicators.map(i => i.description);
+
+    const evidence: ExecutionResult["evidence"] = {
+      request: {
+        method: dispatchResult.request.method,
+        url: dispatchResult.request.url,
+        headers: dispatchResult.request.headers,
+        body: dispatchResult.request.body,
+      },
+      response: {
+        statusCode: dispatchResult.response.statusCode,
+        headers: dispatchResult.response.headers,
+        body: dispatchResult.response.body?.substring(0, 10000),
+        timing: dispatchResult.response.timing.total,
+      },
+      indicators,
+    };
+
+    console.log(`[SandboxSession] Real execution complete - Vulnerable: ${dispatchResult.isVulnerable}, Confidence: ${dispatchResult.confidenceScore}%`);
+
+    return {
+      success: dispatchResult.isVulnerable,
       evidence,
     };
   }
