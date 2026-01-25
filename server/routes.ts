@@ -7895,4 +7895,481 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: "Failed to generate compliance report" });
     }
   });
+
+  // ========================================
+  // API Fuzzing Routes
+  // ========================================
+
+  // POST /api/fuzz/generate - Generate fuzz test cases for an endpoint
+  app.post("/api/fuzz/generate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { endpoint } = req.body;
+
+      if (!endpoint || !endpoint.path || !endpoint.method) {
+        return res.status(400).json({ error: "Endpoint path and method are required" });
+      }
+
+      const { apiFuzzingEngine } = await import("./services/api-fuzzer");
+      const testCases = apiFuzzingEngine.generateTestCasesFromOpenAPIEndpoint(endpoint);
+
+      res.json({
+        endpointPath: endpoint.path,
+        method: endpoint.method,
+        totalTestCases: testCases.length,
+        testCases: testCases.slice(0, 100),
+        categories: apiFuzzingEngine.getPayloadCategories(),
+      });
+    } catch (error) {
+      console.error("Failed to generate fuzz test cases:", error);
+      res.status(500).json({ error: "Failed to generate fuzz test cases" });
+    }
+  });
+
+  // POST /api/fuzz/execute - Execute fuzz test cases against a target
+  app.post("/api/fuzz/execute", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { 
+        endpoint,
+        targetBaseUrl,
+        config = {},
+      } = req.body;
+
+      if (!endpoint || !targetBaseUrl) {
+        return res.status(400).json({ error: "Endpoint and targetBaseUrl are required" });
+      }
+
+      const { apiFuzzingEngine, fuzzingExecutor } = await import("./services/api-fuzzer");
+      const testCases = apiFuzzingEngine.generateTestCasesFromOpenAPIEndpoint(endpoint);
+
+      const executionConfig = {
+        targetBaseUrl,
+        concurrency: config.concurrency || 3,
+        timeoutMs: config.timeoutMs || 10000,
+        delayBetweenRequests: config.delayBetweenRequests || 100,
+        headers: config.headers,
+        authentication: config.authentication,
+        stopOnCritical: config.stopOnCritical || false,
+        maxTestCases: config.maxTestCases || 50,
+      };
+
+      const result = await fuzzingExecutor.executeTestCases(testCases, executionConfig);
+      const report = fuzzingExecutor.generateReport(result);
+
+      res.json({
+        ...result,
+        markdownReport: report,
+      });
+    } catch (error) {
+      console.error("Failed to execute fuzz tests:", error);
+      res.status(500).json({ error: "Failed to execute fuzz tests" });
+    }
+  });
+
+  // POST /api/fuzz/api-definition/:id - Fuzz all endpoints from an API definition
+  app.post("/api/fuzz/api-definition/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { targetBaseUrl, config = {} } = req.body;
+
+      const apiDef = await storage.getApiDefinition(id);
+      if (!apiDef) {
+        return res.status(404).json({ error: "API definition not found" });
+      }
+
+      const endpoints = await storage.getApiEndpointsByDefinition(id);
+      if (!endpoints || endpoints.length === 0) {
+        return res.status(404).json({ error: "No endpoints found for this API definition" });
+      }
+
+      const baseUrl = targetBaseUrl || apiDef.baseUrl;
+      if (!baseUrl) {
+        return res.status(400).json({ error: "Target base URL is required" });
+      }
+
+      const { apiFuzzingEngine, fuzzingExecutor } = await import("./services/api-fuzzer");
+      
+      const allTestCases = endpoints.flatMap(ep => 
+        apiFuzzingEngine.generateTestCasesFromOpenAPIEndpoint({
+          path: ep.path,
+          method: ep.method,
+          parameters: ep.parameters as any[],
+          requestBody: ep.requestBody as any,
+        })
+      );
+
+      const priorityTestCases = config.onlyCritical 
+        ? apiFuzzingEngine.filterTestCasesByRisk(allTestCases, "high")
+        : allTestCases;
+
+      const executionConfig = {
+        targetBaseUrl: baseUrl,
+        concurrency: config.concurrency || 3,
+        timeoutMs: config.timeoutMs || 10000,
+        delayBetweenRequests: config.delayBetweenRequests || 100,
+        headers: config.headers,
+        authentication: config.authentication,
+        stopOnCritical: config.stopOnCritical || false,
+        maxTestCases: config.maxTestCases || 200,
+      };
+
+      const result = await fuzzingExecutor.executeTestCases(priorityTestCases, executionConfig);
+      const report = fuzzingExecutor.generateReport(result);
+
+      res.json({
+        apiDefinitionId: id,
+        apiName: apiDef.name,
+        endpointCount: endpoints.length,
+        ...result,
+        markdownReport: report,
+      });
+    } catch (error) {
+      console.error("Failed to fuzz API definition:", error);
+      res.status(500).json({ error: "Failed to fuzz API definition" });
+    }
+  });
+
+  // POST /api/fuzz/validate-response - Validate a response against expected schema
+  app.post("/api/fuzz/validate-response", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { responseBody, statusCode, responseHeaders, responseTimeMs, expected } = req.body;
+
+      if (responseBody === undefined || statusCode === undefined) {
+        return res.status(400).json({ error: "responseBody and statusCode are required" });
+      }
+
+      const { responseValidator } = await import("./services/api-fuzzer");
+      const result = responseValidator.validate(
+        typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody),
+        statusCode,
+        responseHeaders || {},
+        responseTimeMs || 0,
+        expected || {}
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to validate response:", error);
+      res.status(500).json({ error: "Failed to validate response" });
+    }
+  });
+
+  // POST /api/fuzz/infer-schema - Infer JSON schema from a sample response
+  app.post("/api/fuzz/infer-schema", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sampleResponse } = req.body;
+
+      if (sampleResponse === undefined) {
+        return res.status(400).json({ error: "sampleResponse is required" });
+      }
+
+      const { responseValidator } = await import("./services/api-fuzzer");
+      const schema = responseValidator.createSchemaFromSample(sampleResponse);
+
+      res.json({ schema });
+    } catch (error) {
+      console.error("Failed to infer schema:", error);
+      res.status(500).json({ error: "Failed to infer schema" });
+    }
+  });
+
+  // GET /api/fuzz/categories - Get available fuzzing categories
+  app.get("/api/fuzz/categories", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { apiFuzzingEngine } = await import("./services/api-fuzzer");
+      res.json({
+        categories: apiFuzzingEngine.getPayloadCategories(),
+        formats: apiFuzzingEngine.getSupportedFormats(),
+      });
+    } catch (error) {
+      console.error("Failed to get fuzz categories:", error);
+      res.status(500).json({ error: "Failed to get fuzz categories" });
+    }
+  });
+
+  // ========================================
+  // OAuth/SAML Security Testing Routes
+  // ========================================
+
+  // POST /api/auth-test/jwt/analyze - Analyze a JWT token
+  app.post("/api/auth-test/jwt/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: "Token is required" });
+      }
+
+      const { oauthTokenTester } = await import("./services/auth-testing");
+      const analysis = await oauthTokenTester.analyzeToken(token);
+
+      res.json(analysis);
+    } catch (error: any) {
+      console.error("Failed to analyze JWT:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze JWT" });
+    }
+  });
+
+  // POST /api/auth-test/jwt/test - Run JWT security tests
+  app.post("/api/auth-test/jwt/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { targetUrl, token, headers, testTypes, timeoutMs } = req.body;
+
+      if (!targetUrl || !token) {
+        return res.status(400).json({ error: "targetUrl and token are required" });
+      }
+
+      const { oauthTokenTester } = await import("./services/auth-testing");
+      const results = await oauthTokenTester.runAllTests({
+        targetUrl,
+        token,
+        headers,
+        testTypes,
+        timeoutMs,
+      });
+
+      const report = oauthTokenTester.generateReport(results);
+
+      res.json({
+        totalTests: results.length,
+        passed: results.filter(r => r.passed).length,
+        failed: results.filter(r => !r.passed).length,
+        criticalFindings: results.filter(r => !r.passed && r.severity === "critical").length,
+        highFindings: results.filter(r => !r.passed && r.severity === "high").length,
+        results,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to run JWT tests:", error);
+      res.status(500).json({ error: error.message || "Failed to run JWT tests" });
+    }
+  });
+
+  // POST /api/auth-test/oauth/redirect - Test OAuth redirect URI validation
+  app.post("/api/auth-test/oauth/redirect", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { 
+        authorizationEndpoint, 
+        clientId, 
+        originalRedirectUri,
+        state,
+        scope,
+        responseType,
+        additionalParams,
+        timeoutMs,
+        testTypes,
+      } = req.body;
+
+      if (!authorizationEndpoint || !clientId || !originalRedirectUri) {
+        return res.status(400).json({ 
+          error: "authorizationEndpoint, clientId, and originalRedirectUri are required" 
+        });
+      }
+
+      const { oauthRedirectTester } = await import("./services/auth-testing");
+      const results = await oauthRedirectTester.runAllTests({
+        authorizationEndpoint,
+        clientId,
+        originalRedirectUri,
+        state,
+        scope,
+        responseType,
+        additionalParams,
+        timeoutMs,
+        testTypes,
+      });
+
+      const report = oauthRedirectTester.generateReport(results);
+
+      res.json({
+        totalTests: results.length,
+        passed: results.filter(r => r.passed).length,
+        failed: results.filter(r => !r.passed).length,
+        criticalFindings: results.filter(r => !r.passed && r.severity === "critical").length,
+        highFindings: results.filter(r => !r.passed && r.severity === "high").length,
+        results,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to run OAuth redirect tests:", error);
+      res.status(500).json({ error: error.message || "Failed to run OAuth redirect tests" });
+    }
+  });
+
+  // POST /api/auth-test/saml/analyze - Analyze a SAML assertion
+  app.post("/api/auth-test/saml/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { assertion } = req.body;
+
+      if (!assertion) {
+        return res.status(400).json({ error: "SAML assertion is required" });
+      }
+
+      const { samlTester } = await import("./services/auth-testing");
+      const analysis = await samlTester.parseAssertion(assertion);
+
+      res.json(analysis);
+    } catch (error: any) {
+      console.error("Failed to analyze SAML:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze SAML" });
+    }
+  });
+
+  // POST /api/auth-test/saml/test - Run SAML security tests
+  app.post("/api/auth-test/saml/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { acsUrl, originalAssertion, relayState, headers, timeoutMs, testTypes } = req.body;
+
+      if (!acsUrl || !originalAssertion) {
+        return res.status(400).json({ error: "acsUrl and originalAssertion are required" });
+      }
+
+      const { samlTester } = await import("./services/auth-testing");
+      const results = await samlTester.runAllTests({
+        acsUrl,
+        originalAssertion,
+        relayState,
+        headers,
+        timeoutMs,
+        testTypes,
+      });
+
+      const report = samlTester.generateReport(results);
+
+      res.json({
+        totalTests: results.length,
+        passed: results.filter(r => r.passed).length,
+        failed: results.filter(r => !r.passed).length,
+        criticalFindings: results.filter(r => !r.passed && r.severity === "critical").length,
+        highFindings: results.filter(r => !r.passed && r.severity === "high").length,
+        results,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to run SAML tests:", error);
+      res.status(500).json({ error: error.message || "Failed to run SAML tests" });
+    }
+  });
+
+  // ========================================
+  // Container/K8s Security Scanning Routes
+  // ========================================
+
+  // POST /api/container-security/scan-manifest - Scan a single K8s manifest
+  app.post("/api/container-security/scan-manifest", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { manifest } = req.body;
+
+      if (!manifest) {
+        return res.status(400).json({ error: "K8s manifest is required" });
+      }
+
+      const { containerSecurityScanner } = await import("./services/container-security");
+      const findings = containerSecurityScanner.scanManifest(manifest);
+      const report = containerSecurityScanner.generateReport(findings);
+
+      res.json({
+        totalFindings: findings.length,
+        criticalFindings: findings.filter(f => f.severity === "critical").length,
+        highFindings: findings.filter(f => f.severity === "high").length,
+        mediumFindings: findings.filter(f => f.severity === "medium").length,
+        lowFindings: findings.filter(f => f.severity === "low").length,
+        findings,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to scan manifest:", error);
+      res.status(500).json({ error: error.message || "Failed to scan manifest" });
+    }
+  });
+
+  // POST /api/container-security/scan-manifests - Scan multiple K8s manifests (YAML/JSON)
+  app.post("/api/container-security/scan-manifests", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { content } = req.body;
+
+      if (!content) {
+        return res.status(400).json({ error: "K8s manifest content is required" });
+      }
+
+      const { k8sManifestAnalyzer } = await import("./services/container-security");
+      const manifests = k8sManifestAnalyzer.parseManifests(content);
+      
+      if (manifests.length === 0) {
+        return res.status(400).json({ error: "No valid K8s manifests found in content" });
+      }
+
+      const result = k8sManifestAnalyzer.analyzeManifests(manifests);
+      const report = k8sManifestAnalyzer.generateReport(result);
+
+      res.json({
+        ...result,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to scan manifests:", error);
+      res.status(500).json({ error: error.message || "Failed to scan manifests" });
+    }
+  });
+
+  // POST /api/container-security/scan-dockerfile - Scan a Dockerfile for security issues
+  app.post("/api/container-security/scan-dockerfile", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { content, imageName } = req.body;
+
+      if (!content) {
+        return res.status(400).json({ error: "Dockerfile content is required" });
+      }
+
+      const { containerSecurityScanner } = await import("./services/container-security");
+      const findings = containerSecurityScanner.scanDockerfile(content, imageName || "dockerfile");
+      const report = containerSecurityScanner.generateReport(findings);
+
+      res.json({
+        imageName: imageName || "dockerfile",
+        totalFindings: findings.length,
+        criticalFindings: findings.filter(f => f.severity === "critical").length,
+        highFindings: findings.filter(f => f.severity === "high").length,
+        mediumFindings: findings.filter(f => f.severity === "medium").length,
+        lowFindings: findings.filter(f => f.severity === "low").length,
+        findings,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to scan Dockerfile:", error);
+      res.status(500).json({ error: error.message || "Failed to scan Dockerfile" });
+    }
+  });
+
+  // POST /api/container-security/scan-pod-spec - Scan a pod spec directly
+  app.post("/api/container-security/scan-pod-spec", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { podSpec, resourceName, namespace, resourceType } = req.body;
+
+      if (!podSpec) {
+        return res.status(400).json({ error: "Pod spec is required" });
+      }
+
+      const { containerSecurityScanner } = await import("./services/container-security");
+      const findings = containerSecurityScanner.scanPodSpec(
+        podSpec,
+        resourceName || "unknown",
+        namespace || "default",
+        resourceType || "pod"
+      );
+      const report = containerSecurityScanner.generateReport(findings);
+
+      res.json({
+        resourceName: resourceName || "unknown",
+        namespace: namespace || "default",
+        totalFindings: findings.length,
+        criticalFindings: findings.filter(f => f.severity === "critical").length,
+        highFindings: findings.filter(f => f.severity === "high").length,
+        findings,
+        markdownReport: report,
+      });
+    } catch (error: any) {
+      console.error("Failed to scan pod spec:", error);
+      res.status(500).json({ error: error.message || "Failed to scan pod spec" });
+    }
+  });
 }
