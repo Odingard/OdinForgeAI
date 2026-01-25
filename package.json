@@ -13,6 +13,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@aws-sdk/client-ec2": "^3.958.0",
     "@aws-sdk/client-iam": "^3.975.0",
     "@aws-sdk/client-lambda": "^3.958.0",
@@ -106,6 +107,7 @@
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "ws": "^8.18.0",
+    "yaml": "^2.8.2",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },

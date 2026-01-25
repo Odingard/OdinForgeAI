@@ -7371,4 +7371,528 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: "Failed to get coverage statistics" });
     }
   });
+
+  // ============================================================================
+  // API DEFINITIONS (OpenAPI/Swagger)
+  // ============================================================================
+
+  // POST /api/api-definitions - Upload and parse OpenAPI/Swagger spec
+  app.post("/api/api-definitions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const tenantId = req.headers["x-tenant-id"] as string || "default";
+      const { spec, specUrl, name } = req.body;
+
+      if (!spec && !specUrl) {
+        return res.status(400).json({ error: "Either 'spec' (raw content) or 'specUrl' is required" });
+      }
+
+      const { openAPIParserService } = await import("./services/openapi-parser");
+      
+      let parsed;
+      if (specUrl) {
+        parsed = await openAPIParserService.parseFromUrl(specUrl, organizationId, tenantId);
+      } else {
+        parsed = await openAPIParserService.parseSpec(spec, organizationId, tenantId);
+      }
+
+      if (name) {
+        parsed.definition.name = name;
+      }
+
+      const definition = await storage.createApiDefinition(parsed.definition);
+      
+      const endpointsWithDefId = parsed.endpoints.map(ep => ({
+        ...ep,
+        apiDefinitionId: definition.id,
+      }));
+      const endpoints = await storage.createApiEndpoints(endpointsWithDefId);
+
+      res.status(201).json({
+        definition,
+        endpoints,
+        summary: {
+          totalPaths: definition.totalEndpoints,
+          totalOperations: endpoints.length,
+          byPriority: {
+            critical: endpoints.filter(e => e.priority === "critical").length,
+            high: endpoints.filter(e => e.priority === "high").length,
+            medium: endpoints.filter(e => e.priority === "medium").length,
+            low: endpoints.filter(e => e.priority === "low").length,
+          },
+        },
+      });
+    } catch (error: any) {
+      console.error("Failed to parse OpenAPI spec:", error);
+      res.status(400).json({ 
+        error: "Failed to parse OpenAPI spec", 
+        details: error.message 
+      });
+    }
+  });
+
+  // GET /api/api-definitions - List API definitions
+  app.get("/api/api-definitions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const definitions = await storage.getApiDefinitions(organizationId);
+      res.json(definitions);
+    } catch (error) {
+      console.error("Failed to get API definitions:", error);
+      res.status(500).json({ error: "Failed to get API definitions" });
+    }
+  });
+
+  // GET /api/api-definitions/:id - Get API definition with endpoints
+  app.get("/api/api-definitions/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const definition = await storage.getApiDefinition(id);
+      
+      if (!definition) {
+        return res.status(404).json({ error: "API definition not found" });
+      }
+
+      const endpoints = await storage.getApiEndpoints(id);
+      
+      res.json({ definition, endpoints });
+    } catch (error) {
+      console.error("Failed to get API definition:", error);
+      res.status(500).json({ error: "Failed to get API definition" });
+    }
+  });
+
+  // DELETE /api/api-definitions/:id - Delete API definition
+  app.delete("/api/api-definitions/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const definition = await storage.getApiDefinition(id);
+      
+      if (!definition) {
+        return res.status(404).json({ error: "API definition not found" });
+      }
+
+      await storage.deleteApiDefinition(id);
+      res.json({ success: true, message: "API definition deleted" });
+    } catch (error) {
+      console.error("Failed to delete API definition:", error);
+      res.status(500).json({ error: "Failed to delete API definition" });
+    }
+  });
+
+  // GET /api/api-definitions/:id/endpoints - Get endpoints for definition
+  app.get("/api/api-definitions/:id/endpoints", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { priority, method } = req.query;
+      
+      let endpoints = await storage.getApiEndpoints(id);
+      
+      if (priority) {
+        endpoints = endpoints.filter(e => e.priority === priority);
+      }
+      if (method) {
+        endpoints = endpoints.filter(e => e.method === (method as string).toUpperCase());
+      }
+      
+      res.json(endpoints);
+    } catch (error) {
+      console.error("Failed to get API endpoints:", error);
+      res.status(500).json({ error: "Failed to get API endpoints" });
+    }
+  });
+
+  // POST /api/api-definitions/:id/scan - Trigger web app scan using API definition endpoints
+  app.post("/api/api-definitions/:id/scan", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const organizationId = getOrganizationId(req) || "default";
+      const tenantId = req.headers["x-tenant-id"] as string || "default";
+      const { 
+        priority, 
+        vulnerabilityTypes = ["sqli", "xss", "auth_bypass", "command_injection", "path_traversal", "ssrf"],
+        maxConcurrentAgents = 5,
+        enableLLMValidation = true
+      } = req.body;
+
+      const definition = await storage.getApiDefinition(id);
+      if (!definition) {
+        return res.status(404).json({ error: "API definition not found" });
+      }
+
+      let endpoints = await storage.getApiEndpoints(id);
+      
+      if (priority && priority !== "all") {
+        const priorityOrder = ["critical", "high", "medium", "low"];
+        const maxPriorityIndex = priorityOrder.indexOf(priority);
+        endpoints = endpoints.filter(e => 
+          priorityOrder.indexOf(e.priority || "low") <= maxPriorityIndex
+        );
+      }
+
+      if (endpoints.length === 0) {
+        return res.status(400).json({ error: "No endpoints match the filter criteria" });
+      }
+
+      const targetUrl = definition.baseUrl || definition.servers?.[0]?.url;
+      if (!targetUrl) {
+        return res.status(400).json({ error: "No base URL found in API definition" });
+      }
+
+      const scanId = `api-scan-${randomUUID().slice(0, 8)}`;
+
+      // Create a web app recon scan record
+      await storage.createWebAppReconScan({
+        id: scanId,
+        targetUrl,
+        organizationId,
+        tenantId,
+        status: "pending",
+        enableParallelAgents: true,
+        maxConcurrentAgents,
+        vulnerabilityTypes,
+        enableLLMValidation,
+      });
+
+      await storage.updateApiDefinition(id, { lastScannedAt: new Date() });
+
+      // Convert API endpoints to the format expected by parallel agent dispatcher
+      // Normalize URL to handle trailing/leading slash mismatches
+      const normalizedBaseUrl = targetUrl.replace(/\/+$/, "");
+      const convertedEndpoints = endpoints.map(ep => {
+        const normalizedPath = ep.path.startsWith("/") ? ep.path : `/${ep.path}`;
+        return {
+        url: `${normalizedBaseUrl}${normalizedPath}`,
+        method: ep.method,
+        path: ep.path,
+        type: ep.requestBody ? "api-mutation" : "api",
+        priority: ep.priority === "critical" ? "high" : ep.priority || "medium",
+        parameters: (ep.parameters || []).map(p => ({
+          name: p.name,
+          location: p.in,
+          vulnerabilityPotential: ep.vulnerabilityPotential || {},
+        })),
+        // Include request body info for better scanning
+        hasRequestBody: !!ep.requestBody,
+        requestBodyContentTypes: ep.requestBody?.contentTypes || [],
+      };
+      });
+
+      // Run the scan in background
+      (async () => {
+        try {
+          const { dispatchParallelAgents } = await import("./services/parallel-agent-dispatcher");
+          
+          await storage.updateWebAppReconScan(scanId, { 
+            status: "agent_dispatch",
+            progress: 40,
+            currentPhase: "Dispatching validation agents to API endpoints..."
+          });
+          
+          wsService.broadcastScanProgress(scanId, "agent_dispatch", 40, `Scanning ${endpoints.length} API endpoints...`);
+
+          // Create a mock recon result to pass to the dispatcher
+          const mockReconResult = {
+            targetUrl,
+            scanStarted: new Date(),
+            scanCompleted: new Date(),
+            durationMs: 0,
+            applicationInfo: {
+              title: definition.name,
+              technologies: [],
+              frameworks: [],
+              securityHeaders: {},
+              missingSecurityHeaders: [],
+            },
+            endpoints: convertedEndpoints,
+            forms: [],
+            attackSurface: {
+              totalEndpoints: endpoints.length,
+              highPriorityEndpoints: endpoints.filter(e => e.priority === "critical" || e.priority === "high").length,
+              inputParameters: endpoints.reduce((sum, e) => sum + (e.parameters?.length || 0), 0),
+              apiEndpoints: endpoints.length,
+              authenticationPoints: endpoints.filter(e => /auth|login|token/i.test(e.path)).length,
+              fileUploadPoints: endpoints.filter(e => e.requestBody?.contentTypes?.includes("multipart/form-data")).length,
+            },
+            securityObservations: [],
+            recommendedTestOrder: [],
+          };
+
+          const dispatchResult = await dispatchParallelAgents(
+            mockReconResult as any,
+            {
+              maxConcurrent: maxConcurrentAgents,
+              vulnerabilityTypes: vulnerabilityTypes,
+              enableLLMValidation,
+            },
+            (phase, progress, message) => {
+              const adjustedProgress = Math.round(40 + progress * 0.55);
+              wsService.broadcastScanProgress(scanId, phase, adjustedProgress, message);
+            }
+          );
+
+          // Update endpoint scan statuses and findings counts
+          for (const endpoint of endpoints) {
+            const relatedFindings = dispatchResult.findings.filter(f => 
+              f.endpoint?.includes(endpoint.path)
+            );
+            await storage.updateApiEndpoint(endpoint.id, {
+              scanStatus: "completed",
+              lastScannedAt: new Date(),
+              findingsCount: relatedFindings.length,
+            });
+          }
+
+          await storage.updateWebAppReconScan(scanId, {
+            status: "completed",
+            progress: 100,
+            currentPhase: "Scan complete",
+            agentDispatchResult: {
+              totalTasks: dispatchResult.totalTasks,
+              completedTasks: dispatchResult.completedTasks,
+              failedTasks: dispatchResult.failedTasks,
+              findingsCount: dispatchResult.findings.length,
+              falsePositivesFiltered: dispatchResult.falsePositivesFiltered,
+              executionTimeMs: dispatchResult.executionTimeMs,
+            },
+            validatedFindings: dispatchResult.findings,
+          });
+
+          wsService.broadcastScanProgress(scanId, "completed", 100, 
+            `Found ${dispatchResult.findings.length} validated vulnerabilities`);
+
+        } catch (scanError) {
+          console.error(`[API Scan ${scanId}] Error:`, scanError);
+          await storage.updateWebAppReconScan(scanId, {
+            status: "failed",
+            currentPhase: `Error: ${scanError instanceof Error ? scanError.message : "Unknown error"}`,
+          });
+          wsService.broadcastScanProgress(scanId, "failed", 0, "Scan failed");
+        }
+      })();
+
+      res.status(202).json({
+        scanId,
+        message: "API definition scan started",
+        targetUrl,
+        endpointsToScan: endpoints.length,
+        configuration: {
+          priority: priority || "all",
+          vulnerabilityTypes,
+          maxConcurrentAgents,
+          enableLLMValidation,
+        },
+      });
+    } catch (error) {
+      console.error("Failed to trigger API definition scan:", error);
+      res.status(500).json({ error: "Failed to trigger scan" });
+    }
+  });
+
+  // ============================================================================
+  // SECURITY PROBES
+  // ============================================================================
+
+  // POST /api/probes/credentials - Run credential probe against a target
+  app.post("/api/probes/credentials", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { target, services } = req.body;
+
+      if (!target) {
+        return res.status(400).json({ error: "target is required" });
+      }
+
+      const { runCredentialProbe, generateCredentialReport } = await import("./services/probes/credential-probe");
+      
+      const result = await runCredentialProbe(target, services);
+      
+      res.json({
+        ...result,
+        report: generateCredentialReport(result),
+      });
+    } catch (error) {
+      console.error("Failed to run credential probe:", error);
+      res.status(500).json({ error: "Failed to run credential probe" });
+    }
+  });
+
+  // POST /api/probes/ldap - Run LDAP injection probe against a target
+  app.post("/api/probes/ldap", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { target, port = 389, baseDn, testUser } = req.body;
+
+      if (!target) {
+        return res.status(400).json({ error: "target is required" });
+      }
+
+      const { runLdapProbe } = await import("./services/probes/ldap-probe");
+      
+      const result = await runLdapProbe(target, port, baseDn, testUser);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to run LDAP probe:", error);
+      res.status(500).json({ error: "Failed to run LDAP probe" });
+    }
+  });
+
+  // POST /api/probes/smtp-relay - Run SMTP open relay probe against a target
+  app.post("/api/probes/smtp-relay", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { target, port = 25, testEmail } = req.body;
+
+      if (!target) {
+        return res.status(400).json({ error: "target is required" });
+      }
+
+      const { runSmtpRelayProbe } = await import("./services/probes/smtp-relay-probe");
+      
+      const result = await runSmtpRelayProbe(target, port, testEmail);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to run SMTP relay probe:", error);
+      res.status(500).json({ error: "Failed to run SMTP relay probe" });
+    }
+  });
+
+  // ============================================================================
+  // COMPLIANCE MAPPING
+  // ============================================================================
+
+  // GET /api/compliance/frameworks - List available compliance frameworks
+  app.get("/api/compliance/frameworks", apiRateLimiter, async (req, res) => {
+    try {
+      const { complianceService } = await import("./services/compliance-mapping");
+      res.json({
+        frameworks: complianceService.frameworks.map(f => ({
+          id: f,
+          name: {
+            soc2: "SOC 2",
+            iso27001: "ISO 27001:2022",
+            nist_csf: "NIST Cybersecurity Framework",
+            pci_dss: "PCI DSS v4.0",
+          }[f],
+          controlCount: complianceService.getAllControls(f).length,
+        })),
+      });
+    } catch (error) {
+      console.error("Failed to get compliance frameworks:", error);
+      res.status(500).json({ error: "Failed to get compliance frameworks" });
+    }
+  });
+
+  // GET /api/compliance/controls/:framework - Get controls for a framework
+  app.get("/api/compliance/controls/:framework", apiRateLimiter, async (req, res) => {
+    try {
+      const { framework } = req.params;
+      const { complianceService } = await import("./services/compliance-mapping");
+      
+      if (!complianceService.frameworks.includes(framework as any)) {
+        return res.status(400).json({ 
+          error: "Invalid framework",
+          validFrameworks: complianceService.frameworks,
+        });
+      }
+      
+      const controls = complianceService.getAllControls(framework as any);
+      res.json({ framework, controls });
+    } catch (error) {
+      console.error("Failed to get compliance controls:", error);
+      res.status(500).json({ error: "Failed to get compliance controls" });
+    }
+  });
+
+  // POST /api/compliance/map-finding - Map a finding type to compliance controls
+  app.post("/api/compliance/map-finding", apiRateLimiter, async (req, res) => {
+    try {
+      const { findingType } = req.body;
+      
+      if (!findingType) {
+        return res.status(400).json({ error: "findingType is required" });
+      }
+      
+      const { complianceService } = await import("./services/compliance-mapping");
+      const mapping = complianceService.mapFindingToControls(findingType);
+      
+      res.json(mapping);
+    } catch (error) {
+      console.error("Failed to map finding:", error);
+      res.status(500).json({ error: "Failed to map finding to controls" });
+    }
+  });
+
+  // POST /api/compliance/gap-report - Generate compliance gap report from findings
+  app.post("/api/compliance/gap-report", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { framework, findings } = req.body;
+      
+      if (!framework) {
+        return res.status(400).json({ error: "framework is required" });
+      }
+      
+      const { complianceService } = await import("./services/compliance-mapping");
+      
+      if (!complianceService.frameworks.includes(framework)) {
+        return res.status(400).json({ 
+          error: "Invalid framework",
+          validFrameworks: complianceService.frameworks,
+        });
+      }
+
+      const report = complianceService.generateComplianceGapReport(framework, findings || []);
+      const markdown = complianceService.generateComplianceReportMarkdown(report);
+      
+      res.json({
+        ...report,
+        markdownReport: markdown,
+      });
+    } catch (error) {
+      console.error("Failed to generate compliance report:", error);
+      res.status(500).json({ error: "Failed to generate compliance report" });
+    }
+  });
+
+  // GET /api/compliance/scan-report/:scanId - Generate compliance report from a scan's findings
+  app.get("/api/compliance/scan-report/:scanId", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { scanId } = req.params;
+      const { framework = "soc2" } = req.query;
+      
+      const scan = await storage.getWebAppReconScan(scanId);
+      if (!scan) {
+        return res.status(404).json({ error: "Scan not found" });
+      }
+      
+      const { complianceService } = await import("./services/compliance-mapping");
+      
+      if (!complianceService.frameworks.includes(framework as any)) {
+        return res.status(400).json({ 
+          error: "Invalid framework",
+          validFrameworks: complianceService.frameworks,
+        });
+      }
+
+      const findings = (scan.validatedFindings || []).map((f: any) => ({
+        type: f.vulnerability || f.type || "unknown",
+        severity: f.severity || "medium",
+        title: f.title || f.description || "Finding",
+        evidence: f.evidence,
+      }));
+
+      const report = complianceService.generateComplianceGapReport(framework as any, findings);
+      const markdown = complianceService.generateComplianceReportMarkdown(report);
+      
+      res.json({
+        scanId,
+        targetUrl: scan.targetUrl,
+        scanCompletedAt: scan.updatedAt,
+        ...report,
+        markdownReport: markdown,
+      });
+    } catch (error) {
+      console.error("Failed to generate scan compliance report:", error);
+      res.status(500).json({ error: "Failed to generate compliance report" });
+    }
+  });
 }
