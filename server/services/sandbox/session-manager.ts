@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { sandboxExecutor, type SandboxedOperationType } from "../validation/sandbox-executor";
+import { storage } from "../../storage";
 import type { 
   SandboxSession, 
   SandboxSnapshot, 
@@ -140,21 +141,16 @@ const PAYLOAD_CATEGORIES = {
 };
 
 class SandboxSessionManager {
-  private sessions: Map<string, {
-    session: Partial<SandboxSession>;
-    snapshots: Partial<SandboxSnapshot>[];
-    executions: Partial<SandboxExecution>[];
-    startTime: number;
-  }> = new Map();
-
   async createSession(
     config: SandboxSessionConfig,
     organizationId: string = "default",
     tenantId: string = "default"
-  ): Promise<{ session: Partial<SandboxSession>; id: string }> {
+  ): Promise<{ session: SandboxSession; id: string }> {
     const sessionId = `sandbox-${randomUUID().slice(0, 12)}`;
 
-    const session: Partial<SandboxSession> = {
+    const initialSnapshot = this.captureInitialState(config);
+
+    const sessionData: InsertSandboxSession & { id: string } = {
       id: sessionId,
       organizationId,
       tenantId,
@@ -163,63 +159,40 @@ class SandboxSessionManager {
       targetUrl: config.targetUrl,
       targetHost: config.targetHost,
       executionMode: config.executionMode,
-      status: "initializing",
+      status: "ready",
       resourceLimits: config.resourceLimits || DEFAULT_RESOURCE_LIMITS,
       totalExecutions: 0,
       successfulExecutions: 0,
       failedExecutions: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      initialStateSnapshot: initialSnapshot!,
+      currentStateSnapshot: {
+        capturedAt: initialSnapshot!.capturedAt,
+        targetState: initialSnapshot!.targetState,
+        changesFromInitial: [],
+      },
     };
 
-    const initialSnapshot = await this.captureInitialState(session);
-
-    this.sessions.set(sessionId, {
-      session: {
-        ...session,
-        status: "ready",
-        initialStateSnapshot: initialSnapshot,
-        currentStateSnapshot: initialSnapshot ? {
-          capturedAt: initialSnapshot.capturedAt,
-          targetState: initialSnapshot.targetState,
-          changesFromInitial: [],
-        } : null,
-      },
-      snapshots: [],
-      executions: [],
-      startTime: Date.now(),
-    });
-
+    const session = await storage.createSandboxSession(sessionData);
     console.log(`[SandboxSession] Created session ${sessionId} for ${config.targetUrl || config.targetHost}`);
 
-    return { 
-      session: this.sessions.get(sessionId)!.session, 
-      id: sessionId 
-    };
+    return { session, id: sessionId };
   }
 
-  async getSession(sessionId: string): Promise<Partial<SandboxSession> | null> {
-    const data = this.sessions.get(sessionId);
-    return data?.session || null;
+  async getSession(sessionId: string): Promise<SandboxSession | null> {
+    const session = await storage.getSandboxSession(sessionId);
+    return session || null;
   }
 
-  async listSessions(organizationId?: string): Promise<Partial<SandboxSession>[]> {
-    const sessions: Partial<SandboxSession>[] = [];
-    const sessionValues = Array.from(this.sessions.values());
-    for (const data of sessionValues) {
-      if (!organizationId || data.session.organizationId === organizationId) {
-        sessions.push(data.session);
-      }
-    }
-    return sessions;
+  async listSessions(organizationId?: string): Promise<SandboxSession[]> {
+    return storage.getSandboxSessions(organizationId);
   }
 
   async executePayload(
     sessionId: string,
     payload: PayloadExecution
   ): Promise<ExecutionResult> {
-    const sessionData = this.sessions.get(sessionId);
-    if (!sessionData) {
+    const session = await storage.getSandboxSession(sessionId);
+    if (!session) {
       return {
         id: "",
         success: false,
@@ -228,12 +201,10 @@ class SandboxSessionManager {
       };
     }
 
-    const { session } = sessionData;
     const executionId = `exec-${randomUUID().slice(0, 8)}`;
     const startTime = Date.now();
 
-    sessionData.session.status = "executing";
-    sessionData.session.updatedAt = new Date();
+    await storage.updateSandboxSession(sessionId, { status: "executing" });
 
     try {
       const sandboxResult = await sandboxExecutor.execute(
@@ -246,12 +217,12 @@ class SandboxSessionManager {
           tenantId: session.tenantId,
           organizationId: session.organizationId,
           executionMode: session.executionMode as "safe" | "simulation" | "live",
-          timeoutMs: session.resourceLimits?.maxExecutionTimeMs || 30000,
+          timeoutMs: (session.resourceLimits as any)?.maxExecutionTimeMs || 30000,
           payloadSizeBytes: Buffer.byteLength(payload.payloadContent),
         }
       );
 
-      const execution: Partial<SandboxExecution> = {
+      const executionData: InsertSandboxExecution & { id: string } = {
         id: executionId,
         sessionId,
         organizationId: session.organizationId,
@@ -269,18 +240,24 @@ class SandboxSessionManager {
         executionTimeMs: sandboxResult.executionTimeMs,
         startedAt: new Date(startTime),
         completedAt: new Date(),
-        createdAt: new Date(),
       };
 
-      sessionData.executions.push(execution);
-      sessionData.session.totalExecutions = (sessionData.session.totalExecutions || 0) + 1;
-      if (sandboxResult.success) {
-        sessionData.session.successfulExecutions = (sessionData.session.successfulExecutions || 0) + 1;
-      } else {
-        sessionData.session.failedExecutions = (sessionData.session.failedExecutions || 0) + 1;
-      }
-      sessionData.session.status = "ready";
-      sessionData.session.updatedAt = new Date();
+      await storage.createSandboxExecution(executionData);
+
+      const newTotalExecutions = (session.totalExecutions || 0) + 1;
+      const newSuccessfulExecutions = sandboxResult.success 
+        ? (session.successfulExecutions || 0) + 1 
+        : session.successfulExecutions || 0;
+      const newFailedExecutions = !sandboxResult.success 
+        ? (session.failedExecutions || 0) + 1 
+        : session.failedExecutions || 0;
+
+      await storage.updateSandboxSession(sessionId, {
+        status: "ready",
+        totalExecutions: newTotalExecutions,
+        successfulExecutions: newSuccessfulExecutions,
+        failedExecutions: newFailedExecutions,
+      });
 
       return {
         id: executionId,
@@ -290,9 +267,14 @@ class SandboxSessionManager {
         executionTimeMs: sandboxResult.executionTimeMs,
       };
     } catch (error: any) {
-      sessionData.session.status = "ready";
-      sessionData.session.failedExecutions = (sessionData.session.failedExecutions || 0) + 1;
-      sessionData.session.totalExecutions = (sessionData.session.totalExecutions || 0) + 1;
+      const newTotalExecutions = (session.totalExecutions || 0) + 1;
+      const newFailedExecutions = (session.failedExecutions || 0) + 1;
+
+      await storage.updateSandboxSession(sessionId, {
+        status: "ready",
+        totalExecutions: newTotalExecutions,
+        failedExecutions: newFailedExecutions,
+      });
 
       return {
         id: executionId,
@@ -373,105 +355,110 @@ class SandboxSessionManager {
     sessionId: string,
     name: string,
     description?: string
-  ): Promise<Partial<SandboxSnapshot> | null> {
-    const sessionData = this.sessions.get(sessionId);
-    if (!sessionData) return null;
+  ): Promise<SandboxSnapshot | null> {
+    const session = await storage.getSandboxSession(sessionId);
+    if (!session) return null;
 
+    const executions = await storage.getSandboxExecutionsBySession(sessionId);
     const snapshotId = `snap-${randomUUID().slice(0, 8)}`;
-    const snapshot: Partial<SandboxSnapshot> = {
+
+    const snapshotData: InsertSandboxSnapshot & { id: string } = {
       id: snapshotId,
       sessionId,
-      organizationId: sessionData.session.organizationId,
+      organizationId: session.organizationId,
       name,
       description,
       snapshotType: "manual",
       stateData: {
         targetState: {},
-        executionHistory: sessionData.executions.map(e => e.id!),
+        executionHistory: executions.map(e => e.id),
         credentialsDiscovered: [],
         filesModified: [],
         networkConnections: [],
       },
       sizeBytes: 1024,
       isRestorable: true,
-      createdAt: new Date(),
     };
 
-    sessionData.snapshots.push(snapshot);
+    const snapshot = await storage.createSandboxSnapshot(snapshotData);
     console.log(`[SandboxSession] Created snapshot ${snapshotId} for session ${sessionId}`);
 
     return snapshot;
   }
 
-  async listSnapshots(sessionId: string): Promise<Partial<SandboxSnapshot>[]> {
-    const sessionData = this.sessions.get(sessionId);
-    return sessionData?.snapshots || [];
+  async listSnapshots(sessionId: string): Promise<SandboxSnapshot[]> {
+    return storage.getSandboxSnapshotsBySession(sessionId);
   }
 
   async rollbackToSnapshot(
     sessionId: string,
     snapshotId: string
   ): Promise<{ success: boolean; message: string }> {
-    const sessionData = this.sessions.get(sessionId);
-    if (!sessionData) {
+    const session = await storage.getSandboxSession(sessionId);
+    if (!session) {
       return { success: false, message: "Session not found" };
     }
 
-    const snapshot = sessionData.snapshots.find(s => s.id === snapshotId);
-    if (!snapshot) {
+    const snapshot = await storage.getSandboxSnapshot(snapshotId);
+    if (!snapshot || snapshot.sessionId !== sessionId) {
       return { success: false, message: "Snapshot not found" };
     }
 
-    const snapshotIndex = sessionData.snapshots.indexOf(snapshot);
-    const executionsToRemove = sessionData.executions.length - (snapshot.stateData?.executionHistory?.length || 0);
-
-    if (executionsToRemove > 0) {
-      sessionData.executions = sessionData.executions.slice(0, -executionsToRemove);
-    }
-
-    sessionData.session.status = "rolled_back";
-    sessionData.session.currentStateSnapshot = {
-      capturedAt: new Date().toISOString(),
-      targetState: snapshot.stateData?.targetState || {},
-      changesFromInitial: ["Rolled back to snapshot: " + snapshot.name],
-    };
-    sessionData.session.updatedAt = new Date();
+    await storage.updateSandboxSession(sessionId, {
+      status: "rolled_back",
+      currentStateSnapshot: {
+        capturedAt: new Date().toISOString(),
+        targetState: (snapshot.stateData as any)?.targetState || {},
+        changesFromInitial: ["Rolled back to snapshot: " + snapshot.name],
+      },
+    });
 
     console.log(`[SandboxSession] Rolled back session ${sessionId} to snapshot ${snapshotId}`);
 
     return { 
       success: true, 
-      message: `Rolled back to snapshot "${snapshot.name}". Removed ${executionsToRemove} executions.` 
+      message: `Rolled back to snapshot "${snapshot.name}".` 
     };
   }
 
-  async getExecutions(sessionId: string): Promise<Partial<SandboxExecution>[]> {
-    const sessionData = this.sessions.get(sessionId);
-    return sessionData?.executions || [];
+  async getExecutions(sessionId: string): Promise<SandboxExecution[]> {
+    return storage.getSandboxExecutionsBySession(sessionId);
   }
 
   async getSessionStats(sessionId: string): Promise<SessionStats | null> {
-    const sessionData = this.sessions.get(sessionId);
-    if (!sessionData) return null;
+    const session = await storage.getSandboxSession(sessionId);
+    if (!session) return null;
+
+    const snapshots = await storage.getSandboxSnapshotsBySession(sessionId);
 
     return {
-      totalExecutions: sessionData.session.totalExecutions || 0,
-      successfulExecutions: sessionData.session.successfulExecutions || 0,
-      failedExecutions: sessionData.session.failedExecutions || 0,
-      snapshotsCount: sessionData.snapshots.length,
-      currentStatus: sessionData.session.status || "unknown",
+      totalExecutions: session.totalExecutions || 0,
+      successfulExecutions: session.successfulExecutions || 0,
+      failedExecutions: session.failedExecutions || 0,
+      snapshotsCount: snapshots.length,
+      currentStatus: session.status || "unknown",
     };
   }
 
   async closeSession(sessionId: string): Promise<boolean> {
-    const sessionData = this.sessions.get(sessionId);
-    if (!sessionData) return false;
+    const session = await storage.getSandboxSession(sessionId);
+    if (!session) return false;
 
-    sessionData.session.status = "completed";
-    sessionData.session.completedAt = new Date();
-    sessionData.session.updatedAt = new Date();
+    await storage.updateSandboxSession(sessionId, {
+      status: "completed",
+      completedAt: new Date(),
+    });
 
     console.log(`[SandboxSession] Closed session ${sessionId}`);
+    return true;
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const session = await storage.getSandboxSession(sessionId);
+    if (!session) return false;
+
+    await storage.deleteSandboxSession(sessionId);
+    console.log(`[SandboxSession] Deleted session ${sessionId}`);
     return true;
   }
 
@@ -479,15 +466,15 @@ class SandboxSessionManager {
     return PAYLOAD_CATEGORIES;
   }
 
-  private async captureInitialState(
-    session: Partial<SandboxSession>
-  ): Promise<SandboxSession["initialStateSnapshot"]> {
+  private captureInitialState(
+    config: SandboxSessionConfig
+  ): SandboxSession["initialStateSnapshot"] {
     return {
       capturedAt: new Date().toISOString(),
       targetState: {
-        url: session.targetUrl,
-        host: session.targetHost,
-        mode: session.executionMode,
+        url: config.targetUrl,
+        host: config.targetHost,
+        mode: config.executionMode,
       },
       environmentVariables: {},
       networkConfig: {},

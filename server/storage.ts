@@ -131,6 +131,28 @@ import {
   type InsertApiDefinition,
   type ApiEndpoint,
   type InsertApiEndpoint,
+  // Sandbox and Lateral Movement
+  sandboxSessions,
+  sandboxSnapshots,
+  sandboxExecutions,
+  discoveredCredentials,
+  lateralMovementFindings,
+  pivotPoints,
+  attackPaths,
+  type SandboxSession,
+  type InsertSandboxSession,
+  type SandboxSnapshot,
+  type InsertSandboxSnapshot,
+  type SandboxExecution,
+  type InsertSandboxExecution,
+  type DiscoveredCredential,
+  type InsertDiscoveredCredential,
+  type LateralMovementFinding,
+  type InsertLateralMovementFinding,
+  type PivotPoint,
+  type InsertPivotPoint,
+  type AttackPath,
+  type InsertAttackPath,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -293,6 +315,53 @@ export interface IStorage {
   getWebAppReconScans(organizationId?: string): Promise<WebAppReconScan[]>;
   updateWebAppReconScan(id: string, updates: Partial<WebAppReconScan>): Promise<void>;
   deleteWebAppReconScan(id: string): Promise<void>;
+  
+  // Sandbox Session operations
+  createSandboxSession(data: InsertSandboxSession & { id: string }): Promise<SandboxSession>;
+  getSandboxSession(id: string): Promise<SandboxSession | undefined>;
+  getSandboxSessions(organizationId?: string): Promise<SandboxSession[]>;
+  updateSandboxSession(id: string, updates: Partial<SandboxSession>): Promise<void>;
+  deleteSandboxSession(id: string): Promise<void>;
+  
+  // Sandbox Snapshot operations
+  createSandboxSnapshot(data: InsertSandboxSnapshot & { id: string }): Promise<SandboxSnapshot>;
+  getSandboxSnapshot(id: string): Promise<SandboxSnapshot | undefined>;
+  getSandboxSnapshotsBySession(sessionId: string): Promise<SandboxSnapshot[]>;
+  deleteSandboxSnapshot(id: string): Promise<void>;
+  
+  // Sandbox Execution operations
+  createSandboxExecution(data: InsertSandboxExecution & { id: string }): Promise<SandboxExecution>;
+  getSandboxExecution(id: string): Promise<SandboxExecution | undefined>;
+  getSandboxExecutionsBySession(sessionId: string): Promise<SandboxExecution[]>;
+  updateSandboxExecution(id: string, updates: Partial<SandboxExecution>): Promise<void>;
+  
+  // Discovered Credential operations
+  createDiscoveredCredential(data: InsertDiscoveredCredential & { id: string }): Promise<DiscoveredCredential>;
+  getDiscoveredCredential(id: string): Promise<DiscoveredCredential | undefined>;
+  getDiscoveredCredentials(organizationId?: string): Promise<DiscoveredCredential[]>;
+  updateDiscoveredCredential(id: string, updates: Partial<DiscoveredCredential>): Promise<void>;
+  deleteDiscoveredCredential(id: string): Promise<void>;
+  
+  // Lateral Movement Finding operations
+  createLateralMovementFinding(data: InsertLateralMovementFinding & { id: string }): Promise<LateralMovementFinding>;
+  getLateralMovementFinding(id: string): Promise<LateralMovementFinding | undefined>;
+  getLateralMovementFindings(organizationId?: string): Promise<LateralMovementFinding[]>;
+  getLateralMovementFindingsBySession(sessionId: string): Promise<LateralMovementFinding[]>;
+  updateLateralMovementFinding(id: string, updates: Partial<LateralMovementFinding>): Promise<void>;
+  
+  // Pivot Point operations
+  createPivotPoint(data: InsertPivotPoint & { id: string }): Promise<PivotPoint>;
+  getPivotPoint(id: string): Promise<PivotPoint | undefined>;
+  getPivotPoints(organizationId?: string): Promise<PivotPoint[]>;
+  updatePivotPoint(id: string, updates: Partial<PivotPoint>): Promise<void>;
+  deletePivotPoint(id: string): Promise<void>;
+  
+  // Attack Path operations
+  createAttackPath(data: InsertAttackPath & { id: string }): Promise<AttackPath>;
+  getAttackPath(id: string): Promise<AttackPath | undefined>;
+  getAttackPaths(organizationId?: string): Promise<AttackPath[]>;
+  updateAttackPath(id: string, updates: Partial<AttackPath>): Promise<void>;
+  deleteAttackPath(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2453,6 +2522,289 @@ export class DatabaseStorage implements IStorage {
       .update(apiEndpoints)
       .set(updates)
       .where(eq(apiEndpoints.id, id));
+  }
+
+  // ============================================================================
+  // Sandbox Session Methods
+  // ============================================================================
+
+  async createSandboxSession(data: InsertSandboxSession & { id: string }): Promise<SandboxSession> {
+    const [session] = await db
+      .insert(sandboxSessions)
+      .values(data as typeof sandboxSessions.$inferInsert)
+      .returning();
+    return session;
+  }
+
+  async getSandboxSession(id: string): Promise<SandboxSession | undefined> {
+    const [session] = await db
+      .select()
+      .from(sandboxSessions)
+      .where(eq(sandboxSessions.id, id));
+    return session;
+  }
+
+  async getSandboxSessions(organizationId?: string): Promise<SandboxSession[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(sandboxSessions)
+        .where(eq(sandboxSessions.organizationId, organizationId))
+        .orderBy(desc(sandboxSessions.createdAt));
+    }
+    return db.select().from(sandboxSessions).orderBy(desc(sandboxSessions.createdAt));
+  }
+
+  async updateSandboxSession(id: string, updates: Partial<SandboxSession>): Promise<void> {
+    await db
+      .update(sandboxSessions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sandboxSessions.id, id));
+  }
+
+  async deleteSandboxSession(id: string): Promise<void> {
+    await db.delete(sandboxExecutions).where(eq(sandboxExecutions.sessionId, id));
+    await db.delete(sandboxSnapshots).where(eq(sandboxSnapshots.sessionId, id));
+    await db.delete(sandboxSessions).where(eq(sandboxSessions.id, id));
+  }
+
+  // ============================================================================
+  // Sandbox Snapshot Methods
+  // ============================================================================
+
+  async createSandboxSnapshot(data: InsertSandboxSnapshot & { id: string }): Promise<SandboxSnapshot> {
+    const [snapshot] = await db
+      .insert(sandboxSnapshots)
+      .values(data as typeof sandboxSnapshots.$inferInsert)
+      .returning();
+    return snapshot;
+  }
+
+  async getSandboxSnapshot(id: string): Promise<SandboxSnapshot | undefined> {
+    const [snapshot] = await db
+      .select()
+      .from(sandboxSnapshots)
+      .where(eq(sandboxSnapshots.id, id));
+    return snapshot;
+  }
+
+  async getSandboxSnapshotsBySession(sessionId: string): Promise<SandboxSnapshot[]> {
+    return db
+      .select()
+      .from(sandboxSnapshots)
+      .where(eq(sandboxSnapshots.sessionId, sessionId))
+      .orderBy(desc(sandboxSnapshots.createdAt));
+  }
+
+  async deleteSandboxSnapshot(id: string): Promise<void> {
+    await db.delete(sandboxSnapshots).where(eq(sandboxSnapshots.id, id));
+  }
+
+  // ============================================================================
+  // Sandbox Execution Methods
+  // ============================================================================
+
+  async createSandboxExecution(data: InsertSandboxExecution & { id: string }): Promise<SandboxExecution> {
+    const [execution] = await db
+      .insert(sandboxExecutions)
+      .values(data as typeof sandboxExecutions.$inferInsert)
+      .returning();
+    return execution;
+  }
+
+  async getSandboxExecution(id: string): Promise<SandboxExecution | undefined> {
+    const [execution] = await db
+      .select()
+      .from(sandboxExecutions)
+      .where(eq(sandboxExecutions.id, id));
+    return execution;
+  }
+
+  async getSandboxExecutionsBySession(sessionId: string): Promise<SandboxExecution[]> {
+    return db
+      .select()
+      .from(sandboxExecutions)
+      .where(eq(sandboxExecutions.sessionId, sessionId))
+      .orderBy(desc(sandboxExecutions.startedAt));
+  }
+
+  async updateSandboxExecution(id: string, updates: Partial<SandboxExecution>): Promise<void> {
+    await db
+      .update(sandboxExecutions)
+      .set(updates)
+      .where(eq(sandboxExecutions.id, id));
+  }
+
+  // ============================================================================
+  // Discovered Credential Methods
+  // ============================================================================
+
+  async createDiscoveredCredential(data: InsertDiscoveredCredential & { id: string }): Promise<DiscoveredCredential> {
+    const [credential] = await db
+      .insert(discoveredCredentials)
+      .values(data as typeof discoveredCredentials.$inferInsert)
+      .returning();
+    return credential;
+  }
+
+  async getDiscoveredCredential(id: string): Promise<DiscoveredCredential | undefined> {
+    const [credential] = await db
+      .select()
+      .from(discoveredCredentials)
+      .where(eq(discoveredCredentials.id, id));
+    return credential;
+  }
+
+  async getDiscoveredCredentials(organizationId?: string): Promise<DiscoveredCredential[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(discoveredCredentials)
+        .where(eq(discoveredCredentials.organizationId, organizationId))
+        .orderBy(desc(discoveredCredentials.createdAt));
+    }
+    return db.select().from(discoveredCredentials).orderBy(desc(discoveredCredentials.createdAt));
+  }
+
+  async updateDiscoveredCredential(id: string, updates: Partial<DiscoveredCredential>): Promise<void> {
+    await db
+      .update(discoveredCredentials)
+      .set(updates)
+      .where(eq(discoveredCredentials.id, id));
+  }
+
+  async deleteDiscoveredCredential(id: string): Promise<void> {
+    await db.delete(discoveredCredentials).where(eq(discoveredCredentials.id, id));
+  }
+
+  // ============================================================================
+  // Lateral Movement Finding Methods
+  // ============================================================================
+
+  async createLateralMovementFinding(data: InsertLateralMovementFinding & { id: string }): Promise<LateralMovementFinding> {
+    const [finding] = await db
+      .insert(lateralMovementFindings)
+      .values(data as typeof lateralMovementFindings.$inferInsert)
+      .returning();
+    return finding;
+  }
+
+  async getLateralMovementFinding(id: string): Promise<LateralMovementFinding | undefined> {
+    const [finding] = await db
+      .select()
+      .from(lateralMovementFindings)
+      .where(eq(lateralMovementFindings.id, id));
+    return finding;
+  }
+
+  async getLateralMovementFindings(organizationId?: string): Promise<LateralMovementFinding[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(lateralMovementFindings)
+        .where(eq(lateralMovementFindings.organizationId, organizationId))
+        .orderBy(desc(lateralMovementFindings.createdAt));
+    }
+    return db.select().from(lateralMovementFindings).orderBy(desc(lateralMovementFindings.createdAt));
+  }
+
+  async getLateralMovementFindingsBySession(sessionId: string): Promise<LateralMovementFinding[]> {
+    return db
+      .select()
+      .from(lateralMovementFindings)
+      .where(eq(lateralMovementFindings.sandboxSessionId, sessionId))
+      .orderBy(desc(lateralMovementFindings.createdAt));
+  }
+
+  async updateLateralMovementFinding(id: string, updates: Partial<LateralMovementFinding>): Promise<void> {
+    await db
+      .update(lateralMovementFindings)
+      .set(updates)
+      .where(eq(lateralMovementFindings.id, id));
+  }
+
+  // ============================================================================
+  // Pivot Point Methods
+  // ============================================================================
+
+  async createPivotPoint(data: InsertPivotPoint & { id: string }): Promise<PivotPoint> {
+    const [pivotPoint] = await db
+      .insert(pivotPoints)
+      .values(data as typeof pivotPoints.$inferInsert)
+      .returning();
+    return pivotPoint;
+  }
+
+  async getPivotPoint(id: string): Promise<PivotPoint | undefined> {
+    const [pivotPoint] = await db
+      .select()
+      .from(pivotPoints)
+      .where(eq(pivotPoints.id, id));
+    return pivotPoint;
+  }
+
+  async getPivotPoints(organizationId?: string): Promise<PivotPoint[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(pivotPoints)
+        .where(eq(pivotPoints.organizationId, organizationId))
+        .orderBy(desc(pivotPoints.createdAt));
+    }
+    return db.select().from(pivotPoints).orderBy(desc(pivotPoints.createdAt));
+  }
+
+  async updatePivotPoint(id: string, updates: Partial<PivotPoint>): Promise<void> {
+    await db
+      .update(pivotPoints)
+      .set(updates)
+      .where(eq(pivotPoints.id, id));
+  }
+
+  async deletePivotPoint(id: string): Promise<void> {
+    await db.delete(pivotPoints).where(eq(pivotPoints.id, id));
+  }
+
+  // ============================================================================
+  // Attack Path Methods
+  // ============================================================================
+
+  async createAttackPath(data: InsertAttackPath & { id: string }): Promise<AttackPath> {
+    const [path] = await db
+      .insert(attackPaths)
+      .values(data as typeof attackPaths.$inferInsert)
+      .returning();
+    return path;
+  }
+
+  async getAttackPath(id: string): Promise<AttackPath | undefined> {
+    const [path] = await db
+      .select()
+      .from(attackPaths)
+      .where(eq(attackPaths.id, id));
+    return path;
+  }
+
+  async getAttackPaths(organizationId?: string): Promise<AttackPath[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(attackPaths)
+        .where(eq(attackPaths.organizationId, organizationId))
+        .orderBy(desc(attackPaths.createdAt));
+    }
+    return db.select().from(attackPaths).orderBy(desc(attackPaths.createdAt));
+  }
+
+  async updateAttackPath(id: string, updates: Partial<AttackPath>): Promise<void> {
+    await db
+      .update(attackPaths)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(attackPaths.id, id));
+  }
+
+  async deleteAttackPath(id: string): Promise<void> {
+    await db.delete(attackPaths).where(eq(attackPaths.id, id));
   }
 }
 
