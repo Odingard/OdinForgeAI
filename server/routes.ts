@@ -8372,4 +8372,413 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to scan pod spec" });
     }
   });
+
+  // ============================================================================
+  // PHASE 3: EXPLOIT EXECUTION SANDBOX API
+  // ============================================================================
+
+  // POST /api/sandbox/sessions - Create a new sandbox session
+  app.post("/api/sandbox/sessions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { name, description, targetUrl, targetHost, executionMode, resourceLimits } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ error: "Session name is required" });
+      }
+
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const { session, id } = await sandboxSessionManager.createSession({
+        name,
+        description,
+        targetUrl,
+        targetHost,
+        executionMode: executionMode || "safe",
+        resourceLimits,
+      });
+
+      res.json({ session, id });
+    } catch (error: any) {
+      console.error("Failed to create sandbox session:", error);
+      res.status(500).json({ error: error.message || "Failed to create sandbox session" });
+    }
+  });
+
+  // GET /api/sandbox/sessions - List all sandbox sessions
+  app.get("/api/sandbox/sessions", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const sessions = await sandboxSessionManager.listSessions();
+      res.json({ sessions });
+    } catch (error: any) {
+      console.error("Failed to list sandbox sessions:", error);
+      res.status(500).json({ error: error.message || "Failed to list sandbox sessions" });
+    }
+  });
+
+  // GET /api/sandbox/sessions/:id - Get a specific sandbox session
+  app.get("/api/sandbox/sessions/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const session = await sandboxSessionManager.getSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json({ session });
+    } catch (error: any) {
+      console.error("Failed to get sandbox session:", error);
+      res.status(500).json({ error: error.message || "Failed to get sandbox session" });
+    }
+  });
+
+  // POST /api/sandbox/sessions/:id/execute - Execute a payload in the sandbox
+  app.post("/api/sandbox/sessions/:id/execute", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { payloadName, payloadCategory, payloadContent, targetEndpoint, targetMethod, mitreAttackId, mitreTactic } = req.body;
+
+      if (!payloadContent || !targetEndpoint) {
+        return res.status(400).json({ error: "Payload content and target endpoint are required" });
+      }
+
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const result = await sandboxSessionManager.executePayload(req.params.id, {
+        payloadName: payloadName || "Custom Payload",
+        payloadCategory: payloadCategory || "custom",
+        payloadContent,
+        targetEndpoint,
+        targetMethod: targetMethod || "POST",
+        mitreAttackId,
+        mitreTactic,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to execute payload:", error);
+      res.status(500).json({ error: error.message || "Failed to execute payload" });
+    }
+  });
+
+  // POST /api/sandbox/sessions/:id/snapshots - Create a snapshot
+  app.post("/api/sandbox/sessions/:id/snapshots", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { name, description } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ error: "Snapshot name is required" });
+      }
+
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const snapshot = await sandboxSessionManager.createSnapshot(req.params.id, name, description);
+      
+      if (!snapshot) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json({ snapshot });
+    } catch (error: any) {
+      console.error("Failed to create snapshot:", error);
+      res.status(500).json({ error: error.message || "Failed to create snapshot" });
+    }
+  });
+
+  // GET /api/sandbox/sessions/:id/snapshots - List snapshots for a session
+  app.get("/api/sandbox/sessions/:id/snapshots", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const snapshots = await sandboxSessionManager.listSnapshots(req.params.id);
+      res.json({ snapshots });
+    } catch (error: any) {
+      console.error("Failed to list snapshots:", error);
+      res.status(500).json({ error: error.message || "Failed to list snapshots" });
+    }
+  });
+
+  // POST /api/sandbox/sessions/:id/rollback - Rollback to a snapshot
+  app.post("/api/sandbox/sessions/:id/rollback", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { snapshotId } = req.body;
+
+      if (!snapshotId) {
+        return res.status(400).json({ error: "Snapshot ID is required" });
+      }
+
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const result = await sandboxSessionManager.rollbackToSnapshot(req.params.id, snapshotId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to rollback:", error);
+      res.status(500).json({ error: error.message || "Failed to rollback" });
+    }
+  });
+
+  // GET /api/sandbox/sessions/:id/executions - Get execution history
+  app.get("/api/sandbox/sessions/:id/executions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const executions = await sandboxSessionManager.getExecutions(req.params.id);
+      res.json({ executions });
+    } catch (error: any) {
+      console.error("Failed to get executions:", error);
+      res.status(500).json({ error: error.message || "Failed to get executions" });
+    }
+  });
+
+  // GET /api/sandbox/sessions/:id/stats - Get session statistics
+  app.get("/api/sandbox/sessions/:id/stats", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const stats = await sandboxSessionManager.getSessionStats(req.params.id);
+      
+      if (!stats) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json({ stats });
+    } catch (error: any) {
+      console.error("Failed to get session stats:", error);
+      res.status(500).json({ error: error.message || "Failed to get session stats" });
+    }
+  });
+
+  // POST /api/sandbox/sessions/:id/close - Close a sandbox session
+  app.post("/api/sandbox/sessions/:id/close", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const success = await sandboxSessionManager.closeSession(req.params.id);
+      
+      if (!success) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json({ success: true, message: "Session closed successfully" });
+    } catch (error: any) {
+      console.error("Failed to close session:", error);
+      res.status(500).json({ error: error.message || "Failed to close session" });
+    }
+  });
+
+  // GET /api/sandbox/payloads - Get available payload categories
+  app.get("/api/sandbox/payloads", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { sandboxSessionManager } = await import("./services/sandbox");
+      const categories = sandboxSessionManager.getPayloadCategories();
+      res.json({ categories });
+    } catch (error: any) {
+      console.error("Failed to get payload categories:", error);
+      res.status(500).json({ error: error.message || "Failed to get payload categories" });
+    }
+  });
+
+  // ============================================================================
+  // PHASE 3: LIVE LATERAL MOVEMENT API
+  // ============================================================================
+
+  // GET /api/lateral-movement/techniques - Get available lateral movement techniques
+  app.get("/api/lateral-movement/techniques", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const techniques = lateralMovementService.getTechniques();
+      res.json({ techniques });
+    } catch (error: any) {
+      console.error("Failed to get techniques:", error);
+      res.status(500).json({ error: error.message || "Failed to get techniques" });
+    }
+  });
+
+  // POST /api/lateral-movement/credentials - Add a discovered credential
+  app.post("/api/lateral-movement/credentials", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sourceType, sourceHost, credentialType, username, domain, credentialValue, privilegeLevel } = req.body;
+
+      if (!credentialType || !username) {
+        return res.status(400).json({ error: "Credential type and username are required" });
+      }
+
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const credential = await lateralMovementService.addCredential({
+        sourceType: sourceType || "manual",
+        sourceHost,
+        credentialType,
+        username,
+        domain,
+        credentialValue: credentialValue || "",
+        privilegeLevel: privilegeLevel || "user",
+        tenantId: "default",
+      });
+
+      res.json({ credential });
+    } catch (error: any) {
+      console.error("Failed to add credential:", error);
+      res.status(500).json({ error: error.message || "Failed to add credential" });
+    }
+  });
+
+  // GET /api/lateral-movement/credentials - List discovered credentials
+  app.get("/api/lateral-movement/credentials", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const credentials = await lateralMovementService.listCredentials();
+      res.json({ credentials });
+    } catch (error: any) {
+      console.error("Failed to list credentials:", error);
+      res.status(500).json({ error: error.message || "Failed to list credentials" });
+    }
+  });
+
+  // POST /api/lateral-movement/test-reuse - Test credential reuse across hosts
+  app.post("/api/lateral-movement/test-reuse", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { credentialType, username, domain, credentialValue, targetHosts, techniques } = req.body;
+
+      if (!username || !targetHosts || !targetHosts.length) {
+        return res.status(400).json({ error: "Username and target hosts are required" });
+      }
+
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const result = await lateralMovementService.testCredentialReuse({
+        credentialType: credentialType || "password",
+        username,
+        domain,
+        credentialValue: credentialValue || "",
+        targetHosts,
+        techniques: techniques || ["credential_reuse"],
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to test credential reuse:", error);
+      res.status(500).json({ error: error.message || "Failed to test credential reuse" });
+    }
+  });
+
+  // POST /api/lateral-movement/test - Test a specific lateral movement technique
+  app.post("/api/lateral-movement/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sourceHost, targetHost, technique, credentialId, customCredential } = req.body;
+
+      if (!targetHost || !technique) {
+        return res.status(400).json({ error: "Target host and technique are required" });
+      }
+
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const result = await lateralMovementService.testLateralMovement({
+        sourceHost: sourceHost || "attacker",
+        targetHost,
+        technique,
+        credentialId,
+        customCredential,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to test lateral movement:", error);
+      res.status(500).json({ error: error.message || "Failed to test lateral movement" });
+    }
+  });
+
+  // POST /api/lateral-movement/pass-the-hash - Simulate pass-the-hash attack
+  app.post("/api/lateral-movement/pass-the-hash", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { ntlmHash, username, domain, targetHost } = req.body;
+
+      if (!ntlmHash || !username || !targetHost) {
+        return res.status(400).json({ error: "NTLM hash, username, and target host are required" });
+      }
+
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const result = await lateralMovementService.simulatePassTheHash(
+        ntlmHash,
+        username,
+        domain || "WORKGROUP",
+        targetHost
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to simulate pass-the-hash:", error);
+      res.status(500).json({ error: error.message || "Failed to simulate pass-the-hash" });
+    }
+  });
+
+  // POST /api/lateral-movement/pass-the-ticket - Simulate pass-the-ticket attack
+  app.post("/api/lateral-movement/pass-the-ticket", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { ticket, servicePrincipal, targetHost } = req.body;
+
+      if (!ticket || !servicePrincipal || !targetHost) {
+        return res.status(400).json({ error: "Ticket, service principal, and target host are required" });
+      }
+
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const result = await lateralMovementService.simulatePassTheTicket(
+        ticket,
+        servicePrincipal,
+        targetHost
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to simulate pass-the-ticket:", error);
+      res.status(500).json({ error: error.message || "Failed to simulate pass-the-ticket" });
+    }
+  });
+
+  // POST /api/lateral-movement/discover-pivots - Discover pivot points in a network
+  app.post("/api/lateral-movement/discover-pivots", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { startingHost, scanDepth, techniques, excludeHosts } = req.body;
+
+      if (!startingHost) {
+        return res.status(400).json({ error: "Starting host is required" });
+      }
+
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const result = await lateralMovementService.discoverPivotPoints({
+        startingHost,
+        scanDepth: scanDepth || 3,
+        techniques: techniques || ["credential_reuse", "ssh_pivot", "smb_relay"],
+        excludeHosts,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to discover pivots:", error);
+      res.status(500).json({ error: error.message || "Failed to discover pivots" });
+    }
+  });
+
+  // GET /api/lateral-movement/findings - Get lateral movement findings
+  app.get("/api/lateral-movement/findings", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const findings = await lateralMovementService.getFindings();
+      res.json({ findings });
+    } catch (error: any) {
+      console.error("Failed to get findings:", error);
+      res.status(500).json({ error: error.message || "Failed to get findings" });
+    }
+  });
+
+  // GET /api/lateral-movement/pivot-points - Get discovered pivot points
+  app.get("/api/lateral-movement/pivot-points", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const pivotPoints = await lateralMovementService.getPivotPoints();
+      res.json({ pivotPoints });
+    } catch (error: any) {
+      console.error("Failed to get pivot points:", error);
+      res.status(500).json({ error: error.message || "Failed to get pivot points" });
+    }
+  });
+
+  // GET /api/lateral-movement/attack-paths - Get discovered attack paths
+  app.get("/api/lateral-movement/attack-paths", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { lateralMovementService } = await import("./services/lateral-movement");
+      const attackPaths = await lateralMovementService.getAttackPaths();
+      res.json({ attackPaths });
+    } catch (error: any) {
+      console.error("Failed to get attack paths:", error);
+      res.status(500).json({ error: error.message || "Failed to get attack paths" });
+    }
+  });
 }
