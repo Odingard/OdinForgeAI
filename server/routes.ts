@@ -9273,4 +9273,117 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to test Kubernetes abuse" });
     }
   });
+
+  // ============================================
+  // Business Logic Fuzzing Endpoints
+  // ============================================
+
+  // POST /api/business-logic/fuzz-workflow - Fuzz a multi-step business workflow
+  app.post("/api/business-logic/fuzz-workflow", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const config = req.body;
+
+      if (!config.workflowName || !config.targetUrl || !config.steps) {
+        return res.status(400).json({ error: "Workflow name, target URL, and steps are required" });
+      }
+
+      const { workflowFuzzerService } = await import("./services/business-logic/workflow-fuzzer-service");
+      const result = await workflowFuzzerService.fuzzWorkflow({
+        workflowName: config.workflowName,
+        targetUrl: config.targetUrl,
+        steps: config.steps,
+        authToken: config.authToken,
+        enableRaceConditionTesting: config.enableRaceConditionTesting ?? true,
+        enableTransactionManipulation: config.enableTransactionManipulation ?? true,
+        enableAuthBypassTesting: config.enableAuthBypassTesting ?? true,
+        parallelRequestCount: config.parallelRequestCount || 10,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to fuzz workflow:", error);
+      res.status(500).json({ error: error.message || "Failed to fuzz workflow" });
+    }
+  });
+
+  // ============================================
+  // Remediation Automation Endpoints
+  // ============================================
+
+  // POST /api/remediation/generate - Generate IaC fixes for a finding
+  app.post("/api/remediation/generate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const finding = req.body;
+
+      if (!finding.id || !finding.type || !finding.title) {
+        return res.status(400).json({ error: "Finding ID, type, and title are required" });
+      }
+
+      const { iacRemediationService } = await import("./services/remediation/iac-remediation-service");
+      const result = iacRemediationService.generateRemediation({
+        id: finding.id,
+        type: finding.type,
+        severity: finding.severity || "medium",
+        title: finding.title,
+        description: finding.description || "",
+        affectedResource: finding.affectedResource || "unknown",
+        resourceType: finding.resourceType || "",
+        cloudProvider: finding.cloudProvider,
+        currentConfig: finding.currentConfig,
+        cweId: finding.cweId,
+        mitreId: finding.mitreId,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to generate remediation:", error);
+      res.status(500).json({ error: error.message || "Failed to generate remediation" });
+    }
+  });
+
+  // POST /api/remediation/batch - Generate fixes for multiple findings
+  app.post("/api/remediation/batch", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { findings } = req.body;
+
+      if (!findings || !Array.isArray(findings) || findings.length === 0) {
+        return res.status(400).json({ error: "Array of findings is required" });
+      }
+
+      const { iacRemediationService } = await import("./services/remediation/iac-remediation-service");
+      const results = iacRemediationService.generateBatchRemediation(findings);
+
+      res.json({ remediations: results, totalFindings: findings.length });
+    } catch (error: any) {
+      console.error("Failed to generate batch remediation:", error);
+      res.status(500).json({ error: error.message || "Failed to generate batch remediation" });
+    }
+  });
+
+  // POST /api/remediation/create-pr - Create a pull request with security fixes
+  app.post("/api/remediation/create-pr", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { repositoryUrl, branchName, title, description, changes, labels, reviewers } = req.body;
+
+      if (!repositoryUrl || !branchName || !title || !changes) {
+        return res.status(400).json({ error: "Repository URL, branch name, title, and changes are required" });
+      }
+
+      const { iacRemediationService } = await import("./services/remediation/iac-remediation-service");
+      const result = await iacRemediationService.createPullRequest({
+        repositoryUrl,
+        branchName,
+        title,
+        description: description || "",
+        changes,
+        labels,
+        reviewers,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to create PR:", error);
+      res.status(500).json({ error: error.message || "Failed to create PR" });
+    }
+  });
 }
