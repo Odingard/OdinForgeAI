@@ -1212,7 +1212,7 @@ export class DatabaseStorage implements IStorage {
     
     // Find stale agents
     const staleAgents = await db
-      .select({ id: endpointAgents.id, name: endpointAgents.name })
+      .select({ id: endpointAgents.id, agentName: endpointAgents.agentName })
       .from(endpointAgents)
       .where(
         sql`${endpointAgents.lastHeartbeat} IS NULL OR ${endpointAgents.lastHeartbeat} < ${cutoffDate}`
@@ -1226,7 +1226,7 @@ export class DatabaseStorage implements IStorage {
       await db.delete(agentFindings).where(eq(agentFindings.agentId, agent.id));
       await db.delete(agentTelemetry).where(eq(agentTelemetry.agentId, agent.id));
       await db.delete(endpointAgents).where(eq(endpointAgents.id, agent.id));
-      deletedIds.push(agent.name || agent.id);
+      deletedIds.push(agent.agentName || agent.id);
     }
     
     return { deleted: deletedIds.length, agents: deletedIds };
@@ -1608,7 +1608,20 @@ export class DatabaseStorage implements IStorage {
     const id = `fa-${randomUUID().slice(0, 8)}`;
     const [assessment] = await db
       .insert(fullAssessments)
-      .values({ ...data, id, startedAt: new Date() })
+      .values({
+        id,
+        name: data.name,
+        organizationId: data.organizationId ?? "default",
+        description: data.description,
+        assessmentMode: data.assessmentMode,
+        targetUrl: data.targetUrl,
+        agentIds: data.agentIds as string[] | null,
+        findingIds: data.findingIds as string[] | null,
+        status: data.status ?? "pending",
+        progress: 0,
+        currentPhase: data.currentPhase,
+        startedAt: new Date(),
+      })
       .returning();
     return assessment;
   }
@@ -1712,9 +1725,28 @@ export class DatabaseStorage implements IStorage {
   // Tenant operations
   async createTenant(data: InsertTenant): Promise<Tenant> {
     const id = data.id || `tenant-${randomUUID().slice(0, 8)}`;
+    const insertData = {
+      id,
+      name: data.name,
+      slug: data.slug,
+      status: data.status ?? "active",
+      tier: data.tier ?? "starter",
+      trialEndsAt: data.trialEndsAt,
+      maxUsers: data.maxUsers ?? 5,
+      maxAgents: data.maxAgents ?? 10,
+      maxEvaluationsPerDay: data.maxEvaluationsPerDay ?? 100,
+      maxConcurrentScans: data.maxConcurrentScans ?? 3,
+      features: data.features as { liveScanning?: boolean; cloudIntegration?: boolean; apiAccess?: boolean; customReports?: boolean } | undefined,
+      allowedIpRanges: data.allowedIpRanges as string[] | undefined,
+      enforceIpAllowlist: data.enforceIpAllowlist,
+      billingEmail: data.billingEmail,
+      technicalContact: data.technicalContact,
+      industry: data.industry,
+      parentTenantId: data.parentTenantId,
+    };
     const [tenant] = await db
       .insert(tenants)
-      .values({ ...data, id })
+      .values(insertData)
       .returning();
     return tenant;
   }
@@ -2048,20 +2080,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAutoDeployConfig(data: InsertAutoDeployConfig): Promise<AutoDeployConfig> {
+    const insertData = {
+      id: randomUUID(),
+      organizationId: data.organizationId,
+      enabled: data.enabled ?? false,
+      providers: data.providers as string[] | undefined,
+      assetTypes: data.assetTypes as string[] | undefined,
+      targetPlatforms: data.targetPlatforms as string[] | undefined,
+      deploymentOptions: data.deploymentOptions,
+      createdBy: data.createdBy,
+    };
     const [config] = await db
       .insert(autoDeployConfigs)
-      .values({
-        ...data,
-        id: randomUUID(),
-      })
+      .values(insertData)
       .returning();
     return config;
   }
 
   async updateAutoDeployConfig(organizationId: string, updates: Partial<InsertAutoDeployConfig>): Promise<AutoDeployConfig | undefined> {
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.enabled !== undefined) updateData.enabled = updates.enabled;
+    if (updates.providers !== undefined) updateData.providers = updates.providers as string[];
+    if (updates.assetTypes !== undefined) updateData.assetTypes = updates.assetTypes as string[];
+    if (updates.targetPlatforms !== undefined) updateData.targetPlatforms = updates.targetPlatforms as string[];
+    if (updates.deploymentOptions !== undefined) updateData.deploymentOptions = updates.deploymentOptions;
+    if (updates.createdBy !== undefined) updateData.createdBy = updates.createdBy;
+    
     const [config] = await db
       .update(autoDeployConfigs)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updateData)
       .where(eq(autoDeployConfigs.organizationId, organizationId))
       .returning();
     return config;
