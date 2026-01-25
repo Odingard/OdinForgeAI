@@ -9084,4 +9084,128 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to analyze compute metadata" });
     }
   });
+
+  // ============================================
+  // Compliance Reporting Endpoints
+  // ============================================
+
+  // GET /api/compliance/frameworks - Get available compliance frameworks
+  app.get("/api/compliance/frameworks", apiRateLimiter, async (req, res) => {
+    try {
+      const { complianceReportService } = await import("./services/compliance/compliance-report-service");
+      const frameworks = complianceReportService.getAvailableFrameworks();
+
+      res.json(frameworks.map(f => ({
+        id: f.id,
+        name: f.name,
+        version: f.version,
+        description: f.description,
+        controlCount: f.controls.length,
+      })));
+    } catch (error: any) {
+      console.error("Failed to get compliance frameworks:", error);
+      res.status(500).json({ error: error.message || "Failed to get compliance frameworks" });
+    }
+  });
+
+  // GET /api/compliance/frameworks/:frameworkId - Get framework details
+  app.get("/api/compliance/frameworks/:frameworkId", apiRateLimiter, async (req, res) => {
+    try {
+      const { frameworkId } = req.params;
+      const { complianceReportService } = await import("./services/compliance/compliance-report-service");
+      const framework = complianceReportService.getFramework(frameworkId);
+
+      if (!framework) {
+        return res.status(404).json({ error: "Framework not found" });
+      }
+
+      res.json(framework);
+    } catch (error: any) {
+      console.error("Failed to get framework:", error);
+      res.status(500).json({ error: error.message || "Failed to get framework" });
+    }
+  });
+
+  // POST /api/compliance/reports/generate - Generate compliance report
+  app.post("/api/compliance/reports/generate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const {
+        frameworkId,
+        organizationName,
+        findings,
+        assessmentDate,
+        assessmentScope,
+        assessor,
+        includePassingControls,
+        includeRemediationPlan,
+        format,
+      } = req.body;
+
+      if (!frameworkId || !organizationName) {
+        return res.status(400).json({ error: "Framework ID and organization name are required" });
+      }
+
+      const { complianceReportService } = await import("./services/compliance/compliance-report-service");
+      
+      const report = complianceReportService.generateReport({
+        frameworkId,
+        organizationName,
+        findings: findings || [],
+        assessmentDate: assessmentDate ? new Date(assessmentDate) : undefined,
+        assessmentScope,
+        assessor,
+        includePassingControls: includePassingControls ?? true,
+        includeRemediationPlan: includeRemediationPlan ?? true,
+      });
+
+      if (format === "html") {
+        const html = complianceReportService.exportToHTML(report);
+        res.setHeader("Content-Type", "text/html");
+        res.setHeader("Content-Disposition", `attachment; filename="${report.id}.html"`);
+        return res.send(html);
+      }
+
+      if (format === "csv") {
+        const csv = complianceReportService.exportToCSV(report);
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="${report.id}.csv"`);
+        return res.send(csv);
+      }
+
+      res.json(report);
+    } catch (error: any) {
+      console.error("Failed to generate compliance report:", error);
+      res.status(500).json({ error: error.message || "Failed to generate compliance report" });
+    }
+  });
+
+  // POST /api/compliance/map-findings - Map findings to compliance controls
+  app.post("/api/compliance/map-findings", apiRateLimiter, async (req, res) => {
+    try {
+      const { frameworkId, findings } = req.body;
+
+      if (!frameworkId || !findings || !Array.isArray(findings)) {
+        return res.status(400).json({ error: "Framework ID and findings array are required" });
+      }
+
+      const { complianceReportService } = await import("./services/compliance/compliance-report-service");
+      
+      const report = complianceReportService.generateReport({
+        frameworkId,
+        organizationName: "Analysis",
+        findings,
+        includePassingControls: false,
+        includeRemediationPlan: false,
+      });
+
+      res.json({
+        frameworkId,
+        controlMappings: report.controlMappings,
+        executiveSummary: report.executiveSummary,
+      });
+    } catch (error: any) {
+      console.error("Failed to map findings:", error);
+      res.status(500).json({ error: error.message || "Failed to map findings" });
+    }
+  });
 }
