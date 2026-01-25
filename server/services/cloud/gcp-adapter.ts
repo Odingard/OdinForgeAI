@@ -1,5 +1,8 @@
 import { ProjectsClient } from "@google-cloud/resource-manager";
 import compute from "@google-cloud/compute";
+import { Storage } from "@google-cloud/storage";
+import { SecretManagerServiceClient } from "@google-cloud/secret-manager";
+import { SqlInstancesServiceClient } from "@google-cloud/sql";
 import { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, DeploymentResult, IAMFinding } from "./types";
 
 const GCP_REGIONS = [
@@ -122,18 +125,37 @@ export class GCPAdapter implements ProviderAdapter {
       errors: [],
     };
 
-    try {
-      progress.currentRegion = "global";
-      onProgress?.(progress);
+    const discoveryTasks = [
+      { name: "Compute Instances", fn: () => this.discoverAllComputeInstances(gcpCreds) },
+      { name: "Storage Buckets", fn: () => this.discoverStorageBuckets(gcpCreds) },
+      { name: "Cloud SQL Instances", fn: () => this.discoverCloudSqlInstances(gcpCreds) },
+      { name: "Firewall Rules", fn: () => this.discoverFirewallRules(gcpCreds) },
+      { name: "Secrets", fn: () => this.discoverSecrets(gcpCreds) },
+    ];
 
-      const gceAssets = await this.discoverAllComputeInstances(gcpCreds);
-      allAssets.push(...gceAssets);
-      progress.totalAssets = allAssets.length;
-      progress.completedRegions = regions.length;
-      onProgress?.(progress);
-    } catch (error: any) {
-      progress.errors.push({ region: "global", error: error.message });
+    let completedTasks = 0;
+    for (const task of discoveryTasks) {
+      try {
+        progress.currentRegion = task.name;
+        onProgress?.(progress);
+        console.log(`[GCP] Discovering ${task.name}...`);
+
+        const assets = await task.fn();
+        allAssets.push(...assets);
+        console.log(`[GCP] Found ${assets.length} ${task.name}`);
+        
+        completedTasks++;
+        progress.completedRegions = Math.floor((completedTasks / discoveryTasks.length) * regions.length);
+        progress.totalAssets = allAssets.length;
+        onProgress?.(progress);
+      } catch (error: any) {
+        console.error(`[GCP] Error discovering ${task.name}:`, error.message);
+        progress.errors.push({ region: task.name, error: error.message });
+      }
     }
+
+    progress.completedRegions = regions.length;
+    onProgress?.(progress);
 
     return allAssets;
   }
@@ -213,6 +235,291 @@ export class GCPAdapter implements ProviderAdapter {
       }
     } catch (error: any) {
       console.error(`[GCP] Compute discovery error:`, error.message);
+    }
+
+    return assets;
+  }
+
+  private async discoverStorageBuckets(creds: NonNullable<CloudCredentials["gcp"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[GCP] Discovering Cloud Storage buckets...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const serviceAccountData = creds.serviceAccountJson || (creds as any).serviceAccountKey;
+      if (!serviceAccountData) {
+        console.log(`[GCP] No service account for Storage discovery`);
+        return assets;
+      }
+
+      const serviceAccount = JSON.parse(serviceAccountData);
+      const storage = new Storage({
+        credentials: {
+          client_email: serviceAccount.client_email,
+          private_key: serviceAccount.private_key,
+        },
+        projectId: serviceAccount.project_id,
+      });
+
+      const [buckets] = await storage.getBuckets();
+      
+      for (const bucket of buckets) {
+        const [metadata] = await bucket.getMetadata();
+        const [iamPolicy] = await bucket.iam.getPolicy().catch(() => [null]);
+        
+        const isPublic = iamPolicy?.bindings?.some((binding: any) => 
+          binding.members?.some((member: string) => 
+            member === "allUsers" || member === "allAuthenticatedUsers"
+          )
+        ) || false;
+
+        const securityIssues: string[] = [];
+        if (isPublic) securityIssues.push("PUBLIC_ACCESS");
+        if (!metadata.encryption?.defaultKmsKeyName) securityIssues.push("NO_CMEK_ENCRYPTION");
+        if (metadata.iamConfiguration?.uniformBucketLevelAccess?.enabled !== true) {
+          securityIssues.push("FINE_GRAINED_ACL");
+        }
+
+        assets.push({
+          provider: "gcp",
+          providerResourceId: `projects/${serviceAccount.project_id}/buckets/${bucket.name}`,
+          assetType: "storage_bucket",
+          assetName: bucket.name || "Unnamed Bucket",
+          region: metadata.location || "global",
+          rawMetadata: {
+            storageClass: metadata.storageClass,
+            createdAt: metadata.timeCreated,
+            versioning: metadata.versioning?.enabled || false,
+            isPublic,
+            encryption: metadata.encryption?.defaultKmsKeyName ? "CMEK" : "Google-managed",
+            uniformBucketLevelAccess: metadata.iamConfiguration?.uniformBucketLevelAccess?.enabled,
+            securityIssues,
+          },
+          agentDeployable: false,
+        });
+      }
+      console.log(`[GCP] Found ${assets.length} storage buckets`);
+    } catch (error: any) {
+      console.error(`[GCP] Storage discovery error:`, error.message);
+    }
+
+    return assets;
+  }
+
+  private async discoverCloudSqlInstances(creds: NonNullable<CloudCredentials["gcp"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[GCP] Discovering Cloud SQL instances...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const serviceAccountData = creds.serviceAccountJson || (creds as any).serviceAccountKey;
+      if (!serviceAccountData) {
+        console.log(`[GCP] No service account for Cloud SQL discovery`);
+        return assets;
+      }
+
+      const serviceAccount = JSON.parse(serviceAccountData);
+      const sqlClient = new SqlInstancesServiceClient({
+        credentials: {
+          client_email: serviceAccount.client_email,
+          private_key: serviceAccount.private_key,
+        },
+        projectId: serviceAccount.project_id,
+      });
+
+      const projectId = serviceAccount.project_id;
+      const response = await sqlClient.list({ project: projectId });
+      const instances = response[0]?.items || [];
+
+      for (const instance of instances) {
+        const securityIssues: string[] = [];
+        
+        // Check for public IP
+        const hasPublicIp = instance.ipAddresses?.some((ip: any) => ip.type === "PRIMARY");
+        if (hasPublicIp) securityIssues.push("PUBLIC_IP_ENABLED");
+        
+        // Check SSL enforcement
+        if (!instance.settings?.ipConfiguration?.requireSsl) {
+          securityIssues.push("SSL_NOT_REQUIRED");
+        }
+        
+        // Check authorized networks (0.0.0.0/0 is dangerous)
+        const hasOpenNetwork = instance.settings?.ipConfiguration?.authorizedNetworks?.some((net: any) =>
+          net.value === "0.0.0.0/0" || net.value === "::/0"
+        );
+        if (hasOpenNetwork) securityIssues.push("OPEN_TO_INTERNET");
+        
+        // Check backup configuration
+        if (!instance.settings?.backupConfiguration?.enabled) {
+          securityIssues.push("BACKUPS_DISABLED");
+        }
+        
+        // Check storage encryption
+        if (!instance.settings?.dataDiskSizeGb) {
+          // Default encryption is always enabled, but check for CMEK
+        }
+
+        assets.push({
+          provider: "gcp",
+          providerResourceId: `projects/${projectId}/instances/${instance.name}`,
+          assetType: "cloud_sql_instance",
+          assetName: instance.name || "Unnamed SQL Instance",
+          region: instance.region || "unknown",
+          rawMetadata: {
+            databaseVersion: instance.databaseVersion,
+            tier: instance.settings?.tier,
+            state: instance.state,
+            hasPublicIp,
+            requireSsl: instance.settings?.ipConfiguration?.requireSsl,
+            backupsEnabled: instance.settings?.backupConfiguration?.enabled,
+            authorizedNetworks: instance.settings?.ipConfiguration?.authorizedNetworks?.length || 0,
+            storageSize: instance.settings?.dataDiskSizeGb,
+            securityIssues,
+          },
+          agentDeployable: false,
+        });
+      }
+      console.log(`[GCP] Found ${assets.length} Cloud SQL instances`);
+    } catch (error: any) {
+      console.error(`[GCP] Cloud SQL discovery error:`, error.message);
+    }
+
+    return assets;
+  }
+
+  private async discoverFirewallRules(creds: NonNullable<CloudCredentials["gcp"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[GCP] Discovering VPC Firewall rules...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const clientOptions = this.getClientOptions(creds);
+      const projectId = this.getProjectId(creds);
+      const firewallsClient = new compute.FirewallsClient(clientOptions);
+
+      const [firewalls] = await firewallsClient.list({ project: projectId });
+
+      for (const firewall of firewalls || []) {
+        const securityIssues: string[] = [];
+        const isIngress = firewall.direction === "INGRESS";
+        
+        // Check for overly permissive ingress rules
+        const hasOpenIPv4 = firewall.sourceRanges?.includes("0.0.0.0/0");
+        const hasOpenIPv6 = firewall.sourceRanges?.includes("::/0");
+        const hasOpenIngress = isIngress && (hasOpenIPv4 || hasOpenIPv6);
+        
+        // Check if rule allows all protocols/ports
+        const allowsAllProtocols = firewall.allowed?.some((rule: any) => 
+          rule.IPProtocol === "all"
+        );
+        const allowsAllPorts = firewall.allowed?.some((rule: any) => 
+          rule.IPProtocol !== "icmp" && (!rule.ports || rule.ports.length === 0 || rule.ports.includes("0-65535"))
+        );
+        
+        // Check for sensitive ports exposure
+        const sensitivePorts = ["22", "3389", "23", "21", "3306", "5432", "27017", "6379", "1433", "11211"];
+        const allowsSensitivePorts = firewall.allowed?.some((rule: any) =>
+          rule.ports?.some((port: string) => 
+            sensitivePorts.some(p => port === p || port.split("-").some(range => parseInt(range) <= parseInt(p) && parseInt(p) <= parseInt(range)))
+          )
+        );
+        
+        // Check if rule has no target restrictions (applies to all instances)
+        const hasNoTargetRestriction = !firewall.targetTags?.length && !firewall.targetServiceAccounts?.length;
+
+        if (hasOpenIngress && allowsAllProtocols) securityIssues.push("OPEN_TO_INTERNET_ALL_PROTOCOLS");
+        if (hasOpenIngress && allowsAllPorts) securityIssues.push("OPEN_TO_INTERNET_ALL_PORTS");
+        if (hasOpenIngress && allowsSensitivePorts) securityIssues.push("SENSITIVE_PORTS_EXPOSED");
+        if (hasOpenIngress && hasNoTargetRestriction) securityIssues.push("APPLIES_TO_ALL_INSTANCES");
+        if (hasOpenIngress) securityIssues.push("OPEN_INGRESS");
+        if (firewall.disabled) securityIssues.push("RULE_DISABLED");
+
+        assets.push({
+          provider: "gcp",
+          providerResourceId: `projects/${projectId}/global/firewalls/${firewall.name}`,
+          assetType: "firewall_rule",
+          assetName: firewall.name || "Unnamed Firewall",
+          region: "global",
+          rawMetadata: {
+            network: firewall.network?.split("/").pop(),
+            direction: firewall.direction,
+            priority: firewall.priority,
+            sourceRanges: firewall.sourceRanges,
+            destinationRanges: firewall.destinationRanges,
+            allowed: firewall.allowed,
+            denied: firewall.denied,
+            disabled: firewall.disabled,
+            description: firewall.description,
+            securityIssues,
+          },
+          agentDeployable: false,
+        });
+      }
+      console.log(`[GCP] Found ${assets.length} firewall rules`);
+    } catch (error: any) {
+      console.error(`[GCP] Firewall discovery error:`, error.message);
+    }
+
+    return assets;
+  }
+
+  private async discoverSecrets(creds: NonNullable<CloudCredentials["gcp"]>): Promise<CloudAssetInfo[]> {
+    console.log(`[GCP] Discovering Secret Manager secrets...`);
+    const assets: CloudAssetInfo[] = [];
+
+    try {
+      const serviceAccountData = creds.serviceAccountJson || (creds as any).serviceAccountKey;
+      if (!serviceAccountData) {
+        console.log(`[GCP] No service account for Secret Manager discovery`);
+        return assets;
+      }
+
+      const serviceAccount = JSON.parse(serviceAccountData);
+      const client = new SecretManagerServiceClient({
+        credentials: {
+          client_email: serviceAccount.client_email,
+          private_key: serviceAccount.private_key,
+        },
+        projectId: serviceAccount.project_id,
+      });
+
+      const projectId = serviceAccount.project_id;
+      const [secrets] = await client.listSecrets({
+        parent: `projects/${projectId}`,
+      });
+
+      for (const secret of secrets || []) {
+        const secretName = secret.name?.split("/").pop() || "Unknown";
+        const securityIssues: string[] = [];
+
+        // Check replication policy
+        if (secret.replication?.automatic) {
+          // Automatic replication is fine
+        } else if (!secret.replication?.userManaged?.replicas?.length) {
+          securityIssues.push("NO_REPLICATION_CONFIGURED");
+        }
+
+        // Check rotation policy
+        if (!secret.rotation?.nextRotationTime) {
+          securityIssues.push("NO_ROTATION_POLICY");
+        }
+
+        assets.push({
+          provider: "gcp",
+          providerResourceId: secret.name || `projects/${projectId}/secrets/${secretName}`,
+          assetType: "secret",
+          assetName: secretName,
+          region: "global",
+          rawMetadata: {
+            createTime: secret.createTime,
+            replication: secret.replication?.automatic ? "automatic" : "user-managed",
+            hasRotationPolicy: !!secret.rotation?.nextRotationTime,
+            labels: secret.labels,
+            securityIssues,
+          },
+          agentDeployable: false,
+        });
+      }
+      console.log(`[GCP] Found ${assets.length} secrets`);
+    } catch (error: any) {
+      console.error(`[GCP] Secret Manager discovery error:`, error.message);
     }
 
     return assets;
