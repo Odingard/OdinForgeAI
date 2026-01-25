@@ -9208,4 +9208,69 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to map findings" });
     }
   });
+
+  // ============================================
+  // Container Security Testing Endpoints
+  // ============================================
+
+  // POST /api/container-security/escape-test - Test container for escape vectors
+  app.post("/api/container-security/escape-test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const config = req.body;
+
+      if (!config.containerId || !config.image) {
+        return res.status(400).json({ error: "Container ID and image are required" });
+      }
+
+      const { containerEscapeService } = await import("./services/container-security/container-escape-service");
+      const result = await containerEscapeService.testContainerEscape({
+        containerId: config.containerId,
+        containerName: config.containerName || config.containerId,
+        image: config.image,
+        privileged: config.privileged,
+        capabilities: config.capabilities,
+        securityOpt: config.securityOpt,
+        user: config.user,
+        readonlyRootfs: config.readonlyRootfs,
+        pidMode: config.pidMode,
+        ipcMode: config.ipcMode,
+        networkMode: config.networkMode,
+        mounts: config.mounts,
+        devices: config.devices,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to test container escape:", error);
+      res.status(500).json({ error: error.message || "Failed to test container escape" });
+    }
+  });
+
+  // POST /api/container-security/kubernetes/abuse-test - Test Kubernetes cluster for abuse vectors
+  app.post("/api/container-security/kubernetes/abuse-test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const config = req.body;
+
+      if (!config.clusterContext || !config.namespace) {
+        return res.status(400).json({ error: "Cluster context and namespace are required" });
+      }
+
+      const { kubernetesPentestService } = await import("./services/container-security/kubernetes-pentest-service");
+      const result = await kubernetesPentestService.testKubernetesAbuse({
+        clusterContext: config.clusterContext,
+        namespace: config.namespace,
+        pods: config.pods,
+        serviceAccounts: config.serviceAccounts,
+        roles: config.roles,
+        roleBindings: config.roleBindings,
+        networkPolicies: config.networkPolicies,
+        secrets: config.secrets,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to test Kubernetes abuse:", error);
+      res.status(500).json({ error: error.message || "Failed to test Kubernetes abuse" });
+    }
+  });
 }
