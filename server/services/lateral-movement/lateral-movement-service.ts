@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from "crypto";
+import { storage } from "../../storage";
 import type {
   DiscoveredCredential,
   LateralMovementFinding,
@@ -36,7 +37,7 @@ export interface LateralMovementTestRequest {
 export interface PivotDiscoveryRequest {
   startingHost: string;
   scanDepth: number;
-  techniques: string[];
+  techniques?: string[];
   excludeHosts?: string[];
 }
 
@@ -45,12 +46,12 @@ export interface CredentialReuseResult {
   testedHosts: string[];
   successfulHosts: string[];
   failedHosts: string[];
-  findings: Partial<LateralMovementFinding>[];
+  findings: LateralMovementFinding[];
 }
 
 export interface LateralMovementResult {
   success: boolean;
-  finding: Partial<LateralMovementFinding>;
+  finding: LateralMovementFinding;
   accessLevel?: string;
   evidence: {
     technique: string;
@@ -64,9 +65,9 @@ export interface LateralMovementResult {
 }
 
 export interface PivotDiscoveryResult {
-  pivotPoints: Partial<PivotPoint>[];
-  attackPaths: Partial<AttackPath>[];
-  credentialsDiscovered: Partial<DiscoveredCredential>[];
+  pivotPoints: PivotPoint[];
+  attackPaths: AttackPath[];
+  credentialsDiscovered: DiscoveredCredential[];
   networkMap: {
     nodes: { id: string; type: string; accessLevel: string }[];
     edges: { from: string; to: string; technique: string }[];
@@ -157,11 +158,6 @@ const LATERAL_MOVEMENT_TECHNIQUES = {
 };
 
 class LateralMovementService {
-  private discoveredCredentials: Map<string, Partial<DiscoveredCredential>> = new Map();
-  private findings: Map<string, Partial<LateralMovementFinding>> = new Map();
-  private pivotPoints: Map<string, Partial<PivotPoint>> = new Map();
-  private attackPaths: Map<string, Partial<AttackPath>> = new Map();
-
   getTechniques(): typeof LATERAL_MOVEMENT_TECHNIQUES {
     return LATERAL_MOVEMENT_TECHNIQUES;
   }
@@ -169,21 +165,20 @@ class LateralMovementService {
   async addCredential(
     credential: Omit<InsertDiscoveredCredential, "id" | "createdAt" | "updatedAt">,
     organizationId: string = "default"
-  ): Promise<Partial<DiscoveredCredential>> {
+  ): Promise<DiscoveredCredential> {
     const id = `cred-${randomUUID().slice(0, 8)}`;
     const credHash = createHash("sha256")
       .update(`${credential.username}:${credential.credentialType}:${credential.credentialValue}`)
       .digest("hex")
       .slice(0, 32);
 
-    const existingCred = Array.from(this.discoveredCredentials.values()).find(
-      c => c.credentialHash === credHash
-    );
+    const existingCreds = await storage.getDiscoveredCredentials(organizationId);
+    const existingCred = existingCreds.find(c => c.credentialHash === credHash);
     if (existingCred) {
       return existingCred;
     }
 
-    const newCred: Partial<DiscoveredCredential> = {
+    const credData: InsertDiscoveredCredential & { id: string } = {
       id,
       organizationId,
       tenantId: credential.tenantId || "default",
@@ -201,29 +196,23 @@ class LateralMovementService {
       privilegeLevel: credential.privilegeLevel || "user",
       riskScore: this.calculateCredentialRisk(credential),
       isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
     };
 
-    this.discoveredCredentials.set(id, newCred);
+    const newCred = await storage.createDiscoveredCredential(credData);
     console.log(`[LateralMovement] Added credential ${id} for ${credential.username}`);
 
     return newCred;
   }
 
-  async listCredentials(organizationId?: string): Promise<Partial<DiscoveredCredential>[]> {
-    const creds = Array.from(this.discoveredCredentials.values());
-    if (organizationId) {
-      return creds.filter(c => c.organizationId === organizationId);
-    }
-    return creds;
+  async listCredentials(organizationId?: string): Promise<DiscoveredCredential[]> {
+    return storage.getDiscoveredCredentials(organizationId);
   }
 
   async testCredentialReuse(request: CredentialTestRequest): Promise<CredentialReuseResult> {
     const credentialId = request.credentialId || `temp-${randomUUID().slice(0, 8)}`;
     const successfulHosts: string[] = [];
     const failedHosts: string[] = [];
-    const findings: Partial<LateralMovementFinding>[] = [];
+    const findings: LateralMovementFinding[] = [];
 
     for (const targetHost of request.targetHosts) {
       for (const technique of request.techniques) {
@@ -261,10 +250,24 @@ class LateralMovementService {
 
   async testLateralMovement(request: LateralMovementTestRequest): Promise<LateralMovementResult> {
     const techniqueInfo = LATERAL_MOVEMENT_TECHNIQUES[request.technique as keyof typeof LATERAL_MOVEMENT_TECHNIQUES];
+    const findingId = `lm-${randomUUID().slice(0, 8)}`;
+    
     if (!techniqueInfo) {
+      const emptyFinding: InsertLateralMovementFinding & { id: string } = {
+        id: findingId,
+        organizationId: "default",
+        tenantId: "default",
+        technique: request.technique,
+        sourceHost: request.sourceHost,
+        targetHost: request.targetHost,
+        success: false,
+        accessLevel: "none",
+        executionTimeMs: 0,
+      };
+      const finding = await storage.createLateralMovementFinding(emptyFinding);
       return {
         success: false,
-        finding: {},
+        finding,
         evidence: {
           technique: request.technique,
           sourceHost: request.sourceHost,
@@ -276,7 +279,6 @@ class LateralMovementService {
     }
 
     const startTime = Date.now();
-
     await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
 
     const success = Math.random() > 0.35;
@@ -300,8 +302,7 @@ class LateralMovementService {
       timing: Date.now() - startTime,
     };
 
-    const findingId = `lm-${randomUUID().slice(0, 8)}`;
-    const finding: Partial<LateralMovementFinding> = {
+    const findingData: InsertLateralMovementFinding & { id: string } = {
       id: findingId,
       organizationId: "default",
       tenantId: "default",
@@ -327,10 +328,9 @@ class LateralMovementService {
           ]
         : [],
       executionTimeMs: Date.now() - startTime,
-      createdAt: new Date(),
     };
 
-    this.findings.set(findingId, finding);
+    const finding = await storage.createLateralMovementFinding(findingData);
 
     return {
       success,
@@ -381,11 +381,12 @@ class LateralMovementService {
   }
 
   async discoverPivotPoints(request: PivotDiscoveryRequest): Promise<PivotDiscoveryResult> {
-    const discoveredPivots: Partial<PivotPoint>[] = [];
-    const discoveredPaths: Partial<AttackPath>[] = [];
-    const discoveredCreds: Partial<DiscoveredCredential>[] = [];
+    const discoveredPivots: PivotPoint[] = [];
+    const discoveredPaths: AttackPath[] = [];
+    const discoveredCreds: DiscoveredCredential[] = [];
     const networkNodes: { id: string; type: string; accessLevel: string }[] = [];
     const networkEdges: { from: string; to: string; technique: string }[] = [];
+    const techniques = request.techniques || ["credential_reuse"];
 
     networkNodes.push({
       id: request.startingHost,
@@ -405,18 +406,18 @@ class LateralMovementService {
       if (isPivotPoint) {
         const pivotId = `pivot-${randomUUID().slice(0, 8)}`;
         const accessLevel = Math.random() > 0.5 ? "admin" : "user";
-        const techniques = request.techniques.filter(() => Math.random() > 0.5);
+        const usedTechniques = techniques.filter(() => Math.random() > 0.5);
         
-        if (techniques.length === 0) techniques.push(request.techniques[0] || "credential_reuse");
+        if (usedTechniques.length === 0) usedTechniques.push(techniques[0] || "credential_reuse");
 
-        const pivot: Partial<PivotPoint> = {
+        const pivotData: InsertPivotPoint & { id: string } = {
           id: pivotId,
           organizationId: "default",
           tenantId: "default",
           hostname: host,
           ipAddress: this.generateIpForHost(host),
           networkSegment: this.getNetworkSegment(host),
-          accessMethod: techniques[0],
+          accessMethod: usedTechniques[0],
           accessLevel,
           reachableFrom: [request.startingHost],
           reachableTo: this.generateReachableHosts(host),
@@ -427,12 +428,10 @@ class LateralMovementService {
           discoveredServices: this.generateServices(host),
           isActive: true,
           lastVerifiedAt: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
         };
 
+        const pivot = await storage.createPivotPoint(pivotData);
         discoveredPivots.push(pivot);
-        this.pivotPoints.set(pivotId, pivot);
 
         networkNodes.push({
           id: host,
@@ -440,7 +439,7 @@ class LateralMovementService {
           accessLevel,
         });
 
-        for (const technique of techniques) {
+        for (const technique of usedTechniques) {
           networkEdges.push({
             from: request.startingHost,
             to: host,
@@ -466,7 +465,7 @@ class LateralMovementService {
 
     if (discoveredPivots.length >= 2) {
       const pathId = `path-${randomUUID().slice(0, 8)}`;
-      const path: Partial<AttackPath> = {
+      const pathData: InsertAttackPath & { id: string } = {
         id: pathId,
         organizationId: "default",
         tenantId: "default",
@@ -496,12 +495,10 @@ class LateralMovementService {
         killChainPhases: ["lateral-movement", "credential-access", "discovery"],
         status: "discovered",
         lastValidatedAt: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
       };
 
+      const path = await storage.createAttackPath(pathData);
       discoveredPaths.push(path);
-      this.attackPaths.set(pathId, path);
     }
 
     return {
@@ -515,28 +512,16 @@ class LateralMovementService {
     };
   }
 
-  async getFindings(organizationId?: string): Promise<Partial<LateralMovementFinding>[]> {
-    const findings = Array.from(this.findings.values());
-    if (organizationId) {
-      return findings.filter(f => f.organizationId === organizationId);
-    }
-    return findings;
+  async getFindings(organizationId?: string): Promise<LateralMovementFinding[]> {
+    return storage.getLateralMovementFindings(organizationId);
   }
 
-  async getPivotPoints(organizationId?: string): Promise<Partial<PivotPoint>[]> {
-    const pivots = Array.from(this.pivotPoints.values());
-    if (organizationId) {
-      return pivots.filter(p => p.organizationId === organizationId);
-    }
-    return pivots;
+  async getPivotPoints(organizationId?: string): Promise<PivotPoint[]> {
+    return storage.getPivotPoints(organizationId);
   }
 
-  async getAttackPaths(organizationId?: string): Promise<Partial<AttackPath>[]> {
-    const paths = Array.from(this.attackPaths.values());
-    if (organizationId) {
-      return paths.filter(p => p.organizationId === organizationId);
-    }
-    return paths;
+  async getAttackPaths(organizationId?: string): Promise<AttackPath[]> {
+    return storage.getAttackPaths(organizationId);
   }
 
   private maskCredentialValue(value: string): string {
