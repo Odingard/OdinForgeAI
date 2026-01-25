@@ -8568,6 +8568,83 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
+  // POST /api/sandbox/command-injection/test - Test for command injection vulnerabilities
+  app.post("/api/sandbox/command-injection/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { command, userInput, injectionType } = req.body;
+
+      if (!command || !userInput) {
+        return res.status(400).json({ error: "Command and userInput are required" });
+      }
+
+      const { commandExecutor } = await import("./services/sandbox/command-executor");
+      const result = await commandExecutor.testCommandInjection(
+        command,
+        userInput,
+        injectionType || "argument"
+      );
+
+      res.json({ result });
+    } catch (error: any) {
+      console.error("Failed to test command injection:", error);
+      res.status(500).json({ error: error.message || "Failed to test command injection" });
+    }
+  });
+
+  // POST /api/sandbox/command-injection/validate - Validate a command for safety
+  app.post("/api/sandbox/command-injection/validate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { command } = req.body;
+
+      if (!command) {
+        return res.status(400).json({ error: "Command is required" });
+      }
+
+      const { commandExecutor } = await import("./services/sandbox/command-executor");
+      const validation = await commandExecutor.validateCommandSafety(command);
+
+      res.json({ validation });
+    } catch (error: any) {
+      console.error("Failed to validate command:", error);
+      res.status(500).json({ error: error.message || "Failed to validate command" });
+    }
+  });
+
+  // POST /api/sandbox/command-injection/execute - Execute a validated safe command
+  app.post("/api/sandbox/command-injection/execute", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { command, expectedPattern } = req.body;
+
+      if (!command) {
+        return res.status(400).json({ error: "Command is required" });
+      }
+
+      const { commandExecutor } = await import("./services/sandbox/command-executor");
+      
+      const pattern = expectedPattern ? new RegExp(expectedPattern) : undefined;
+      const result = await commandExecutor.executeValidationCommand(command, pattern);
+
+      res.json({ result });
+    } catch (error: any) {
+      console.error("Failed to execute command:", error);
+      res.status(500).json({ error: error.message || "Failed to execute command" });
+    }
+  });
+
+  // GET /api/sandbox/command-injection/safe-commands - Get list of safe commands
+  app.get("/api/sandbox/command-injection/safe-commands", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+    try {
+      const { commandExecutor } = await import("./services/sandbox/command-executor");
+      const safeCommands = commandExecutor.getSafeCommands();
+      const injectionPatterns = commandExecutor.getInjectionPatterns();
+      
+      res.json({ safeCommands, injectionPatterns });
+    } catch (error: any) {
+      console.error("Failed to get safe commands:", error);
+      res.status(500).json({ error: error.message || "Failed to get safe commands" });
+    }
+  });
+
   // ============================================================================
   // PHASE 3: LIVE LATERAL MOVEMENT API
   // ============================================================================
