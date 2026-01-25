@@ -4003,3 +4003,125 @@ export const insertAutoDeployConfigSchema = createInsertSchema(autoDeployConfigs
 
 export type InsertAutoDeployConfig = z.infer<typeof insertAutoDeployConfigSchema>;
 export type AutoDeployConfig = typeof autoDeployConfigs.$inferSelect;
+
+// ============================================================================
+// API DEFINITIONS (OpenAPI/Swagger)
+// ============================================================================
+
+export const apiDefinitions = pgTable("api_definitions", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Basic info
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  version: varchar("version", { length: 50 }),
+  specVersion: varchar("spec_version", { length: 20 }), // "openapi-3.0", "openapi-3.1", "swagger-2.0"
+  
+  // Source
+  baseUrl: varchar("base_url", { length: 500 }),
+  rawSpec: text("raw_spec"), // Original uploaded spec
+  
+  // Parsed data
+  servers: jsonb("servers").$type<Array<{ url: string; description?: string }>>(),
+  securitySchemes: jsonb("security_schemes").$type<Record<string, {
+    type: string;
+    scheme?: string;
+    bearerFormat?: string;
+    in?: string;
+    name?: string;
+    flows?: Record<string, any>;
+  }>>(),
+  
+  // Endpoints summary
+  totalEndpoints: integer("total_endpoints").default(0),
+  totalOperations: integer("total_operations").default(0),
+  
+  // Status
+  status: varchar("status").default("active"), // active, archived
+  lastScannedAt: timestamp("last_scanned_at"),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdBy: varchar("created_by", { length: 255 }),
+});
+
+export const insertApiDefinitionSchema = createInsertSchema(apiDefinitions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertApiDefinition = z.infer<typeof insertApiDefinitionSchema>;
+export type ApiDefinition = typeof apiDefinitions.$inferSelect;
+
+// API Endpoints extracted from definitions
+export const apiEndpoints = pgTable("api_endpoints", {
+  id: varchar("id").primaryKey(),
+  apiDefinitionId: varchar("api_definition_id").notNull().references(() => apiDefinitions.id),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Endpoint details
+  path: varchar("path", { length: 500 }).notNull(),
+  method: varchar("method", { length: 10 }).notNull(), // GET, POST, PUT, DELETE, PATCH, etc.
+  operationId: varchar("operation_id", { length: 255 }),
+  summary: text("summary"),
+  description: text("description"),
+  tags: jsonb("tags").$type<string[]>(),
+  
+  // Parameters
+  parameters: jsonb("parameters").$type<Array<{
+    name: string;
+    in: "query" | "path" | "header" | "cookie";
+    required: boolean;
+    type: string;
+    format?: string;
+    description?: string;
+    enum?: string[];
+  }>>(),
+  
+  // Request body
+  requestBody: jsonb("request_body").$type<{
+    required: boolean;
+    contentTypes: string[];
+    schema?: Record<string, any>;
+  }>(),
+  
+  // Responses
+  responses: jsonb("responses").$type<Record<string, {
+    description: string;
+    contentTypes?: string[];
+    schema?: Record<string, any>;
+  }>>(),
+  
+  // Security requirements
+  security: jsonb("security").$type<Array<Record<string, string[]>>>(),
+  
+  // Analysis metadata
+  vulnerabilityPotential: jsonb("vulnerability_potential").$type<{
+    sqli: number;
+    xss: number;
+    authBypass: number;
+    idor: number;
+    injection: number;
+    ssrf: number;
+  }>(),
+  priority: varchar("priority", { length: 20 }).default("medium"), // critical, high, medium, low
+  
+  // Scan tracking
+  lastScannedAt: timestamp("last_scanned_at"),
+  scanStatus: varchar("scan_status").default("pending"), // pending, scanning, completed, failed
+  findingsCount: integer("findings_count").default(0),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertApiEndpointSchema = createInsertSchema(apiEndpoints).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertApiEndpoint = z.infer<typeof insertApiEndpointSchema>;
+export type ApiEndpoint = typeof apiEndpoints.$inferSelect;

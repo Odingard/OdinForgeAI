@@ -125,6 +125,12 @@ import {
   sshCredentials,
   type SshCredential,
   type InsertSshCredential,
+  apiDefinitions,
+  apiEndpoints,
+  type ApiDefinition,
+  type InsertApiDefinition,
+  type ApiEndpoint,
+  type InsertApiEndpoint,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -2323,6 +2329,83 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(sshCredentials)
       .where(eq(sshCredentials.id, id));
+  }
+
+  // API Definition methods
+  async createApiDefinition(data: InsertApiDefinition): Promise<ApiDefinition> {
+    const id = `api-${randomUUID().slice(0, 8)}`;
+    const [definition] = await db
+      .insert(apiDefinitions)
+      .values({ ...data, id } as typeof apiDefinitions.$inferInsert)
+      .returning();
+    return definition;
+  }
+
+  async getApiDefinition(id: string): Promise<ApiDefinition | undefined> {
+    const [definition] = await db
+      .select()
+      .from(apiDefinitions)
+      .where(eq(apiDefinitions.id, id));
+    return definition;
+  }
+
+  async getApiDefinitions(organizationId?: string): Promise<ApiDefinition[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(apiDefinitions)
+        .where(eq(apiDefinitions.organizationId, organizationId))
+        .orderBy(desc(apiDefinitions.createdAt));
+    }
+    return db.select().from(apiDefinitions).orderBy(desc(apiDefinitions.createdAt));
+  }
+
+  async updateApiDefinition(id: string, updates: Partial<ApiDefinition>): Promise<void> {
+    await db
+      .update(apiDefinitions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(apiDefinitions.id, id));
+  }
+
+  async deleteApiDefinition(id: string): Promise<void> {
+    await db.delete(apiEndpoints).where(eq(apiEndpoints.apiDefinitionId, id));
+    await db.delete(apiDefinitions).where(eq(apiDefinitions.id, id));
+  }
+
+  // API Endpoint methods
+  async createApiEndpoints(endpoints: InsertApiEndpoint[]): Promise<ApiEndpoint[]> {
+    if (endpoints.length === 0) return [];
+    const endpointsWithIds = endpoints.map(ep => ({
+      ...ep,
+      id: `ep-${randomUUID().slice(0, 8)}`,
+    }));
+    return db
+      .insert(apiEndpoints)
+      .values(endpointsWithIds as (typeof apiEndpoints.$inferInsert)[])
+      .returning();
+  }
+
+  async getApiEndpoints(apiDefinitionId: string): Promise<ApiEndpoint[]> {
+    return db
+      .select()
+      .from(apiEndpoints)
+      .where(eq(apiEndpoints.apiDefinitionId, apiDefinitionId))
+      .orderBy(apiEndpoints.priority, apiEndpoints.path);
+  }
+
+  async getApiEndpointsByOrg(organizationId: string): Promise<ApiEndpoint[]> {
+    return db
+      .select()
+      .from(apiEndpoints)
+      .where(eq(apiEndpoints.organizationId, organizationId))
+      .orderBy(apiEndpoints.priority, apiEndpoints.path);
+  }
+
+  async updateApiEndpoint(id: string, updates: Partial<ApiEndpoint>): Promise<void> {
+    await db
+      .update(apiEndpoints)
+      .set(updates)
+      .where(eq(apiEndpoints.id, id));
   }
 }
 
