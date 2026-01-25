@@ -4125,3 +4125,419 @@ export const insertApiEndpointSchema = createInsertSchema(apiEndpoints).omit({
 
 export type InsertApiEndpoint = z.infer<typeof insertApiEndpointSchema>;
 export type ApiEndpoint = typeof apiEndpoints.$inferSelect;
+
+// ============================================================================
+// PHASE 3: EXPLOIT EXECUTION SANDBOX
+// Isolated execution environment with rollback capability
+// ============================================================================
+
+export const sandboxSessionStatuses = [
+  "initializing",
+  "ready",
+  "executing",
+  "paused",
+  "completed",
+  "failed",
+  "rolled_back",
+] as const;
+export type SandboxSessionStatus = typeof sandboxSessionStatuses[number];
+
+export const sandboxExecutionModes = [
+  "safe",        // Read-only analysis, no actual payloads
+  "simulation",  // Simulated payloads with evidence capture
+  "live",        // Live payload execution (requires approval)
+] as const;
+export type SandboxExecutionMode = typeof sandboxExecutionModes[number];
+
+// Sandbox Sessions - Main session tracking
+export const sandboxSessions = pgTable("sandbox_sessions", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Session info
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  targetUrl: varchar("target_url", { length: 500 }),
+  targetHost: varchar("target_host", { length: 255 }),
+  
+  // Execution configuration
+  executionMode: varchar("execution_mode").notNull().default("safe"),
+  status: varchar("status").notNull().default("initializing"),
+  
+  // State management for rollback
+  initialStateSnapshot: jsonb("initial_state_snapshot").$type<{
+    capturedAt: string;
+    targetState: Record<string, any>;
+    environmentVariables: Record<string, string>;
+    networkConfig: Record<string, any>;
+  }>(),
+  currentStateSnapshot: jsonb("current_state_snapshot").$type<{
+    capturedAt: string;
+    targetState: Record<string, any>;
+    changesFromInitial: string[];
+  }>(),
+  
+  // Resource limits
+  resourceLimits: jsonb("resource_limits").$type<{
+    maxExecutionTimeMs: number;
+    maxMemoryMB: number;
+    maxPayloadSizeBytes: number;
+    maxRequestsPerMinute: number;
+  }>(),
+  
+  // Execution stats
+  totalExecutions: integer("total_executions").default(0),
+  successfulExecutions: integer("successful_executions").default(0),
+  failedExecutions: integer("failed_executions").default(0),
+  
+  // Governance
+  approvedBy: varchar("approved_by", { length: 255 }),
+  approvedAt: timestamp("approved_at"),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertSandboxSessionSchema = createInsertSchema(sandboxSessions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  completedAt: true,
+});
+
+export type InsertSandboxSession = z.infer<typeof insertSandboxSessionSchema>;
+export type SandboxSession = typeof sandboxSessions.$inferSelect;
+
+// Sandbox Snapshots - Point-in-time state captures for rollback
+export const sandboxSnapshots = pgTable("sandbox_snapshots", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull().references(() => sandboxSessions.id),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Snapshot info
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  snapshotType: varchar("snapshot_type").notNull().default("manual"), // manual, auto, pre-execution
+  
+  // State data
+  stateData: jsonb("state_data").$type<{
+    targetState: Record<string, any>;
+    executionHistory: string[];
+    credentialsDiscovered: string[];
+    filesModified: string[];
+    networkConnections: string[];
+  }>(),
+  
+  // Metadata
+  sizeBytes: integer("size_bytes"),
+  isRestorable: boolean("is_restorable").default(true),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSandboxSnapshotSchema = createInsertSchema(sandboxSnapshots).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSandboxSnapshot = z.infer<typeof insertSandboxSnapshotSchema>;
+export type SandboxSnapshot = typeof sandboxSnapshots.$inferSelect;
+
+// Sandbox Executions - Individual payload/exploit execution logs
+export const sandboxExecutions = pgTable("sandbox_executions", {
+  id: varchar("id").primaryKey(),
+  sessionId: varchar("session_id").notNull().references(() => sandboxSessions.id),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  
+  // Execution info
+  executionType: varchar("execution_type").notNull(), // payload, exploit, probe, scan
+  payloadName: varchar("payload_name", { length: 255 }),
+  payloadCategory: varchar("payload_category", { length: 100 }), // sqli, xss, rce, etc.
+  
+  // Target
+  targetEndpoint: varchar("target_endpoint", { length: 500 }),
+  targetMethod: varchar("target_method", { length: 10 }),
+  
+  // Payload details
+  payloadContent: text("payload_content"),
+  payloadEncoding: varchar("payload_encoding", { length: 50 }),
+  
+  // Execution result
+  status: varchar("status").notNull().default("pending"), // pending, running, success, failed, blocked
+  success: boolean("success"),
+  
+  // Evidence capture
+  evidence: jsonb("evidence").$type<{
+    request: {
+      method: string;
+      url: string;
+      headers: Record<string, string>;
+      body?: string;
+    };
+    response: {
+      statusCode: number;
+      headers: Record<string, string>;
+      body?: string;
+      timing: number;
+    };
+    indicators: string[];
+    screenshots?: string[];
+  }>(),
+  
+  // MITRE ATT&CK mapping
+  mitreAttackId: varchar("mitre_attack_id", { length: 20 }),
+  mitreTactic: varchar("mitre_tactic", { length: 50 }),
+  
+  // Timing
+  executionTimeMs: integer("execution_time_ms"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSandboxExecutionSchema = createInsertSchema(sandboxExecutions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSandboxExecution = z.infer<typeof insertSandboxExecutionSchema>;
+export type SandboxExecution = typeof sandboxExecutions.$inferSelect;
+
+// ============================================================================
+// PHASE 3: LIVE LATERAL MOVEMENT
+// Credential reuse, pass-the-hash/ticket, pivot discovery
+// ============================================================================
+
+export const credentialTypes = [
+  "password",
+  "ntlm_hash",
+  "kerberos_ticket",
+  "ssh_key",
+  "api_token",
+  "session_cookie",
+  "certificate",
+] as const;
+export type CredentialType = typeof credentialTypes[number];
+
+export const lateralMovementTechniques = [
+  "pass_the_hash",
+  "pass_the_ticket",
+  "credential_reuse",
+  "ssh_pivot",
+  "rdp_pivot",
+  "smb_relay",
+  "wmi_exec",
+  "psexec",
+  "dcom_exec",
+  "winrm",
+] as const;
+export type LateralMovementTechnique = typeof lateralMovementTechniques[number];
+
+// Discovered Credentials - Credentials found during assessments
+export const discoveredCredentials = pgTable("discovered_credentials", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Source of discovery
+  sourceType: varchar("source_type").notNull(), // scan, exploit, harvest, manual
+  sourceId: varchar("source_id"), // Related evaluation/scan ID
+  sourceHost: varchar("source_host", { length: 255 }),
+  
+  // Credential details
+  credentialType: varchar("credential_type").notNull(),
+  username: varchar("username", { length: 255 }),
+  domain: varchar("domain", { length: 255 }),
+  credentialValue: text("credential_value"), // Encrypted/hashed for storage
+  credentialHash: varchar("credential_hash", { length: 128 }), // For deduplication
+  
+  // Scope and usability
+  validatedOn: jsonb("validated_on").$type<string[]>(), // Hosts where this credential works
+  potentialTargets: jsonb("potential_targets").$type<string[]>(), // Hosts to try
+  usableForTechniques: jsonb("usable_for_techniques").$type<string[]>(), // pth, ptt, ssh, etc.
+  
+  // Risk assessment
+  privilegeLevel: varchar("privilege_level").default("user"), // user, admin, system, root
+  riskScore: integer("risk_score"), // 0-100
+  
+  // Status
+  isActive: boolean("is_active").default(true),
+  lastValidatedAt: timestamp("last_validated_at"),
+  expiresAt: timestamp("expires_at"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertDiscoveredCredentialSchema = createInsertSchema(discoveredCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDiscoveredCredential = z.infer<typeof insertDiscoveredCredentialSchema>;
+export type DiscoveredCredential = typeof discoveredCredentials.$inferSelect;
+
+// Lateral Movement Findings - Results from lateral movement testing
+export const lateralMovementFindings = pgTable("lateral_movement_findings", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Session reference
+  sandboxSessionId: varchar("sandbox_session_id").references(() => sandboxSessions.id),
+  
+  // Finding details
+  technique: varchar("technique").notNull(), // One of lateralMovementTechniques
+  sourceHost: varchar("source_host", { length: 255 }).notNull(),
+  targetHost: varchar("target_host", { length: 255 }).notNull(),
+  
+  // Credential used
+  credentialId: varchar("credential_id").references(() => discoveredCredentials.id),
+  credentialType: varchar("credential_type"),
+  
+  // Result
+  success: boolean("success").notNull(),
+  accessLevel: varchar("access_level"), // none, user, admin, system
+  
+  // Evidence
+  evidence: jsonb("evidence").$type<{
+    technique: string;
+    sourceHost: string;
+    targetHost: string;
+    credentialUsed: string;
+    commandExecuted?: string;
+    outputCaptured?: string;
+    screenshotPath?: string;
+    timing: number;
+  }>(),
+  
+  // MITRE ATT&CK mapping
+  mitreAttackId: varchar("mitre_attack_id", { length: 20 }),
+  mitreTactic: varchar("mitre_tactic", { length: 50 }),
+  
+  // Risk and business impact
+  severity: varchar("severity").default("medium"), // critical, high, medium, low
+  businessImpact: text("business_impact"),
+  
+  // Recommendations
+  recommendations: jsonb("recommendations").$type<string[]>(),
+  
+  executionTimeMs: integer("execution_time_ms"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertLateralMovementFindingSchema = createInsertSchema(lateralMovementFindings).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertLateralMovementFinding = z.infer<typeof insertLateralMovementFindingSchema>;
+export type LateralMovementFinding = typeof lateralMovementFindings.$inferSelect;
+
+// Pivot Points - Discovered network pivot opportunities
+export const pivotPoints = pgTable("pivot_points", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Pivot location
+  hostname: varchar("hostname", { length: 255 }).notNull(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  networkSegment: varchar("network_segment", { length: 50 }),
+  
+  // Access info
+  accessMethod: varchar("access_method"), // ssh, rdp, smb, etc.
+  accessCredentialId: varchar("access_credential_id").references(() => discoveredCredentials.id),
+  accessLevel: varchar("access_level").default("user"),
+  
+  // Reachability
+  reachableFrom: jsonb("reachable_from").$type<string[]>(),
+  reachableTo: jsonb("reachable_to").$type<string[]>(),
+  
+  // Pivot potential
+  pivotScore: integer("pivot_score"), // 0-100, higher = better pivot point
+  strategicValue: text("strategic_value"),
+  
+  // Services and capabilities
+  discoveredServices: jsonb("discovered_services").$type<{
+    port: number;
+    service: string;
+    version?: string;
+  }[]>(),
+  
+  // Status
+  isActive: boolean("is_active").default(true),
+  lastVerifiedAt: timestamp("last_verified_at"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertPivotPointSchema = createInsertSchema(pivotPoints).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertPivotPoint = z.infer<typeof insertPivotPointSchema>;
+export type PivotPoint = typeof pivotPoints.$inferSelect;
+
+// Attack Paths - Visualized paths through the network
+export const attackPaths = pgTable("attack_paths", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  tenantId: varchar("tenant_id").notNull().default("default"),
+  
+  // Path info
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  
+  // Path definition
+  entryPoint: varchar("entry_point", { length: 255 }).notNull(),
+  targetObjective: varchar("target_objective", { length: 255 }),
+  
+  // Path nodes and edges
+  pathNodes: jsonb("path_nodes").$type<{
+    id: string;
+    hostname: string;
+    type: "entry" | "pivot" | "target";
+    accessLevel: string;
+  }[]>(),
+  pathEdges: jsonb("path_edges").$type<{
+    from: string;
+    to: string;
+    technique: string;
+    credentialRequired: boolean;
+    successProbability: number;
+  }[]>(),
+  
+  // Risk assessment
+  totalHops: integer("total_hops"),
+  overallRisk: varchar("overall_risk").default("medium"),
+  exploitability: integer("exploitability"), // 0-100
+  
+  // MITRE ATT&CK
+  mitreTechniques: jsonb("mitre_techniques").$type<string[]>(),
+  killChainPhases: jsonb("kill_chain_phases").$type<string[]>(),
+  
+  // Status
+  status: varchar("status").default("discovered"), // discovered, validated, exploited
+  lastValidatedAt: timestamp("last_validated_at"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAttackPathSchema = createInsertSchema(attackPaths).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAttackPath = z.infer<typeof insertAttackPathSchema>;
+export type AttackPath = typeof attackPaths.$inferSelect;
