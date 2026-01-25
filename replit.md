@@ -31,6 +31,30 @@ The platform utilizes a full-stack TypeScript architecture. The frontend is buil
 *   **Exploit Execution Sandbox (Phase 3)**: Isolated environments for live exploit testing with configurable modes (safe, simulation, live), payload execution, state snapshots, and evidence capture.
 *   **Live Lateral Movement Testing (Phase 3)**: Simulates credential reuse, pass-the-hash/ticket, and pivot point discovery across 10 lateral movement techniques, mapped to MITRE ATT&CK.
 
+### Additional Phase 1-3 Features (January 2026)
+
+*   **Cloud Penetration Testing (P1)**: Full cloud security testing for AWS, Azure, and GCP including IAM analysis, storage security, network exposure, secrets management, compute vulnerabilities, and AI-powered remediation. Detects misconfigurations, overly permissive policies, unencrypted resources, and generates detailed attack paths with MITRE ATT&CK mappings.
+
+*   **Compliance Reporting System (P1)**: Multi-framework compliance assessment and reporting supporting NIST 800-53, PCI-DSS 4.0, SOC 2, and HIPAA. Generates comprehensive reports with control mappings, gap analysis, remediation recommendations, and executive summaries. Export to HTML, CSV, and JSON formats with evidence collection.
+
+*   **Container Security Testing (P2)**: Advanced container escape detection identifying 8 escape vectors (privileged containers, Docker socket mounts, CAP_SYS_ADMIN/PTRACE abuse, host namespace access, sensitive host mounts). Kubernetes abuse testing covering API abuse vectors, RBAC escalation paths, network policy analysis, and secret exposure detection.
+
+*   **Business Logic Fuzzing Engine (P2)**: Workflow fuzzing with race condition detection for financial systems (double spending, coupon multi-use, inventory oversell), transaction manipulation testing (price/quantity/ID tampering), authentication bypass chain detection (step skipping, token reuse, forced browsing), and state violation detection.
+
+*   **Remediation Automation (P2)**: Infrastructure-as-Code fix generation for Terraform, CloudFormation, and Kubernetes manifests. Includes templates for S3 public access, IAM admin policies, security groups, encryption, privileged containers, network policies, and RBAC. Code patch suggestions for SQL injection, XSS, path traversal, and deserialization vulnerabilities. Batch remediation and PR creation capabilities.
+
+*   **Tool Integration - Metasploit (P3)**: Integration with Metasploit Framework for exploit execution. Supports 5 exploit modules (EternalBlue MS17-010, Apache Struts2, WebLogic, Tomcat Manager, Jenkins Script Console) with session management, command execution, and MITRE ATT&CK mappings.
+
+*   **Tool Integration - Nuclei (P3)**: Nuclei template execution for vulnerability scanning. 10 built-in templates covering critical CVEs (Log4Shell CVE-2021-44228, Confluence CVE-2023-22515, ScreenConnect CVE-2024-1708) and misconfigurations (Git exposure, .env disclosure, Spring Actuator). Severity filtering, tag-based selection, and remediation recommendations.
+
+*   **Session Replay System (P3)**: Full exploit session recording with forensic-quality evidence collection. Features include:
+    - Event timeline with 5 attack phases (recon/scanning/enumeration/exploitation/post-exploitation)
+    - Attack path visualization with MITRE ATT&CK technique mappings
+    - Network traffic capture and visualization with node-edge graphs
+    - Evidence chain reconstruction with integrity hashes
+    - Session playback with speed control and event filtering
+    - Finding correlation with CVE references
+
 **UI/UX Design**:
 The design system follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
 
@@ -41,3 +65,54 @@ The design system follows custom guidelines blending Material Design with cyber-
 *   **shadcn/ui**: Accessible React component library.
 *   **TanStack React Query**: Data fetching, caching, and synchronization.
 *   **ws**: WebSocket server library for real-time communication.
+
+## API Endpoints Summary
+
+### Tool Integration
+- `GET /api/tools/metasploit/modules` - List Metasploit exploit modules
+- `GET /api/tools/metasploit/modules/search?query=` - Search modules by CVE/name
+- `POST /api/tools/metasploit/exploit` - Execute an exploit against a target
+- `GET /api/tools/metasploit/sessions` - List active exploit sessions
+- `POST /api/tools/metasploit/sessions/:id/exec` - Run commands in session
+- `GET /api/tools/nuclei/templates` - List Nuclei vulnerability templates
+- `POST /api/tools/nuclei/scan` - Run Nuclei scan against target
+
+### Session Replay
+- `POST /api/sessions/create` - Create new exploit session
+- `GET /api/sessions` - List all sessions
+- `GET /api/sessions/:id` - Get session details
+- `POST /api/sessions/:id/stop` - Stop recording session
+- `POST /api/sessions/:id/events` - Add event to session
+- `GET /api/sessions/:id/playback` - Get session playback data
+- `GET /api/sessions/:id/network` - Get network visualization
+- `GET /api/sessions/:id/evidence-chain` - Get evidence chain
+- `POST /api/sessions/simulate` - Create simulated demo session
+
+### Container Security
+- `POST /api/container-security/escape-detection` - Detect container escape vectors
+- `POST /api/container-security/kubernetes/pentest` - Run K8s penetration test
+- `POST /api/container-security/kubernetes/rbac-analysis` - Analyze RBAC configurations
+- `POST /api/container-security/kubernetes/network-policy-analysis` - Analyze network policies
+
+### Business Logic Fuzzing
+- `POST /api/business-logic/fuzz-workflow` - Fuzz a business workflow
+- `POST /api/business-logic/race-detection` - Detect race conditions
+- `POST /api/business-logic/transaction-manipulation` - Test transaction tampering
+- `POST /api/business-logic/auth-bypass` - Test authentication bypasses
+
+### Remediation Automation
+- `POST /api/remediation/iac-fix` - Generate IaC security fix
+- `POST /api/remediation/code-patch` - Generate code security patch
+- `POST /api/remediation/batch` - Generate batch remediations
+- `POST /api/remediation/create-pr` - Create PR with security fixes
+
+### Cloud Penetration Testing
+- `POST /api/cloud-pentest/aws/full-assessment` - Full AWS security assessment
+- `POST /api/cloud-pentest/azure/full-assessment` - Full Azure security assessment
+- `POST /api/cloud-pentest/gcp/full-assessment` - Full GCP security assessment
+
+### Compliance Reporting
+- `POST /api/compliance/assess` - Run compliance assessment
+- `GET /api/compliance/reports` - List compliance reports
+- `GET /api/compliance/reports/:id` - Get report details
+- `GET /api/compliance/reports/:id/export` - Export report (HTML/CSV/JSON)
