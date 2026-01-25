@@ -9386,4 +9386,331 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to create PR" });
     }
   });
+
+  // ============================================
+  // Tool Integration Endpoints - Metasploit
+  // ============================================
+
+  // GET /api/tools/metasploit/modules - List available Metasploit modules
+  app.get("/api/tools/metasploit/modules", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { type } = req.query;
+      const { metasploitService } = await import("./services/tool-integration/metasploit-service");
+      
+      const modules = await metasploitService.listModules(type as any);
+      res.json({ modules, count: modules.length });
+    } catch (error: any) {
+      console.error("Failed to list modules:", error);
+      res.status(500).json({ error: error.message || "Failed to list modules" });
+    }
+  });
+
+  // GET /api/tools/metasploit/modules/search - Search Metasploit modules
+  app.get("/api/tools/metasploit/modules/search", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { query } = req.query;
+      if (!query) {
+        return res.status(400).json({ error: "Search query is required" });
+      }
+
+      const { metasploitService } = await import("./services/tool-integration/metasploit-service");
+      const modules = await metasploitService.searchModules(query as string);
+      res.json({ modules, count: modules.length });
+    } catch (error: any) {
+      console.error("Failed to search modules:", error);
+      res.status(500).json({ error: error.message || "Failed to search modules" });
+    }
+  });
+
+  // POST /api/tools/metasploit/exploit - Run an exploit
+  app.post("/api/tools/metasploit/exploit", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { module, target, port, options, payload, payloadOptions } = req.body;
+
+      if (!module || !target || !port) {
+        return res.status(400).json({ error: "Module, target, and port are required" });
+      }
+
+      const { metasploitService } = await import("./services/tool-integration/metasploit-service");
+      const result = await metasploitService.runExploit({
+        module,
+        target,
+        port,
+        options,
+        payload,
+        payloadOptions,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to run exploit:", error);
+      res.status(500).json({ error: error.message || "Failed to run exploit" });
+    }
+  });
+
+  // GET /api/tools/metasploit/sessions - List active sessions
+  app.get("/api/tools/metasploit/sessions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { metasploitService } = await import("./services/tool-integration/metasploit-service");
+      const sessions = await metasploitService.listSessions();
+      res.json({ sessions, count: sessions.length });
+    } catch (error: any) {
+      console.error("Failed to list sessions:", error);
+      res.status(500).json({ error: error.message || "Failed to list sessions" });
+    }
+  });
+
+  // POST /api/tools/metasploit/sessions/:sessionId/exec - Execute command in session
+  app.post("/api/tools/metasploit/sessions/:sessionId/exec", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { command } = req.body;
+
+      if (!command) {
+        return res.status(400).json({ error: "Command is required" });
+      }
+
+      const { metasploitService } = await import("./services/tool-integration/metasploit-service");
+      const output = await metasploitService.executeSessionCommand(sessionId, command);
+      res.json({ output });
+    } catch (error: any) {
+      console.error("Failed to execute command:", error);
+      res.status(500).json({ error: error.message || "Failed to execute command" });
+    }
+  });
+
+  // ============================================
+  // Tool Integration Endpoints - Nuclei
+  // ============================================
+
+  // GET /api/tools/nuclei/templates - List Nuclei templates
+  app.get("/api/tools/nuclei/templates", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { tags, severity } = req.query;
+      const { nucleiService } = await import("./services/tool-integration/nuclei-service");
+
+      const tagsArray = tags ? (tags as string).split(",") : undefined;
+      const severityArray = severity ? (severity as string).split(",") : undefined;
+
+      const templates = await nucleiService.listTemplates(tagsArray, severityArray);
+      res.json({ templates, count: templates.length });
+    } catch (error: any) {
+      console.error("Failed to list templates:", error);
+      res.status(500).json({ error: error.message || "Failed to list templates" });
+    }
+  });
+
+  // POST /api/tools/nuclei/scan - Run Nuclei scan
+  app.post("/api/tools/nuclei/scan", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { target, templates, tags, severity, excludeTags, rateLimit, concurrency, timeout } = req.body;
+
+      if (!target) {
+        return res.status(400).json({ error: "Target is required" });
+      }
+
+      const { nucleiService } = await import("./services/tool-integration/nuclei-service");
+      const result = await nucleiService.runScan({
+        target,
+        templates,
+        tags,
+        severity,
+        excludeTags,
+        rateLimit,
+        concurrency,
+        timeout,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to run Nuclei scan:", error);
+      res.status(500).json({ error: error.message || "Failed to run Nuclei scan" });
+    }
+  });
+
+  // ============================================
+  // Session Replay Endpoints
+  // ============================================
+
+  // POST /api/sessions/create - Create a new exploit session
+  app.post("/api/sessions/create", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { name, target, assessor, organization, scope, tools, notes } = req.body;
+
+      if (!name || !target) {
+        return res.status(400).json({ error: "Name and target are required" });
+      }
+
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const session = await sessionReplayService.createSession({
+        name,
+        target,
+        assessor,
+        organization,
+        scope,
+        tools,
+        notes,
+      });
+
+      res.json(session);
+    } catch (error: any) {
+      console.error("Failed to create session:", error);
+      res.status(500).json({ error: error.message || "Failed to create session" });
+    }
+  });
+
+  // GET /api/sessions - List all sessions
+  app.get("/api/sessions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { status } = req.query;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      
+      const sessions = await sessionReplayService.listSessions(status as string);
+      res.json({ sessions, count: sessions.length });
+    } catch (error: any) {
+      console.error("Failed to list sessions:", error);
+      res.status(500).json({ error: error.message || "Failed to list sessions" });
+    }
+  });
+
+  // GET /api/sessions/:sessionId - Get session details
+  app.get("/api/sessions/:sessionId", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      
+      const session = await sessionReplayService.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(session);
+    } catch (error: any) {
+      console.error("Failed to get session:", error);
+      res.status(500).json({ error: error.message || "Failed to get session" });
+    }
+  });
+
+  // POST /api/sessions/:sessionId/stop - Stop recording a session
+  app.post("/api/sessions/:sessionId/stop", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      
+      const session = await sessionReplayService.stopRecording(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(session);
+    } catch (error: any) {
+      console.error("Failed to stop session:", error);
+      res.status(500).json({ error: error.message || "Failed to stop session" });
+    }
+  });
+
+  // POST /api/sessions/:sessionId/events - Add event to session
+  app.post("/api/sessions/:sessionId/events", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { type, source, description, data } = req.body;
+
+      if (!type || !source || !description) {
+        return res.status(400).json({ error: "Type, source, and description are required" });
+      }
+
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const event = await sessionReplayService.addEvent(sessionId, { type, source, description, data });
+      
+      if (!event) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(event);
+    } catch (error: any) {
+      console.error("Failed to add event:", error);
+      res.status(500).json({ error: error.message || "Failed to add event" });
+    }
+  });
+
+  // GET /api/sessions/:sessionId/playback - Get session playback data
+  app.get("/api/sessions/:sessionId/playback", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { startTime, endTime, eventTypes, speed } = req.query;
+
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const playback = await sessionReplayService.getPlayback({
+        sessionId,
+        startTime: startTime ? parseInt(startTime as string) : undefined,
+        endTime: endTime ? parseInt(endTime as string) : undefined,
+        eventTypes: eventTypes ? (eventTypes as string).split(",") : undefined,
+        speed: speed ? parseFloat(speed as string) : undefined,
+      });
+
+      if (!playback) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(playback);
+    } catch (error: any) {
+      console.error("Failed to get playback:", error);
+      res.status(500).json({ error: error.message || "Failed to get playback" });
+    }
+  });
+
+  // GET /api/sessions/:sessionId/network - Get network visualization
+  app.get("/api/sessions/:sessionId/network", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      
+      const visualization = await sessionReplayService.getNetworkVisualization(sessionId);
+      if (!visualization) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(visualization);
+    } catch (error: any) {
+      console.error("Failed to get network visualization:", error);
+      res.status(500).json({ error: error.message || "Failed to get network visualization" });
+    }
+  });
+
+  // GET /api/sessions/:sessionId/evidence-chain - Get evidence chain
+  app.get("/api/sessions/:sessionId/evidence-chain", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      
+      const chain = await sessionReplayService.getEvidenceChain(sessionId);
+      if (!chain) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      res.json(chain);
+    } catch (error: any) {
+      console.error("Failed to get evidence chain:", error);
+      res.status(500).json({ error: error.message || "Failed to get evidence chain" });
+    }
+  });
+
+  // POST /api/sessions/simulate - Create a simulated session for demo
+  app.post("/api/sessions/simulate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { target } = req.body;
+
+      if (!target) {
+        return res.status(400).json({ error: "Target is required" });
+      }
+
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const session = await sessionReplayService.simulateSession(target);
+
+      res.json(session);
+    } catch (error: any) {
+      console.error("Failed to simulate session:", error);
+      res.status(500).json({ error: error.message || "Failed to simulate session" });
+    }
+  });
 }
