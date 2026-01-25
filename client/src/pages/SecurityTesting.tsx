@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,15 @@ import {
   Bug,
   ChevronDown,
   ChevronRight,
+  Terminal,
+  Network,
+  Target,
+  RotateCcw,
+  Clock,
+  Trash2,
+  Plus,
+  Eye,
+  RefreshCw,
 } from "lucide-react";
 import {
   Collapsible,
@@ -956,6 +965,823 @@ function ContainerSecurityTab({ adminPassword }: { adminPassword: string }) {
   );
 }
 
+// ============================================================================
+// SANDBOX TAB - Exploit Execution Sandbox
+// ============================================================================
+function SandboxTab({ adminPassword }: { adminPassword: string }) {
+  const { toast } = useToast();
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [selectedSession, setSelectedSession] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [newSessionName, setNewSessionName] = useState("");
+  const [targetUrl, setTargetUrl] = useState("");
+  const [executionMode, setExecutionMode] = useState<"safe" | "simulation" | "live">("safe");
+  const [payloadContent, setPayloadContent] = useState("");
+  const [targetEndpoint, setTargetEndpoint] = useState("");
+  const [executions, setExecutions] = useState<any[]>([]);
+  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [snapshotName, setSnapshotName] = useState("");
+
+  useEffect(() => {
+    if (adminPassword) {
+      fetchSessions();
+    }
+  }, [adminPassword]);
+
+  const fetchSessions = async () => {
+    if (!adminPassword) return;
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/sandbox/sessions", {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data.sessions || []);
+      }
+    } catch (error: any) {
+      toast({ title: "Failed to fetch sessions", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const createSession = async () => {
+    if (!adminPassword || !newSessionName) {
+      toast({ title: "Please enter session name", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await securityApiRequest("/api/sandbox/sessions", {
+        name: newSessionName,
+        targetUrl,
+        executionMode,
+      }, adminPassword);
+      toast({ title: "Session created successfully" });
+      setNewSessionName("");
+      setTargetUrl("");
+      fetchSessions();
+      setSelectedSession(result.session);
+    } catch (error: any) {
+      toast({ title: "Failed to create session", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const executePayload = async () => {
+    if (!selectedSession || !payloadContent || !targetEndpoint) {
+      toast({ title: "Select session and enter payload details", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await securityApiRequest(`/api/sandbox/sessions/${selectedSession.id}/execute`, {
+        payloadContent,
+        targetEndpoint,
+        payloadName: "Custom Payload",
+        payloadCategory: "injection",
+      }, adminPassword);
+      toast({ title: result.success ? "Payload executed successfully" : "Payload execution failed" });
+      fetchExecutions();
+    } catch (error: any) {
+      toast({ title: "Execution failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchExecutions = async () => {
+    if (!selectedSession) return;
+    try {
+      const res = await fetch(`/api/sandbox/sessions/${selectedSession.id}/executions`, {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setExecutions(data.executions || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch executions");
+    }
+  };
+
+  const fetchSnapshots = async () => {
+    if (!selectedSession) return;
+    try {
+      const res = await fetch(`/api/sandbox/sessions/${selectedSession.id}/snapshots`, {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSnapshots(data.snapshots || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch snapshots");
+    }
+  };
+
+  const createSnapshot = async () => {
+    if (!selectedSession || !snapshotName) {
+      toast({ title: "Enter snapshot name", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await securityApiRequest(`/api/sandbox/sessions/${selectedSession.id}/snapshots`, {
+        name: snapshotName,
+      }, adminPassword);
+      toast({ title: "Snapshot created" });
+      setSnapshotName("");
+      fetchSnapshots();
+    } catch (error: any) {
+      toast({ title: "Failed to create snapshot", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const rollbackToSnapshot = async (snapshotId: string) => {
+    setIsLoading(true);
+    try {
+      const result = await securityApiRequest(`/api/sandbox/sessions/${selectedSession.id}/rollback`, {
+        snapshotId,
+      }, adminPassword);
+      toast({ title: result.success ? "Rollback successful" : "Rollback failed" });
+    } catch (error: any) {
+      toast({ title: "Rollback failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            Sandbox Sessions
+          </CardTitle>
+          <CardDescription>
+            Create isolated execution environments for exploit testing
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3">
+            <Label>Session Name</Label>
+            <Input
+              value={newSessionName}
+              onChange={(e) => setNewSessionName(e.target.value)}
+              placeholder="e.g., SQL Injection Test"
+              data-testid="input-sandbox-session-name"
+            />
+            <Label>Target URL</Label>
+            <Input
+              value={targetUrl}
+              onChange={(e) => setTargetUrl(e.target.value)}
+              placeholder="https://target.example.com"
+              data-testid="input-sandbox-target-url"
+            />
+            <Label>Execution Mode</Label>
+            <div className="flex gap-2">
+              {(["safe", "simulation", "live"] as const).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={executionMode === mode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setExecutionMode(mode)}
+                  data-testid={`button-sandbox-mode-${mode}`}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={createSession} disabled={isLoading || !adminPassword} data-testid="button-create-sandbox-session">
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                Create Session
+              </Button>
+              <Button variant="outline" onClick={fetchSessions} disabled={isLoading || !adminPassword} data-testid="button-refresh-sandbox-sessions">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <Separator />
+          <div>
+            <Label className="mb-2 block">Active Sessions</Label>
+            <ScrollArea className="h-48">
+              {sessions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No sessions yet. Create one above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {sessions.map((session: any) => (
+                    <Card
+                      key={session.id}
+                      className={`cursor-pointer p-3 ${selectedSession?.id === session.id ? "border-primary" : ""}`}
+                      onClick={() => {
+                        setSelectedSession(session);
+                        setTimeout(() => { fetchExecutions(); fetchSnapshots(); }, 100);
+                      }}
+                      data-testid={`sandbox-session-card-${session.id}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-medium">{session.name}</p>
+                          <p className="text-xs text-muted-foreground">{session.status}</p>
+                        </div>
+                        <Badge variant={session.executionMode === "live" ? "destructive" : session.executionMode === "simulation" ? "secondary" : "outline"}>
+                          {session.executionMode}
+                        </Badge>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Play className="h-5 w-5" />
+            Payload Execution
+          </CardTitle>
+          <CardDescription>
+            Execute payloads and capture evidence in the sandbox
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {selectedSession ? (
+            <>
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="text-sm font-medium">Session: {selectedSession.name}</p>
+                <p className="text-xs text-muted-foreground">Target: {selectedSession.targetUrl || "Not set"}</p>
+              </div>
+              <div className="space-y-3">
+                <Label>Target Endpoint</Label>
+                <Input
+                  value={targetEndpoint}
+                  onChange={(e) => setTargetEndpoint(e.target.value)}
+                  placeholder="/api/login"
+                  data-testid="input-sandbox-target-endpoint"
+                />
+                <Label>Payload Content</Label>
+                <Textarea
+                  value={payloadContent}
+                  onChange={(e) => setPayloadContent(e.target.value)}
+                  placeholder="' OR '1'='1"
+                  rows={3}
+                  data-testid="input-sandbox-payload"
+                />
+                <Button onClick={executePayload} disabled={isLoading || !adminPassword} className="w-full" data-testid="button-execute-payload">
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+                  Execute Payload
+                </Button>
+              </div>
+              <Separator />
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Snapshots</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={snapshotName}
+                      onChange={(e) => setSnapshotName(e.target.value)}
+                      placeholder="Snapshot name"
+                      className="w-32 h-8"
+                      data-testid="input-snapshot-name"
+                    />
+                    <Button size="sm" onClick={createSnapshot} disabled={isLoading} data-testid="button-create-snapshot">
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                <ScrollArea className="h-24">
+                  {snapshots.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No snapshots. Create one for rollback capability.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {snapshots.map((snap: any) => (
+                        <div key={snap.id} className="flex items-center justify-between p-2 bg-muted/30 rounded text-sm">
+                          <span>{snap.name}</span>
+                          <Button size="sm" variant="ghost" onClick={() => rollbackToSnapshot(snap.id)} data-testid={`button-rollback-${snap.id}`}>
+                            <RotateCcw className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+              <Separator />
+              <div>
+                <Label className="mb-2 block">Execution History</Label>
+                <ScrollArea className="h-32">
+                  {executions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No executions yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {executions.map((exec: any, idx: number) => (
+                        <div key={idx} className="p-2 bg-muted/30 rounded text-sm flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">{exec.payloadName}</p>
+                            <p className="text-xs text-muted-foreground">{exec.targetEndpoint}</p>
+                          </div>
+                          <Badge variant={exec.success ? "default" : "destructive"}>
+                            {exec.success ? "Success" : "Failed"}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <Terminal className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Select a session to execute payloads</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================================
+// LATERAL MOVEMENT TAB - Credential Reuse & Pivot Discovery
+// ============================================================================
+function LateralMovementTab({ adminPassword }: { adminPassword: string }) {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const [techniques, setTechniques] = useState<any[]>([]);
+  const [credentials, setCredentials] = useState<any[]>([]);
+  const [pivotPoints, setPivotPoints] = useState<any[]>([]);
+  const [findings, setFindings] = useState<any[]>([]);
+  
+  // Credential reuse form
+  const [credUsername, setCredUsername] = useState("");
+  const [credDomain, setCredDomain] = useState("");
+  const [credValue, setCredValue] = useState("");
+  const [credType, setCredType] = useState<"password" | "ntlm_hash" | "kerberos_ticket">("password");
+  const [targetHosts, setTargetHosts] = useState("");
+  
+  // Pass-the-hash form
+  const [pthHash, setPthHash] = useState("");
+  const [pthUsername, setPthUsername] = useState("");
+  const [pthDomain, setPthDomain] = useState("");
+  const [pthTarget, setPthTarget] = useState("");
+  
+  // Pivot discovery form
+  const [pivotStartHost, setPivotStartHost] = useState("");
+  const [pivotDepth, setPivotDepth] = useState(3);
+  
+  const [testResult, setTestResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (adminPassword) {
+      fetchTechniques();
+      fetchFindings();
+      fetchPivotPoints();
+    }
+  }, [adminPassword]);
+
+  const fetchTechniques = async () => {
+    if (!adminPassword) return;
+    try {
+      const res = await fetch("/api/lateral-movement/techniques", {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTechniques(Object.entries(data.techniques || {}).map(([id, info]: [string, any]) => ({ id, ...info })));
+      }
+    } catch (error) {
+      console.error("Failed to fetch techniques");
+    }
+  };
+
+  const fetchCredentials = async () => {
+    if (!adminPassword) return;
+    try {
+      const res = await fetch("/api/lateral-movement/credentials", {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCredentials(data.credentials || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch credentials");
+    }
+  };
+
+  const fetchFindings = async () => {
+    if (!adminPassword) return;
+    try {
+      const res = await fetch("/api/lateral-movement/findings", {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFindings(data.findings || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch findings");
+    }
+  };
+
+  const fetchPivotPoints = async () => {
+    if (!adminPassword) return;
+    try {
+      const res = await fetch("/api/lateral-movement/pivot-points", {
+        headers: { "X-Admin-Password": adminPassword },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPivotPoints(data.pivotPoints || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch pivot points");
+    }
+  };
+
+  const testCredentialReuse = async () => {
+    if (!credUsername || !targetHosts) {
+      toast({ title: "Enter username and target hosts", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await securityApiRequest("/api/lateral-movement/test-reuse", {
+        username: credUsername,
+        domain: credDomain,
+        credentialValue: credValue,
+        credentialType: credType,
+        targetHosts: targetHosts.split(",").map(h => h.trim()).filter(Boolean),
+        techniques: ["credential_reuse", "ssh_pivot", "smb_relay"],
+      }, adminPassword);
+      setTestResult(result);
+      toast({ 
+        title: `Tested ${result.testedHosts?.length || 0} hosts`,
+        description: `${result.successfulHosts?.length || 0} successful`,
+      });
+      fetchFindings();
+    } catch (error: any) {
+      toast({ title: "Test failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const testPassTheHash = async () => {
+    if (!pthHash || !pthUsername || !pthTarget) {
+      toast({ title: "Enter hash, username, and target", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await securityApiRequest("/api/lateral-movement/pass-the-hash", {
+        ntlmHash: pthHash,
+        username: pthUsername,
+        domain: pthDomain || "WORKGROUP",
+        targetHost: pthTarget,
+      }, adminPassword);
+      setTestResult(result);
+      toast({ title: result.success ? "Pass-the-hash successful" : "Pass-the-hash failed" });
+      fetchFindings();
+    } catch (error: any) {
+      toast({ title: "Test failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const discoverPivots = async () => {
+    if (!pivotStartHost) {
+      toast({ title: "Enter starting host", variant: "destructive" });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await securityApiRequest("/api/lateral-movement/discover-pivots", {
+        startingHost: pivotStartHost,
+        scanDepth: pivotDepth,
+      }, adminPassword);
+      setTestResult(result);
+      toast({ 
+        title: `Discovered ${result.pivotPoints?.length || 0} pivot points`,
+        description: `Attack path risk: ${result.attackPath?.overallRisk || "unknown"}`,
+      });
+      fetchPivotPoints();
+      fetchFindings();
+    } catch (error: any) {
+      toast({ title: "Discovery failed", description: error.message, variant: "destructive" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Credential Reuse Testing
+            </CardTitle>
+            <CardDescription>
+              Test credentials across multiple hosts for password reuse vulnerabilities
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Username</Label>
+                <Input
+                  value={credUsername}
+                  onChange={(e) => setCredUsername(e.target.value)}
+                  placeholder="administrator"
+                  data-testid="input-cred-username"
+                />
+              </div>
+              <div>
+                <Label>Domain</Label>
+                <Input
+                  value={credDomain}
+                  onChange={(e) => setCredDomain(e.target.value)}
+                  placeholder="CORP"
+                  data-testid="input-cred-domain"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Credential Type</Label>
+              <div className="flex gap-2 mt-1">
+                {(["password", "ntlm_hash", "kerberos_ticket"] as const).map((type) => (
+                  <Button
+                    key={type}
+                    variant={credType === type ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCredType(type)}
+                    data-testid={`button-cred-type-${type}`}
+                  >
+                    {type.replace("_", " ")}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <Label>Credential Value</Label>
+              <Input
+                type="password"
+                value={credValue}
+                onChange={(e) => setCredValue(e.target.value)}
+                placeholder={credType === "ntlm_hash" ? "aad3b435b51404ee..." : "********"}
+                data-testid="input-cred-value"
+              />
+            </div>
+            <div>
+              <Label>Target Hosts (comma-separated)</Label>
+              <Input
+                value={targetHosts}
+                onChange={(e) => setTargetHosts(e.target.value)}
+                placeholder="192.168.1.10, 192.168.1.20, dc01.corp.local"
+                data-testid="input-target-hosts"
+              />
+            </div>
+            <Button onClick={testCredentialReuse} disabled={isLoading || !adminPassword} className="w-full" data-testid="button-test-credential-reuse">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Play className="h-4 w-4 mr-2" />}
+              Test Credential Reuse
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5" />
+              Pass-the-Hash Attack
+            </CardTitle>
+            <CardDescription>
+              Simulate NTLM hash-based authentication (T1550.002)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Username</Label>
+                <Input
+                  value={pthUsername}
+                  onChange={(e) => setPthUsername(e.target.value)}
+                  placeholder="administrator"
+                  data-testid="input-pth-username"
+                />
+              </div>
+              <div>
+                <Label>Domain</Label>
+                <Input
+                  value={pthDomain}
+                  onChange={(e) => setPthDomain(e.target.value)}
+                  placeholder="WORKGROUP"
+                  data-testid="input-pth-domain"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>NTLM Hash</Label>
+              <Input
+                value={pthHash}
+                onChange={(e) => setPthHash(e.target.value)}
+                placeholder="aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0"
+                data-testid="input-pth-hash"
+              />
+            </div>
+            <div>
+              <Label>Target Host</Label>
+              <Input
+                value={pthTarget}
+                onChange={(e) => setPthTarget(e.target.value)}
+                placeholder="192.168.1.10"
+                data-testid="input-pth-target"
+              />
+            </div>
+            <Button onClick={testPassTheHash} disabled={isLoading || !adminPassword} className="w-full" data-testid="button-test-pth">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldAlert className="h-4 w-4 mr-2" />}
+              Simulate Pass-the-Hash
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Network className="h-5 w-5" />
+              Pivot Point Discovery
+            </CardTitle>
+            <CardDescription>
+              Discover lateral movement opportunities from a starting host
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Starting Host</Label>
+              <Input
+                value={pivotStartHost}
+                onChange={(e) => setPivotStartHost(e.target.value)}
+                placeholder="192.168.1.1"
+                data-testid="input-pivot-start"
+              />
+            </div>
+            <div>
+              <Label>Scan Depth: {pivotDepth}</Label>
+              <input
+                type="range"
+                min={1}
+                max={5}
+                value={pivotDepth}
+                onChange={(e) => setPivotDepth(parseInt(e.target.value))}
+                className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+                data-testid="input-pivot-depth"
+              />
+            </div>
+            <Button onClick={discoverPivots} disabled={isLoading || !adminPassword} className="w-full" data-testid="button-discover-pivots">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Target className="h-4 w-4 mr-2" />}
+              Discover Pivot Points
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Eye className="h-5 w-5" />
+                Test Results
+              </span>
+              <Button variant="outline" size="sm" onClick={() => { fetchTechniques(); fetchCredentials(); fetchFindings(); fetchPivotPoints(); }} disabled={!adminPassword} data-testid="button-refresh-lm-data">
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {testResult ? (
+              <ScrollArea className="h-64">
+                <pre className="text-xs bg-muted/50 p-3 rounded overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(testResult, null, 2)}
+                </pre>
+              </ScrollArea>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Network className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Run a test to see results</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Findings ({findings.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-48">
+              {findings.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No findings yet. Run tests above.</p>
+              ) : (
+                <div className="space-y-2">
+                  {findings.map((finding: any, idx: number) => (
+                    <Card key={idx} className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <Badge className={severityColors[finding.severity] || severityColors.medium}>
+                          {finding.severity}
+                        </Badge>
+                        {finding.mitreAttackId && (
+                          <Badge variant="outline" className="text-xs">{finding.mitreAttackId}</Badge>
+                        )}
+                      </div>
+                      <p className="font-medium text-sm">{finding.technique}</p>
+                      <p className="text-xs text-muted-foreground">{finding.sourceHost} → {finding.targetHost}</p>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="h-5 w-5" />
+              Pivot Points ({pivotPoints.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-40">
+              {pivotPoints.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No pivot points discovered yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {pivotPoints.map((pivot: any, idx: number) => (
+                    <div key={idx} className="p-2 bg-muted/30 rounded text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{pivot.host}</span>
+                        <Badge variant={pivot.accessLevel === "admin" ? "destructive" : "secondary"}>
+                          {pivot.accessLevel}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{pivot.availableCredentials?.length || 0} credentials</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Info className="h-5 w-5" />
+              Available Techniques
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" size="sm" onClick={fetchTechniques} className="mb-3" disabled={!adminPassword} data-testid="button-load-techniques">
+              Load Techniques
+            </Button>
+            <ScrollArea className="h-32">
+              {techniques.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Click to load available techniques</p>
+              ) : (
+                <div className="space-y-1">
+                  {techniques.map((tech: any) => (
+                    <div key={tech.id} className="p-2 bg-muted/30 rounded text-xs flex justify-between">
+                      <span>{tech.name || tech.id}</span>
+                      <Badge variant="outline" className="text-xs">{tech.mitreId}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function SecurityTesting() {
   const [adminPassword, setAdminPassword] = useState("");
 
@@ -965,7 +1791,7 @@ export default function SecurityTesting() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Security Testing</h1>
           <p className="text-muted-foreground">
-            API fuzzing, authentication protocol testing, and container security analysis
+            API fuzzing, authentication testing, container security, exploit sandbox, and lateral movement
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -996,7 +1822,7 @@ export default function SecurityTesting() {
       )}
 
       <Tabs defaultValue="api-fuzzing" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3" data-testid="security-testing-tabs">
+        <TabsList className="grid w-full grid-cols-5" data-testid="security-testing-tabs">
           <TabsTrigger value="api-fuzzing" data-testid="tab-api-fuzzing">
             <FileCode className="h-4 w-4 mr-2" />
             API Fuzzing
@@ -1007,7 +1833,15 @@ export default function SecurityTesting() {
           </TabsTrigger>
           <TabsTrigger value="container-security" data-testid="tab-container-security">
             <Container className="h-4 w-4 mr-2" />
-            Container Security
+            Container
+          </TabsTrigger>
+          <TabsTrigger value="sandbox" data-testid="tab-sandbox">
+            <Terminal className="h-4 w-4 mr-2" />
+            Sandbox
+          </TabsTrigger>
+          <TabsTrigger value="lateral-movement" data-testid="tab-lateral-movement">
+            <Network className="h-4 w-4 mr-2" />
+            Lateral
           </TabsTrigger>
         </TabsList>
 
@@ -1021,6 +1855,14 @@ export default function SecurityTesting() {
 
         <TabsContent value="container-security">
           <ContainerSecurityTab adminPassword={adminPassword} />
+        </TabsContent>
+
+        <TabsContent value="sandbox">
+          <SandboxTab adminPassword={adminPassword} />
+        </TabsContent>
+
+        <TabsContent value="lateral-movement">
+          <LateralMovementTab adminPassword={adminPassword} />
         </TabsContent>
       </Tabs>
     </div>
