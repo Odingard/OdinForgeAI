@@ -8911,4 +8911,177 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to get attack paths" });
     }
   });
+
+  // ============================================
+  // AWS Cloud Penetration Testing Endpoints
+  // ============================================
+
+  // POST /api/cloud-pentest/aws/iam/analyze - Analyze IAM permissions for privilege escalation
+  app.post("/api/cloud-pentest/aws/iam/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { permissions, userId, userName, accountId } = req.body;
+
+      if (!permissions || !Array.isArray(permissions)) {
+        return res.status(400).json({ error: "Permissions array is required" });
+      }
+
+      const { awsPentestService } = await import("./services/cloud-pentest/aws-pentest-service");
+      const result = await awsPentestService.analyzeIAMPrivilegeEscalation(
+        permissions,
+        userId || "unknown",
+        userName || "unknown",
+        accountId
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze IAM permissions:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze IAM permissions" });
+    }
+  });
+
+  // POST /api/cloud-pentest/aws/s3/analyze - Analyze S3 buckets for misconfigurations
+  app.post("/api/cloud-pentest/aws/s3/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { buckets } = req.body;
+
+      if (!buckets || !Array.isArray(buckets)) {
+        return res.status(400).json({ error: "Buckets array is required" });
+      }
+
+      const { awsPentestService } = await import("./services/cloud-pentest/aws-pentest-service");
+      const result = await awsPentestService.analyzeS3Buckets(buckets);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze S3 buckets:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze S3 buckets" });
+    }
+  });
+
+  // POST /api/cloud-pentest/aws/lambda/analyze - Analyze Lambda functions for vulnerabilities
+  app.post("/api/cloud-pentest/aws/lambda/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { functions } = req.body;
+
+      if (!functions || !Array.isArray(functions)) {
+        return res.status(400).json({ error: "Functions array is required" });
+      }
+
+      const { awsPentestService } = await import("./services/cloud-pentest/aws-pentest-service");
+      const result = await awsPentestService.analyzeLambdaFunctions(functions);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze Lambda functions:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze Lambda functions" });
+    }
+  });
+
+  // ============================================
+  // Azure Cloud Penetration Testing Endpoints
+  // ============================================
+
+  // POST /api/cloud-pentest/azure/managed-identities/analyze - Analyze managed identity exploitation
+  app.post("/api/cloud-pentest/azure/managed-identities/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { identities } = req.body;
+
+      if (!identities || !Array.isArray(identities)) {
+        return res.status(400).json({ error: "Identities array is required" });
+      }
+
+      const { azurePentestService } = await import("./services/cloud-pentest/azure-pentest-service");
+      const result = await azurePentestService.analyzeManagedIdentities(identities);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze managed identities:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze managed identities" });
+    }
+  });
+
+  // POST /api/cloud-pentest/azure/storage/analyze - Analyze storage exposure
+  app.post("/api/cloud-pentest/azure/storage/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { accounts, containers } = req.body;
+
+      if (!accounts || !Array.isArray(accounts)) {
+        return res.status(400).json({ error: "Accounts array is required" });
+      }
+
+      const { azurePentestService } = await import("./services/cloud-pentest/azure-pentest-service");
+      const result = await azurePentestService.analyzeStorageExposure(accounts, containers || []);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze storage exposure:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze storage exposure" });
+    }
+  });
+
+  // POST /api/cloud-pentest/azure/rbac/analyze - Analyze RBAC escalation
+  app.post("/api/cloud-pentest/azure/rbac/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { principalId, principalName, roleAssignments } = req.body;
+
+      if (!principalId || !roleAssignments || !Array.isArray(roleAssignments)) {
+        return res.status(400).json({ error: "Principal ID and role assignments are required" });
+      }
+
+      const { azurePentestService } = await import("./services/cloud-pentest/azure-pentest-service");
+      const result = await azurePentestService.analyzeRBACEscalation(
+        principalId,
+        principalName || "unknown",
+        roleAssignments
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze RBAC escalation:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze RBAC escalation" });
+    }
+  });
+
+  // ============================================
+  // GCP Cloud Penetration Testing Endpoints
+  // ============================================
+
+  // POST /api/cloud-pentest/gcp/service-accounts/analyze - Analyze service account impersonation
+  app.post("/api/cloud-pentest/gcp/service-accounts/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { accounts } = req.body;
+
+      if (!accounts || !Array.isArray(accounts)) {
+        return res.status(400).json({ error: "Accounts array is required" });
+      }
+
+      const { gcpPentestService } = await import("./services/cloud-pentest/gcp-pentest-service");
+      const result = await gcpPentestService.analyzeServiceAccounts(accounts);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze service accounts:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze service accounts" });
+    }
+  });
+
+  // POST /api/cloud-pentest/gcp/compute-metadata/analyze - Analyze compute metadata abuse
+  app.post("/api/cloud-pentest/gcp/compute-metadata/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { instances } = req.body;
+
+      if (!instances || !Array.isArray(instances)) {
+        return res.status(400).json({ error: "Instances array is required" });
+      }
+
+      const { gcpPentestService } = await import("./services/cloud-pentest/gcp-pentest-service");
+      const result = await gcpPentestService.analyzeComputeMetadata(instances);
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to analyze compute metadata:", error);
+      res.status(500).json({ error: error.message || "Failed to analyze compute metadata" });
+    }
+  });
 }
