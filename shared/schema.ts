@@ -4763,6 +4763,61 @@ export type InsertForensicExport = z.infer<typeof insertForensicExportSchema>;
 export type ForensicExport = typeof forensicExports.$inferSelect;
 
 // ============================================================================
+// HITL APPROVAL REQUESTS (Human-in-the-Loop for high-risk commands)
+// ============================================================================
+
+export const hitlApprovalStatuses = [
+  "pending",
+  "approved",
+  "rejected",
+  "expired",
+  "cancelled",
+] as const;
+export type HitlApprovalStatus = typeof hitlApprovalStatuses[number];
+
+export const hitlRiskLevels = [
+  "critical",
+  "high",
+  "medium",
+] as const;
+export type HitlRiskLevel = typeof hitlRiskLevels[number];
+
+export const hitlApprovalRequests = pgTable("hitl_approval_requests", {
+  id: varchar("id").primaryKey(),
+  evaluationId: varchar("evaluation_id").notNull(),
+  executionId: varchar("execution_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  agentName: varchar("agent_name").notNull(),
+  command: text("command").notNull(),
+  target: varchar("target"),
+  riskLevel: varchar("risk_level").notNull().$type<HitlRiskLevel>(),
+  riskReason: text("risk_reason").notNull(),
+  matchedPolicies: jsonb("matched_policies").$type<Array<{
+    policyId: number;
+    policyType: string;
+    matchedContent: string;
+    similarity: number;
+  }>>(),
+  status: varchar("status").notNull().$type<HitlApprovalStatus>().default("pending"),
+  requestedAt: timestamp("requested_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  respondedAt: timestamp("responded_at"),
+  respondedBy: varchar("responded_by"),
+  responseSignature: varchar("response_signature"),
+  responseNonce: varchar("response_nonce"),
+  rejectionReason: text("rejection_reason"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+});
+
+export const insertHitlApprovalRequestSchema = createInsertSchema(hitlApprovalRequests).omit({
+  id: true,
+  requestedAt: true,
+});
+
+export type InsertHitlApprovalRequest = z.infer<typeof insertHitlApprovalRequestSchema>;
+export type HitlApprovalRequest = typeof hitlApprovalRequests.$inferSelect;
+
+// ============================================================================
 // AI DEBATE MODULE TYPES (shared between server and client)
 // ============================================================================
 
