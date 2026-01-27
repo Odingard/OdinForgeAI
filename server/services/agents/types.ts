@@ -186,6 +186,20 @@ export interface ImpactFindings {
   reputationalRisk: "critical" | "high" | "medium" | "low";
 }
 
+export type PolicyDecision = "ALLOW" | "DENY" | "MODIFY";
+
+export interface SafetyDecision {
+  id: string;
+  evaluationId: string;
+  agentName: string;
+  originalAction: string;
+  decision: PolicyDecision;
+  modifiedAction?: string;
+  reasoning: string;
+  policyReferences: string[];
+  timestamp: Date;
+}
+
 export interface AgentMemory {
   context: AgentContext;
   recon?: ReconFindings;
@@ -195,6 +209,7 @@ export interface AgentMemory {
   enhancedBusinessLogic?: EnhancedBusinessLogicFindings;
   multiVector?: MultiVectorFindings;
   impact?: ImpactFindings;
+  safetyDecisions?: SafetyDecision[];
 }
 
 export interface AgentResult<T> {
@@ -239,6 +254,7 @@ export interface OrchestratorResult {
     multiVector?: MultiVectorFindings;
     impact: ImpactFindings;
   };
+  safetyDecisions?: SafetyDecision[];
   totalProcessingTime: number;
 }
 
