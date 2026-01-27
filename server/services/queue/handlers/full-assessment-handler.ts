@@ -2,6 +2,7 @@ import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { runFullAssessment } from "../../full-assessment";
 import { governanceEnforcement } from "../../governance/governance-enforcement";
+import { setTenantContext, clearTenantContext } from "../../rls-setup";
 import {
   FullAssessmentJobData,
   JobResult,
@@ -56,6 +57,8 @@ export async function handleFullAssessmentJob(
   const jobId = job.id || assessmentId;
 
   console.log(`[FullAssessment] Starting full assessment ${assessmentId} for ${targetSystems.length} systems`);
+
+  await setTenantContext(organizationId);
 
   const governanceCheck = await governanceEnforcement.canStartOperation(
     organizationId,
@@ -161,5 +164,7 @@ export async function handleFullAssessmentJob(
       error: errorMessage,
       duration: Date.now() - startTime,
     };
+  } finally {
+    await clearTenantContext().catch((err) => console.error("[RLS] Failed to clear context:", err));
   }
 }

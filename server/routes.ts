@@ -6432,7 +6432,11 @@ async function runEvaluation(evaluationId: string, data: {
       (agentName, stage, progress, message) => {
         wsService.sendProgress(evaluationId, agentName, stage, progress, message);
       },
-      { adversaryProfile: data.adversaryProfile as any }
+      { 
+        adversaryProfile: data.adversaryProfile as any,
+        organizationId: orgId,
+        executionMode: executionMode as "safe" | "simulation" | "live",
+      }
     );
 
     // Auto-detect and merge app-logic findings if API patterns detected

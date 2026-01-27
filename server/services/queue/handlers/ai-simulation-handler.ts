@@ -2,6 +2,7 @@ import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { runAISimulation, type AISimulationResult } from "../../agents/ai-simulation";
 import { governanceEnforcement } from "../../governance/governance-enforcement";
+import { setTenantContext, clearTenantContext } from "../../rls-setup";
 import {
   AiSimulationJobData,
   JobResult,
@@ -67,6 +68,8 @@ export async function handleAISimulationJob(
   const jobId = job.id || simulationId;
 
   console.log(`[AISimulation] Starting ${scenario} simulation with ${rounds} rounds`);
+
+  await setTenantContext(organizationId);
 
   const governanceCheck = await governanceEnforcement.canStartOperation(
     organizationId,
@@ -211,5 +214,7 @@ export async function handleAISimulationJob(
       error: errorMessage,
       duration: Date.now() - startTime,
     };
+  } finally {
+    await clearTenantContext().catch((err) => console.error("[RLS] Failed to clear context:", err));
   }
 }

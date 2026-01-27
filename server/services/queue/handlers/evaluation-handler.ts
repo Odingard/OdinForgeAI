@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { storage } from "../../../storage";
 import { runAgentOrchestrator } from "../../agents/orchestrator";
 import { governanceEnforcement } from "../../governance/governance-enforcement";
+import { setTenantContext, clearTenantContext } from "../../rls-setup";
 import {
   EvaluationJobData,
   JobResult,
@@ -57,6 +58,9 @@ export async function handleEvaluationJob(
   const jobId = job.id || evaluationId;
 
   console.log(`[Evaluation] Starting evaluation ${evaluationId} in ${executionMode} mode`);
+
+  // Set RLS context for this background job
+  await setTenantContext(organizationId);
 
   const governanceCheck = await governanceEnforcement.canStartOperation(
     organizationId,
@@ -141,7 +145,11 @@ export async function handleEvaluationJob(
       priority,
       description,
       evaluationId,
-      onProgress
+      onProgress,
+      {
+        organizationId,
+        executionMode: executionMode as "safe" | "simulation" | "live",
+      }
     );
 
     await storage.updateEvaluationStatus(evaluationId, "completed");
@@ -210,5 +218,10 @@ export async function handleEvaluationJob(
       error: errorMessage,
       duration: Date.now() - startTime,
     };
+  } finally {
+    // Clear RLS context after job completes
+    await clearTenantContext().catch((err) => {
+      console.error("[RLS] Failed to clear context after job:", err);
+    });
   }
 }
