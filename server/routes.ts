@@ -45,6 +45,9 @@ import { runFullAssessment } from "./services/full-assessment";
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { forensicExportService } from "./services/forensic-export";
+import { AuditLogger } from "./services/audit-logger";
 
 // Helper function to normalize platform strings for comparison
 function normalizePlatform(platform: string): string {
@@ -9900,4 +9903,89 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to delete policy" });
     }
   });
+
+  // ============================================================================
+  // FORENSIC EXPORT ROUTES
+  // ============================================================================
+
+  // POST /api/forensic-exports - Create a forensic export
+  app.post("/api/forensic-exports", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
+    try {
+      const { evaluationId, executionId, encryptionPassword, includeEvidenceFiles } = req.body;
+      const authReq = req as UIAuthenticatedRequest;
+      const exportedBy = authReq.user?.email || "unknown";
+
+      if (!evaluationId || !encryptionPassword) {
+        return res.status(400).json({ error: "evaluationId and encryptionPassword are required" });
+      }
+
+      if (encryptionPassword.length < 12) {
+        return res.status(400).json({ error: "Encryption password must be at least 12 characters" });
+      }
+
+      const result = await forensicExportService.createExport(
+        evaluationId,
+        executionId || evaluationId,
+        exportedBy,
+        encryptionPassword,
+        includeEvidenceFiles ?? true
+      );
+
+      res.json({
+        success: true,
+        exportId: result.exportId,
+        message: "Forensic export created successfully",
+      });
+    } catch (error: any) {
+      console.error("Failed to create forensic export:", error);
+      res.status(500).json({ error: error.message || "Failed to create forensic export" });
+    }
+  });
+
+  // GET /api/forensic-exports/:exportId/download - Download a forensic export
+  app.get("/api/forensic-exports/:exportId/download", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
+    try {
+      const { exportId } = req.params;
+
+      const result = await forensicExportService.downloadExport(exportId);
+      if (!result) {
+        return res.status(404).json({ error: "Export not found" });
+      }
+
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
+      res.setHeader("Content-Length", result.data.length);
+      res.send(result.data);
+    } catch (error: any) {
+      console.error("Failed to download forensic export:", error);
+      res.status(500).json({ error: error.message || "Failed to download forensic export" });
+    }
+  });
+
+  // GET /api/forensic-exports/evaluation/:evaluationId - Get export history for an evaluation
+  app.get("/api/forensic-exports/evaluation/:evaluationId", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const exports = await forensicExportService.getExportHistory(evaluationId);
+      res.json(exports);
+    } catch (error: any) {
+      console.error("Failed to get forensic export history:", error);
+      res.status(500).json({ error: error.message || "Failed to get export history" });
+    }
+  });
+
+  // GET /api/audit-logs/evaluation/:evaluationId - Get audit logs for an evaluation
+  app.get("/api/audit-logs/evaluation/:evaluationId", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const logs = await AuditLogger.getLogsForEvaluation(evaluationId);
+      res.json(logs);
+    } catch (error: any) {
+      console.error("Failed to get audit logs:", error);
+      res.status(500).json({ error: error.message || "Failed to get audit logs" });
+    }
+  });
+
+  // Register Object Storage routes for file uploads
+  registerObjectStorageRoutes(app);
 }

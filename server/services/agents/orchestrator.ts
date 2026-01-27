@@ -27,6 +27,7 @@ import { checkExploitChain, checkLateralMovement, createSafetyDecision, PolicyCh
 import { runDebateModule, filterVerifiedFindings, type DebateResult } from "./debate-module";
 import { wsService } from "../websocket";
 import { storage } from "../../storage";
+import { createAuditLogger } from "../audit-logger";
 
 export interface OrchestratorOptions {
   adversaryProfile?: AdversaryProfile;
@@ -44,6 +45,20 @@ export async function runAgentOrchestrator(
   options?: OrchestratorOptions
 ): Promise<OrchestratorResult> {
   const startTime = Date.now();
+  const executionId = `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  const auditLogger = createAuditLogger({
+    executionId,
+    evaluationId,
+    organizationId: options?.organizationId || "default",
+  });
+
+  await auditLogger.logAgentDecision(
+    "Orchestrator",
+    "START_EVALUATION",
+    `Starting evaluation for ${exposureType} on asset ${assetId}`,
+    { assetId, exposureType, priority, description, executionMode: options?.executionMode }
+  );
   
   onProgress?.("Policy Engine", "policy", 1, "Loading Rules of Engagement...");
   

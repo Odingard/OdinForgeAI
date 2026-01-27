@@ -4686,6 +4686,83 @@ export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
 // ============================================================================
+// FORENSIC AUDIT LOGS (for compliance and evidence collection)
+// ============================================================================
+
+export const auditLogTypes = [
+  "agent_decision",
+  "llm_prompt",
+  "llm_response",
+  "command_output",
+  "screenshot",
+  "network_capture",
+  "policy_check",
+  "evidence_artifact",
+] as const;
+export type AuditLogType = typeof auditLogTypes[number];
+
+export const auditLogs = pgTable("audit_logs", {
+  id: varchar("id").primaryKey(),
+  executionId: varchar("execution_id").notNull(),
+  evaluationId: varchar("evaluation_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  agentName: varchar("agent_name").notNull(),
+  logType: varchar("log_type").notNull().$type<AuditLogType>(),
+  content: text("content"),
+  prompt: text("prompt"),
+  response: text("response"),
+  commandInput: text("command_input"),
+  commandOutput: text("command_output"),
+  decision: varchar("decision"),
+  decisionReason: text("decision_reason"),
+  objectStorageKey: varchar("object_storage_key"),
+  objectStorageType: varchar("object_storage_type"),
+  objectStorageSize: integer("object_storage_size"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  parentLogId: varchar("parent_log_id"),
+  sequenceNumber: integer("sequence_number").notNull(),
+  durationMs: integer("duration_ms"),
+  modelUsed: varchar("model_used"),
+  tokenCount: integer("token_count"),
+  checksum: varchar("checksum"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
+export type AuditLog = typeof auditLogs.$inferSelect;
+
+export const forensicExports = pgTable("forensic_exports", {
+  id: varchar("id").primaryKey(),
+  evaluationId: varchar("evaluation_id").notNull(),
+  executionId: varchar("execution_id").notNull(),
+  organizationId: varchar("organization_id").notNull(),
+  exportedBy: varchar("exported_by").notNull(),
+  encryptionKeyHash: varchar("encryption_key_hash").notNull(),
+  objectStorageKey: varchar("object_storage_key").notNull(),
+  fileSize: integer("file_size").notNull(),
+  logCount: integer("log_count").notNull(),
+  includesScreenshots: boolean("includes_screenshots").default(false),
+  includesNetworkCaptures: boolean("includes_network_captures").default(false),
+  expiresAt: timestamp("expires_at"),
+  downloadCount: integer("download_count").default(0),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertForensicExportSchema = createInsertSchema(forensicExports).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertForensicExport = z.infer<typeof insertForensicExportSchema>;
+export type ForensicExport = typeof forensicExports.$inferSelect;
+
+// ============================================================================
 // AI DEBATE MODULE TYPES (shared between server and client)
 // ============================================================================
 
