@@ -58,6 +58,17 @@ The design system follows custom guidelines blending Material Design with cyber-
 
 ## Recent Changes
 
+**January 2026 - RuntimeGuard Human-in-the-Loop Approval System**
+- Added `hitl_approval_requests` table for tracking pending/approved/rejected command approvals
+- Implemented `RuntimeGuard` service with forbidden command pattern detection (rm -rf, DROP TABLE, etc.)
+- RAG-based policy search to identify blacklisted targets and forbidden commands from security_policies
+- HITL approval workflow blocks orchestrator execution until security admin approves high-risk commands
+- Server-side signature generation using HMAC with HITL_SIGNING_SECRET (required in production)
+- WebSocket events: `hitl_approval_required` and `hitl_approval_response` for real-time notifications
+- API endpoints: GET /api/hitl/pending, GET /api/hitl/evaluation/:id, POST /api/hitl/:id/approve, POST /api/hitl/:id/reject
+- RBAC: Approve/reject requires security_admin or org_owner roles; viewing allows security_analyst
+- PolicyGuardian integration via checkActionWithRuntimeGuard() and executeWithApproval()
+
 **January 2026 - Forensic Audit Logging System**
 - Added `audit_logs` and `forensic_exports` tables for comprehensive agent activity tracking
 - Implemented `AuditLogger` service with methods for logging agent decisions, LLM prompts/responses, command outputs, policy checks, and evidence artifacts
