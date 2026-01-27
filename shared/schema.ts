@@ -1,7 +1,21 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, timestamp, jsonb, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Custom type for pgvector embeddings
+const vector = customType<{ data: number[]; driverData: string }>({
+  dataType() {
+    return "vector(1536)";
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: string): number[] {
+    // Parse "[0.1,0.2,...]" format
+    return JSON.parse(value.replace(/^\[/, "[").replace(/\]$/, "]"));
+  },
+});
 
 // ============================================================================
 // OdinForge Role-Based Access Control (RBAC)
@@ -4541,3 +4555,66 @@ export const insertAttackPathSchema = createInsertSchema(attackPaths).omit({
 
 export type InsertAttackPath = z.infer<typeof insertAttackPathSchema>;
 export type AttackPath = typeof attackPaths.$inferSelect;
+
+// ============================================================================
+// Security Policies - RAG Vector Storage for Rules of Engagement
+// pgvector-enabled table for semantic search of security policies
+// ============================================================================
+
+export const policyTypes = [
+  "rules_of_engagement",
+  "acceptable_use",
+  "scope_definition",
+  "escalation_procedure",
+  "compliance_requirement",
+  "risk_tolerance",
+  "incident_response",
+  "authorization_matrix",
+  "other",
+] as const;
+export type PolicyType = typeof policyTypes[number];
+
+export const securityPolicies = pgTable("security_policies", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  
+  // Document content
+  content: text("content").notNull(),
+  
+  // Metadata for filtering and context
+  metadata: jsonb("metadata").$type<{
+    filename?: string;
+    policyType?: PolicyType;
+    effectiveDate?: string;
+    expirationDate?: string;
+    version?: string;
+    author?: string;
+    department?: string;
+    classification?: "public" | "internal" | "confidential" | "restricted";
+    tags?: string[];
+    chunkIndex?: number;
+    totalChunks?: number;
+    sourceHash?: string;
+  }>().default({}),
+  
+  // Vector embedding for semantic search (OpenAI text-embedding-ada-002 = 1536 dimensions)
+  embedding: vector("embedding"),
+  
+  // Organization isolation
+  organizationId: varchar("organization_id", { length: 255 }),
+  
+  // Timestamps
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSecurityPolicySchema = createInsertSchema(securityPolicies, {
+  // Override embedding type since drizzle-zod doesn't handle customType
+  embedding: z.array(z.number()).optional(),
+}).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSecurityPolicy = z.infer<typeof insertSecurityPolicySchema>;
+export type SecurityPolicy = typeof securityPolicies.$inferSelect;
