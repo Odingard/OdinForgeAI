@@ -74,6 +74,9 @@ The platform utilizes a full-stack TypeScript architecture. The frontend is buil
     - Graceful degradation: safe mode defaults to DENY on policy check errors; other modes allow on error
     - Key files: `server/services/agents/policy-guardian.ts`, `server/services/agents/orchestrator.ts`
     - **ARCHITECTURAL CONSTRAINT**: Exploit and Lateral agents are plan-only generators (no real action execution); PolicyGuardian gates planned findings before final commit
+    - **Database Persistence**: safety_decisions table stores audit trail with 4 indexes (evaluation, organization, decision, created)
+    - **API Endpoints**: GET /api/evaluations/:id/safety-decisions (tenant-scoped), GET /api/safety-decisions (with filters), GET /api/safety-decisions/stats
+    - **Frontend**: SafetyDecisionsPanel component displays blocked/modified actions with collapsible details, integrated in EvaluationDetail
 
 **UI/UX Design**:
 The design system follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
