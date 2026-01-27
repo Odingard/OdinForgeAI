@@ -58,6 +58,15 @@ The design system follows custom guidelines blending Material Design with cyber-
 
 ## Recent Changes
 
+**January 2026 - Forensic Audit Logging System**
+- Added `audit_logs` and `forensic_exports` tables for comprehensive agent activity tracking
+- Implemented `AuditLogger` service with methods for logging agent decisions, LLM prompts/responses, command outputs, policy checks, and evidence artifacts
+- Created `EvidenceStorageService` using Replit Object Storage for screenshots (PNG) and network captures (PCAP)
+- Built `ForensicExportService` with AES-256-GCM encryption (scrypt key derivation) for secure export bundling
+- Added RBAC-protected API endpoints for forensic export creation/download (requires security_admin, org_owner, or security_analyst roles)
+- Orchestrator enhanced to create audit logs at evaluation start with unique executionId
+- Encryption format: salt (32 bytes) + IV (16 bytes) + authTag (16 bytes) + ciphertext
+
 **January 2026 - Real-Time Reasoning Trace View**
 - Added `ReasoningTracePanel` component with terminal-style UI displaying agent Chain of Thought
 - Implemented WebSocket events: `reasoning_trace` and `shared_memory_update`
