@@ -145,6 +145,22 @@ export async function createDatabaseIndexes(): Promise<void> {
       name: "idx_vulnerability_imports_cve",
       query: sql`CREATE INDEX IF NOT EXISTS idx_vulnerability_imports_cve ON vulnerability_imports (cve_id)`,
     },
+    {
+      name: "idx_safety_decisions_evaluation",
+      query: sql`CREATE INDEX IF NOT EXISTS idx_safety_decisions_evaluation ON safety_decisions (evaluation_id)`,
+    },
+    {
+      name: "idx_safety_decisions_organization",
+      query: sql`CREATE INDEX IF NOT EXISTS idx_safety_decisions_organization ON safety_decisions (organization_id)`,
+    },
+    {
+      name: "idx_safety_decisions_decision",
+      query: sql`CREATE INDEX IF NOT EXISTS idx_safety_decisions_decision ON safety_decisions (decision)`,
+    },
+    {
+      name: "idx_safety_decisions_created",
+      query: sql`CREATE INDEX IF NOT EXISTS idx_safety_decisions_created ON safety_decisions (created_at DESC)`,
+    },
   ];
   
   let created = 0;
@@ -207,6 +223,10 @@ export async function dropAllCustomIndexes(): Promise<void> {
     "idx_vulnerability_imports_asset",
     "idx_vulnerability_imports_severity",
     "idx_vulnerability_imports_cve",
+    "idx_safety_decisions_evaluation",
+    "idx_safety_decisions_organization",
+    "idx_safety_decisions_decision",
+    "idx_safety_decisions_created",
   ];
   
   for (const name of indexNames) {

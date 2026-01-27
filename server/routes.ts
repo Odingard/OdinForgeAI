@@ -1993,6 +1993,60 @@ export async function registerRoutes(
     }
   });
 
+  // Safety Decisions API - PolicyGuardian audit trail
+  app.get("/api/evaluations/:evaluationId/safety-decisions", apiRateLimiter, async (req, res) => {
+    try {
+      const organizationId = req.tenant!.organizationId;
+      const decisions = await storage.getSafetyDecisionsByEvaluationId(req.params.evaluationId);
+      
+      // Filter to ensure tenant isolation - only return decisions belonging to this organization
+      const filteredDecisions = decisions.filter(d => d.organizationId === organizationId);
+      res.json(filteredDecisions);
+    } catch (error) {
+      console.error("Error fetching safety decisions for evaluation:", error);
+      res.status(500).json({ error: "Failed to fetch safety decisions" });
+    }
+  });
+
+  app.get("/api/safety-decisions", apiRateLimiter, async (req, res) => {
+    try {
+      const organizationId = req.tenant!.organizationId;
+      const { decision, limit, offset, startDate, endDate } = req.query;
+      
+      const decisions = await storage.getSafetyDecisionsByOrganization(organizationId, {
+        decision: decision as string | undefined,
+        limit: limit ? parseInt(limit as string, 10) : undefined,
+        offset: offset ? parseInt(offset as string, 10) : undefined,
+        startDate: startDate ? new Date(startDate as string) : undefined,
+        endDate: endDate ? new Date(endDate as string) : undefined,
+      });
+      
+      res.json(decisions);
+    } catch (error) {
+      console.error("Error fetching safety decisions:", error);
+      res.status(500).json({ error: "Failed to fetch safety decisions" });
+    }
+  });
+
+  app.get("/api/safety-decisions/stats", apiRateLimiter, async (req, res) => {
+    try {
+      const organizationId = req.tenant!.organizationId;
+      const decisions = await storage.getSafetyDecisionsByOrganization(organizationId);
+      
+      const stats = {
+        total: decisions.length,
+        allowed: decisions.filter(d => d.decision === "ALLOW").length,
+        denied: decisions.filter(d => d.decision === "DENY").length,
+        modified: decisions.filter(d => d.decision === "MODIFY").length,
+      };
+      
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching safety decision stats:", error);
+      res.status(500).json({ error: "Failed to fetch safety decision stats" });
+    }
+  });
+
   app.get("/api/findings/:findingId/evidence", apiRateLimiter, async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
