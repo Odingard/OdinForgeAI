@@ -9713,4 +9713,136 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: error.message || "Failed to simulate session" });
     }
   });
+
+  // ============================================================================
+  // RAG Policy Search Endpoints
+  // Semantic search over security policies for Rules of Engagement context
+  // ============================================================================
+
+  // POST /api/policies/search - Semantic search over security policies
+  app.post("/api/policies/search", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { query, organizationId, policyType, limit, minSimilarity } = req.body;
+
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Query is required and must be a string" });
+      }
+
+      const { searchPolicies } = await import("./services/rag/policy-search");
+      const results = await searchPolicies(query, {
+        organizationId,
+        policyType,
+        limit: limit || 5,
+        minSimilarity: minSimilarity || 0.7,
+      });
+
+      res.json({
+        query,
+        results,
+        count: results.length,
+      });
+    } catch (error: any) {
+      console.error("Policy search failed:", error);
+      res.status(500).json({ error: error.message || "Policy search failed" });
+    }
+  });
+
+  // GET /api/policies/context - Get policy context for AI agent injection
+  app.get("/api/policies/context", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const query = req.query.query as string;
+      const organizationId = req.query.organizationId as string | undefined;
+
+      if (!query) {
+        return res.status(400).json({ error: "Query parameter is required" });
+      }
+
+      const { getPolicyContext } = await import("./services/rag/policy-search");
+      const context = await getPolicyContext(query, { organizationId });
+
+      res.json({
+        query,
+        context,
+        hasContext: context.length > 0,
+      });
+    } catch (error: any) {
+      console.error("Failed to get policy context:", error);
+      res.status(500).json({ error: error.message || "Failed to get policy context" });
+    }
+  });
+
+  // POST /api/policies/check-compliance - Check if an action is permitted by policies
+  app.post("/api/policies/check-compliance", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const { action, targetType, executionMode, organizationId } = req.body;
+
+      if (!action || typeof action !== "string") {
+        return res.status(400).json({ error: "Action is required and must be a string" });
+      }
+
+      const { checkPolicyCompliance } = await import("./services/rag/policy-search");
+      const result = await checkPolicyCompliance(action, {
+        targetType,
+        executionMode,
+        organizationId,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Compliance check failed:", error);
+      res.status(500).json({ error: error.message || "Compliance check failed" });
+    }
+  });
+
+  // GET /api/policies - List all policies
+  app.get("/api/policies", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+      const policyType = req.query.policyType as string | undefined;
+
+      const { listPolicies } = await import("./services/rag/policy-search");
+      const policies = await listPolicies(organizationId, policyType);
+
+      res.json({
+        policies,
+        count: policies.length,
+      });
+    } catch (error: any) {
+      console.error("Failed to list policies:", error);
+      res.status(500).json({ error: error.message || "Failed to list policies" });
+    }
+  });
+
+  // GET /api/policies/stats - Get policy statistics
+  app.get("/api/policies/stats", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const organizationId = req.query.organizationId as string | undefined;
+
+      const { getPolicyStats } = await import("./services/rag/policy-search");
+      const stats = await getPolicyStats(organizationId);
+
+      res.json(stats);
+    } catch (error: any) {
+      console.error("Failed to get policy stats:", error);
+      res.status(500).json({ error: error.message || "Failed to get policy stats" });
+    }
+  });
+
+  // DELETE /api/policies/:id - Delete a policy
+  app.delete("/api/policies/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid policy ID" });
+      }
+
+      const { deletePolicy } = await import("./services/rag/policy-search");
+      await deletePolicy(id);
+
+      res.json({ success: true, deletedId: id });
+    } catch (error: any) {
+      console.error("Failed to delete policy:", error);
+      res.status(500).json({ error: error.message || "Failed to delete policy" });
+    }
+  });
 }
