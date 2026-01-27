@@ -7,6 +7,9 @@ export interface AgentContext {
   description: string;
   evaluationId: string;
   adversaryProfile?: AdversaryProfile;
+  organizationId?: string;
+  executionMode?: "safe" | "simulation" | "live";
+  policyContext?: string;
 }
 
 export interface ReconFindings {

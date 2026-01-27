@@ -55,6 +55,15 @@ The platform utilizes a full-stack TypeScript architecture. The frontend is buil
     - Session playback with speed control and event filtering
     - Finding correlation with CVE references
 
+*   **RAG-Enhanced Policy Enforcement (January 2026)**: Vector-based Rules of Engagement (RoE) context injection into all AI agents to prevent hallucination and enforce organizational security policies:
+    - Policy context fetched via semantic search at orchestrator startup
+    - Injected into system prompts for all 7 agents (Recon, Exploit, Lateral, Business Logic, Impact, Defender, AI Simulation)
+    - Three execution modes (Safe, Simulation, Live) with mode-specific constraints
+    - Multi-tenant support with organizationId-scoped policy retrieval
+    - Graceful fallback to default policy reminders if RAG fetch fails
+    - Action validation API for runtime policy compliance checks
+    - Key files: `server/services/agents/policy-context.ts`, `server/services/rag/policy-search.ts`
+
 **UI/UX Design**:
 The design system follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
 

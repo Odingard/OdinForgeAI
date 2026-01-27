@@ -18,9 +18,12 @@ import { generateIntelligentScore } from "./scoring-engine";
 import { generateRemediationGuidance } from "./remediation-engine";
 import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 import { validateOrchestratorFindings } from "../validation/findings-validator.js";
+import { getAgentPolicyContext } from "./policy-context";
 
 export interface OrchestratorOptions {
   adversaryProfile?: AdversaryProfile;
+  organizationId?: string;
+  executionMode?: "safe" | "simulation" | "live";
 }
 
 export async function runAgentOrchestrator(
@@ -33,6 +36,24 @@ export async function runAgentOrchestrator(
   options?: OrchestratorOptions
 ): Promise<OrchestratorResult> {
   const startTime = Date.now();
+  
+  onProgress?.("Policy Engine", "policy", 1, "Loading Rules of Engagement...");
+  
+  let policyContext = "";
+  try {
+    policyContext = await getAgentPolicyContext(
+      "penetration testing",
+      `${exposureType} assessment on ${assetId}`,
+      {
+        organizationId: options?.organizationId,
+        executionMode: options?.executionMode || "safe",
+        targetType: exposureType,
+      }
+    );
+    console.log(`[Orchestrator] Loaded policy context (${policyContext.length} chars)`);
+  } catch (err) {
+    console.warn("[Orchestrator] Failed to load policy context:", err);
+  }
 
   const context: AgentContext = {
     assetId,
@@ -41,6 +62,9 @@ export async function runAgentOrchestrator(
     description,
     evaluationId,
     adversaryProfile: options?.adversaryProfile,
+    organizationId: options?.organizationId,
+    executionMode: options?.executionMode || "safe",
+    policyContext,
   };
 
   const memory: AgentMemory = { context };

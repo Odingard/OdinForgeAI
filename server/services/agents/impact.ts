@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ImpactFindings } from "./types";
 import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
+import { formatExecutionModeConstraints } from "./policy-context";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -25,6 +26,9 @@ export async function runImpactAgent(
   const adversaryContext = memory.context.adversaryProfile 
     ? generateAdversaryPromptContext(memory.context.adversaryProfile)
     : "";
+  
+  const policyContext = memory.context.policyContext || "";
+  const executionModeConstraints = formatExecutionModeConstraints(memory.context.executionMode || "safe");
 
   const previousContext = `
 Recon Findings:
@@ -54,7 +58,9 @@ Your mission is to assess the potential impact if the vulnerability is exploited
 4. Reputational risk - brand and customer trust impact
 
 Think like a risk analyst providing executive-level impact assessment. Be realistic and data-driven.
-${adversaryContext}`;
+${adversaryContext}
+${executionModeConstraints}
+${policyContext}`;
 
   const userPrompt = `Assess the business impact for this exposure:
 

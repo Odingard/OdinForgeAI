@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentResult, ProgressCallback, ExploitFindings, LateralFindings, BusinessLogicFindings, MultiVectorFindings } from "./types";
 import { wrapAgentError } from "./error-classifier";
+import { formatExecutionModeConstraints } from "./policy-context";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -79,6 +80,8 @@ export async function runDefenderAgent(
   onProgress?.("Defender Agent", "defense", 5, "Initializing defensive analysis...");
 
   const attackContext = buildAttackContext(memory);
+  const policyContext = memory.context.policyContext || "";
+  const executionModeConstraints = formatExecutionModeConstraints(memory.context.executionMode || "safe");
 
   const systemPrompt = `You are the DEFENDER AGENT, an AI-powered blue team security system for OdinForge AI.
 
@@ -90,7 +93,9 @@ Your mission is to simulate how a mature security operations center (SOC) would 
 4. ASSESS: Evaluate the overall defensive posture and identify gaps
 
 Think like an experienced security defender. Be realistic about detection capabilities and response times.
-Consider both technical controls and process-based defenses.`;
+Consider both technical controls and process-based defenses.
+${executionModeConstraints}
+${policyContext}`;
 
   const userPrompt = `Analyze the defensive posture against these identified attacks:
 
