@@ -40,6 +40,7 @@ The platform utilizes a full-stack TypeScript architecture. The frontend is buil
 *   **RAG-Enhanced Policy Enforcement**: Vector-based Rules of Engagement (RoE) context injection into all AI agents to prevent hallucination and enforce organizational security policies.
 *   **PolicyGuardian Check-Loop**: Synchronous policy validation for agent actions before commitment to final results, using RAG-enhanced policy search for ALLOW/DENY/MODIFY decisions.
 *   **AI Debate Module for False Positive Detection**: Multi-model adversarial validation system using a CriticAgent to challenge ExploitAgent findings before final scoring, integrating a structured challenge-response protocol.
+*   **Real-Time Reasoning Trace View**: Streams agent Chain of Thought to the UI via WebSocket during evaluation execution. Features terminal-style display with color-coded agents (PolicyGuardian in gold/yellow, ExploitAgent in red, CriticAgent in cyan, etc.), auto-scroll with pause-on-hover, and live indicator for active evaluations.
 
 **UI/UX Design**:
 The design system follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
@@ -54,3 +55,27 @@ The design system follows custom guidelines blending Material Design with cyber-
 *   **BullMQ**: Job queue library.
 *   **Redis**: Backing store for BullMQ.
 *   **OpenRouter**: For alternative LLM models (e.g., Llama-3, DeepSeek) used by CriticAgent.
+
+## Recent Changes
+
+**January 2026 - Real-Time Reasoning Trace View**
+- Added `ReasoningTracePanel` component with terminal-style UI displaying agent Chain of Thought
+- Implemented WebSocket events: `reasoning_trace` and `shared_memory_update`
+- Enhanced orchestrator to emit reasoning traces during agent execution phases
+- Color-coded agent entries: PolicyGuardian (gold), ExploitAgent (red), CriticAgent (cyan), ReconAgent (blue), LateralAgent (purple), BusinessLogicAgent (orange), ImpactAgent (pink), DebateModule (emerald), Orchestrator (gray)
+- Auto-scroll with pause-on-hover functionality and live indicator for active evaluations
+
+## WebSocket Events
+
+The platform uses WebSocket for real-time communication. Key event types:
+
+| Event Type | Description | Payload |
+|------------|-------------|---------|
+| `aev_progress` | Evaluation progress updates | evaluationId, agentName, stage, progress, message |
+| `aev_complete` | Evaluation completion | evaluationId, status |
+| `reasoning_trace` | Agent Chain of Thought stream | evaluationId, agentId, agentName, content, metadata |
+| `shared_memory_update` | Agent shared memory changes | evaluationId, key, value, agentName |
+
+**Channel Subscription Pattern:**
+- Clients subscribe to `evaluation:${evaluationId}` to receive updates for specific evaluations
+- WebSocket server broadcasts to all subscribers on matching channels
