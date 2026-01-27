@@ -79,3 +79,45 @@ The platform uses WebSocket for real-time communication. Key event types:
 **Channel Subscription Pattern:**
 - Clients subscribe to `evaluation:${evaluationId}` to receive updates for specific evaluations
 - WebSocket server broadcasts to all subscribers on matching channels
+
+## Environment Separation
+
+OdinForge supports strict development vs production environment separation using Replit's infrastructure.
+
+### Environment Detection
+The platform automatically detects the environment using these signals:
+- `REPLIT_DEPLOYMENT=1` → Production
+- `REPLIT_DEPLOYMENT_PREVIEW=1` → Preview (deployment testing)
+- Otherwise → Development
+
+### Database Separation
+- **Development database**: Free, for experimentation and testing
+- **Production database**: Automatically created on publish (PostgreSQL 16 on Neon)
+- Schema changes should be validated in dev before publishing
+- Use deployment previews to test changes before affecting production
+
+### Migration Commands
+Run these commands to manage database schema:
+```bash
+npx tsx scripts/db-migrate.ts generate [name]  # Generate migration from schema changes
+npx tsx scripts/db-migrate.ts push             # Push to dev database
+npx tsx scripts/db-migrate.ts validate         # Validate schema consistency
+npx tsx scripts/db-migrate.ts status           # Show migration status
+```
+
+### Pre-Deployment Validation
+Run validation before publishing:
+```bash
+npx tsx scripts/pre-deploy-validate.ts
+```
+This checks TypeScript types and Drizzle schema before deployment.
+
+### Environment-Specific Secrets
+Secrets can be scoped by environment. The system looks for:
+1. `{SECRET_NAME}_PRODUCTION`, `{SECRET_NAME}_PREVIEW`, or `{SECRET_NAME}_DEVELOPMENT` (environment-specific)
+2. `{SECRET_NAME}` (fallback)
+
+Key secrets:
+- `DATABASE_URL` - Automatically set by Replit for each environment
+- `OPENAI_API_KEY` - AI integration key
+- `REDIS_URL` - Queue backend connection

@@ -10,6 +10,7 @@ import { registerJobHandlers } from "./services/queue/handlers";
 import { initScheduler } from "./services/scheduler/scan-scheduler";
 import { startReconciliationScheduler, runReconciliation } from "./services/data-reconciliation";
 import { gunzipSync, inflateSync } from "zlib";
+import { envConfig, logEnvironmentInfo } from "./lib/environment";
 
 const app = express();
 const httpServer = createServer(app);
@@ -262,6 +263,7 @@ app.use((req, res, next) => {
       reusePort: true,
     },
     () => {
+      logEnvironmentInfo();
       log(`serving on port ${port}`);
     },
   );
