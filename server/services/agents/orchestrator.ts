@@ -6,6 +6,7 @@ import type {
   SafetyDecision,
   ExploitFindings,
   LateralFindings,
+  DebateSummary,
 } from "./types";
 import type { AdversaryProfile, LLMValidationResult } from "@shared/schema";
 import { runReconAgent } from "./recon";
@@ -23,6 +24,7 @@ import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 import { validateOrchestratorFindings } from "../validation/findings-validator.js";
 import { getAgentPolicyContext } from "./policy-context";
 import { checkExploitChain, checkLateralMovement, createSafetyDecision, PolicyCheckResult } from "./policy-guardian";
+import { runDebateModule, filterVerifiedFindings, type DebateResult } from "./debate-module";
 import { wsService } from "../websocket";
 import { storage } from "../../storage";
 
@@ -109,7 +111,49 @@ export async function runAgentOrchestrator(
     memory,
     onProgress
   );
-  memory.exploit = guardedExploitFindings;
+
+  onProgress?.("Debate Module", "debate", 40, "CriticAgent challenging exploit findings...");
+  let debateSummary: DebateSummary | undefined;
+  let debatedExploitFindings = guardedExploitFindings;
+  
+  try {
+    const debateResult = await runDebateModule(
+      memory,
+      guardedExploitFindings,
+      { model: "meta-llama/llama-3.3-70b-instruct" },
+      (stage, progress, message) => {
+        onProgress?.("Debate Module", stage, 40 + Math.floor(progress / 10), message);
+      }
+    );
+    
+    debateSummary = {
+      finalVerdict: debateResult.finalVerdict,
+      consensusReached: debateResult.consensusReached,
+      verifiedChains: debateResult.verifiedChains,
+      adjustedConfidence: debateResult.adjustedConfidence,
+      debateRounds: debateResult.debateRounds,
+      criticModelUsed: debateResult.criticResult.modelUsed,
+      criticReasoning: debateResult.criticResult.reasoning,
+      processingTime: debateResult.processingTime,
+    };
+    
+    debatedExploitFindings = filterVerifiedFindings(debateResult);
+    
+    console.log(`[Orchestrator] Debate complete: ${debateResult.finalVerdict} (${debateResult.verifiedChains.filter(c => c.verificationStatus === "verified").length} verified, ${debateResult.verifiedChains.filter(c => c.verificationStatus === "rejected").length} rejected)`);
+    
+    wsService.broadcastToChannel(`evaluation:${evaluationId}`, {
+      type: "debate_result",
+      evaluationId,
+      verdict: debateResult.finalVerdict,
+      consensusReached: debateResult.consensusReached,
+      verifiedCount: debateResult.verifiedChains.filter(c => c.verificationStatus === "verified").length,
+      rejectedCount: debateResult.verifiedChains.filter(c => c.verificationStatus === "rejected").length,
+    });
+  } catch (err) {
+    console.warn("[Orchestrator] Debate module failed, using unverified findings:", err);
+  }
+  
+  memory.exploit = debatedExploitFindings;
 
   onProgress?.("Lateral Movement Agent", "lateral", 45, "Mapping lateral paths...");
   const lateralResult = await runWithHeartbeat(evaluationId, "Lateral Movement Agent",
@@ -272,6 +316,7 @@ export async function runAgentOrchestrator(
     llmValidation: validatedFindings.llmValidation,
     llmValidationVerdict: validatedFindings.llmValidationVerdict,
     validationStats: validatedFindings.validationStats,
+    debateSummary,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,

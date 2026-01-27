@@ -1180,6 +1180,9 @@ export const aevResults = pgTable("aev_results", {
   llmValidation: jsonb("llm_validation").$type<LLMValidationResult>(),
   llmValidationVerdict: varchar("llm_validation_verdict"), // One of llmValidationVerdicts - denormalized for filtering
   
+  // AI Debate Module - adversarial validation for false positive detection
+  debateSummary: jsonb("debate_summary").$type<DebateSummary>(),
+  
   duration: integer("duration"), // milliseconds
   completedAt: timestamp("completed_at"),
 });
@@ -4681,3 +4684,29 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+// ============================================================================
+// AI DEBATE MODULE TYPES (shared between server and client)
+// ============================================================================
+
+export type DebateVerdict = "verified" | "disputed" | "false_positive";
+
+export interface DebateChainResult {
+  name: string;
+  technique: string;
+  description: string;
+  success_likelihood: "high" | "medium" | "low";
+  verificationStatus: "verified" | "disputed" | "rejected";
+  challengeNotes?: string;
+}
+
+export interface DebateSummary {
+  finalVerdict: DebateVerdict;
+  consensusReached: boolean;
+  verifiedChains: DebateChainResult[];
+  adjustedConfidence: number;
+  debateRounds: number;
+  criticModelUsed: string;
+  criticReasoning: string;
+  processingTime: number;
+}

@@ -32,7 +32,9 @@ import { MultiVectorFindingsPanel } from "./MultiVectorFindingsPanel";
 import { WorkflowStateMachineVisualizer } from "./WorkflowStateMachineVisualizer";
 import { EvidencePanel } from "./EvidencePanel";
 import { SafetyDecisionsPanel, type SafetyDecision } from "./SafetyDecisionsPanel";
+import { DebateResultsPanel } from "./DebateResultsPanel";
 import { IntelligentScorePanel } from "./IntelligentScorePanel";
+import type { DebateSummary } from "@shared/schema";
 import { TimeToCompromiseMeter } from "./TimeToCompromiseMeter";
 import { ConfidenceGauge } from "./ConfidenceGauge";
 import { RiskHeatmap } from "./RiskHeatmap";
@@ -124,6 +126,7 @@ interface EvaluationDetailProps {
     evidenceArtifacts?: EvidenceArtifact[];
     intelligentScore?: IntelligentScore;
     remediationGuidance?: RemediationGuidance;
+    debateSummary?: DebateSummary;
   };
   onBack: () => void;
 }
@@ -568,6 +571,18 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </div>
               <div className="p-4">
                 <SafetyDecisionsPanel decisions={safetyDecisions} showTitle={false} />
+              </div>
+            </div>
+          )}
+
+          {evaluation.debateSummary && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden" data-testid="card-debate-results">
+              <div className="p-6 border-b border-border flex items-center gap-2">
+                <Brain className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-semibold">AI Debate Module</h3>
+              </div>
+              <div className="p-4">
+                <DebateResultsPanel debateSummary={evaluation.debateSummary} showTitle={false} />
               </div>
             </div>
           )}
