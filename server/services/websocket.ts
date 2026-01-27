@@ -63,7 +63,41 @@ interface SafetyBlockEvent {
   timestamp: string;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent;
+export type ReasoningTraceAgentType = 
+  | "policy_guardian"
+  | "exploit_agent"
+  | "critic_agent"
+  | "recon_agent"
+  | "lateral_agent"
+  | "business_logic_agent"
+  | "impact_agent"
+  | "debate_module"
+  | "orchestrator";
+
+interface ReasoningTraceEvent {
+  type: "reasoning_trace";
+  evaluationId: string;
+  agentType: ReasoningTraceAgentType;
+  agentName: string;
+  thought: string;
+  context?: string;
+  policiesChecked?: string[];
+  decision?: "ALLOW" | "DENY" | "MODIFY" | "VERIFIED" | "DISPUTED" | "FALSE_POSITIVE";
+  confidence?: number;
+  timestamp: string;
+}
+
+interface SharedMemoryUpdateEvent {
+  type: "shared_memory_update";
+  evaluationId: string;
+  agentType: ReasoningTraceAgentType;
+  agentName: string;
+  memoryKey: string;
+  summary: string;
+  timestamp: string;
+}
+
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -520,6 +554,54 @@ class WebSocketService {
     } else if (decision === "MODIFY") {
       console.log(`[WS] Safety Block: ${agentName} action MODIFIED - ${reasoning.substring(0, 100)}`);
     }
+  }
+
+  sendReasoningTrace(
+    evaluationId: string,
+    agentType: ReasoningTraceAgentType,
+    agentName: string,
+    thought: string,
+    options?: {
+      context?: string;
+      policiesChecked?: string[];
+      decision?: "ALLOW" | "DENY" | "MODIFY" | "VERIFIED" | "DISPUTED" | "FALSE_POSITIVE";
+      confidence?: number;
+    }
+  ): void {
+    const event: ReasoningTraceEvent = {
+      type: "reasoning_trace",
+      evaluationId,
+      agentType,
+      agentName,
+      thought,
+      context: options?.context,
+      policiesChecked: options?.policiesChecked,
+      decision: options?.decision,
+      confidence: options?.confidence,
+      timestamp: new Date().toISOString(),
+    };
+    
+    this.broadcastToChannel(`evaluation:${evaluationId}`, event);
+  }
+
+  sendSharedMemoryUpdate(
+    evaluationId: string,
+    agentType: ReasoningTraceAgentType,
+    agentName: string,
+    memoryKey: string,
+    summary: string
+  ): void {
+    const event: SharedMemoryUpdateEvent = {
+      type: "shared_memory_update",
+      evaluationId,
+      agentType,
+      agentName,
+      memoryKey,
+      summary,
+      timestamp: new Date().toISOString(),
+    };
+    
+    this.broadcastToChannel(`evaluation:${evaluationId}`, event);
   }
 
   getStats(): {
