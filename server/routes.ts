@@ -48,6 +48,7 @@ import { generateAgentFindings } from "./services/telemetry-analyzer";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { forensicExportService } from "./services/forensic-export";
 import { AuditLogger } from "./services/audit-logger";
+import { runtimeGuard } from "./services/runtime-guard";
 
 // Helper function to normalize platform strings for comparison
 function normalizePlatform(platform: string): string {
@@ -9983,6 +9984,128 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     } catch (error: any) {
       console.error("Failed to get audit logs:", error);
       res.status(500).json({ error: error.message || "Failed to get audit logs" });
+    }
+  });
+
+  // ============================================================================
+  // HITL (Human-in-the-Loop) APPROVAL ROUTES
+  // ============================================================================
+
+  // GET /api/hitl/pending - Get pending approval requests for organization
+  app.get("/api/hitl/pending", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
+    try {
+      const authReq = req as UIAuthenticatedRequest;
+      const organizationId = authReq.user?.organizationId || "default";
+      const pendingApprovals = await runtimeGuard.getPendingApprovals(organizationId);
+      res.json(pendingApprovals);
+    } catch (error: any) {
+      console.error("Failed to get pending approvals:", error);
+      res.status(500).json({ error: error.message || "Failed to get pending approvals" });
+    }
+  });
+
+  // GET /api/hitl/evaluation/:evaluationId - Get approval history for an evaluation
+  app.get("/api/hitl/evaluation/:evaluationId", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const history = await runtimeGuard.getApprovalHistory(evaluationId);
+      res.json(history);
+    } catch (error: any) {
+      console.error("Failed to get approval history:", error);
+      res.status(500).json({ error: error.message || "Failed to get approval history" });
+    }
+  });
+
+  // GET /api/hitl/:approvalId/nonce - Get a nonce for signing an approval response
+  // Note: Signatures are computed server-side during approve/reject to prevent client-side forgery
+  app.get("/api/hitl/:approvalId/nonce", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req, res) => {
+    try {
+      const nonce = runtimeGuard.generateNonce();
+      res.json({ nonce });
+    } catch (error: any) {
+      console.error("Failed to generate nonce:", error);
+      res.status(500).json({ error: error.message || "Failed to generate nonce" });
+    }
+  });
+
+  // POST /api/hitl/:approvalId/approve - Approve a pending request
+  // Signature computed server-side using authenticated user context
+  app.post("/api/hitl/:approvalId/approve", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req, res) => {
+    try {
+      const { approvalId } = req.params;
+      const { nonce } = req.body;
+      const authReq = req as UIAuthenticatedRequest;
+      const respondedBy = authReq.user?.email || "unknown";
+
+      if (!nonce) {
+        return res.status(400).json({ error: "nonce is required" });
+      }
+
+      const signature = runtimeGuard.generateSignature(approvalId, true, nonce);
+
+      const result = await runtimeGuard.processApprovalResponse(
+        approvalId,
+        true,
+        respondedBy,
+        signature,
+        nonce
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, message: "Command approved" });
+    } catch (error: any) {
+      console.error("Failed to approve command:", error);
+      res.status(500).json({ error: error.message || "Failed to approve command" });
+    }
+  });
+
+  // POST /api/hitl/:approvalId/reject - Reject a pending request
+  // Signature computed server-side using authenticated user context
+  app.post("/api/hitl/:approvalId/reject", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req, res) => {
+    try {
+      const { approvalId } = req.params;
+      const { nonce, reason } = req.body;
+      const authReq = req as UIAuthenticatedRequest;
+      const respondedBy = authReq.user?.email || "unknown";
+
+      if (!nonce) {
+        return res.status(400).json({ error: "nonce is required" });
+      }
+
+      const signature = runtimeGuard.generateSignature(approvalId, false, nonce);
+
+      const result = await runtimeGuard.processApprovalResponse(
+        approvalId,
+        false,
+        respondedBy,
+        signature,
+        nonce,
+        reason
+      );
+
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+
+      res.json({ success: true, message: "Command rejected" });
+    } catch (error: any) {
+      console.error("Failed to reject command:", error);
+      res.status(500).json({ error: error.message || "Failed to reject command" });
+    }
+  });
+
+  // POST /api/hitl/evaluation/:evaluationId/cancel - Cancel all pending approvals for an evaluation
+  app.post("/api/hitl/evaluation/:evaluationId/cancel", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const cancelled = await runtimeGuard.cancelPendingApprovals(evaluationId);
+      res.json({ success: true, cancelledCount: cancelled });
+    } catch (error: any) {
+      console.error("Failed to cancel pending approvals:", error);
+      res.status(500).json({ error: error.message || "Failed to cancel pending approvals" });
     }
   });
 

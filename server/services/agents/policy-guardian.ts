@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { searchPolicies, PolicySearchResult } from "../rag/policy-search";
 import type { AgentContext, PolicyDecision, SafetyDecision } from "./types";
+import { runtimeGuard, type RuntimeGuardContext, type RuntimeGuardResult } from "../runtime-guard";
 
 const OPENAI_TIMEOUT_MS = 30000;
 
@@ -249,4 +250,106 @@ export function formatSafetyBlockForUI(block: SafetyBlock): {
     reasoning: block.reasoning,
     timestamp: block.timestamp.toISOString(),
   };
+}
+
+export interface GuardedActionResult {
+  allowed: boolean;
+  policyResult: PolicyCheckResult;
+  runtimeGuardResult?: RuntimeGuardResult;
+  requiresApproval: boolean;
+  approvalId?: string;
+}
+
+export async function checkActionWithRuntimeGuard(
+  action: string,
+  agentName: string,
+  target: string | undefined,
+  context: PolicyGuardianContext & { executionId?: string }
+): Promise<GuardedActionResult> {
+  const policyResult = await checkAction(action, agentName, context);
+
+  if (policyResult.decision === "DENY") {
+    return {
+      allowed: false,
+      policyResult,
+      requiresApproval: false,
+    };
+  }
+
+  const runtimeContext: RuntimeGuardContext = {
+    evaluationId: context.evaluationId || "unknown",
+    executionId: context.executionId || context.evaluationId || "unknown",
+    organizationId: context.organizationId || "default",
+    agentName,
+  };
+
+  const runtimeResult = await runtimeGuard.validateCommand(
+    policyResult.decision === "MODIFY" ? (policyResult.modifiedAction || action) : action,
+    target,
+    runtimeContext
+  );
+
+  if (runtimeResult.requiresApproval) {
+    return {
+      allowed: false,
+      policyResult,
+      runtimeGuardResult: runtimeResult,
+      requiresApproval: true,
+      approvalId: runtimeResult.approvalId,
+    };
+  }
+
+  return {
+    allowed: runtimeResult.allowed && policyResult.decision !== "DENY",
+    policyResult,
+    runtimeGuardResult: runtimeResult,
+    requiresApproval: false,
+  };
+}
+
+export async function executeWithApproval(
+  action: string,
+  agentName: string,
+  target: string | undefined,
+  context: PolicyGuardianContext & { executionId?: string },
+  executor: (approvedAction: string) => Promise<void>
+): Promise<{ executed: boolean; reason?: string }> {
+  const guardResult = await checkActionWithRuntimeGuard(action, agentName, target, context);
+
+  if (!guardResult.allowed && !guardResult.requiresApproval) {
+    return {
+      executed: false,
+      reason: guardResult.policyResult.blockedReason || "Action blocked by policy",
+    };
+  }
+
+  if (guardResult.requiresApproval && guardResult.approvalId) {
+    console.log(`[PolicyGuardian] Waiting for HITL approval: ${guardResult.approvalId}`);
+    
+    try {
+      const approved = await runtimeGuard.waitForApproval(guardResult.approvalId);
+      
+      if (!approved) {
+        return {
+          executed: false,
+          reason: "Action rejected by operator",
+        };
+      }
+
+      console.log(`[PolicyGuardian] HITL approval received, executing action`);
+    } catch (error: any) {
+      return {
+        executed: false,
+        reason: error.message || "Approval timeout or error",
+      };
+    }
+  }
+
+  const finalAction = guardResult.policyResult.decision === "MODIFY" 
+    ? (guardResult.policyResult.modifiedAction || action)
+    : action;
+
+  await executor(finalAction);
+
+  return { executed: true };
 }
