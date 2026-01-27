@@ -4,6 +4,18 @@ import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
 
+/**
+ * ARCHITECTURAL CONSTRAINT: Plan-Only Agent
+ * 
+ * This agent generates lateral movement PLANS (pivot paths, escalation routes)
+ * but does NOT execute any real lateral movement actions. All outputs are
+ * analytical assessments describing potential movement paths.
+ * 
+ * Actual action execution is gated by PolicyGuardian in the Orchestrator,
+ * which validates planned paths against Rules of Engagement before they
+ * are committed to final results.
+ */
+
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
 const openai = new OpenAI({

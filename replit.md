@@ -64,6 +64,17 @@ The platform utilizes a full-stack TypeScript architecture. The frontend is buil
     - Action validation API for runtime policy compliance checks
     - Key files: `server/services/agents/policy-context.ts`, `server/services/rag/policy-search.ts`
 
+*   **PolicyGuardian Check-Loop (January 2026)**: Synchronous policy validation for agent actions before commitment to final results:
+    - PolicyGuardian service validates each agent action with ALLOW/DENY/MODIFY decisions using RAG-enhanced policy search
+    - Check-loop in Orchestrator filters ExploitAgent chains and LateralAgent paths before committing to OrchestratorResult
+    - DENY blocks the planned action and logs it; MODIFY substitutes a safer alternative marked as [MODIFIED]
+    - SafetyDecision tracking with timestamps, reasoning, and policy references for audit trail
+    - Real-time WebSocket notifications via safety_block events to evaluation channels (tenant-scoped)
+    - Safety decisions included in Synthesizer final reports for compliance documentation
+    - Graceful degradation: safe mode defaults to DENY on policy check errors; other modes allow on error
+    - Key files: `server/services/agents/policy-guardian.ts`, `server/services/agents/orchestrator.ts`
+    - **ARCHITECTURAL CONSTRAINT**: Exploit and Lateral agents are plan-only generators (no real action execution); PolicyGuardian gates planned findings before final commit
+
 **UI/UX Design**:
 The design system follows custom guidelines blending Material Design with cyber-security aesthetics, using Inter and JetBrains Mono fonts, a dark-first color scheme with cyan/blue accents, and data-dense layouts.
 

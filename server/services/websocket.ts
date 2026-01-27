@@ -52,7 +52,18 @@ interface ScanProgressEvent {
   vulnerabilitiesValidated?: number;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent;
+interface SafetyBlockEvent {
+  type: "safety_block";
+  evaluationId: string;
+  agentName: string;
+  decision: "ALLOW" | "DENY" | "MODIFY";
+  originalAction: string;
+  modifiedAction?: string;
+  reasoning: string;
+  timestamp: string;
+}
+
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -481,6 +492,34 @@ class WebSocketService {
     
     this.broadcast(event);
     this.broadcastToChannel(`scan:${scanId}`, event);
+  }
+
+  sendSafetyBlock(
+    evaluationId: string,
+    agentName: string,
+    decision: "ALLOW" | "DENY" | "MODIFY",
+    originalAction: string,
+    reasoning: string,
+    modifiedAction?: string
+  ): void {
+    const event: SafetyBlockEvent = {
+      type: "safety_block",
+      evaluationId,
+      agentName,
+      decision,
+      originalAction: originalAction.substring(0, 500),
+      modifiedAction: modifiedAction?.substring(0, 500),
+      reasoning,
+      timestamp: new Date().toISOString(),
+    };
+    
+    this.broadcastToChannel(`evaluation:${evaluationId}`, event);
+    
+    if (decision === "DENY") {
+      console.log(`[WS] Safety Block: ${agentName} action DENIED - ${reasoning.substring(0, 100)}`);
+    } else if (decision === "MODIFY") {
+      console.log(`[WS] Safety Block: ${agentName} action MODIFIED - ${reasoning.substring(0, 100)}`);
+    }
   }
 
   getStats(): {

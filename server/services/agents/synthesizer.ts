@@ -1,7 +1,41 @@
 import OpenAI from "openai";
-import type { AgentMemory } from "./types";
+import type { AgentMemory, SafetyDecision } from "./types";
 import type { AttackPathStep, Recommendation } from "@shared/schema";
 import { wrapAgentError } from "./error-classifier";
+
+function formatSafetyDecisions(decisions?: SafetyDecision[]): string {
+  if (!decisions || decisions.length === 0) {
+    return "No policy violations detected - all actions allowed.";
+  }
+  
+  const blocked = decisions.filter(d => d.decision === "DENY");
+  const modified = decisions.filter(d => d.decision === "MODIFY");
+  const allowed = decisions.filter(d => d.decision === "ALLOW");
+  
+  let summary = `Total Decisions: ${decisions.length} (${blocked.length} blocked, ${modified.length} modified, ${allowed.length} allowed)\n`;
+  
+  if (blocked.length > 0) {
+    summary += `\nBLOCKED ACTIONS (${blocked.length}):\n`;
+    blocked.forEach((d, i) => {
+      summary += `  ${i + 1}. [${d.agentName}] ${d.originalAction}\n`;
+      summary += `     Reason: ${d.reasoning}\n`;
+      if (d.policyReferences.length > 0) {
+        summary += `     Policy: ${d.policyReferences[0]}\n`;
+      }
+    });
+  }
+  
+  if (modified.length > 0) {
+    summary += `\nMODIFIED ACTIONS (${modified.length}):\n`;
+    modified.forEach((d, i) => {
+      summary += `  ${i + 1}. [${d.agentName}] ${d.originalAction}\n`;
+      summary += `     Modified to: ${d.modifiedAction}\n`;
+      summary += `     Reason: ${d.reasoning}\n`;
+    });
+  }
+  
+  return summary;
+}
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -54,6 +88,9 @@ Data Exposure: ${memory.impact?.dataExposure.types.join(", ") || "None"} (Severi
 Financial Impact: ${memory.impact?.financialImpact.estimate || "Unknown"} - Factors: ${memory.impact?.financialImpact.factors.join(", ") || "None"}
 Compliance Impact: ${memory.impact?.complianceImpact.join(", ") || "None"}
 Reputational Risk: ${memory.impact?.reputationalRisk || "Unknown"}
+
+=== POLICY GUARDIAN SAFETY DECISIONS ===
+${formatSafetyDecisions(memory.safetyDecisions)}
 `;
 
   const systemPrompt = `You are the SYNTHESIS ENGINE for OdinForge AI, a multi-agent security validation platform.
@@ -63,6 +100,11 @@ Your mission is to synthesize findings from 5 specialized AI agents into a cohes
 2. Calculate overall exploitability confidence and score
 3. Generate prioritized remediation recommendations
 4. Provide executive-level impact summary
+5. Include Policy Guardian safety decisions in your analysis - note any blocked or modified actions
+
+The Policy Guardian enforces Rules of Engagement (RoE) by validating agent actions against organizational policies.
+Blocked actions indicate potential policy violations that were prevented. Modified actions show where safer alternatives were substituted.
+Include this governance context in your final assessment for compliance documentation.
 
 Create a comprehensive, actionable report that security teams can use immediately.`;
 
