@@ -164,6 +164,7 @@ export async function handleEvaluationJob(
       remediationGuidance: result.remediationGuidance,
       llmValidation: result.llmValidation,
       llmValidationVerdict: result.llmValidationVerdict,
+      debateSummary: result.debateSummary,
       duration: Date.now() - startTime,
     });
 

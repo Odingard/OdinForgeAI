@@ -681,6 +681,7 @@ export async function registerRoutes(
         evidenceArtifacts: result?.evidenceArtifacts,
         intelligentScore: result?.intelligentScore,
         remediationGuidance: result?.remediationGuidance,
+        debateSummary: result?.debateSummary,
         duration: result?.duration,
       });
     } catch (error) {

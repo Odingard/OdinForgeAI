@@ -1,4 +1,6 @@
-import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore, RemediationGuidance, AdversaryProfile, LLMValidationResult, LLMValidationVerdict } from "@shared/schema";
+import type { AttackPathStep, Recommendation, AttackGraph, BusinessLogicFinding, MultiVectorFinding, WorkflowStateMachine, BusinessLogicCategory, CloudVectorType, EvidenceArtifact, IntelligentScore, RemediationGuidance, AdversaryProfile, LLMValidationResult, LLMValidationVerdict, DebateSummary, DebateChainResult, DebateVerdict } from "@shared/schema";
+
+export type { DebateSummary, DebateChainResult, DebateVerdict } from "@shared/schema";
 
 export interface AgentContext {
   assetId: string;
@@ -191,12 +193,14 @@ export type PolicyDecision = "ALLOW" | "DENY" | "MODIFY";
 export interface SafetyDecision {
   id: string;
   evaluationId: string;
+  organizationId?: string;
   agentName: string;
   originalAction: string;
   decision: PolicyDecision;
   modifiedAction?: string;
   reasoning: string;
   policyReferences: string[];
+  executionMode?: string;
   timestamp: Date;
 }
 
@@ -243,6 +247,7 @@ export interface OrchestratorResult {
   llmValidation?: LLMValidationResult;
   llmValidationVerdict?: LLMValidationVerdict;
   validationStats?: ValidationStats;
+  debateSummary?: DebateSummary;
   impact: string;
   recommendations: Recommendation[];
   agentFindings: {
