@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, Clock, Activity, FileText, Shield, Target, Lightbulb, Network, Workflow, Cloud, FileSearch, Brain, Wrench, Play, Trash2, Archive, ArchiveRestore, MoreVertical, FileOutput } from "lucide-react";
 import { DTGDisplay } from "@/components/ui/dtg-display";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,6 +31,7 @@ import { BusinessLogicFindingsPanel } from "./BusinessLogicFindingsPanel";
 import { MultiVectorFindingsPanel } from "./MultiVectorFindingsPanel";
 import { WorkflowStateMachineVisualizer } from "./WorkflowStateMachineVisualizer";
 import { EvidencePanel } from "./EvidencePanel";
+import { SafetyDecisionsPanel, type SafetyDecision } from "./SafetyDecisionsPanel";
 import { IntelligentScorePanel } from "./IntelligentScorePanel";
 import { TimeToCompromiseMeter } from "./TimeToCompromiseMeter";
 import { ConfidenceGauge } from "./ConfidenceGauge";
@@ -137,6 +138,10 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
   
   const isSanitized = needsSanitizedView();
   const canViewFullEvidence = hasPermission("evidence:read");
+
+  const { data: safetyDecisions = [] } = useQuery<SafetyDecision[]>({
+    queryKey: [`/api/evaluations/${evaluation.id}/safety-decisions`],
+  });
 
   const isArchived = evaluation.status === "archived";
 
@@ -551,6 +556,18 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                 ) : (
                   <EvidencePanel artifacts={evaluation.evidenceArtifacts} evaluationId={evaluation.id} />
                 )}
+              </div>
+            </div>
+          )}
+
+          {safetyDecisions.length > 0 && (
+            <div className="bg-card border border-border rounded-lg overflow-hidden">
+              <div className="p-6 border-b border-border flex items-center gap-2">
+                <Shield className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-semibold">PolicyGuardian Audit Trail</h3>
+              </div>
+              <div className="p-4">
+                <SafetyDecisionsPanel decisions={safetyDecisions} showTitle={false} />
               </div>
             </div>
           )}

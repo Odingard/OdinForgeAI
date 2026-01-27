@@ -24,6 +24,7 @@ import { validateOrchestratorFindings } from "../validation/findings-validator.j
 import { getAgentPolicyContext } from "./policy-context";
 import { checkExploitChain, checkLateralMovement, createSafetyDecision, PolicyCheckResult } from "./policy-guardian";
 import { wsService } from "../websocket";
+import { storage } from "../../storage";
 
 export interface OrchestratorOptions {
   adversaryProfile?: AdversaryProfile;
@@ -231,6 +232,30 @@ export async function runAgentOrchestrator(
   );
 
   const totalProcessingTime = Date.now() - startTime;
+
+  // Persist safety decisions to database for audit trail
+  if (memory.safetyDecisions && memory.safetyDecisions.length > 0) {
+    try {
+      await storage.createSafetyDecisionsBatch(
+        memory.safetyDecisions.map((sd) => ({
+          id: sd.id,
+          evaluationId: sd.evaluationId,
+          organizationId: sd.organizationId || "default",
+          agentName: sd.agentName,
+          originalAction: sd.originalAction,
+          decision: sd.decision,
+          modifiedAction: sd.modifiedAction,
+          reasoning: sd.reasoning,
+          policyReferences: sd.policyReferences || [],
+          executionMode: sd.executionMode || "safe",
+        }))
+      );
+      console.log(`[Orchestrator] Persisted ${memory.safetyDecisions.length} safety decisions to database`);
+    } catch (error) {
+      console.error("[Orchestrator] Failed to persist safety decisions:", error);
+      // Non-fatal: continue with evaluation completion
+    }
+  }
 
   onProgress?.("Complete", "complete", 100, "Analysis complete");
 

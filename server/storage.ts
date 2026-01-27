@@ -63,6 +63,8 @@ import {
   type InsertApprovalRequest,
   type ApprovalLevel,
   type SystemRoleId,
+  type SafetyDecisionRecord,
+  type InsertSafetyDecision,
   systemRoleIds,
   uiRoles,
   users,
@@ -96,6 +98,7 @@ import {
   uiUsers,
   validationAuditLogs,
   approvalRequests,
+  safetyDecisions,
   type CloudCredential,
   type InsertCloudCredential,
   type CloudDiscoveryJob,
@@ -362,6 +365,19 @@ export interface IStorage {
   getAttackPaths(organizationId?: string): Promise<AttackPath[]>;
   updateAttackPath(id: string, updates: Partial<AttackPath>): Promise<void>;
   deleteAttackPath(id: string): Promise<void>;
+  
+  // Safety Decision operations (PolicyGuardian audit trail)
+  createSafetyDecision(data: InsertSafetyDecision & { id: string }): Promise<SafetyDecisionRecord>;
+  getSafetyDecision(id: string): Promise<SafetyDecisionRecord | undefined>;
+  getSafetyDecisionsByEvaluationId(evaluationId: string): Promise<SafetyDecisionRecord[]>;
+  getSafetyDecisionsByOrganization(organizationId: string, options?: {
+    limit?: number;
+    offset?: number;
+    decision?: string;
+    startDate?: Date;
+    endDate?: Date;
+  }): Promise<SafetyDecisionRecord[]>;
+  createSafetyDecisionsBatch(decisions: (InsertSafetyDecision & { id: string })[]): Promise<SafetyDecisionRecord[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2805,6 +2821,98 @@ export class DatabaseStorage implements IStorage {
 
   async deleteAttackPath(id: string): Promise<void> {
     await db.delete(attackPaths).where(eq(attackPaths.id, id));
+  }
+
+  // Safety Decision operations (PolicyGuardian audit trail)
+  async createSafetyDecision(data: InsertSafetyDecision & { id: string }): Promise<SafetyDecisionRecord> {
+    const insertData = {
+      id: data.id,
+      evaluationId: data.evaluationId,
+      organizationId: data.organizationId || "default",
+      agentName: data.agentName,
+      originalAction: data.originalAction,
+      decision: data.decision,
+      modifiedAction: data.modifiedAction,
+      reasoning: data.reasoning,
+      policyReferences: data.policyReferences as string[] || [],
+      executionMode: data.executionMode,
+    };
+    const [decision] = await db.insert(safetyDecisions).values(insertData).returning();
+    return decision;
+  }
+
+  async getSafetyDecision(id: string): Promise<SafetyDecisionRecord | undefined> {
+    const [decision] = await db
+      .select()
+      .from(safetyDecisions)
+      .where(eq(safetyDecisions.id, id));
+    return decision;
+  }
+
+  async getSafetyDecisionsByEvaluationId(evaluationId: string): Promise<SafetyDecisionRecord[]> {
+    return db
+      .select()
+      .from(safetyDecisions)
+      .where(eq(safetyDecisions.evaluationId, evaluationId))
+      .orderBy(desc(safetyDecisions.createdAt));
+  }
+
+  async getSafetyDecisionsByOrganization(
+    organizationId: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      decision?: string;
+      startDate?: Date;
+      endDate?: Date;
+    }
+  ): Promise<SafetyDecisionRecord[]> {
+    const conditions = [eq(safetyDecisions.organizationId, organizationId)];
+    
+    if (options?.decision) {
+      conditions.push(eq(safetyDecisions.decision, options.decision));
+    }
+    if (options?.startDate) {
+      conditions.push(gte(safetyDecisions.createdAt, options.startDate));
+    }
+    if (options?.endDate) {
+      conditions.push(lte(safetyDecisions.createdAt, options.endDate));
+    }
+
+    let query = db
+      .select()
+      .from(safetyDecisions)
+      .where(and(...conditions))
+      .orderBy(desc(safetyDecisions.createdAt))
+      .$dynamic();
+
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+    if (options?.offset) {
+      query = query.offset(options.offset);
+    }
+
+    return query;
+  }
+
+  async createSafetyDecisionsBatch(
+    decisions: (InsertSafetyDecision & { id: string })[]
+  ): Promise<SafetyDecisionRecord[]> {
+    if (decisions.length === 0) return [];
+    const insertData = decisions.map(d => ({
+      id: d.id,
+      evaluationId: d.evaluationId,
+      organizationId: d.organizationId || "default",
+      agentName: d.agentName,
+      originalAction: d.originalAction,
+      decision: d.decision,
+      modifiedAction: d.modifiedAction,
+      reasoning: d.reasoning,
+      policyReferences: d.policyReferences as string[] || [],
+      executionMode: d.executionMode,
+    }));
+    return db.insert(safetyDecisions).values(insertData).returning();
   }
 }
 

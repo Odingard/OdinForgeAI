@@ -1201,6 +1201,36 @@ export type InsertResult = z.infer<typeof insertResultSchema>;
 export type Result = typeof aevResults.$inferSelect;
 
 // ============================================================================
+// POLICY GUARDIAN SAFETY DECISIONS
+// Tracks policy enforcement decisions (ALLOW/DENY/MODIFY) for audit trail
+// ============================================================================
+
+export const policyDecisionTypes = ["ALLOW", "DENY", "MODIFY"] as const;
+export type PolicyDecisionType = typeof policyDecisionTypes[number];
+
+export const safetyDecisions = pgTable("safety_decisions", {
+  id: varchar("id").primaryKey(),
+  evaluationId: varchar("evaluation_id").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  agentName: varchar("agent_name").notNull(),
+  originalAction: text("original_action").notNull(),
+  decision: varchar("decision").notNull(), // ALLOW, DENY, MODIFY
+  modifiedAction: text("modified_action"),
+  reasoning: text("reasoning").notNull(),
+  policyReferences: jsonb("policy_references").$type<string[]>().default([]),
+  executionMode: varchar("execution_mode").default("safe"), // safe, simulation, live
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSafetyDecisionSchema = createInsertSchema(safetyDecisions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertSafetyDecision = z.infer<typeof insertSafetyDecisionSchema>;
+export type SafetyDecisionRecord = typeof safetyDecisions.$inferSelect;
+
+// ============================================================================
 // LIVE NETWORK TESTING RESULTS
 // ============================================================================
 
