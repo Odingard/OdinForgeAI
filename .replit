@@ -47,3 +47,6 @@ integrations = ["javascript_openai_ai_integrations:1.0.0", "javascript_log_in_wi
 [userenv.shared]
 AEV_LLM_VALIDATION_ENABLED = "true"
 AEV_LLM_MODEL = "gpt-4o-mini"
+
+[userenv.development]
+ADMIN_API_KEY = "test-api-key-12345"

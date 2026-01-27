@@ -27,8 +27,22 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import (
     TextLoader,
     PyPDFLoader,
-    UnstructuredMarkdownLoader,
 )
+
+class SimpleMarkdownLoader:
+    """Simple markdown loader that reads the file as plain text."""
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+    
+    def load(self):
+        class Document:
+            def __init__(self, page_content, metadata=None):
+                self.page_content = page_content
+                self.metadata = metadata or {}
+        
+        with open(self.filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return [Document(content, {"source": self.filepath})]
 
 POLICY_TYPES = [
     "rules_of_engagement",
@@ -44,7 +58,7 @@ POLICY_TYPES = [
 
 SUPPORTED_EXTENSIONS = {
     ".txt": TextLoader,
-    ".md": UnstructuredMarkdownLoader,
+    ".md": SimpleMarkdownLoader,
     ".pdf": PyPDFLoader,
 }
 
@@ -128,10 +142,16 @@ def upsert_policies(
 ):
     """Insert or update policies in the database."""
     with conn.cursor() as cur:
-        cur.execute(
-            "DELETE FROM security_policies WHERE metadata->>'sourceHash' = %s",
-            (source_hash,)
-        )
+        if organization_id:
+            cur.execute(
+                "DELETE FROM security_policies WHERE metadata->>'sourceHash' = %s AND organization_id = %s",
+                (source_hash, organization_id)
+            )
+        else:
+            cur.execute(
+                "DELETE FROM security_policies WHERE metadata->>'sourceHash' = %s AND organization_id IS NULL",
+                (source_hash,)
+            )
         
         records = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
