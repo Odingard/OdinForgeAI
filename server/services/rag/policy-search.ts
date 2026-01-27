@@ -3,9 +3,13 @@ import { db } from "../../db";
 import { securityPolicies } from "@shared/schema";
 import { sql, desc, and, eq } from "drizzle-orm";
 
-const openai = new OpenAI({
+const openaiForChat = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+});
+
+const openaiForEmbeddings = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
 export interface PolicySearchResult {
@@ -27,7 +31,7 @@ export interface PolicySearchOptions {
  * Generate embedding for a query using OpenAI
  */
 async function generateQueryEmbedding(query: string): Promise<number[]> {
-  const response = await openai.embeddings.create({
+  const response = await openaiForEmbeddings.embeddings.create({
     model: "text-embedding-ada-002",
     input: query,
   });
@@ -147,7 +151,7 @@ export async function checkPolicyCompliance(
     .map((p) => p.content)
     .join("\n---\n");
 
-  const response = await openai.chat.completions.create({
+  const response = await openaiForChat.chat.completions.create({
     model: "gpt-4o",
     messages: [
       {

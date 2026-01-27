@@ -269,12 +269,10 @@ def main():
     if not args.dir and not args.file:
         parser.error("Either --dir or --file must be specified")
     
-    openai_api_key = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    openai_api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY")
     if not openai_api_key:
-        print("ERROR: No OpenAI API key found. Set AI_INTEGRATIONS_OPENAI_API_KEY or OPENAI_API_KEY")
+        print("ERROR: No OpenAI API key found. Set OPENAI_API_KEY")
         sys.exit(1)
-    
-    base_url = os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL")
     
     print("=" * 50)
     print("OdinForge Policy Ingestion Utility")
@@ -284,7 +282,6 @@ def main():
     print("Initializing OpenAI embeddings...")
     embeddings_model = OpenAIEmbeddings(
         api_key=openai_api_key,
-        base_url=base_url,
         model="text-embedding-ada-002",
     )
     
