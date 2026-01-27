@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { AgentMemory, AgentResult, LateralFindings, LateralShadowAdminIndicator } from "./types";
 import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
+import { formatExecutionModeConstraints } from "./policy-context";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -35,9 +36,14 @@ ${memory.exploit ? `- Exploitable: ${memory.exploit.exploitable}
   const adversaryContext = memory.context.adversaryProfile 
     ? generateAdversaryPromptContext(memory.context.adversaryProfile)
     : "";
+  
+  const policyContext = memory.context.policyContext || "";
+  const executionModeConstraints = formatExecutionModeConstraints(memory.context.executionMode || "safe");
 
   const systemPrompt = `You are the LATERAL MOVEMENT AGENT, a specialized AI system for analyzing post-exploitation movement opportunities for OdinForge AI.
 ${adversaryContext}
+${executionModeConstraints}
+${policyContext}
 
 Your mission is to analyze how an attacker could move laterally after initial compromise:
 1. Pivot paths - how to move from one system/asset to another

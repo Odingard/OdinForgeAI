@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import type { AgentMemory, AgentContext, OrchestratorResult, ProgressCallback } from "./types";
 import { runDefenderAgent, DefenderFindings } from "./defender";
-import { runAgentOrchestrator } from "./orchestrator";
+import { runAgentOrchestrator, OrchestratorOptions } from "./orchestrator";
+import { getAgentPolicyContext } from "./policy-context";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -83,6 +84,11 @@ export interface LiveScanInput {
   }>;
 }
 
+export interface SimulationOptions {
+  organizationId?: string;
+  executionMode?: "safe" | "simulation" | "live";
+}
+
 export async function runAISimulation(
   assetId: string,
   exposureType: string,
@@ -91,12 +97,29 @@ export async function runAISimulation(
   evaluationId: string,
   rounds: number = 3,
   onProgress?: SimulationProgressCallback,
-  liveScanData?: LiveScanInput
+  liveScanData?: LiveScanInput,
+  options?: SimulationOptions
 ): Promise<AISimulationResult> {
   const startTime = Date.now();
   const simulationRounds: SimulationRound[] = [];
   
   onProgress?.("initialization", 0, 5, "Initializing AI vs AI simulation...");
+  
+  let policyContext = "";
+  try {
+    policyContext = await getAgentPolicyContext(
+      "AI simulation",
+      `${exposureType} red vs blue team simulation on ${assetId}`,
+      {
+        organizationId: options?.organizationId,
+        executionMode: options?.executionMode || "simulation",
+        targetType: exposureType,
+      }
+    );
+    console.log(`[AI Simulation] Loaded policy context (${policyContext.length} chars)`);
+  } catch (err) {
+    console.warn("[AI Simulation] Failed to load policy context:", err);
+  }
 
   // Build enhanced description with live scan data if available
   let enhancedDescription = description;
@@ -117,6 +140,9 @@ Use this real network data as the foundation for attack planning.`;
     priority,
     description: enhancedDescription,
     evaluationId,
+    organizationId: options?.organizationId,
+    executionMode: options?.executionMode || "simulation",
+    policyContext,
   };
 
   let cumulativeAttackScore = 0;
@@ -129,6 +155,11 @@ Use this real network data as the foundation for attack planning.`;
 
     const attackerContext = buildAttackerContext(context, previousDefenderFindings, round);
     
+    const orchestratorOptions: OrchestratorOptions = {
+      organizationId: options?.organizationId,
+      executionMode: options?.executionMode || "simulation",
+    };
+    
     const attackerResult = await runAgentOrchestrator(
       attackerContext.assetId,
       attackerContext.exposureType,
@@ -138,7 +169,8 @@ Use this real network data as the foundation for attack planning.`;
       (agentName, stage, progress, message) => {
         const scaledProgress = roundProgress + Math.floor(progress * 0.3);
         onProgress?.("attack", round, scaledProgress, `[Attacker] ${agentName}: ${message}`);
-      }
+      },
+      orchestratorOptions
     );
 
     onProgress?.("defense", round, roundProgress + 35, `Round ${round}: Defender phase...`);

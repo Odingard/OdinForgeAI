@@ -11,6 +11,7 @@ import type {
 import type { BusinessLogicFinding, WorkflowStateMachine, BusinessLogicCategory } from "@shared/schema";
 import { businessLogicCategories } from "@shared/schema";
 import { wrapAgentError } from "./error-classifier";
+import { formatExecutionModeConstraints } from "./policy-context";
 
 const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
 
@@ -58,6 +59,9 @@ Lateral Movement Findings:
 ${memory.lateral ? `- Privilege Escalation: ${memory.lateral.privilegeEscalation.map((p) => p.target).join(", ")}` : "None"}
 `;
 
+  const policyContext = memory.context.policyContext || "";
+  const executionModeConstraints = formatExecutionModeConstraints(memory.context.executionMode || "safe");
+
   const systemPrompt = `You are the BUSINESS LOGIC AGENT, a specialized AI system for analyzing application logic vulnerabilities for OdinForge AI.
 
 Your mission is to identify business logic flaws that could be exploited:
@@ -67,7 +71,9 @@ Your mission is to identify business logic flaws that could be exploited:
 4. Authorization bypass - accessing resources without proper authorization
 5. Critical flows - business-critical processes that could be abused
 
-Think like an application security expert looking for logic flaws that automated scanners miss.`;
+Think like an application security expert looking for logic flaws that automated scanners miss.
+${executionModeConstraints}
+${policyContext}`;
 
   const userPrompt = `Analyze business logic vulnerabilities for this exposure:
 
