@@ -11,6 +11,7 @@ import { initScheduler } from "./services/scheduler/scan-scheduler";
 import { startReconciliationScheduler, runReconciliation } from "./services/data-reconciliation";
 import { gunzipSync, inflateSync } from "zlib";
 import { envConfig, logEnvironmentInfo } from "./lib/environment";
+import { initializeRLS } from "./services/rls-setup";
 
 const app = express();
 const httpServer = createServer(app);
@@ -184,6 +185,13 @@ app.use((req, res, next) => {
     await ensureAgentBinaries();
   } catch (error) {
     console.warn("Agent binary build skipped:", error instanceof Error ? error.message : error);
+  }
+  
+  // Initialize Row-Level Security for multi-tenant isolation
+  try {
+    await initializeRLS();
+  } catch (error) {
+    console.warn("[RLS] Initialization skipped:", error instanceof Error ? error.message : error);
   }
   
   // Initialize job queue service

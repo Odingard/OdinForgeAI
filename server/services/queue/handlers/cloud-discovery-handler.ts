@@ -2,6 +2,7 @@ import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { cloudIntegrationService } from "../../cloud";
 import { governanceEnforcement } from "../../governance/governance-enforcement";
+import { setTenantContext, clearTenantContext } from "../../rls-setup";
 import {
   CloudDiscoveryJobData,
   JobResult,
@@ -79,6 +80,8 @@ export async function handleCloudDiscoveryJob(
   const startTime = Date.now();
   const { connectionId, provider, regions, tenantId, organizationId } = job.data;
   const jobId = job.id || connectionId;
+
+  await setTenantContext(organizationId);
 
   const governanceCheck = await governanceEnforcement.canStartOperation(
     organizationId,
@@ -314,5 +317,7 @@ export async function handleCloudDiscoveryJob(
       error: errorMessage,
       duration: Date.now() - startTime,
     };
+  } finally {
+    await clearTenantContext().catch((err) => console.error("[RLS] Failed to clear context:", err));
   }
 }

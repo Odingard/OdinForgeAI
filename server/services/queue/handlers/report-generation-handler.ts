@@ -1,6 +1,7 @@
 import { Job } from "bullmq";
 import { storage } from "../../../storage";
 import { reportGenerator } from "../../report-generator";
+import { setTenantContext, clearTenantContext } from "../../rls-setup";
 import {
   ReportGenerationJobData,
   JobResult,
@@ -55,6 +56,8 @@ export async function handleReportGenerationJob(
   const jobId = job.id || reportId;
 
   console.log(`[ReportGeneration] Starting ${reportType} report generation for ${evaluationIds.length} evaluation(s)`);
+
+  await setTenantContext(organizationId);
 
   emitReportProgress(tenantId, organizationId, reportId, {
     type: "report_generation_started",
@@ -214,5 +217,7 @@ export async function handleReportGenerationJob(
       error: errorMessage,
       duration: Date.now() - startTime,
     };
+  } finally {
+    await clearTenantContext().catch((err) => console.error("[RLS] Failed to clear context:", err));
   }
 }

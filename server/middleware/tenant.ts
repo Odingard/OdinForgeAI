@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { TenantContext, TenantTier, Tenant, UserRole } from "@shared/schema";
 import { storage } from "../storage";
+import { setTenantContext, clearTenantContext } from "../services/rls-setup";
 
 interface SessionUser {
   id: string;
@@ -99,7 +100,26 @@ export async function tenantMiddleware(
       features: (tenant?.features as Tenant["features"]) || {},
     };
 
-    next();
+    // Set RLS context for database queries - fail closed if it fails
+    try {
+      await setTenantContext(organizationId);
+      
+      // Clear RLS context when response finishes
+      res.on("finish", () => {
+        clearTenantContext().catch((err) => {
+          console.error("[RLS] Failed to clear tenant context:", err);
+        });
+      });
+      
+      next();
+    } catch (rlsError) {
+      console.error("[RLS] Failed to set tenant context:", rlsError);
+      res.status(500).json({
+        error: "Failed to establish tenant context",
+        code: "TENANT_CONTEXT_ERROR",
+      });
+      return;
+    }
   } catch (error) {
     console.error("Tenant middleware error:", error);
     next(error);

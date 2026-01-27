@@ -58,6 +58,17 @@ The design system follows custom guidelines blending Material Design with cyber-
 
 ## Recent Changes
 
+**January 2026 - Multi-Tenant Row-Level Security (RLS)**
+- Implemented PostgreSQL Row-Level Security policies on 52 tenant-sensitive tables
+- RLS policies enforce strict tenant isolation at the database level using `app.current_organization_id` session variable
+- Security model: DENY by default when org context is unset (fail-closed); requires explicit bypass for system operations
+- Tenant context middleware (`server/middleware/tenant.ts`) sets RLS context per-request; fails request with 500 if context setup fails
+- JWT auth middleware (`server/services/ui-auth.ts`) extracts organizationId from tokens and sets RLS context
+- Background job handlers (evaluation, AI simulation, report generation, full assessment, cloud discovery) set/clear tenant context for job duration
+- Admin bypass mode via `app.rls_bypass='true'` flag with helper functions: `withRLSBypass()`, `enableRLSBypass()`, `disableRLSBypass()`
+- Three tables skipped (no organization_id column): `aev_results`, `evaluation_history`, `ui_refresh_tokens`
+- RLS initialization logs on startup showing protected tables count
+
 **January 2026 - RuntimeGuard Human-in-the-Loop Approval System**
 - Added `hitl_approval_requests` table for tracking pending/approved/rejected command approvals
 - Implemented `RuntimeGuard` service with forbidden command pattern detection (rm -rf, DROP TABLE, etc.)

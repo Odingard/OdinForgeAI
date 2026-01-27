@@ -4,6 +4,7 @@ import * as bcrypt from "bcrypt";
 import { SignJWT, jwtVerify, JWTPayload as JoseJWTPayload } from "jose";
 import { storage } from "../storage";
 import type { UIUser, InsertUIRole } from "@shared/schema";
+import { setTenantContext, clearTenantContext } from "./rls-setup";
 
 const UI_JWT_SECRET = new TextEncoder().encode(
   process.env.SESSION_SECRET || "odinforge-ui-jwt-secret-dev"
@@ -211,7 +212,7 @@ export function uiAuthMiddleware(
 
   const token = authHeader.slice(7);
   verifyUIAccessToken(token)
-    .then((payload) => {
+    .then(async (payload) => {
       if (!payload) {
         res.status(401).json({ error: "Unauthorized", message: "Invalid or expired token" });
         return;
@@ -226,10 +227,26 @@ export function uiAuthMiddleware(
         tokenVersion: payload.tokenVersion,
       };
 
-      storage.updateUIUser(payload.userId, { lastActivityAt: new Date() })
-        .catch((err) => console.error("Failed to update lastActivityAt:", err));
+      // Set RLS context for database queries based on JWT organizationId
+      try {
+        await setTenantContext(payload.organizationId);
+        
+        // Clear RLS context when response finishes
+        res.on("finish", () => {
+          clearTenantContext().catch((err) => {
+            console.error("[RLS] Failed to clear context after request:", err);
+          });
+        });
+        
+        storage.updateUIUser(payload.userId, { lastActivityAt: new Date() })
+          .catch((err) => console.error("Failed to update lastActivityAt:", err));
 
-      next();
+        next();
+      } catch (rlsError) {
+        console.error("[RLS] Failed to set context from JWT:", rlsError);
+        res.status(500).json({ error: "Failed to establish tenant context" });
+        return;
+      }
     })
     .catch(() => {
       res.status(401).json({ error: "Unauthorized", message: "Token verification failed" });
