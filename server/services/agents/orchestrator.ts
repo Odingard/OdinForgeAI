@@ -86,6 +86,9 @@ export async function runAgentOrchestrator(
   };
 
   onProgress?.("Recon Agent", "recon", 5, "Initializing reconnaissance...");
+  wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator", 
+    "Initiating reconnaissance phase to discover attack surface and entry points");
+  
   const reconResult = await runWithHeartbeat(evaluationId, "Recon Agent", 
     () => runReconAgent(memory, (stage: string, progress: number, message: string) => {
       updateAgentHeartbeat(evaluationId, "Recon Agent", stage, progress, message);
@@ -93,14 +96,23 @@ export async function runAgentOrchestrator(
     })
   );
   memory.recon = reconResult.findings;
+  
+  wsService.sendSharedMemoryUpdate(evaluationId, "recon_agent", "ReconAgent", "recon", 
+    `Discovered ${reconResult.findings.attackSurface?.length || 0} attack surface elements`);
 
   onProgress?.("Exploit Agent", "exploit", 25, "Analyzing exploit chains...");
+  wsService.sendReasoningTrace(evaluationId, "exploit_agent", "ExploitAgent", 
+    "Analyzing potential exploit chains using discovered attack surface");
+  
   const exploitResult = await runWithHeartbeat(evaluationId, "Exploit Agent",
     () => runExploitAgent(memory, (stage: string, progress: number, message: string) => {
       updateAgentHeartbeat(evaluationId, "Exploit Agent", stage, progress, message);
       onProgress?.("Exploit Agent", stage, progress, message);
     })
   );
+  
+  wsService.sendSharedMemoryUpdate(evaluationId, "exploit_agent", "ExploitAgent", "exploit", 
+    `Identified ${exploitResult.findings.exploitChains?.length || 0} potential exploit chains`);
   
   onProgress?.("Policy Guardian", "policy_check", 35, "Validating exploit chains against policies...");
   const guardedExploitFindings = await runPolicyGuardianCheckLoop(
@@ -113,6 +125,9 @@ export async function runAgentOrchestrator(
   );
 
   onProgress?.("Debate Module", "debate", 40, "CriticAgent challenging exploit findings...");
+  wsService.sendReasoningTrace(evaluationId, "debate_module", "DebateModule", 
+    `Initiating adversarial validation - CriticAgent will challenge ${guardedExploitFindings.exploitChains?.length || 0} exploit findings`);
+  
   let debateSummary: DebateSummary | undefined;
   let debatedExploitFindings = guardedExploitFindings;
   
@@ -123,6 +138,7 @@ export async function runAgentOrchestrator(
       { model: "meta-llama/llama-3.3-70b-instruct" },
       (stage, progress, message) => {
         onProgress?.("Debate Module", stage, 40 + Math.floor(progress / 10), message);
+        wsService.sendReasoningTrace(evaluationId, "critic_agent", "CriticAgent", message);
       }
     );
     
@@ -139,7 +155,15 @@ export async function runAgentOrchestrator(
     
     debatedExploitFindings = filterVerifiedFindings(debateResult);
     
-    console.log(`[Orchestrator] Debate complete: ${debateResult.finalVerdict} (${debateResult.verifiedChains.filter(c => c.verificationStatus === "verified").length} verified, ${debateResult.verifiedChains.filter(c => c.verificationStatus === "rejected").length} rejected)`);
+    const verifiedCount = debateResult.verifiedChains.filter(c => c.verificationStatus === "verified").length;
+    const rejectedCount = debateResult.verifiedChains.filter(c => c.verificationStatus === "rejected").length;
+    
+    wsService.sendReasoningTrace(evaluationId, "debate_module", "DebateModule", 
+      `Debate concluded: ${debateResult.finalVerdict} verdict. ${verifiedCount} verified, ${rejectedCount} rejected as false positives.`,
+      { decision: debateResult.finalVerdict === "VERIFIED" ? "VERIFIED" : debateResult.finalVerdict === "FALSE_POSITIVE" ? "FALSE_POSITIVE" : "DISPUTED" }
+    );
+    
+    console.log(`[Orchestrator] Debate complete: ${debateResult.finalVerdict} (${verifiedCount} verified, ${rejectedCount} rejected)`);
     
     wsService.broadcastToChannel(`evaluation:${evaluationId}`, {
       type: "debate_result",
@@ -156,12 +180,18 @@ export async function runAgentOrchestrator(
   memory.exploit = debatedExploitFindings;
 
   onProgress?.("Lateral Movement Agent", "lateral", 45, "Mapping lateral paths...");
+  wsService.sendReasoningTrace(evaluationId, "lateral_agent", "LateralAgent", 
+    "Mapping lateral movement paths and pivot opportunities from compromised positions");
+  
   const lateralResult = await runWithHeartbeat(evaluationId, "Lateral Movement Agent",
     () => runLateralAgent(memory, (stage: string, progress: number, message: string) => {
       updateAgentHeartbeat(evaluationId, "Lateral Movement Agent", stage, progress, message);
       onProgress?.("Lateral Movement Agent", stage, progress, message);
     })
   );
+  
+  wsService.sendSharedMemoryUpdate(evaluationId, "lateral_agent", "LateralAgent", "lateral", 
+    `Discovered ${lateralResult.findings.pivotPaths?.length || 0} lateral movement paths`);
   
   onProgress?.("Policy Guardian", "policy_check", 50, "Validating lateral movements against policies...");
   const guardedLateralFindings = await runLateralGuardianCheckLoop(
@@ -366,6 +396,22 @@ async function runPolicyGuardianCheckLoop(
     try {
       const checkResult = await checkExploitChain(chain, guardianContext);
       
+      const policyNames = checkResult.relevantPolicies.map((p) => 
+        p.metadata.filename || p.metadata.policyType || "policy"
+      );
+      
+      wsService.sendReasoningTrace(
+        evaluationId, 
+        "policy_guardian", 
+        "PolicyGuardian", 
+        `Evaluating "${chain.name}": ${checkResult.reasoning}`,
+        {
+          context: `Exploit chain: ${chain.technique || "unknown technique"}`,
+          policiesChecked: policyNames.length > 0 ? policyNames : ["default-policy"],
+          decision: checkResult.decision,
+        }
+      );
+      
       const safetyDecision: SafetyDecision = {
         id: `sd-${Date.now()}-${i}`,
         evaluationId,
@@ -460,6 +506,22 @@ async function runLateralGuardianCheckLoop(
 
     try {
       const checkResult = await checkLateralMovement(path, guardianContext);
+      
+      const policyNames = checkResult.relevantPolicies.map((p) => 
+        p.metadata.filename || p.metadata.policyType || "policy"
+      );
+      
+      wsService.sendReasoningTrace(
+        evaluationId, 
+        "policy_guardian", 
+        "PolicyGuardian", 
+        `Evaluating lateral path "${path.from} → ${path.to}": ${checkResult.reasoning}`,
+        {
+          context: `Lateral movement via ${path.method}`,
+          policiesChecked: policyNames.length > 0 ? policyNames : ["default-policy"],
+          decision: checkResult.decision,
+        }
+      );
       
       const safetyDecision: SafetyDecision = {
         id: `sd-lat-${Date.now()}-${i}`,

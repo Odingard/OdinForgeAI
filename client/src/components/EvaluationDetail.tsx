@@ -33,6 +33,7 @@ import { WorkflowStateMachineVisualizer } from "./WorkflowStateMachineVisualizer
 import { EvidencePanel } from "./EvidencePanel";
 import { SafetyDecisionsPanel, type SafetyDecision } from "./SafetyDecisionsPanel";
 import { DebateResultsPanel } from "./DebateResultsPanel";
+import { ReasoningTracePanel } from "./ReasoningTracePanel";
 import { IntelligentScorePanel } from "./IntelligentScorePanel";
 import type { DebateSummary } from "@shared/schema";
 import { TimeToCompromiseMeter } from "./TimeToCompromiseMeter";
@@ -586,6 +587,13 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
               </div>
             </div>
           )}
+
+          <div data-testid="card-reasoning-trace">
+            <ReasoningTracePanel 
+              evaluationId={evaluation.id} 
+              isLive={evaluation.status === "running" || evaluation.status === "pending"} 
+            />
+          </div>
         </div>
 
         <div className="space-y-6 lg:col-span-1">
