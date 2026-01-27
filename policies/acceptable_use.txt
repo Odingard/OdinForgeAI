@@ -1,0 +1,105 @@
+ODINFORGE ACCEPTABLE USE POLICY
+
+1. ACCEPTABLE USE OF ODINFORGE PLATFORM
+
+1.1 Authorized Purposes
+OdinForge may only be used for:
+- Security assessment of systems you own or have explicit authorization to test
+- Compliance validation and gap analysis
+- Security posture improvement
+- Incident investigation with proper authorization
+- Red team and purple team exercises within defined scope
+
+1.2 Prohibited Uses
+OdinForge must NEVER be used for:
+- Unauthorized access to any system
+- Attacks on systems without explicit written permission
+- Competitive intelligence gathering
+- Harassment or intimidation
+- Any illegal activities
+- Testing systems belonging to competitors without authorization
+- Bypassing security controls on third-party systems
+
+2. USER RESPONSIBILITIES
+
+2.1 Account Security
+Users are responsible for:
+- Maintaining strong, unique passwords
+- Enabling multi-factor authentication
+- Not sharing credentials with others
+- Reporting suspected compromise immediately
+- Logging out from shared workstations
+
+2.2 Professional Conduct
+Users must:
+- Follow the Rules of Engagement at all times
+- Report security findings through proper channels
+- Maintain confidentiality of assessment results
+- Act ethically and professionally
+- Escalate concerns to management
+
+3. DATA HANDLING
+
+3.1 Assessment Data
+- All assessment data is confidential
+- Data must not be shared outside authorized personnel
+- Reports must be handled according to classification
+- Evidence must be stored in approved locations only
+
+3.2 Client Data
+- Client data must never be exfiltrated
+- Test data must be clearly marked as such
+- Production data access requires special authorization
+- All data access must be logged
+
+4. SYSTEM RESOURCES
+
+4.1 Fair Usage
+- Do not consume excessive platform resources
+- Schedule large assessments during off-peak hours
+- Use appropriate scanning intensity for targets
+- Cancel or pause long-running jobs when not needed
+
+4.2 Rate Limiting
+Users must respect:
+- API rate limits
+- Concurrent assessment limits
+- Storage quotas
+- Network bandwidth allocations
+
+5. REPORTING AND COMPLIANCE
+
+5.1 Mandatory Reporting
+Users must report:
+- Security incidents involving OdinForge
+- Suspected misuse by others
+- Policy violations witnessed
+- System vulnerabilities discovered
+
+5.2 Compliance
+Users must comply with:
+- Company security policies
+- Industry regulations (PCI, HIPAA, etc.)
+- Local and international laws
+- Client contractual obligations
+
+6. CONSEQUENCES
+
+6.1 Policy Violations
+Violations may result in:
+- Warning and retraining
+- Temporary access suspension
+- Permanent access revocation
+- Legal action for serious violations
+- Reporting to law enforcement if criminal activity
+
+7. ACKNOWLEDGMENT
+
+By using OdinForge, users acknowledge:
+- They have read and understood this policy
+- They agree to comply with all terms
+- They understand consequences of violations
+- They will report suspected violations
+
+Last Updated: January 2026
+Policy Owner: Security Operations
