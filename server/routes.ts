@@ -3269,6 +3269,19 @@ export async function registerRoutes(
         });
       }
 
+      // Find and cancel any active deployment jobs for this asset
+      const activeJobs = await storage.getActiveDeploymentJobsForAsset(req.params.id);
+      let cancelledJobIds: string[] = [];
+      
+      for (const job of activeJobs) {
+        await storage.updateAgentDeploymentJob(job.id, {
+          status: "cancelled",
+          error: "Cancelled by user",
+          completedAt: new Date(),
+        });
+        cancelledJobIds.push(job.id);
+      }
+
       // Reset the deployment status to allow fresh deployment
       await storage.updateCloudAsset(req.params.id, {
         agentInstalled: false,
@@ -3277,10 +3290,13 @@ export async function registerRoutes(
         agentId: null,
       });
 
+      console.log(`[CancelDeployment] Cancelled ${cancelledJobIds.length} jobs for asset ${req.params.id}`);
+
       res.json({ 
         success: true, 
         message: "Deployment cancelled",
         assetId: req.params.id,
+        cancelledJobs: cancelledJobIds,
       });
     } catch (error) {
       console.error("Error cancelling deployment:", error);
