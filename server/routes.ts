@@ -4571,28 +4571,52 @@ export async function registerRoutes(
     }
   });
 
-  // Download agent binary by platform - serves locally built binaries
+  // Download agent binary by platform - serves from object storage (production) or local (development)
   app.get("/api/agents/download/:platform", apiRateLimiter, async (req, res) => {
     try {
       const { platform } = req.params;
-      const { getAgentBinaryPath } = await import("./services/agent-builder");
+      const validPlatforms = ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"];
       
-      const binaryPath = getAgentBinaryPath(platform);
-      
-      if (!binaryPath) {
-        const validPlatforms = ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"];
+      if (!validPlatforms.includes(platform)) {
         return res.status(404).json({ 
-          error: `Agent binary not available for platform: ${platform}`,
+          error: `Invalid platform: ${platform}`,
           validPlatforms,
-          message: "Binary may still be building. Check /api/agents/build-status for details."
         });
       }
-
-      const fs = await import("fs");
+      
       const filename = platform === "windows-amd64" 
         ? `odinforge-agent-${platform}.exe` 
         : `odinforge-agent-${platform}`;
       
+      // Try object storage first (works in both dev and production)
+      try {
+        const { ObjectStorageService } = await import("./replit_integrations/object_storage/objectStorage");
+        const objectStorage = new ObjectStorageService();
+        const objectFile = await objectStorage.searchPublicObject(`agents/${filename}`);
+        
+        if (objectFile) {
+          console.log(`[AgentDownload] Serving ${filename} from object storage`);
+          res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+          return objectStorage.downloadObject(objectFile, res);
+        }
+      } catch (objStorageError: any) {
+        console.log(`[AgentDownload] Object storage lookup failed, trying local: ${objStorageError.message}`);
+      }
+      
+      // Fall back to local file (for development)
+      const { getAgentBinaryPath } = await import("./services/agent-builder");
+      const binaryPath = getAgentBinaryPath(platform);
+      
+      if (!binaryPath) {
+        return res.status(404).json({ 
+          error: `Agent binary not available for platform: ${platform}`,
+          validPlatforms,
+          message: "Binary not found in object storage or locally."
+        });
+      }
+
+      console.log(`[AgentDownload] Serving ${filename} from local filesystem`);
+      const fs = await import("fs");
       res.setHeader("Content-Type", "application/octet-stream");
       res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
       const fileStream = fs.createReadStream(binaryPath);
