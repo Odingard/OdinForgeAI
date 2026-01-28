@@ -96,6 +96,20 @@ The design system follows custom guidelines blending Material Design with cyber-
 - Color-coded agent entries: PolicyGuardian (gold), ExploitAgent (red), CriticAgent (cyan), ReconAgent (blue), LateralAgent (purple), BusinessLogicAgent (orange), ImpactAgent (pink), DebateModule (emerald), Orchestrator (gray)
 - Auto-scroll with pause-on-hover functionality and live indicator for active evaluations
 
+**January 2026 - Cloud Agent Deployment Consistency**
+- Centralized deployment configuration in `DEPLOYMENT_CONFIG` constant:
+  - `COMMAND_TIMEOUT_MS: 300000` (5 minutes for command execution)
+  - `POLL_INTERVAL_MS: 5000` (5 seconds between status checks)
+  - `VM_RESET_TIMEOUT_MS: 120000` (2 minutes for VM reset)
+  - `TOKEN_EXPIRY_MS: 3600000` (1 hour for registration tokens)
+- Added SSH deployment fallback for all cloud providers via `deployViaSSHWithCredential()`
+- Multi-tenant security: SSH credential ownership validated against organizationId before use
+- Agent binaries stored in Object Storage at `/public/agents/` for production accessibility
+- Deployment methods by provider:
+  - AWS: SSM Run Command (immediate) or SSH if credentials provided
+  - Azure: VM Run Command (immediate) or SSH if credentials provided  
+  - GCP: SSH if credentials provided, otherwise startup-script + VM reset
+
 ## WebSocket Events
 
 The platform uses WebSocket for real-time communication. Key event types:
