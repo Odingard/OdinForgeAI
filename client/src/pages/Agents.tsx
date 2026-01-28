@@ -283,6 +283,22 @@ export default function Agents() {
     },
   });
 
+  // Retry a stuck deployment job
+  const retryDeploymentMutation = useMutation({
+    mutationFn: async (deploymentId: string) => {
+      const response = await apiRequest("POST", `/api/agents/stale-resources/deployment/${deploymentId}/retry`);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Deployment Retried", description: "The deployment job has been queued for retry" });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/stale-resources"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Retry Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
   const forceCheckinMutation = useMutation({
     mutationFn: async (id: string) => {
       const response = await apiRequest("POST", `/api/agents/${id}/force-checkin`);
@@ -621,29 +637,36 @@ export default function Agents() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => forceCheckinMutation.mutate(agent.id)}
-                              disabled={forceCheckinMutation.isPending}
-                              title="Force agent to check in with latest data"
-                              data-testid={`btn-force-checkin-${agent.id}`}
-                            >
-                              <RefreshCw className={`h-4 w-4 ${forceCheckinMutation.isPending ? 'animate-spin' : ''}`} />
-                            </Button>
+                            {agent.status !== "pending" && agent.lastHeartbeat && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => forceCheckinMutation.mutate(agent.id)}
+                                disabled={forceCheckinMutation.isPending}
+                                title="Force agent to check in with latest data"
+                                data-testid={`btn-force-checkin-${agent.id}`}
+                              >
+                                <RefreshCw className={`h-4 w-4 ${forceCheckinMutation.isPending ? 'animate-spin' : ''}`} />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
                               onClick={() => setSelectedAgent(agent)}
+                              title="View agent details"
                               data-testid={`btn-view-agent-${agent.id}`}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
                             {canDeleteAgent && (
                               <Button
-                                variant="ghost"
+                                variant={agent.status === "pending" || !agent.lastHeartbeat ? "destructive" : "ghost"}
                                 size="icon"
                                 onClick={() => deleteAgentMutation.mutate(agent.id)}
+                                disabled={deleteAgentMutation.isPending}
+                                title={agent.status === "pending" || !agent.lastHeartbeat 
+                                  ? "Remove stuck pending agent" 
+                                  : "Delete agent"}
                                 data-testid={`btn-delete-agent-${agent.id}`}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -1292,13 +1315,25 @@ export default function Agents() {
                     <div className="space-y-2">
                       {staleResources.staleDeploymentJobs.map((job) => (
                         <div key={job.id} className="flex items-center justify-between p-3 rounded-md border bg-card">
-                          <div>
-                            <p className="font-medium text-sm">{job.id}</p>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm truncate">{job.id}</p>
                             <p className="text-xs text-muted-foreground">
                               {job.reason} - {job.deploymentMethod}
                             </p>
                           </div>
-                          <Badge variant="secondary">{job.status}</Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">{job.status}</Badge>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => retryDeploymentMutation.mutate(job.id)}
+                              disabled={retryDeploymentMutation.isPending}
+                              title="Retry this deployment"
+                              data-testid={`btn-retry-deployment-${job.id}`}
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
