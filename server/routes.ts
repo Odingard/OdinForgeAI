@@ -3254,6 +3254,40 @@ export async function registerRoutes(
     }
   });
 
+  // Cancel stuck deployment for a cloud asset
+  app.post("/api/cloud-assets/:id/cancel-deployment", apiRateLimiter, async (req, res) => {
+    try {
+      const asset = await storage.getCloudAsset(req.params.id);
+      if (!asset) {
+        return res.status(404).json({ error: "Cloud asset not found" });
+      }
+
+      // Only allow cancelling if status is pending or deploying
+      if (asset.agentDeploymentStatus !== "pending" && asset.agentDeploymentStatus !== "deploying") {
+        return res.status(400).json({ 
+          error: `Cannot cancel - current status is "${asset.agentDeploymentStatus}", not pending or deploying` 
+        });
+      }
+
+      // Reset the deployment status to allow fresh deployment
+      await storage.updateCloudAsset(req.params.id, {
+        agentInstalled: false,
+        agentDeploymentStatus: null,
+        agentDeploymentError: "Deployment cancelled by user",
+        agentId: null,
+      });
+
+      res.json({ 
+        success: true, 
+        message: "Deployment cancelled",
+        assetId: req.params.id,
+      });
+    } catch (error) {
+      console.error("Error cancelling deployment:", error);
+      res.status(500).json({ error: "Failed to cancel deployment" });
+    }
+  });
+
   // Deploy agents to all assets in a connection
   app.post("/api/cloud-connections/:id/deploy-all-agents", batchRateLimiter, async (req, res) => {
     try {

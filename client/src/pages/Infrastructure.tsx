@@ -22,7 +22,8 @@ import {
   ArrowRight,
   Settings,
   Bot,
-  Power
+  Power,
+  XCircle
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -349,6 +350,20 @@ function CloudConnectionCard({
     },
   });
 
+  const cancelDeploymentMutation = useMutation({
+    mutationFn: async (assetId: string) => {
+      const res = await apiRequest("POST", `/api/cloud-assets/${assetId}/cancel-deployment`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
+      toast({ title: "Deployment Cancelled", description: "The stuck deployment has been cleared" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to Cancel", description: error.message, variant: "destructive" });
+    },
+  });
+
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
       case "critical": return "bg-red-500/10 text-red-500 border-red-500/30";
@@ -638,7 +653,7 @@ function CloudConnectionCard({
                         {asset.agentDeployable && 
                          asset.agentDeploymentStatus !== "success" && 
                          asset.agentDeploymentStatus !== "deploying" && 
-                         (asset.agentDeploymentStatus !== "pending" || !asset.agentId) && (
+                         asset.agentDeploymentStatus !== "pending" && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -648,6 +663,19 @@ function CloudConnectionCard({
                             title="Deploy Agent"
                           >
                             <Play className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {asset.agentDeployable && 
+                         (asset.agentDeploymentStatus === "pending" || asset.agentDeploymentStatus === "deploying") && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => cancelDeploymentMutation.mutate(asset.id)}
+                            disabled={cancelDeploymentMutation.isPending}
+                            data-testid={`button-cancel-deploy-${asset.id}`}
+                            title="Cancel stuck deployment"
+                          >
+                            <XCircle className="h-3 w-3" />
                           </Button>
                         )}
                         {asset.agentDeployable && 
