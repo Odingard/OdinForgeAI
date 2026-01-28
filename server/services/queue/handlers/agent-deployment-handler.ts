@@ -11,7 +11,7 @@ import { setTenantContext, clearTenantContext } from "../../rls-setup";
 import { SSMClient, SendCommandCommand, GetCommandInvocationCommand } from "@aws-sdk/client-ssm";
 import { ComputeManagementClient } from "@azure/arm-compute";
 import { ClientSecretCredential } from "@azure/identity";
-import { InstancesClient } from "@google-cloud/compute";
+import { InstancesClient, ZoneOperationsClient } from "@google-cloud/compute";
 import { cloudIntegrationService } from "../../cloud";
 
 interface AgentDeploymentJob {
@@ -477,10 +477,20 @@ async function deployToGCP(
     // Create GCP Compute client with credentials
     console.log(`[AgentDeployment] Step 7: Creating GCP Compute client...`);
     let computeClient: InstancesClient;
+    let zoneOpsClient: ZoneOperationsClient;
+    
     if (useDefaultCredentials) {
       computeClient = new InstancesClient({ projectId });
+      zoneOpsClient = new ZoneOperationsClient({ projectId });
     } else if (serviceAccountCredentials) {
       computeClient = new InstancesClient({
+        projectId,
+        credentials: {
+          client_email: serviceAccountCredentials.client_email,
+          private_key: serviceAccountCredentials.private_key,
+        },
+      });
+      zoneOpsClient = new ZoneOperationsClient({
         projectId,
         credentials: {
           client_email: serviceAccountCredentials.client_email,
@@ -491,11 +501,10 @@ async function deployToGCP(
       return { success: false, error: "No valid GCP credentials available" };
     }
     
-    // For GCP, we set metadata startup script and optionally reset the instance
-    // to trigger immediate execution. The script will run on boot.
-    console.log(`[AgentDeployment] Step 8: Updating instance metadata with startup script...`);
+    // Set startup-script metadata (this is the standard key that runs on boot)
+    console.log(`[AgentDeployment] Step 8: Setting startup-script metadata...`);
     
-    // Update instance metadata with startup script
+    // Get current instance to read existing metadata
     const [instance] = await computeClient.get({
       project: projectId,
       zone,
@@ -504,9 +513,15 @@ async function deployToGCP(
     
     const currentMetadata = instance.metadata?.items || [];
     
-    const newMetadata = currentMetadata.filter(item => item.key !== "odinforge-install-script");
+    // Remove any existing odinforge scripts and set as startup-script
+    const newMetadata = currentMetadata.filter(item => 
+      item.key !== "startup-script" && 
+      item.key !== "odinforge-install-script"
+    );
+    
+    // Use startup-script key - this is executed by the GCP guest agent on boot
     newMetadata.push({
-      key: "odinforge-install-script",
+      key: "startup-script",
       value: script,
     });
     
@@ -519,22 +534,78 @@ async function deployToGCP(
         items: newMetadata,
       },
     });
-    console.log(`[AgentDeployment] Metadata updated successfully`);
+    console.log(`[AgentDeployment] Startup script metadata set successfully`);
     
-    // Note: GCP metadata scripts run on VM startup, not immediately
-    // For immediate execution, we could reset the VM, but that's disruptive
-    // Instead, we'll set the startup script and let the user restart the VM or wait
+    // Now reset the instance to trigger immediate execution
+    console.log(`[AgentDeployment] Step 9: Resetting VM to trigger immediate script execution...`);
+    console.log(`[AgentDeployment] NOTE: This will briefly restart the VM (typically 30-60 seconds)`);
+    
+    let executedImmediately = false;
+    
+    try {
+      const [resetOperation] = await computeClient.reset({
+        project: projectId,
+        zone,
+        instance: instanceName,
+      });
+      
+      console.log(`[AgentDeployment] Reset operation started: ${resetOperation.name}`);
+      
+      // Wait for reset to complete (with timeout)
+      const maxWaitTime = 120000; // 2 minutes
+      const pollInterval = 5000; // 5 seconds
+      let elapsed = 0;
+      
+      while (elapsed < maxWaitTime) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        elapsed += pollInterval;
+        
+        try {
+          const [opStatus] = await zoneOpsClient.get({
+            project: projectId,
+            zone,
+            operation: resetOperation.name!,
+          });
+          
+          if (opStatus.status === "DONE") {
+            if (opStatus.error) {
+              console.error(`[AgentDeployment] Reset operation completed with error:`, opStatus.error);
+            } else {
+              console.log(`[AgentDeployment] VM reset completed successfully after ${elapsed/1000}s`);
+              executedImmediately = true;
+            }
+            break;
+          } else {
+            console.log(`[AgentDeployment] Waiting for reset... (${elapsed/1000}s, status: ${opStatus.status})`);
+          }
+        } catch (pollError: any) {
+          console.log(`[AgentDeployment] Polling error (will retry): ${pollError.message}`);
+        }
+      }
+      
+      if (elapsed >= maxWaitTime && !executedImmediately) {
+        console.log(`[AgentDeployment] Reset operation timed out after ${maxWaitTime/1000}s`);
+        console.log(`[AgentDeployment] The reset may still complete - check GCP Console for status`);
+      }
+    } catch (resetError: any) {
+      console.error(`[AgentDeployment] VM reset failed: ${resetError.message}`);
+      console.log(`[AgentDeployment] The startup script is set but won't run until the VM is manually restarted`);
+      console.log(`[AgentDeployment] To trigger manually: gcloud compute instances reset ${instanceName} --zone=${zone}`);
+    }
+    
     console.log(`[AgentDeployment] ========== GCP DEPLOYMENT COMPLETE ==========`);
-    console.log(`[AgentDeployment] IMPORTANT: The installation script has been set as instance metadata.`);
-    console.log(`[AgentDeployment] The agent will install when the VM is restarted.`);
-    console.log(`[AgentDeployment] To trigger immediate installation, restart the VM from the GCP Console.`);
-    console.log(`[AgentDeployment] Or run manually: gcloud compute instances reset ${instanceName} --zone=${zone}`);
+    if (executedImmediately) {
+      console.log(`[AgentDeployment] VM was reset and startup script will execute shortly.`);
+      console.log(`[AgentDeployment] Agent should check in within 1-2 minutes.`);
+    } else {
+      console.log(`[AgentDeployment] Startup script is set but VM reset may not have completed.`);
+      console.log(`[AgentDeployment] If agent doesn't check in, manually reset the VM from GCP Console.`);
+    }
     
     const agentId = `gcp-${instanceName.slice(-12)}`;
     return { 
       success: true, 
       agentId,
-      // Include a note about the delayed installation
     };
     
   } catch (error: any) {

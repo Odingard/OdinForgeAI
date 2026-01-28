@@ -36,7 +36,8 @@ import {
   Monitor,
   Download,
   Clock,
-  Loader2
+  Loader2,
+  RotateCcw
 } from "lucide-react";
 import { InstallWizard } from "@/components/InstallWizard";
 import { CoverageAutopilot } from "@/components/CoverageAutopilot";
@@ -119,6 +120,35 @@ interface AgentTelemetry {
   collectedAt: string;
 }
 
+interface StaleAgent {
+  id: string;
+  agentName: string;
+  hostname: string | null;
+  platform: string | null;
+  status: string | null;
+  lastHeartbeat: string | null;
+  createdAt: string;
+  registeredAt: string | null;
+  reason: string;
+}
+
+interface StaleDeploymentJob {
+  id: string;
+  cloudAssetId: string;
+  status: string | null;
+  deploymentMethod: string;
+  createdAt: string;
+  updatedAt: string;
+  errorMessage: string | null;
+  reason: string;
+}
+
+interface StaleResourcesSummary {
+  staleAgents: StaleAgent[];
+  staleDeploymentJobs: StaleDeploymentJob[];
+  expiredTokens: number;
+}
+
 export default function Agents() {
   const { toast } = useToast();
   const { hasPermission } = useAuth();
@@ -130,6 +160,7 @@ export default function Agents() {
   const [telemetryAgentId, setTelemetryAgentId] = useState<string | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+  const [staleResourcesDialogOpen, setStaleResourcesDialogOpen] = useState(false);
   const [cleanupHours, setCleanupHours] = useState("24");
   const [includeNoise, setIncludeNoise] = useState(false);
 
@@ -202,6 +233,53 @@ export default function Agents() {
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  // Stale resources query
+  const { data: staleResources, isLoading: staleResourcesLoading, refetch: refetchStaleResources } = useQuery<StaleResourcesSummary>({
+    queryKey: ["/api/agents/stale-resources"],
+    enabled: staleResourcesDialogOpen,
+  });
+
+  // Cleanup all stale resources
+  const cleanupAllStaleResourcesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/agents/stale-resources/cleanup", {
+        cleanAgents: true,
+        cleanDeploymentJobs: true,
+        cleanExpiredTokens: true,
+      });
+      return response.json();
+    },
+    onSuccess: (data: { deletedAgents: number; deletedDeploymentJobs: number; deletedTokens: number }) => {
+      toast({
+        title: "Cleanup Complete",
+        description: `Removed ${data.deletedAgents} stale agents, ${data.deletedDeploymentJobs} stuck deployments, ${data.deletedTokens} expired tokens`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/stats/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/stale-resources"] });
+      setStaleResourcesDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cleanup Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete single stale agent
+  const deleteStaleAgentMutation = useMutation({
+    mutationFn: async (agentId: string) => {
+      await apiRequest("DELETE", `/api/agents/stale-resources/agent/${agentId}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Agent Deleted" });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents/stale-resources"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/agents"] });
     },
   });
 
@@ -472,11 +550,22 @@ export default function Agents() {
 
         <TabsContent value="agents" className="space-y-4">
           <Card>
-            <CardHeader>
-              <CardTitle>Connected Agents</CardTitle>
-              <CardDescription>
-                Endpoint agents reporting telemetry to OdinForge
-              </CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle>Connected Agents</CardTitle>
+                <CardDescription>
+                  Endpoint agents reporting telemetry to OdinForge
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStaleResourcesDialogOpen(true)}
+                data-testid="btn-stale-resources"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Cleanup Stale
+              </Button>
             </CardHeader>
             <CardContent>
               {agentsLoading ? (
@@ -1142,6 +1231,122 @@ export default function Agents() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Stale Resources Cleanup Dialog */}
+      <Dialog open={staleResourcesDialogOpen} onOpenChange={setStaleResourcesDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Stale Resources</DialogTitle>
+            <DialogDescription>
+              View and clean up stale agents, stuck deployments, and expired tokens
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+            {staleResourcesLoading ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                Loading stale resources...
+              </div>
+            ) : (
+              <>
+                {/* Stale Agents */}
+                <div className="space-y-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Server className="h-4 w-4" />
+                    Stale Agents ({staleResources?.staleAgents?.length || 0})
+                  </h4>
+                  {staleResources?.staleAgents && staleResources.staleAgents.length > 0 ? (
+                    <div className="space-y-2">
+                      {staleResources.staleAgents.map((agent) => (
+                        <div key={agent.id} className="flex items-center justify-between p-3 rounded-md border bg-card">
+                          <div>
+                            <p className="font-medium text-sm">{agent.agentName}</p>
+                            <p className="text-xs text-muted-foreground">{agent.reason}</p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteStaleAgentMutation.mutate(agent.id)}
+                            disabled={deleteStaleAgentMutation.isPending}
+                            data-testid={`btn-delete-stale-agent-${agent.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-6">No stale agents found</p>
+                  )}
+                </div>
+
+                {/* Stuck Deployment Jobs */}
+                <div className="space-y-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    Stuck Deployments ({staleResources?.staleDeploymentJobs?.length || 0})
+                  </h4>
+                  {staleResources?.staleDeploymentJobs && staleResources.staleDeploymentJobs.length > 0 ? (
+                    <div className="space-y-2">
+                      {staleResources.staleDeploymentJobs.map((job) => (
+                        <div key={job.id} className="flex items-center justify-between p-3 rounded-md border bg-card">
+                          <div>
+                            <p className="font-medium text-sm">{job.id}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {job.reason} - {job.deploymentMethod}
+                            </p>
+                          </div>
+                          <Badge variant="secondary">{job.status}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground pl-6">No stuck deployments found</p>
+                  )}
+                </div>
+
+                {/* Expired Tokens */}
+                <div className="space-y-2">
+                  <h4 className="font-medium flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    Expired Tokens
+                  </h4>
+                  <p className="text-sm text-muted-foreground pl-6">
+                    {staleResources?.expiredTokens || 0} expired registration tokens
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="flex justify-between pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => refetchStaleResources()}
+              disabled={staleResourcesLoading}
+              data-testid="btn-refresh-stale"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => cleanupAllStaleResourcesMutation.mutate()}
+              disabled={cleanupAllStaleResourcesMutation.isPending || 
+                ((staleResources?.staleAgents?.length || 0) === 0 && 
+                 (staleResources?.staleDeploymentJobs?.length || 0) === 0 && 
+                 (staleResources?.expiredTokens || 0) === 0)}
+              data-testid="btn-cleanup-all-stale"
+            >
+              {cleanupAllStaleResourcesMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Clean Up All
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
