@@ -159,7 +159,7 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, inArray } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -1206,6 +1206,17 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(agentDeploymentJobs)
       .where(eq(agentDeploymentJobs.connectionId, connectionId))
+      .orderBy(desc(agentDeploymentJobs.createdAt));
+  }
+
+  async getActiveDeploymentJobsForAsset(assetId: string): Promise<AgentDeploymentJob[]> {
+    return db
+      .select()
+      .from(agentDeploymentJobs)
+      .where(and(
+        eq(agentDeploymentJobs.cloudAssetId, assetId),
+        inArray(agentDeploymentJobs.status, ["pending", "running", "in_progress", "deploying"])
+      ))
       .orderBy(desc(agentDeploymentJobs.createdAt));
   }
 

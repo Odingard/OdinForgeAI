@@ -16,6 +16,39 @@ const adapters: Record<CloudProvider, ProviderAdapter> = {
 };
 
 export class CloudIntegrationService {
+  // Helper to check if deployment job was cancelled before updating asset
+  private async isJobCancelled(jobId: string): Promise<boolean> {
+    const job = await storage.getAgentDeploymentJob(jobId);
+    return job?.status === "cancelled";
+  }
+
+  // Safe asset update that respects job cancellation
+  private async updateAssetIfNotCancelled(
+    jobId: string,
+    assetId: string,
+    updates: Record<string, any>
+  ): Promise<boolean> {
+    if (await this.isJobCancelled(jobId)) {
+      console.log(`[CloudDeploy] Job ${jobId} was cancelled, skipping asset update for ${assetId}`);
+      return false;
+    }
+    await storage.updateCloudAsset(assetId, updates);
+    return true;
+  }
+
+  // Safe job update that respects cancellation - won't overwrite cancelled status
+  private async updateJobIfNotCancelled(
+    jobId: string,
+    updates: Record<string, any>
+  ): Promise<boolean> {
+    if (await this.isJobCancelled(jobId)) {
+      console.log(`[CloudDeploy] Job ${jobId} was cancelled, skipping job status update`);
+      return false;
+    }
+    await storage.updateAgentDeploymentJob(jobId, updates);
+    return true;
+  }
+
   private getAdapter(provider: string): ProviderAdapter {
     // Normalize provider to lowercase for consistent adapter lookup
     const normalizedProvider = provider.toLowerCase();
@@ -337,15 +370,25 @@ export class CloudIntegrationService {
   ): Promise<void> {
     const { sshDeploymentService } = await import("../ssh-deployment");
     
-    await storage.updateAgentDeploymentJob(jobId, {
+    // Check if job was cancelled before starting
+    const jobNotCancelled = await this.updateJobIfNotCancelled(jobId, {
       status: "deploying",
       startedAt: new Date(),
     });
+    
+    if (!jobNotCancelled) {
+      return; // Job was cancelled, abort deployment
+    }
 
-    await storage.updateCloudAsset(asset.id, {
+    // Check if job was cancelled before updating asset
+    const assetNotCancelled = await this.updateAssetIfNotCancelled(jobId, asset.id, {
       agentDeploymentStatus: "deploying",
       lastAgentDeploymentAttempt: new Date(),
     });
+    
+    if (!assetNotCancelled) {
+      return; // Job was cancelled, abort deployment
+    }
 
     try {
       const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
@@ -397,12 +440,14 @@ export class CloudIntegrationService {
       );
 
       if (result.success) {
-        await storage.updateAgentDeploymentJob(jobId, {
+        // Only update job if not cancelled
+        await this.updateJobIfNotCancelled(jobId, {
           status: "completed",
           completedAt: new Date(),
         });
 
-        await storage.updateCloudAsset(asset.id, {
+        // Only update asset if job wasn't cancelled
+        await this.updateAssetIfNotCancelled(jobId, asset.id, {
           agentDeploymentStatus: "success",
           agentInstalled: true,
           agentId: result.agentId || newAgent.id,
@@ -418,13 +463,15 @@ export class CloudIntegrationService {
     } catch (error: any) {
       console.error(`[SSH Deploy] Error deploying to asset ${asset.id}:`, error);
       
-      await storage.updateAgentDeploymentJob(jobId, {
+      // Only update job if not cancelled
+      await this.updateJobIfNotCancelled(jobId, {
         status: "failed",
         completedAt: new Date(),
         errorMessage: error.message,
       });
 
-      await storage.updateCloudAsset(asset.id, {
+      // Only update asset if job wasn't cancelled
+      await this.updateAssetIfNotCancelled(jobId, asset.id, {
         agentDeploymentStatus: "failed",
         agentDeploymentError: error.message,
       });
@@ -439,15 +486,25 @@ export class CloudIntegrationService {
   ): Promise<void> {
     const adapter = this.getAdapter(connection.provider);
 
-    await storage.updateAgentDeploymentJob(jobId, {
+    // Check if job was cancelled before starting
+    const jobNotCancelled = await this.updateJobIfNotCancelled(jobId, {
       status: "deploying",
       startedAt: new Date(),
     });
+    
+    if (!jobNotCancelled) {
+      return; // Job was cancelled, abort deployment
+    }
 
-    await storage.updateCloudAsset(asset.id, {
+    // Check if job was cancelled before updating asset
+    const assetNotCancelled = await this.updateAssetIfNotCancelled(jobId, asset.id, {
       agentDeploymentStatus: "deploying",
       lastAgentDeploymentAttempt: new Date(),
     });
+    
+    if (!assetNotCancelled) {
+      return; // Job was cancelled, abort deployment
+    }
 
     // Pre-register the agent in the database immediately
     // This ensures the agent shows up in the Agents list right away
@@ -535,13 +592,15 @@ export class CloudIntegrationService {
     );
 
     if (result.success) {
-      await storage.updateAgentDeploymentJob(jobId, {
+      // Only update job if not cancelled
+      await this.updateJobIfNotCancelled(jobId, {
         status: "success",
         completedAt: new Date(),
         resultAgentId: agentId,
       });
 
-      await storage.updateCloudAsset(asset.id, {
+      // Only update asset if job wasn't cancelled
+      await this.updateAssetIfNotCancelled(jobId, asset.id, {
         agentInstalled: true,
         agentId,
         agentDeploymentStatus: "success",
@@ -552,23 +611,32 @@ export class CloudIntegrationService {
         status: "offline",
       });
     } else {
+      // Check if job was cancelled before processing failure
+      if (await this.isJobCancelled(jobId)) {
+        console.log(`[CloudDeploy] Job ${jobId} was cancelled, skipping failure update`);
+        return;
+      }
+      
       const job = await storage.getAgentDeploymentJob(jobId);
       const attempts = (job?.attempts || 0) + 1;
 
       if (attempts < (job?.maxAttempts || 3)) {
-        await storage.updateAgentDeploymentJob(jobId, {
+        // Only update job if not cancelled
+        await this.updateJobIfNotCancelled(jobId, {
           status: "pending",
           attempts,
           errorMessage: result.errorMessage,
           scheduledAt: new Date(Date.now() + 60000 * attempts),
         });
 
-        await storage.updateCloudAsset(asset.id, {
+        // Only update asset if job wasn't cancelled
+        await this.updateAssetIfNotCancelled(jobId, asset.id, {
           agentDeploymentStatus: "pending",
           agentDeploymentError: result.errorMessage,
         });
       } else {
-        await storage.updateAgentDeploymentJob(jobId, {
+        // Only update job if not cancelled
+        await this.updateJobIfNotCancelled(jobId, {
           status: "failed",
           completedAt: new Date(),
           attempts,
@@ -576,7 +644,8 @@ export class CloudIntegrationService {
           errorDetails: result.errorDetails,
         });
 
-        await storage.updateCloudAsset(asset.id, {
+        // Only update asset if job wasn't cancelled
+        await this.updateAssetIfNotCancelled(jobId, asset.id, {
           agentDeploymentStatus: "failed",
           agentDeploymentError: result.errorMessage,
         });
