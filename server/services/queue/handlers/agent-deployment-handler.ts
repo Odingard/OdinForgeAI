@@ -133,33 +133,45 @@ async function deployToAWS(
   serverUrl: string,
   region?: string
 ): Promise<{ success: boolean; agentId?: string; error?: string }> {
-  console.log(`[AgentDeployment] AWS SSM deployment to instance ${instanceId}`);
+  console.log(`[AgentDeployment] ========== AWS SSM DEPLOYMENT START ==========`);
+  console.log(`[AgentDeployment] Target Instance: ${instanceId}`);
+  console.log(`[AgentDeployment] Organization: ${organizationId}`);
+  console.log(`[AgentDeployment] Server URL (agent will connect to): ${serverUrl}`);
   
   try {
     // Get AWS credentials from cloud connection
+    console.log(`[AgentDeployment] Step 1: Retrieving AWS cloud connection...`);
     const connections = await storage.getCloudConnections(organizationId);
     const awsConnection = connections.find(c => c.provider === "aws" && c.status === "active");
     
     if (!awsConnection) {
+      console.error(`[AgentDeployment] FAILED: No active AWS cloud connection found for org ${organizationId}`);
       return { success: false, error: "No active AWS cloud connection found" };
     }
+    console.log(`[AgentDeployment] Found AWS connection: ${awsConnection.name} (ID: ${awsConnection.id})`);
     
     // Get decrypted credentials using cloudService
+    console.log(`[AgentDeployment] Step 2: Decrypting AWS credentials...`);
     const credentials = await cloudIntegrationService.getConnectionCredentials(awsConnection.id);
     
     if (!credentials || !credentials.aws) {
+      console.error(`[AgentDeployment] FAILED: AWS credentials not configured or decryption failed`);
       return { success: false, error: "AWS credentials not configured or decryption failed" };
     }
     
     const awsCreds = credentials.aws;
     if (!awsCreds.accessKeyId || !awsCreds.secretAccessKey) {
+      console.error(`[AgentDeployment] FAILED: AWS credentials incomplete`);
       return { success: false, error: "AWS credentials incomplete - missing access key or secret" };
     }
+    console.log(`[AgentDeployment] AWS credentials loaded successfully (Access Key: ${awsCreds.accessKeyId.slice(0, 8)}...)`);
     
     // Determine region from connection or parameter
     const targetRegion = region || (awsConnection.awsRegions && awsConnection.awsRegions[0]) || "us-east-1";
+    console.log(`[AgentDeployment] Target region: ${targetRegion}`);
     
     // Create SSM client
+    console.log(`[AgentDeployment] Step 3: Creating SSM client...`);
     const ssmClient = new SSMClient({
       region: targetRegion,
       credentials: {
@@ -170,6 +182,7 @@ async function deployToAWS(
     });
     
     // Generate registration token for this agent
+    console.log(`[AgentDeployment] Step 4: Creating registration token...`);
     const registrationToken = generateRegistrationToken();
     const tokenHash = hashToken(registrationToken);
     
@@ -181,9 +194,13 @@ async function deployToAWS(
       expiresAt: new Date(Date.now() + 3600000), // 1 hour expiry
       name: `AWS deployment token for ${instanceId}`,
     });
+    console.log(`[AgentDeployment] Registration token created (expires in 1 hour)`);
     
     // Build installation script
+    console.log(`[AgentDeployment] Step 5: Building installation script...`);
     const script = buildInstallScript("linux", serverUrl, registrationToken);
+    console.log(`[AgentDeployment] Installation script ready (${script.length} bytes)`);
+    console.log(`[AgentDeployment] Agent will register to: ${serverUrl}`);
     
     // Send SSM Run Command
     const sendCommandResponse = await ssmClient.send(new SendCommandCommand({
@@ -249,7 +266,10 @@ async function deployToAzure(
   organizationId: string,
   serverUrl: string
 ): Promise<{ success: boolean; agentId?: string; error?: string }> {
-  console.log(`[AgentDeployment] Azure Run Command deployment to VM ${instanceId}`);
+  console.log(`[AgentDeployment] ========== AZURE RUN COMMAND DEPLOYMENT START ==========`);
+  console.log(`[AgentDeployment] Target VM: ${instanceId}`);
+  console.log(`[AgentDeployment] Organization: ${organizationId}`);
+  console.log(`[AgentDeployment] Server URL (agent will connect to): ${serverUrl}`);
   
   try {
     // Get Azure credentials from cloud connection
@@ -352,21 +372,29 @@ async function deployToGCP(
   organizationId: string,
   serverUrl: string
 ): Promise<{ success: boolean; agentId?: string; error?: string }> {
-  console.log(`[AgentDeployment] GCP deployment to instance ${instanceId}`);
+  console.log(`[AgentDeployment] ========== GCP DEPLOYMENT START ==========`);
+  console.log(`[AgentDeployment] Target Instance: ${instanceId}`);
+  console.log(`[AgentDeployment] Organization: ${organizationId}`);
+  console.log(`[AgentDeployment] Server URL (agent will connect to): ${serverUrl}`);
   
   try {
     // Get GCP credentials from cloud connection
+    console.log(`[AgentDeployment] Step 1: Retrieving GCP cloud connection...`);
     const connections = await storage.getCloudConnections(organizationId);
     const gcpConnection = connections.find(c => c.provider === "gcp" && c.status === "active");
     
     if (!gcpConnection) {
+      console.error(`[AgentDeployment] FAILED: No active GCP cloud connection found`);
       return { success: false, error: "No active GCP cloud connection found" };
     }
+    console.log(`[AgentDeployment] Found GCP connection: ${gcpConnection.name} (ID: ${gcpConnection.id})`);
     
     // Get decrypted credentials using cloudService
+    console.log(`[AgentDeployment] Step 2: Decrypting GCP credentials...`);
     const credentials = await cloudIntegrationService.getConnectionCredentials(gcpConnection.id);
     
     if (!credentials || !credentials.gcp) {
+      console.error(`[AgentDeployment] FAILED: GCP credentials not configured or decryption failed`);
       return { success: false, error: "GCP credentials not configured or decryption failed" };
     }
     
@@ -374,48 +402,60 @@ async function deployToGCP(
     const projectId = gcpCreds.projectId || (gcpConnection.gcpProjectIds && gcpConnection.gcpProjectIds[0]);
     
     if (!projectId) {
+      console.error(`[AgentDeployment] FAILED: GCP project ID not configured`);
       return { success: false, error: "GCP project ID not configured" };
     }
+    console.log(`[AgentDeployment] Project ID: ${projectId}`);
     
     // Parse service account JSON to get credentials
     let serviceAccountCredentials: { client_email: string; private_key: string } | null = null;
     let useDefaultCredentials = false;
     
     if (gcpCreds.serviceAccountJson) {
+      console.log(`[AgentDeployment] Step 3: Parsing service account JSON...`);
       try {
         const parsed = JSON.parse(gcpCreds.serviceAccountJson);
         if (!parsed.client_email || !parsed.private_key) {
+          console.error(`[AgentDeployment] FAILED: Service account JSON missing required fields`);
           return { success: false, error: "GCP service account JSON missing required fields (client_email, private_key)" };
         }
         serviceAccountCredentials = parsed;
+        console.log(`[AgentDeployment] Service account: ${parsed.client_email}`);
       } catch {
+        console.error(`[AgentDeployment] FAILED: Invalid service account JSON format`);
         return { success: false, error: "Invalid GCP service account JSON format" };
       }
     } else if (gcpCreds.useWorkloadIdentity) {
       // Workload identity federation - use Application Default Credentials (ADC)
-      // This requires GOOGLE_APPLICATION_CREDENTIALS env var or GCE metadata service
+      console.log(`[AgentDeployment] Step 3: Checking for ADC (Workload Identity)...`);
       const hasADC = process.env.GOOGLE_APPLICATION_CREDENTIALS || 
                      process.env.GOOGLE_CLOUD_PROJECT ||
                      process.env.GCE_METADATA_HOST;
       if (!hasADC) {
+        console.error(`[AgentDeployment] FAILED: No ADC available for workload identity`);
         return { success: false, error: "GCP Workload Identity Federation configured but no Application Default Credentials (ADC) available. Set GOOGLE_APPLICATION_CREDENTIALS or run on GCE." };
       }
       useDefaultCredentials = true;
       console.log(`[AgentDeployment] Using GCP Application Default Credentials for workload identity`);
     } else {
+      console.error(`[AgentDeployment] FAILED: No GCP credentials configured`);
       return { success: false, error: "GCP credentials not configured - no service account JSON or workload identity" };
     }
     
     // Parse instanceId to extract zone and instance name
     // Expected format: zone/instanceName (required)
+    console.log(`[AgentDeployment] Step 4: Parsing instance ID...`);
     const parts = instanceId.split("/");
     if (parts.length < 2) {
+      console.error(`[AgentDeployment] FAILED: Invalid instance ID format. Expected 'zone/instanceName', got '${instanceId}'`);
       return { success: false, error: `Invalid GCP instance ID format: expected 'zone/instanceName', got '${instanceId}'` };
     }
     const zone = parts[0];
     const instanceName = parts[1];
+    console.log(`[AgentDeployment] Zone: ${zone}, Instance: ${instanceName}`);
     
     // Generate registration token
+    console.log(`[AgentDeployment] Step 5: Creating registration token...`);
     const registrationToken = generateRegistrationToken();
     const tokenHash = hashToken(registrationToken);
     
@@ -427,14 +467,17 @@ async function deployToGCP(
       expiresAt: new Date(Date.now() + 3600000),
       name: `GCP deployment token for ${instanceName}`,
     });
+    console.log(`[AgentDeployment] Registration token created (expires in 1 hour)`);
     
     // Build installation script
+    console.log(`[AgentDeployment] Step 6: Building installation script...`);
     const script = buildInstallScript("linux", serverUrl, registrationToken);
+    console.log(`[AgentDeployment] Installation script ready (${script.length} bytes)`);
     
     // Create GCP Compute client with credentials
+    console.log(`[AgentDeployment] Step 7: Creating GCP Compute client...`);
     let computeClient: InstancesClient;
     if (useDefaultCredentials) {
-      // Use ADC - no explicit credentials, library will auto-discover
       computeClient = new InstancesClient({ projectId });
     } else if (serviceAccountCredentials) {
       computeClient = new InstancesClient({
@@ -448,8 +491,9 @@ async function deployToGCP(
       return { success: false, error: "No valid GCP credentials available" };
     }
     
-    // For GCP, we use metadata startup script or guest attributes
-    // This sets a startup script that will run on next boot or can be triggered via OS Login
+    // For GCP, we set metadata startup script and optionally reset the instance
+    // to trigger immediate execution. The script will run on boot.
+    console.log(`[AgentDeployment] Step 8: Updating instance metadata with startup script...`);
     
     // Update instance metadata with startup script
     const [instance] = await computeClient.get({
@@ -475,14 +519,27 @@ async function deployToGCP(
         items: newMetadata,
       },
     });
+    console.log(`[AgentDeployment] Metadata updated successfully`);
     
-    console.log(`[AgentDeployment] GCP metadata set for ${instanceName}, agent will install on next startup or manual trigger`);
+    // Note: GCP metadata scripts run on VM startup, not immediately
+    // For immediate execution, we could reset the VM, but that's disruptive
+    // Instead, we'll set the startup script and let the user restart the VM or wait
+    console.log(`[AgentDeployment] ========== GCP DEPLOYMENT COMPLETE ==========`);
+    console.log(`[AgentDeployment] IMPORTANT: The installation script has been set as instance metadata.`);
+    console.log(`[AgentDeployment] The agent will install when the VM is restarted.`);
+    console.log(`[AgentDeployment] To trigger immediate installation, restart the VM from the GCP Console.`);
+    console.log(`[AgentDeployment] Or run manually: gcloud compute instances reset ${instanceName} --zone=${zone}`);
     
     const agentId = `gcp-${instanceName.slice(-12)}`;
-    return { success: true, agentId };
+    return { 
+      success: true, 
+      agentId,
+      // Include a note about the delayed installation
+    };
     
   } catch (error: any) {
-    console.error(`[AgentDeployment] GCP deployment error:`, error);
+    console.error(`[AgentDeployment] ========== GCP DEPLOYMENT FAILED ==========`);
+    console.error(`[AgentDeployment] Error:`, error);
     return { success: false, error: error.message || "GCP deployment failed" };
   }
 }
@@ -509,7 +566,17 @@ export async function handleAgentDeploymentJob(
   const startTime = Date.now();
   const { deploymentId, provider, instanceIds, tenantId, organizationId, deploymentMethod, serverUrl } = job.data;
 
-  console.log(`[AgentDeployment] Starting ${provider} deployment for ${instanceIds.length} instances`);
+  console.log(`[AgentDeployment] ================================================================`);
+  console.log(`[AgentDeployment] AGENT DEPLOYMENT JOB STARTED`);
+  console.log(`[AgentDeployment] ----------------------------------------------------------------`);
+  console.log(`[AgentDeployment] Deployment ID: ${deploymentId}`);
+  console.log(`[AgentDeployment] Provider: ${provider}`);
+  console.log(`[AgentDeployment] Deployment Method: ${deploymentMethod || "cloud-api (default)"}`);
+  console.log(`[AgentDeployment] Organization: ${organizationId}`);
+  console.log(`[AgentDeployment] Instance Count: ${instanceIds.length}`);
+  console.log(`[AgentDeployment] Instances: ${instanceIds.join(", ")}`);
+  console.log(`[AgentDeployment] Server URL: ${serverUrl || process.env.PUBLIC_ODINFORGE_URL || "not configured"}`);
+  console.log(`[AgentDeployment] ----------------------------------------------------------------`);
 
   // Set RLS tenant context for database operations
   await setTenantContext(organizationId);

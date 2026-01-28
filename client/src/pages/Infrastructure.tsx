@@ -679,7 +679,7 @@ function CloudConnectionCard({
           <DialogHeader>
             <DialogTitle>Deploy Agent</DialogTitle>
             <DialogDescription>
-              Choose how to deploy the monitoring agent to this asset.
+              Deploy the OdinForge monitoring agent to this asset.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -690,15 +690,35 @@ function CloudConnectionCard({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cloud-api">Cloud API (SSM/Run Command)</SelectItem>
-                  <SelectItem value="ssh">SSH Connection</SelectItem>
+                  <SelectItem value="cloud-api">Cloud API (Recommended)</SelectItem>
+                  <SelectItem value="ssh">SSH Connection (Fallback)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                {deploymentMethod === "cloud-api" 
-                  ? "Uses cloud provider APIs to install the agent. Requires SSM agent or equivalent."
-                  : "Connects directly via SSH to install the agent. Requires SSH access to the instance."}
-              </p>
+              {deploymentMethod === "cloud-api" ? (
+                <div className="p-3 rounded-md bg-green-500/10 border border-green-500/30">
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    Using Your Cloud Credentials
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This method uses your configured {connection.provider.toUpperCase()} service account credentials to deploy via{" "}
+                    {connection.provider === "aws" ? "SSM Run Command" : 
+                     connection.provider === "azure" ? "VM Run Command" : 
+                     "compute metadata"}. No additional credentials needed.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30">
+                  <p className="text-sm font-medium text-amber-600 dark:text-amber-400 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    Manual SSH Credentials Required
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use this if cloud APIs are unavailable or for on-premise servers.
+                    You must provide SSH login credentials below.
+                  </p>
+                </div>
+              )}
             </div>
             
             {deploymentMethod === "ssh" && (
