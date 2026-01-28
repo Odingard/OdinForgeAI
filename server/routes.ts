@@ -5050,6 +5050,73 @@ export async function registerRoutes(
     }
   });
 
+  // Get stale resources summary (agents that never checked in, stuck deployments, expired tokens)
+  app.get("/api/agents/stale-resources", apiRateLimiter, async (req, res) => {
+    try {
+      const { agentCleanupService } = await import("./services/agent-cleanup");
+      const organizationId = getOrganizationId(req) || "default";
+      const summary = await agentCleanupService.getStaleResources(organizationId);
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching stale resources:", error);
+      res.status(500).json({ error: "Failed to fetch stale resources" });
+    }
+  });
+
+  // Cleanup stale resources (agents, deployment jobs, expired tokens)
+  app.post("/api/agents/stale-resources/cleanup", apiRateLimiter, async (req, res) => {
+    try {
+      const { agentCleanupService } = await import("./services/agent-cleanup");
+      const organizationId = getOrganizationId(req) || "default";
+      const options = {
+        cleanAgents: req.body.cleanAgents !== false,
+        cleanDeploymentJobs: req.body.cleanDeploymentJobs !== false,
+        cleanExpiredTokens: req.body.cleanExpiredTokens !== false,
+        agentIds: req.body.agentIds,
+        deploymentJobIds: req.body.deploymentJobIds,
+      };
+      const result = await agentCleanupService.cleanupStaleResources(organizationId, options);
+      res.json(result);
+    } catch (error) {
+      console.error("Error cleaning up stale resources:", error);
+      res.status(500).json({ error: "Failed to cleanup stale resources" });
+    }
+  });
+
+  // Delete a specific agent
+  app.delete("/api/agents/stale-resources/agent/:id", apiRateLimiter, async (req, res) => {
+    try {
+      const { agentCleanupService } = await import("./services/agent-cleanup");
+      const organizationId = getOrganizationId(req) || "default";
+      const result = await agentCleanupService.deleteAgent(organizationId, req.params.id);
+      if (result.success) {
+        res.json({ success: true, message: `Agent ${req.params.id} deleted` });
+      } else {
+        res.status(404).json({ error: result.error || "Agent not found" });
+      }
+    } catch (error) {
+      console.error("Error deleting agent:", error);
+      res.status(500).json({ error: "Failed to delete agent" });
+    }
+  });
+
+  // Retry a failed deployment job
+  app.post("/api/agents/stale-resources/deployment/:id/retry", apiRateLimiter, async (req, res) => {
+    try {
+      const { agentCleanupService } = await import("./services/agent-cleanup");
+      const organizationId = getOrganizationId(req) || "default";
+      const result = await agentCleanupService.retryDeployment(organizationId, req.params.id);
+      if (result.success) {
+        res.json({ success: true, message: `Deployment job ${req.params.id} queued for retry` });
+      } else {
+        res.status(404).json({ error: result.error || "Deployment job not found" });
+      }
+    } catch (error) {
+      console.error("Error retrying deployment:", error);
+      res.status(500).json({ error: "Failed to retry deployment" });
+    }
+  });
+
   // Get all agent findings
   app.get("/api/agent-findings", apiRateLimiter, async (req, res) => {
     try {
