@@ -7438,6 +7438,96 @@ function registerJobQueueRoutes(app: Express) {
     }
   });
 
+  // GET /api/agent-install-command - Generate a ready-to-use install command with fresh token
+  // This is the primary endpoint for getting a one-liner to embed in templates
+  app.get("/api/agent-install-command", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.uiUser?.organizationId || "default";
+      const expiryMinutes = Math.min(Math.max(parseInt(req.query.expiry as string) || 60, 5), 10080); // 5 min to 7 days
+      
+      // Generate a cryptographically secure token
+      const rawToken = randomBytes(32).toString("base64url");
+      const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+      const tokenHint = rawToken.slice(-6);
+      
+      // Set expiration
+      const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+      
+      const tokenId = `enroll-${randomUUID().slice(0, 8)}`;
+      
+      await storage.createEnrollmentToken({
+        id: tokenId,
+        organizationId,
+        tokenHash,
+        tokenHint,
+        expiresAt,
+        revoked: false,
+      });
+      
+      // Get server URL using existing helper (enforces HTTPS for production)
+      const serverUrl = getServerUrl(req);
+      
+      // Generate install commands for different platforms
+      // Use sudo for Linux since agent requires root installation
+      const linuxCommand = `curl -sSL '${serverUrl}/api/agents/install.sh' | sudo bash -s -- --server-url "${serverUrl}" --api-key "${rawToken}"`;
+      const windowsCommand = `irm '${serverUrl}/api/agents/install.ps1' | iex; Install-OdinForgeAgent -ServerUrl "${serverUrl}" -ApiKey "${rawToken}"`;
+      
+      // Cloud user-data scripts (run as root in cloud-init/user-data context)
+      // Note: Cloud user-data typically runs as root, but we include explicit bash for clarity
+      const cloudInit = `#!/bin/bash
+set -e
+curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serverUrl}" --api-key "${rawToken}"`;
+
+      const awsUserData = `#!/bin/bash
+set -e
+curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serverUrl}" --api-key "${rawToken}"`;
+
+      const azureCustomScript = linuxCommand;
+      
+      const gcpStartupScript = `#!/bin/bash
+set -e
+curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serverUrl}" --api-key "${rawToken}"`;
+
+      res.json({
+        tokenId,
+        tokenHint,
+        expiresAt: expiresAt.toISOString(),
+        expiresInMinutes: expiryMinutes,
+        serverUrl,
+        commands: {
+          linux: linuxCommand,
+          windows: windowsCommand,
+        },
+        cloudTemplates: {
+          cloudInit,
+          aws: {
+            userDataLinux: awsUserData,
+            userDataWindows: `<powershell>\n${windowsCommand}\n</powershell>`,
+          },
+          azure: {
+            customScriptLinux: azureCustomScript,
+            customScriptWindows: windowsCommand,
+          },
+          gcp: {
+            startupScriptLinux: gcpStartupScript,
+            startupScriptWindows: windowsCommand,
+          },
+        },
+        usage: {
+          description: "Copy the appropriate command and embed it in your VM template, cloud-init, or deployment script.",
+          notes: [
+            `Token expires in ${expiryMinutes} minutes`,
+            "For longer-lived tokens, use ?expiry=1440 (24 hours) or ?expiry=10080 (7 days)",
+            "Each token can be used by multiple agents",
+          ],
+        },
+      });
+    } catch (error) {
+      console.error("Failed to generate install command:", error);
+      res.status(500).json({ error: "Failed to generate install command" });
+    }
+  });
+
   // GET /api/bootstrap?token= - Generate bootstrap commands for all platforms
   app.get("/api/bootstrap", apiRateLimiter, async (req, res) => {
     try {

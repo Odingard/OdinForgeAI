@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Copy, 
@@ -16,7 +19,9 @@ import {
   Terminal,
   Shield,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Download,
+  Clock
 } from "lucide-react";
 import { SiGooglecloud, SiKubernetes } from "react-icons/si";
 import { FaAws, FaMicrosoft } from "react-icons/fa";
@@ -53,10 +58,31 @@ interface EnrollmentToken {
   expiresInMinutes: number;
 }
 
+interface InstallCommandResponse {
+  tokenId: string;
+  tokenHint: string;
+  expiresAt: string;
+  expiresInMinutes: number;
+  serverUrl: string;
+  commands: {
+    linux: string;
+    windows: string;
+  };
+  cloudTemplates: {
+    cloudInit: string;
+    aws: { userDataLinux: string; userDataWindows: string };
+    azure: { customScriptLinux: string; customScriptWindows: string };
+    gcp: { startupScriptLinux: string; startupScriptWindows: string };
+  };
+}
+
 export function CoverageAutopilot() {
   const { toast } = useToast();
   const [enrollmentToken, setEnrollmentToken] = useState<EnrollmentToken | null>(null);
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+  const [quickInstallOpen, setQuickInstallOpen] = useState(false);
+  const [quickInstallData, setQuickInstallData] = useState<InstallCommandResponse | null>(null);
+  const [expiryOption, setExpiryOption] = useState("60");
   const wsRef = useRef<WebSocket | null>(null);
 
   const coverageQuery = useQuery<CoverageStats>({
@@ -131,6 +157,37 @@ export function CoverageAutopilot() {
       toast({
         title: "Error",
         description: "Failed to create enrollment token",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const quickInstallMutation = useMutation({
+    mutationFn: async (expiry: string) => {
+      const accessToken = localStorage.getItem("odinforge_access_token");
+      const headers: Record<string, string> = {};
+      if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+      }
+      const res = await fetch(`/api/agent-install-command?expiry=${expiry}`, {
+        credentials: "include",
+        headers,
+      });
+      if (!res.ok) throw new Error("Failed to generate install command");
+      return res.json();
+    },
+    onSuccess: (data: InstallCommandResponse) => {
+      setQuickInstallData(data);
+      setQuickInstallOpen(true);
+      toast({
+        title: "Install Command Generated",
+        description: `Token valid for ${data.expiresInMinutes} minutes. Copy the command below.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to generate install command",
         variant: "destructive",
       });
     },
@@ -296,14 +353,165 @@ export function CoverageAutopilot() {
                 Generate commands to deploy agents across your infrastructure
               </p>
             </div>
-            <Button
-              onClick={() => createTokenMutation.mutate()}
-              disabled={createTokenMutation.isPending}
-              data-testid="btn-generate-token"
-            >
-              <Key className="h-4 w-4 mr-2" />
-              {createTokenMutation.isPending ? "Generating..." : "Generate Token"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Dialog open={quickInstallOpen} onOpenChange={setQuickInstallOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="default"
+                    onClick={() => quickInstallMutation.mutate(expiryOption)}
+                    disabled={quickInstallMutation.isPending}
+                    data-testid="btn-get-install-command"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    {quickInstallMutation.isPending ? "Generating..." : "Get Install Command"}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Terminal className="h-5 w-5" />
+                      Agent Install Command
+                    </DialogTitle>
+                    <DialogDescription>
+                      Copy this command and embed it in your VM templates, cloud-init, or deployment scripts.
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  {quickInstallData && (
+                    <div className="space-y-4 mt-4">
+                      <div className="flex items-center gap-4 p-3 bg-muted rounded-md">
+                        <div className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm">
+                            Token expires: <strong>{new Date(quickInstallData.expiresAt).toLocaleString()}</strong>
+                          </span>
+                        </div>
+                        <Badge variant="outline">{quickInstallData.expiresInMinutes} min</Badge>
+                      </div>
+
+                      <div className="space-y-3">
+                        <Label>Token Expiry (for next generation)</Label>
+                        <Select value={expiryOption} onValueChange={setExpiryOption}>
+                          <SelectTrigger className="w-48" data-testid="select-expiry">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="60">1 hour</SelectItem>
+                            <SelectItem value="360">6 hours</SelectItem>
+                            <SelectItem value="1440">24 hours</SelectItem>
+                            <SelectItem value="4320">3 days</SelectItem>
+                            <SelectItem value="10080">7 days</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="flex items-center gap-2">
+                              <Terminal className="h-4 w-4" />
+                              Linux (curl one-liner)
+                            </Label>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => copyToClipboard(quickInstallData.commands.linux, "Linux")}
+                              data-testid="btn-copy-linux-cmd"
+                            >
+                              {copiedCommand === "Linux" ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                              <span className="ml-1">Copy</span>
+                            </Button>
+                          </div>
+                          <pre 
+                            className="bg-muted p-3 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap break-all"
+                            data-testid="cmd-quick-linux"
+                          >
+                            {quickInstallData.commands.linux}
+                          </pre>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="flex items-center gap-2">
+                              <Terminal className="h-4 w-4" />
+                              Windows (PowerShell)
+                            </Label>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => copyToClipboard(quickInstallData.commands.windows, "Windows")}
+                              data-testid="btn-copy-windows-cmd"
+                            >
+                              {copiedCommand === "Windows" ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                              <span className="ml-1">Copy</span>
+                            </Button>
+                          </div>
+                          <pre 
+                            className="bg-muted p-3 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap break-all"
+                            data-testid="cmd-quick-windows"
+                          >
+                            {quickInstallData.commands.windows}
+                          </pre>
+                        </div>
+
+                        <div className="border-t pt-4">
+                          <h4 className="text-sm font-medium mb-3">Cloud User Data / Startup Scripts</h4>
+                          <div className="grid gap-3">
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <Label className="flex items-center gap-2 text-xs">
+                                  <FaAws className="h-4 w-4" />
+                                  AWS / Azure / GCP (Linux)
+                                </Label>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => copyToClipboard(quickInstallData.cloudTemplates.cloudInit, "Cloud Init")}
+                                  data-testid="btn-copy-cloud-init"
+                                >
+                                  {copiedCommand === "Cloud Init" ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                                </Button>
+                              </div>
+                              <pre 
+                                className="bg-muted p-2 rounded-md text-xs overflow-x-auto font-mono"
+                                data-testid="cmd-cloud-init"
+                              >
+                                {quickInstallData.cloudTemplates.cloudInit}
+                              </pre>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between pt-4 border-t">
+                        <Button
+                          variant="outline"
+                          onClick={() => quickInstallMutation.mutate(expiryOption)}
+                          disabled={quickInstallMutation.isPending}
+                          data-testid="btn-regenerate-command"
+                        >
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Generate New Token
+                        </Button>
+                        <Button onClick={() => setQuickInstallOpen(false)} data-testid="btn-close-dialog">
+                          Done
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
+              
+              <Button
+                variant="outline"
+                onClick={() => createTokenMutation.mutate()}
+                disabled={createTokenMutation.isPending}
+                data-testid="btn-generate-token"
+              >
+                <Key className="h-4 w-4 mr-2" />
+                {createTokenMutation.isPending ? "Generating..." : "Generate Token"}
+              </Button>
+            </div>
           </div>
 
           {enrollmentToken && (
