@@ -63,10 +63,91 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+// Deployment configuration constants for consistency across providers
+const DEPLOYMENT_CONFIG = {
+  COMMAND_TIMEOUT_MS: 300000, // 5 minutes for command execution
+  POLL_INTERVAL_MS: 5000, // 5 seconds between status checks
+  VM_RESET_TIMEOUT_MS: 120000, // 2 minutes for VM reset operations
+  TOKEN_EXPIRY_MS: 3600000, // 1 hour for registration tokens
+};
+
 // Get agent download URL based on platform
 function getAgentDownloadUrl(platform: string, arch: string = "amd64"): string {
   const baseUrl = process.env.PUBLIC_ODINFORGE_URL || "https://localhost:5000";
   return `${baseUrl}/api/agents/download/${platform}-${arch}`;
+}
+
+// Helper to deploy via SSH with explicit credential ID
+async function deployViaSSHWithCredential(
+  sshCredentialId: string,
+  instanceName: string,
+  organizationId: string,
+  serverUrl: string
+): Promise<{ success: boolean; agentId?: string; error?: string }> {
+  console.log(`[AgentDeployment] Step: Attempting SSH deployment with credential ${sshCredentialId}`);
+  
+  try {
+    // First verify the SSH credential belongs to this organization (multi-tenant security)
+    const credential = await storage.getSshCredential(sshCredentialId);
+    if (!credential) {
+      console.log(`[AgentDeployment] SSH credential ${sshCredentialId} not found`);
+      return { success: false, error: "SSH credential not found" };
+    }
+    
+    if (credential.organizationId !== organizationId) {
+      console.log(`[AgentDeployment] SSH credential ${sshCredentialId} belongs to different organization`);
+      return { success: false, error: "SSH credential access denied - wrong organization" };
+    }
+    
+    const config = await sshDeploymentService.getDecryptedCredentials(sshCredentialId);
+    if (!config) {
+      console.log(`[AgentDeployment] SSH credential ${sshCredentialId} decryption failed`);
+      return { success: false, error: "SSH credential decryption failed" };
+    }
+    
+    if (!config.host) {
+      console.log(`[AgentDeployment] SSH credential missing host address`);
+      return { success: false, error: "SSH credential missing host address" };
+    }
+    
+    console.log(`[AgentDeployment] SSH target: ${config.host}:${config.port || 22}`);
+    
+    // Generate registration token (already within tenant context from caller)
+    const registrationToken = generateRegistrationToken();
+    const tokenHash = hashToken(registrationToken);
+    const tokenId = `regtoken-${randomUUID().slice(0, 8)}`;
+    
+    await storage.createAgentRegistrationToken({
+      id: tokenId,
+      tokenHash,
+      organizationId,
+      description: `SSH deployment to ${instanceName}`,
+      expiresAt: new Date(Date.now() + DEPLOYMENT_CONFIG.TOKEN_EXPIRY_MS),
+    });
+    console.log(`[AgentDeployment] Registration token created (expires in 1 hour)`);
+    
+    const result = await sshDeploymentService.deployAgent(config, {
+      serverUrl,
+      registrationToken,
+      organizationId,
+      platform: "linux",
+    });
+    
+    if (result.success) {
+      console.log(`[AgentDeployment] SSH deployment successful: ${result.agentId}`);
+    } else {
+      console.log(`[AgentDeployment] SSH deployment failed: ${result.errorMessage}`);
+    }
+    
+    return {
+      success: result.success,
+      agentId: result.agentId,
+      error: result.errorMessage,
+    };
+  } catch (error: any) {
+    console.error(`[AgentDeployment] SSH deployment error:`, error);
+    return { success: false, error: error.message };
+  }
 }
 
 // Build the installation script for a given platform
@@ -191,7 +272,7 @@ async function deployToAWS(
       id: randomUUID(),
       organizationId,
       tokenHash,
-      expiresAt: new Date(Date.now() + 3600000), // 1 hour expiry
+      expiresAt: new Date(Date.now() + DEPLOYMENT_CONFIG.TOKEN_EXPIRY_MS),
       name: `AWS deployment token for ${instanceId}`,
     });
     console.log(`[AgentDeployment] Registration token created (expires in 1 hour)`);
@@ -203,13 +284,14 @@ async function deployToAWS(
     console.log(`[AgentDeployment] Agent will register to: ${serverUrl}`);
     
     // Send SSM Run Command
+    console.log(`[AgentDeployment] Step 6: Sending SSM Run Command...`);
     const sendCommandResponse = await ssmClient.send(new SendCommandCommand({
       InstanceIds: [instanceId],
       DocumentName: "AWS-RunShellScript",
       Parameters: {
         commands: [script],
       },
-      TimeoutSeconds: 300,
+      TimeoutSeconds: Math.floor(DEPLOYMENT_CONFIG.COMMAND_TIMEOUT_MS / 1000),
     }));
     
     const commandId = sendCommandResponse.Command?.CommandId;
@@ -219,9 +301,9 @@ async function deployToAWS(
     
     console.log(`[AgentDeployment] AWS SSM command sent: ${commandId}`);
     
-    // Poll for command completion (max 5 minutes)
-    const maxWaitTime = 300000; // 5 minutes
-    const pollInterval = 5000; // 5 seconds
+    // Poll for command completion using consistent config
+    const maxWaitTime = DEPLOYMENT_CONFIG.COMMAND_TIMEOUT_MS;
+    const pollInterval = DEPLOYMENT_CONFIG.POLL_INTERVAL_MS;
     const startTime = Date.now();
     
     while (Date.now() - startTime < maxWaitTime) {
@@ -315,9 +397,10 @@ async function deployToAzure(
       id: randomUUID(),
       organizationId,
       tokenHash,
-      expiresAt: new Date(Date.now() + 3600000),
+      expiresAt: new Date(Date.now() + DEPLOYMENT_CONFIG.TOKEN_EXPIRY_MS),
       name: `Azure deployment token for ${vmName}`,
     });
+    console.log(`[AgentDeployment] Registration token created (expires in 1 hour)`);
     
     // Build installation script
     const script = buildInstallScript("linux", serverUrl, registrationToken);
@@ -464,7 +547,7 @@ async function deployToGCP(
       id: randomUUID(),
       organizationId,
       tokenHash,
-      expiresAt: new Date(Date.now() + 3600000),
+      expiresAt: new Date(Date.now() + DEPLOYMENT_CONFIG.TOKEN_EXPIRY_MS),
       name: `GCP deployment token for ${instanceName}`,
     });
     console.log(`[AgentDeployment] Registration token created (expires in 1 hour)`);
@@ -551,9 +634,9 @@ async function deployToGCP(
       
       console.log(`[AgentDeployment] Reset operation started: ${resetOperation.name}`);
       
-      // Wait for reset to complete (with timeout)
-      const maxWaitTime = 120000; // 2 minutes
-      const pollInterval = 5000; // 5 seconds
+      // Wait for reset to complete using consistent config
+      const maxWaitTime = DEPLOYMENT_CONFIG.VM_RESET_TIMEOUT_MS;
+      const pollInterval = DEPLOYMENT_CONFIG.POLL_INTERVAL_MS;
       let elapsed = 0;
       
       while (elapsed < maxWaitTime) {
@@ -635,7 +718,7 @@ export async function handleAgentDeploymentJob(
   job: Job<AgentDeploymentJobData> | AgentDeploymentJob
 ): Promise<JobResult> {
   const startTime = Date.now();
-  const { deploymentId, provider, instanceIds, tenantId, organizationId, deploymentMethod, serverUrl } = job.data;
+  const { deploymentId, provider, instanceIds, tenantId, organizationId, deploymentMethod, serverUrl, sshCredentialId } = job.data;
 
   console.log(`[AgentDeployment] ================================================================`);
   console.log(`[AgentDeployment] AGENT DEPLOYMENT JOB STARTED`);
@@ -643,6 +726,7 @@ export async function handleAgentDeploymentJob(
   console.log(`[AgentDeployment] Deployment ID: ${deploymentId}`);
   console.log(`[AgentDeployment] Provider: ${provider}`);
   console.log(`[AgentDeployment] Deployment Method: ${deploymentMethod || "cloud-api (default)"}`);
+  console.log(`[AgentDeployment] SSH Credential: ${sshCredentialId || "none (will use provider API)"}`);
   console.log(`[AgentDeployment] Organization: ${organizationId}`);
   console.log(`[AgentDeployment] Instance Count: ${instanceIds.length}`);
   console.log(`[AgentDeployment] Instances: ${instanceIds.join(", ")}`);
@@ -719,6 +803,10 @@ export async function handleAgentDeploymentJob(
       // Check if SSH deployment method is explicitly requested
       if (deploymentMethod === "ssh" || provider === "ssh") {
         result = await deployViaSSH(instanceId, organizationId, deployServerUrl);
+      } else if (sshCredentialId) {
+        // SSH credentials provided - use SSH for immediate execution (like AWS/Azure)
+        console.log(`[AgentDeployment] Using SSH with provided credentials for ${provider}`);
+        result = await deployViaSSHWithCredential(sshCredentialId, instanceId, organizationId, deployServerUrl);
       } else {
         // Default to cloud API method
         switch (provider) {
@@ -729,6 +817,7 @@ export async function handleAgentDeploymentJob(
             result = await deployToAzure(instanceId, organizationId, deployServerUrl);
             break;
           case "gcp":
+            // GCP uses startup-script + VM reset when no SSH credentials are provided
             result = await deployToGCP(instanceId, organizationId, deployServerUrl);
             break;
           default:
