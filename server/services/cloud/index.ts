@@ -327,12 +327,12 @@ export class CloudIntegrationService {
       }
     }
 
-    // For cloud-api deployment, ensure we have cloud credentials
+    // For cloud-based deployment (SSM, cloud-api), ensure we have cloud credentials
     let credentials: CloudCredentials | null = null;
-    if (deploymentMethod === "cloud-api") {
+    if (deploymentMethod !== "ssh") {
       credentials = await this.getConnectionCredentials(asset.connectionId);
       if (!credentials) {
-        return { jobId: "", error: "Cloud credentials not found" };
+        return { jobId: "", error: "Cloud credentials not found for connection" };
       }
     }
 
