@@ -166,14 +166,17 @@ export default function Agents() {
 
   const { data: agents = [], isLoading: agentsLoading } = useQuery<EndpointAgent[]>({
     queryKey: ["/api/agents"],
+    refetchInterval: 5000, // Refresh every 5 seconds for real-time status
   });
 
   const { data: stats } = useQuery<AgentStats>({
     queryKey: ["/api/agents/stats/summary"],
+    refetchInterval: 10000, // Refresh stats every 10 seconds
   });
 
   const { data: findings = [] } = useQuery<AgentFinding[]>({
     queryKey: [`/api/agent-findings?includeNoise=${includeNoise}`],
+    refetchInterval: 15000, // Refresh findings every 15 seconds
   });
 
   // Fetch auto-cleanup settings
