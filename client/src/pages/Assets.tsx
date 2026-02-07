@@ -59,6 +59,7 @@ export default function Assets() {
   const { toast } = useToast();
   const { hasPermission } = useAuth();
   const [deleteAsset, setDeleteAsset] = useState<UnifiedAsset | null>(null);
+  const [removeAsset, setRemoveAsset] = useState<UnifiedAsset | null>(null);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -176,6 +177,48 @@ export default function Assets() {
     } finally {
       setDeletingAssetId(null);
       setDeleteAsset(null);
+    }
+  };
+
+  const deleteAssetMutation = useMutation({
+    mutationFn: async (assetId: string) => {
+      await apiRequest("DELETE", `/api/assets/${assetId}`);
+    },
+  });
+
+  const handleRemoveAsset = async (asset: UnifiedAsset) => {
+    setDeletingAssetId(asset.id);
+    try {
+      if (asset.evaluationCount > 0) {
+        for (const evalId of asset.evaluationIds) {
+          try {
+            await deleteEvaluationMutation.mutateAsync(evalId);
+          } catch {
+          }
+        }
+      }
+
+      if (asset.source === "discovered") {
+        await deleteAssetMutation.mutateAsync(asset.id);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/stats"] });
+
+      toast({
+        title: "Asset removed",
+        description: `Successfully removed "${asset.displayName}" and its evaluations.`,
+      });
+    } catch {
+      toast({
+        title: "Remove failed",
+        description: "Failed to remove the asset. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeletingAssetId(null);
+      setRemoveAsset(null);
     }
   };
 
@@ -430,7 +473,7 @@ export default function Assets() {
                         Eval Only
                       </Badge>
                     )}
-                    {canDelete && asset.evaluationCount > 0 && (
+                    {canDelete && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" data-testid={`asset-menu-${asset.id}`}>
@@ -438,13 +481,23 @@ export default function Assets() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          {asset.evaluationCount > 0 && (
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={() => setDeleteAsset(asset)}
+                              data-testid={`delete-evals-${asset.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete Evaluations
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onClick={() => setDeleteAsset(asset)}
+                            onClick={() => setRemoveAsset(asset)}
                             data-testid={`delete-asset-${asset.id}`}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Evaluations
+                            Remove Asset
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -520,13 +573,38 @@ export default function Assets() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="cancel-delete-asset">Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="cancel-delete-evals">Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground"
               onClick={() => deleteAsset && handleDeleteAsset(deleteAsset)}
-              data-testid="confirm-delete-asset"
+              data-testid="confirm-delete-evals"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!removeAsset} onOpenChange={() => setRemoveAsset(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Asset?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove "{removeAsset?.displayName}" 
+              {removeAsset && removeAsset.evaluationCount > 0 
+                ? ` and its ${removeAsset.evaluationCount} evaluation(s)` 
+                : ""
+              }. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="cancel-remove-asset">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground"
+              onClick={() => removeAsset && handleRemoveAsset(removeAsset)}
+              data-testid="confirm-remove-asset"
+            >
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
