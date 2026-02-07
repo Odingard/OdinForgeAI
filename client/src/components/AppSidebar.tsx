@@ -15,6 +15,9 @@ import {
   ScanSearch,
   Globe,
   FlaskConical,
+  ShieldAlert,
+  Wrench,
+  History,
 } from "lucide-react";
 import {
   Sidebar,
@@ -50,10 +53,13 @@ const analysisItems = [
   { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
   { title: "Simulations", href: "/simulations", icon: Swords },
+  { title: "Remediation", href: "/remediation", icon: Wrench },
 ];
 
 const systemItems = [
   { title: "Agents", href: "/agents", icon: Bot },
+  { title: "Approvals", href: "/approvals", icon: ShieldAlert },
+  { title: "Approval History", href: "/approvals/history", icon: History },
   { title: "Governance", href: "/governance", icon: Shield },
   { title: "Advanced", href: "/advanced", icon: Brain },
 ];

@@ -97,7 +97,21 @@ interface SharedMemoryUpdateEvent {
   timestamp: string;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent;
+interface HITLApprovalEvent {
+  type: "hitl_approval_required";
+  approvalId: string;
+  evaluationId: string;
+  organizationId: string;
+  agentName: string;
+  command: string;
+  target?: string;
+  riskLevel: "critical" | "high" | "medium";
+  riskReason: string;
+  expiresAt: string;
+  timestamp: string;
+}
+
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -600,8 +614,41 @@ class WebSocketService {
       summary,
       timestamp: new Date().toISOString(),
     };
-    
+
     this.broadcastToChannel(`evaluation:${evaluationId}`, event);
+  }
+
+  sendHITLApprovalRequired(
+    approvalId: string,
+    evaluationId: string,
+    organizationId: string,
+    agentName: string,
+    command: string,
+    riskLevel: "critical" | "high" | "medium",
+    riskReason: string,
+    expiresAt: Date,
+    target?: string
+  ): void {
+    const event: HITLApprovalEvent = {
+      type: "hitl_approval_required",
+      approvalId,
+      evaluationId,
+      organizationId,
+      agentName,
+      command,
+      target,
+      riskLevel,
+      riskReason,
+      expiresAt: expiresAt.toISOString(),
+      timestamp: new Date().toISOString(),
+    };
+
+    // Broadcast to organization-specific channel for security
+    this.broadcastToChannel(`approvals:${organizationId}`, event);
+    // Also send to evaluation-specific channel
+    this.broadcastToChannel(`evaluation:${evaluationId}`, event);
+
+    console.log(`[WS] HITL Approval Required: ${agentName} (${riskLevel}) - ${approvalId}`);
   }
 
   getStats(): {

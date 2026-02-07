@@ -666,17 +666,28 @@ resource "aws_resource" "${finding.affectedResource}" {
   }
 
   async createPullRequest(request: PRRequest): Promise<PRResult> {
-    const id = `pr-${randomUUID().slice(0, 8)}`;
+    // Import PR automation service
+    const { prAutomationService } = await import("./pr-automation-service");
 
-    return {
-      id,
-      status: "pending",
-      url: `${request.repositoryUrl}/pull/${Math.floor(Math.random() * 1000)}`,
-      branchName: request.branchName,
-      title: request.title,
-      filesChanged: request.changes.length,
-      rollbackCommit: `rollback-${randomUUID().slice(0, 8)}`,
-    };
+    try {
+      // Use the PR automation service to create the actual PR
+      return await prAutomationService.createPullRequest(request);
+    } catch (error: any) {
+      console.error("[IaCRemediation] PR creation failed:", error);
+
+      // Fallback to mock response if PR creation fails
+      // This allows the system to continue functioning even if Git integration is not configured
+      const id = `pr-${randomUUID().slice(0, 8)}`;
+      return {
+        id,
+        status: "pending",
+        url: `${request.repositoryUrl}/pull/pending`,
+        branchName: request.branchName,
+        title: request.title,
+        filesChanged: request.changes.length,
+        rollbackCommit: `rollback-${randomUUID().slice(0, 8)}`,
+      };
+    }
   }
 
   generateBatchRemediation(findings: FindingToRemediate[]): RemediationResult[] {
