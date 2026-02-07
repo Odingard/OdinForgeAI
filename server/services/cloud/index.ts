@@ -570,8 +570,10 @@ export class CloudIntegrationService {
     }
 
     const registrationToken = process.env.AGENT_REGISTRATION_TOKEN || "auto-deploy-token";
-    // Use production domain if available (REPLIT_DOMAINS), otherwise dev domain, otherwise localhost
-    let serverUrl = "http://localhost:5000";
+    // Use configured public URL, Replit domains, or fallback to localhost
+    let serverUrl = process.env.PUBLIC_ODINFORGE_URL || "http://localhost:5000";
+
+    // Override with Replit domains if present (for Replit deployments)
     if (process.env.REPLIT_DOMAINS) {
       // REPLIT_DOMAINS is comma-separated, use the first one (primary domain)
       const primaryDomain = process.env.REPLIT_DOMAINS.split(",")[0].trim();
@@ -579,6 +581,10 @@ export class CloudIntegrationService {
     } else if (process.env.REPLIT_DEV_DOMAIN) {
       serverUrl = `https://${process.env.REPLIT_DEV_DOMAIN}`;
     }
+
+    // Remove trailing slash if present
+    serverUrl = serverUrl.replace(/\/$/, '');
+
     console.log(`[CloudDeploy] Using server URL: ${serverUrl}`);
 
     const result = await adapter.deployAgent(
