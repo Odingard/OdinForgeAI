@@ -17,7 +17,7 @@
     "@aws-sdk/client-ec2": "^3.958.0",
     "@aws-sdk/client-iam": "^3.975.0",
     "@aws-sdk/client-lambda": "^3.958.0",
-    "@aws-sdk/client-rds": "^3.958.0",
+    "@aws-sdk/client-rds": "^3.985.0",
     "@aws-sdk/client-s3": "^3.958.0",
     "@aws-sdk/client-ssm": "^3.958.0",
     "@aws-sdk/client-sts": "^3.958.0",
