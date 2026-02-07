@@ -207,10 +207,10 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{action.timeEstimate}</span>
-                    <Badge size="sm" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
+                    <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
                       -{action.riskReduction}%
                     </Badge>
-                    <Badge size="sm" className={`${getEffortColor(action.effort)} text-xs`}>
+                    <Badge className={`${getEffortColor(action.effort)} text-xs`}>
                       {action.effort}
                     </Badge>
                   </div>
@@ -235,10 +235,10 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         <div>
                           <h4 className="font-medium text-foreground">{fix.title}</h4>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge size="sm" className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs">
+                            <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs">
                               {fix.language}
                             </Badge>
-                            <Badge size="sm" className={getEffortColor(fix.complexity === "trivial" ? "low" : fix.complexity === "low" ? "low" : fix.complexity === "medium" ? "medium" : "high")}>
+                            <Badge className={getEffortColor(fix.complexity === "trivial" ? "low" : fix.complexity === "low" ? "low" : fix.complexity === "medium" ? "medium" : "high")}>
                               {fix.complexity}
                             </Badge>
                           </div>
@@ -328,10 +328,10 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         <div>
                           <h4 className="font-medium text-foreground">{rule.title}</h4>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge size="sm" className="bg-orange-500/10 text-orange-400 border-orange-500/30 text-xs">
+                            <Badge className="bg-orange-500/10 text-orange-400 border-orange-500/30 text-xs">
                               {rule.platform}
                             </Badge>
-                            <Badge size="sm" className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-xs">
+                            <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-xs">
                               {rule.ruleType}
                             </Badge>
                           </div>
@@ -355,7 +355,7 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         </div>
                         <div>
                           <span className="text-muted-foreground">False Positive Risk:</span>
-                          <Badge size="sm" className={`ml-2 ${rule.falsePositiveRisk === "low" ? "bg-emerald-500/10 text-emerald-400" : rule.falsePositiveRisk === "medium" ? "bg-amber-500/10 text-amber-400" : "bg-red-500/10 text-red-400"}`}>
+                          <Badge className={`ml-2 ${rule.falsePositiveRisk === "low" ? "bg-emerald-500/10 text-emerald-400" : rule.falsePositiveRisk === "medium" ? "bg-amber-500/10 text-amber-400" : "bg-red-500/10 text-red-400"}`}>
                             {rule.falsePositiveRisk}
                           </Badge>
                         </div>
@@ -404,13 +404,13 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         <div>
                           <h4 className="font-medium text-foreground">{policy.title}</h4>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge size="sm" className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-xs">
+                            <Badge className="bg-purple-500/10 text-purple-400 border-purple-500/30 text-xs">
                               {policy.platform}
                             </Badge>
-                            <Badge size="sm" className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs">
+                            <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs">
                               {policy.policyType}
                             </Badge>
-                            <Badge size="sm" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
                               -{policy.riskReduction}% risk
                             </Badge>
                           </div>
@@ -488,10 +488,10 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         <div>
                           <h4 className="font-medium text-foreground">{rule.title}</h4>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge size="sm" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-xs">
+                            <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-xs">
                               {rule.platform}
                             </Badge>
-                            <Badge size="sm" className={`text-xs ${
+                            <Badge className={`text-xs ${
                               rule.severity === "critical" ? "bg-red-500/10 text-red-400 border-red-500/30" :
                               rule.severity === "high" ? "bg-orange-500/10 text-orange-400 border-orange-500/30" :
                               rule.severity === "medium" ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
@@ -586,13 +586,13 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         <div>
                           <h4 className="font-medium text-foreground">{control.title}</h4>
                           <div className="flex items-center gap-2 mt-1">
-                            <Badge size="sm" className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-xs">
+                            <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/30 text-xs">
                               {control.controlType}
                             </Badge>
-                            <Badge size="sm" className={control.duration === "temporary" ? "bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs"}>
+                            <Badge className={control.duration === "temporary" ? "bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs"}>
                               {control.duration}
                             </Badge>
-                            <Badge size="sm" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
+                            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-xs">
                               {control.effectiveness}% effective
                             </Badge>
                           </div>

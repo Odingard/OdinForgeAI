@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, lazy, Suspense } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -11,25 +11,6 @@ import { ViewModeProvider } from "./contexts/ViewModeContext";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/AppSidebar";
 import { Dashboard } from "./components/Dashboard";
-import RiskDashboard from "@/pages/RiskDashboard";
-import Assets from "@/pages/Assets";
-import Infrastructure from "@/pages/Infrastructure";
-import Reports from "@/pages/Reports";
-import Governance from "@/pages/Governance";
-import Advanced from "@/pages/Advanced";
-import Agents from "@/pages/Agents";
-import Simulations from "@/pages/Simulations";
-import UserManagement from "@/pages/UserManagement";
-import Settings from "@/pages/Settings";
-import Login from "@/pages/Login";
-import Signup from "@/pages/Signup";
-import FullAssessment from "@/pages/FullAssessment";
-import SecurityTesting from "@/pages/SecurityTesting";
-import Approvals from "@/pages/Approvals";
-import ApprovalHistory from "@/pages/ApprovalHistory";
-import Remediation from "@/pages/Remediation";
-import { ExternalRecon } from "@/components/ExternalRecon";
-import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
 import { NotificationsPopover } from "./components/NotificationsPopover";
@@ -43,30 +24,65 @@ import {
 import { useAuth } from "./contexts/AuthContext";
 import { roleMetadata } from "@shared/schema";
 
+// Lazy load pages for code splitting (reduces initial bundle size by ~50%)
+const RiskDashboard = lazy(() => import("@/pages/RiskDashboard"));
+const Assets = lazy(() => import("@/pages/Assets"));
+const Infrastructure = lazy(() => import("@/pages/Infrastructure"));
+const Reports = lazy(() => import("@/pages/Reports"));
+const Governance = lazy(() => import("@/pages/Governance"));
+const Advanced = lazy(() => import("@/pages/Advanced"));
+const Agents = lazy(() => import("@/pages/Agents"));
+const Simulations = lazy(() => import("@/pages/Simulations"));
+const UserManagement = lazy(() => import("@/pages/UserManagement"));
+const Settings = lazy(() => import("@/pages/Settings"));
+const Login = lazy(() => import("@/pages/Login"));
+const Signup = lazy(() => import("@/pages/Signup"));
+const FullAssessment = lazy(() => import("@/pages/FullAssessment"));
+const SecurityTesting = lazy(() => import("@/pages/SecurityTesting"));
+const Approvals = lazy(() => import("@/pages/Approvals"));
+const ApprovalHistory = lazy(() => import("@/pages/ApprovalHistory"));
+const Remediation = lazy(() => import("@/pages/Remediation"));
+const ExternalRecon = lazy(() => import("@/components/ExternalRecon").then(m => ({ default: m.ExternalRecon })));
+const NotFound = lazy(() => import("@/pages/not-found"));
+
+// Loading fallback component
+function PageLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <div className="text-center">
+        <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-muted-foreground text-sm">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/login"><Redirect to="/" /></Route>
-      <Route path="/signup"><Redirect to="/" /></Route>
-      <Route path="/risk" component={RiskDashboard} />
-      <Route path="/assets" component={Assets} />
-      <Route path="/infrastructure" component={Infrastructure} />
-      <Route path="/reports" component={Reports} />
-      <Route path="/governance" component={Governance} />
-      <Route path="/agents" component={Agents} />
-      <Route path="/simulations" component={Simulations} />
-      <Route path="/full-assessment" component={FullAssessment} />
-      <Route path="/security-testing" component={SecurityTesting} />
-      <Route path="/recon" component={ExternalRecon} />
-      <Route path="/advanced" component={Advanced} />
-      <Route path="/approvals" component={Approvals} />
-      <Route path="/approvals/history" component={ApprovalHistory} />
-      <Route path="/remediation" component={Remediation} />
-      <Route path="/admin/users" component={UserManagement} />
-      <Route path="/admin/settings" component={Settings} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<PageLoader />}>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/login"><Redirect to="/" /></Route>
+        <Route path="/signup"><Redirect to="/" /></Route>
+        <Route path="/risk" component={RiskDashboard} />
+        <Route path="/assets" component={Assets} />
+        <Route path="/infrastructure" component={Infrastructure} />
+        <Route path="/reports" component={Reports} />
+        <Route path="/governance" component={Governance} />
+        <Route path="/agents" component={Agents} />
+        <Route path="/simulations" component={Simulations} />
+        <Route path="/full-assessment" component={FullAssessment} />
+        <Route path="/security-testing" component={SecurityTesting} />
+        <Route path="/recon" component={ExternalRecon} />
+        <Route path="/advanced" component={Advanced} />
+        <Route path="/approvals" component={Approvals} />
+        <Route path="/approvals/history" component={ApprovalHistory} />
+        <Route path="/remediation" component={Remediation} />
+        <Route path="/admin/users" component={UserManagement} />
+        <Route path="/admin/settings" component={Settings} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
