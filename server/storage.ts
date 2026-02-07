@@ -1183,6 +1183,11 @@ export class DatabaseStorage implements IStorage {
     await db.update(cloudAssets).set({ ...updates, updatedAt: new Date() }).where(eq(cloudAssets.id, id));
   }
 
+  async deleteCloudAsset(id: string): Promise<void> {
+    await db.delete(agentDeploymentJobs).where(eq(agentDeploymentJobs.cloudAssetId, id));
+    await db.delete(cloudAssets).where(eq(cloudAssets.id, id));
+  }
+
   // Agent Deployment Job operations
   async createAgentDeploymentJob(data: InsertAgentDeploymentJob): Promise<AgentDeploymentJob> {
     const id = `deploy-${randomUUID().slice(0, 8)}`;

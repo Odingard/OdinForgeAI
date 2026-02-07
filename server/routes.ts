@@ -2631,9 +2631,14 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/assets/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/assets/:id", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      await storage.deleteDiscoveredAsset(req.params.id);
+      const assetId = req.params.id;
+      if (assetId.startsWith("casset-")) {
+        await storage.deleteCloudAsset(assetId);
+      } else {
+        await storage.deleteDiscoveredAsset(assetId);
+      }
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting asset:", error);
