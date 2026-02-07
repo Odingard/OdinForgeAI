@@ -134,6 +134,19 @@ const agentTelemetrySchema = z.object({
   collectedAt: z.string().datetime().optional().nullable(),
 });
 
+// Helper function to get the correct server URL (HTTPS for production, HTTP for localhost)
+// Priority: PUBLIC_ODINFORGE_URL env var > request host
+// This ensures agents always connect to the stable production URL across deployments
+function getServerUrl(req: any): string {
+  if (process.env.PUBLIC_ODINFORGE_URL) {
+    return process.env.PUBLIC_ODINFORGE_URL.replace(/\/$/, "");
+  }
+  const host = req.get("host") || "localhost:5000";
+  const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  const protocol = isLocalhost ? "http" : "https";
+  return `${protocol}://${host}`;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -197,23 +210,6 @@ export async function registerRoutes(
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.sendFile(binaryPath);
   });
-
-  // Helper function to get the correct server URL (HTTPS for production, HTTP for localhost)
-  // Priority: PUBLIC_ODINFORGE_URL env var > request host
-  // This ensures agents always connect to the stable production URL across deployments
-  const getServerUrl = (req: any): string => {
-    // Always prefer the configured public URL for stable agent connections
-    if (process.env.PUBLIC_ODINFORGE_URL) {
-      return process.env.PUBLIC_ODINFORGE_URL.replace(/\/$/, ""); // Remove trailing slash
-    }
-    
-    const host = req.get("host") || "localhost:5000";
-    // For non-localhost hosts, ALWAYS use HTTPS (agent binary requires HTTPS in production)
-    // This is necessary because reverse proxies may set x-forwarded-proto to http even for HTTPS traffic
-    const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-    const protocol = isLocalhost ? "http" : "https";
-    return `${protocol}://${host}`;
-  };
 
   // Serve install.sh script for curl-based installation (no auth required)
   // Automatically injects the server URL so users don't need to enter it manually
