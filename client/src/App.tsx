@@ -25,6 +25,9 @@ import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import FullAssessment from "@/pages/FullAssessment";
 import SecurityTesting from "@/pages/SecurityTesting";
+import Approvals from "@/pages/Approvals";
+import ApprovalHistory from "@/pages/ApprovalHistory";
+import Remediation from "@/pages/Remediation";
 import { ExternalRecon } from "@/components/ExternalRecon";
 import NotFound from "@/pages/not-found";
 import { Button } from "@/components/ui/button";
@@ -57,6 +60,9 @@ function Router() {
       <Route path="/security-testing" component={SecurityTesting} />
       <Route path="/recon" component={ExternalRecon} />
       <Route path="/advanced" component={Advanced} />
+      <Route path="/approvals" component={Approvals} />
+      <Route path="/approvals/history" component={ApprovalHistory} />
+      <Route path="/remediation" component={Remediation} />
       <Route path="/admin/users" component={UserManagement} />
       <Route path="/admin/settings" component={Settings} />
       <Route component={NotFound} />

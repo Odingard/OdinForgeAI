@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, CheckCheck, Clock, AlertTriangle, Shield, Bot, Globe, X } from "lucide-react";
+import { Bell, Check, CheckCheck, Clock, AlertTriangle, Shield, Bot, Globe, X, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -10,19 +10,23 @@ import {
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
+import { useLocation } from "wouter";
 
 interface NotificationItem {
   id: string;
-  type: "evaluation" | "scan" | "agent" | "alert";
+  type: "evaluation" | "scan" | "agent" | "alert" | "approval";
   title: string;
   message: string;
   timestamp: Date;
   read: boolean;
   severity?: "info" | "warning" | "critical";
+  actionUrl?: string;
+  approvalId?: string;
 }
 
 export function NotificationsPopover() {
   const [open, setOpen] = useState(false);
+  const [, navigate] = useLocation();
   const [readIds, setReadIds] = useState<Set<string>>(() => {
     const stored = localStorage.getItem("odinforge_read_notifications");
     return stored ? new Set(JSON.parse(stored)) : new Set();
@@ -34,6 +38,12 @@ export function NotificationsPopover() {
 
   const { data: agents = [] } = useQuery<any[]>({
     queryKey: ["/api/agents"],
+  });
+
+  // Fetch pending approvals
+  const { data: pendingApprovals = [] } = useQuery<any[]>({
+    queryKey: ["/api/hitl/pending"],
+    refetchInterval: 10000, // Refresh every 10 seconds
   });
 
   const notifications: NotificationItem[] = [];
@@ -68,6 +78,23 @@ export function NotificationsPopover() {
     }
   });
 
+  // Add pending approval notifications
+  pendingApprovals.forEach((approval: any) => {
+    const id = `approval-${approval.id}`;
+    const riskLevel = approval.riskLevel || "high";
+    notifications.push({
+      id,
+      type: "approval",
+      title: `${riskLevel === "critical" ? "🚨 " : ""}Approval Required`,
+      message: `${approval.agentName}: ${approval.command.substring(0, 50)}${approval.command.length > 50 ? "..." : ""}`,
+      timestamp: new Date(approval.requestedAt || Date.now()),
+      read: readIds.has(id),
+      severity: riskLevel === "critical" ? "critical" : "warning",
+      actionUrl: "/approvals",
+      approvalId: approval.id,
+    });
+  });
+
   notifications.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -93,10 +120,22 @@ export function NotificationsPopover() {
     });
   };
 
+  const handleNotificationClick = (notification: NotificationItem) => {
+    markAsRead(notification.id);
+    if (notification.actionUrl) {
+      navigate(notification.actionUrl);
+      setOpen(false);
+    }
+  };
+
   const getIcon = (type: string, severity?: string) => {
     switch (type) {
+      case "approval":
+        return severity === "critical"
+          ? <ShieldAlert className="h-4 w-4 text-red-500 animate-pulse" />
+          : <ShieldAlert className="h-4 w-4 text-orange-500" />;
       case "evaluation":
-        return severity === "critical" 
+        return severity === "critical"
           ? <AlertTriangle className="h-4 w-4 text-destructive" />
           : <Shield className="h-4 w-4 text-emerald-400" />;
       case "agent":
@@ -119,7 +158,12 @@ export function NotificationsPopover() {
         >
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
+            <Badge
+              variant="destructive"
+              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px]"
+            >
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </Badge>
           )}
         </Button>
       </PopoverTrigger>
@@ -160,8 +204,12 @@ export function NotificationsPopover() {
                   key={notification.id}
                   className={`p-3 hover-elevate cursor-pointer transition-colors ${
                     notification.read ? "opacity-60" : "bg-accent/30"
+                  } ${
+                    notification.type === "approval" && !notification.read
+                      ? "border-l-4 border-orange-500"
+                      : ""
                   }`}
-                  onClick={() => markAsRead(notification.id)}
+                  onClick={() => handleNotificationClick(notification)}
                   data-testid={`notification-${notification.id}`}
                 >
                   <div className="flex items-start gap-3">

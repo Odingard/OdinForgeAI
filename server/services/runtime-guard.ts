@@ -215,8 +215,23 @@ class RuntimeGuard {
     riskLevel: HitlRiskLevel,
     riskReason: string
   ): void {
+    const expiresAt = new Date(Date.now() + APPROVAL_TIMEOUT_MS);
+
+    // Use the new WebSocket method for HITL approvals
+    wsService.sendHITLApprovalRequired(
+      approvalId,
+      context.evaluationId,
+      context.organizationId,
+      context.agentName,
+      command,
+      riskLevel,
+      riskReason,
+      expiresAt,
+      target
+    );
+
+    // Legacy broadcast for backward compatibility (can be removed later)
     const channel = `evaluation:${context.evaluationId}`;
-    
     wsService.broadcastToChannel(channel, {
       type: "hitl_approval_required",
       approvalId,
@@ -227,7 +242,7 @@ class RuntimeGuard {
       target,
       riskLevel,
       riskReason,
-      expiresAt: new Date(Date.now() + APPROVAL_TIMEOUT_MS).toISOString(),
+      expiresAt: expiresAt.toISOString(),
     });
 
     console.log(`[RuntimeGuard] Sent HITL approval notification: ${approvalId}`);
