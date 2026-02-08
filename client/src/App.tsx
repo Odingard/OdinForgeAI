@@ -14,6 +14,7 @@ import { Dashboard } from "./components/Dashboard";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
 import { NotificationsPopover } from "./components/NotificationsPopover";
+import { DemoDataBanner } from "./components/DemoDataBanner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +48,13 @@ const ExternalRecon = lazy(() => import("@/components/ExternalRecon").then(m => 
 const Jobs = lazy(() => import("@/pages/Jobs"));
 const SystemHealth = lazy(() => import("@/pages/SystemHealth"));
 const AuditLogs = lazy(() => import("@/pages/AuditLogs"));
+const Evidence = lazy(() => import("@/pages/Evidence"));
+const Compliance = lazy(() => import("@/pages/Compliance"));
+const ForensicExports = lazy(() => import("@/pages/ForensicExports"));
+const Sessions = lazy(() => import("@/pages/Sessions"));
+const LiveScans = lazy(() => import("@/pages/LiveScans"));
+const ScheduledScans = lazy(() => import("@/pages/ScheduledScans"));
+const Sandbox = lazy(() => import("@/pages/Sandbox"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
@@ -86,6 +94,13 @@ function Router() {
         <Route path="/jobs" component={Jobs} />
         <Route path="/health" component={SystemHealth} />
         <Route path="/audit" component={AuditLogs} />
+        <Route path="/evidence" component={Evidence} />
+        <Route path="/compliance" component={Compliance} />
+        <Route path="/forensics" component={ForensicExports} />
+        <Route path="/sessions" component={Sessions} />
+        <Route path="/scans" component={LiveScans} />
+        <Route path="/scheduled-scans" component={ScheduledScans} />
+        <Route path="/sandbox" component={Sandbox} />
         <Route path="/admin/users" component={UserManagement} />
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />
@@ -130,7 +145,7 @@ function AppHeader() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-2" data-testid="button-user-menu">
-                <div className="h-7 w-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+                <div className="h-7 w-7 rounded-full bg-gradient-to-br from-red-600 to-red-500 flex items-center justify-center">
                   <User className="h-4 w-4 text-white" />
                 </div>
                 <span className="hidden sm:inline text-sm">{uiUser?.displayName || uiUser?.email || user?.displayName || "User"}</span>
@@ -185,6 +200,9 @@ function AppLayout() {
         <AppSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
           <AppHeader />
+          <div className="px-6 pt-4">
+            <DemoDataBanner />
+          </div>
           <main className="flex-1 overflow-auto p-6">
             <Router />
           </main>

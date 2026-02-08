@@ -20,6 +20,8 @@ import { ProgressModal } from "./ProgressModal";
 import { EvaluationDetail } from "./EvaluationDetail";
 import { EvaluationWizard } from "./EvaluationWizard";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SetupChecklist } from "./SetupChecklist";
+import { OnboardingWizard } from "./OnboardingWizard";
 
 interface EvaluationDetailData {
   id: string;
@@ -69,11 +71,23 @@ export function Dashboard() {
   const [activeEvaluation, setActiveEvaluation] = useState<{ assetId: string; id: string } | null>(null);
   const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null);
   const [progressData, setProgressData] = useState<{ agentName?: string; stage: string; progress: number; message: string } | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   const { data: evaluations = [], isLoading, refetch } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],
   });
+
+  // Show onboarding for new users (no evaluations)
+  useEffect(() => {
+    if (!isLoading && evaluations.length === 0) {
+      const hasSeenOnboarding = localStorage.getItem("hasSeenOnboarding");
+      if (!hasSeenOnboarding) {
+        setShowOnboarding(true);
+        localStorage.setItem("hasSeenOnboarding", "true");
+      }
+    }
+  }, [isLoading, evaluations.length]);
 
   const { data: selectedEvaluation, isLoading: isLoadingDetail } = useQuery<EvaluationDetailData>({
     queryKey: ["/api/aev/evaluations", selectedEvaluationId],
@@ -271,10 +285,13 @@ export function Dashboard() {
         />
       </div>
 
-      <FilterBar 
-        options={filterOptions} 
-        activeFilter={filter} 
-        onFilterChange={setFilter} 
+      {/* Setup Checklist for new users */}
+      <SetupChecklist />
+
+      <FilterBar
+        options={filterOptions}
+        activeFilter={filter}
+        onFilterChange={setFilter}
       />
 
       {isLoading ? (
@@ -301,7 +318,7 @@ export function Dashboard() {
         onOpenChange={setShowWizard}
       />
 
-      <ProgressModal 
+      <ProgressModal
         isOpen={showProgressModal}
         onClose={() => {
           setShowProgressModal(false);
@@ -310,6 +327,11 @@ export function Dashboard() {
         assetId={activeEvaluation?.assetId || ""}
         evaluationId={activeEvaluation?.id || ""}
         progressData={progressData}
+      />
+
+      <OnboardingWizard
+        open={showOnboarding}
+        onClose={() => setShowOnboarding(false)}
       />
     </div>
   );

@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2 } from "lucide-react";
+import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { RiskMatrixHeatmap } from "@/components/RiskMatrixHeatmap";
 
 interface EvaluationWithScore {
   id: string;
@@ -250,6 +251,54 @@ export default function RiskDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Risk Matrix Heatmap */}
+      {evaluationsWithScores.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Grid3x3 className="h-5 w-5 text-cyan-400" />
+              Risk Matrix
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Likelihood vs Impact visualization of security risks
+            </p>
+          </CardHeader>
+          <CardContent>
+            <RiskMatrixHeatmap
+              items={evaluationsWithScores.map(e => {
+                const score = e.intelligentScore?.riskRank.overallScore || 50;
+                const exploitability = e.intelligentScore?.exploitability.score || 50;
+                const businessImpact = e.intelligentScore?.businessImpact.score || 50;
+
+                // Map exploitability score (0-100) to likelihood (1-5)
+                const likelihood = Math.min(5, Math.max(1, Math.ceil(exploitability / 20)));
+
+                // Map business impact score (0-100) to impact (1-5)
+                const impact = Math.min(5, Math.max(1, Math.ceil(businessImpact / 20)));
+
+                return {
+                  id: e.id,
+                  title: e.assetId,
+                  likelihood,
+                  impact,
+                  riskScore: score,
+                  severity: (e.intelligentScore?.riskRank.riskLevel === "critical" || e.intelligentScore?.riskRank.riskLevel === "emergency")
+                    ? "critical"
+                    : e.intelligentScore?.riskRank.riskLevel === "high"
+                    ? "high"
+                    : e.intelligentScore?.riskRank.riskLevel === "medium"
+                    ? "medium"
+                    : "low",
+                };
+              })}
+              onItemClick={(item) => {
+                window.location.href = `/?evaluation=${item.id}`;
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
