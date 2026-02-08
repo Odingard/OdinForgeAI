@@ -77,8 +77,10 @@ export interface ProviderAdapter {
     asset: CloudAssetInfo,
     agentConfig: {
       serverUrl: string;
-      registrationToken: string;
+      apiKey: string;
+      agentId: string;
       organizationId: string;
+      installCommand: string;
     }
   ): Promise<DeploymentResult>;
   

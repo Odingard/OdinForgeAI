@@ -301,8 +301,10 @@ export class AWSAdapter implements ProviderAdapter {
     asset: CloudAssetInfo,
     agentConfig: {
       serverUrl: string;
-      registrationToken: string;
+      apiKey: string;
+      agentId: string;
       organizationId: string;
+      installCommand: string;
     }
   ): Promise<DeploymentResult> {
     const awsCreds = credentials.aws;
@@ -314,11 +316,11 @@ export class AWSAdapter implements ProviderAdapter {
       return { success: false, errorMessage: "Asset does not support agent deployment" };
     }
 
-    console.log(`[AWS] Deploying agent to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "ssm"}`);
+    console.log(`[AWS] Deploying enterprise-provisioned agent ${agentConfig.agentId} to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "ssm"}`);
 
     // Detect platform from metadata
-    const platform = asset.rawMetadata?.platform?.toLowerCase() || 
-                     asset.rawMetadata?.Platform?.toLowerCase() || 
+    const platform = asset.rawMetadata?.platform?.toLowerCase() ||
+                     asset.rawMetadata?.Platform?.toLowerCase() ||
                      asset.rawMetadata?.PlatformDetails?.toLowerCase() || "";
     const isWindows = platform.includes("windows");
     console.log(`[AWS] Detected platform: ${isWindows ? "Windows" : "Linux"} (raw: "${platform}")`);
@@ -333,7 +335,7 @@ export class AWSAdapter implements ProviderAdapter {
     }
   }
 
-  private generateInstallScript(config: { serverUrl: string; registrationToken: string; organizationId: string }, isWindows: boolean): string[] {
+  private generateInstallScript(config: { serverUrl: string; apiKey: string; agentId: string; organizationId: string; installCommand: string }, isWindows: boolean): string[] {
     if (isWindows) {
       // PowerShell commands for Windows - each command is a separate array element for SSM
       // Service name is 'odinforge-agent' (lowercase with hyphen) and installs to C:\Program Files\OdinForge
@@ -354,7 +356,7 @@ export class AWSAdapter implements ProviderAdapter {
         "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
         `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentDownload -UseBasicParsing`,
         "Write-Host 'Installing OdinForge agent...'",
-        `& $agentDownload install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force`,
+        `& $agentDownload install --server-url '${config.serverUrl}' --api-key '${config.apiKey}' --agent-id '${config.agentId}' --tenant-id '${config.organizationId}' --force`,
         "Write-Host 'Fixing config file permissions...'",
         // Fix config file permissions so the service can read it
         "icacls 'C:\\ProgramData\\OdinForge\\agent.yaml' /grant 'Everyone:(R)' /T",
@@ -371,7 +373,7 @@ export class AWSAdapter implements ProviderAdapter {
         "set -e",
         `curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent`,
         "chmod +x /tmp/odinforge-agent",
-        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force`,
         // Fix config file permissions so the agent service can read it
         "sudo chmod 644 /etc/odinforge/agent.yaml",
         "sudo chmod 755 /etc/odinforge",

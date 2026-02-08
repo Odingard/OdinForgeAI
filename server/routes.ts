@@ -5768,7 +5768,6 @@ export async function registerRoutes(
         const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
         const protocol = isLocalhost ? "http" : "https";
         serverUrl = `${protocol}://${host}`;
-        }
       }
       
       // Generate platform-specific install commands

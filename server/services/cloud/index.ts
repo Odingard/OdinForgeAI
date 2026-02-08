@@ -392,34 +392,26 @@ export class CloudIntegrationService {
 
     try {
       const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
-      
-      // Get server URL for agent configuration
-      const serverUrl = process.env.PUBLIC_ODINFORGE_URL || `https://${process.env.REPLIT_DEV_DOMAIN || "localhost:5000"}`;
-      
-      // Create a registration token for this deployment
-      const registrationToken = `reg-${randomUUID()}`;
-      
-      // Pre-register the agent with pending status
-      const platform = "linux";
-      const apiKey = `ak-${randomUUID()}`;
-      
-      const newAgent = await storage.createEndpointAgent({
-        organizationId: asset.organizationId,
-        agentName: `${assetName} (SSH)`,
-        apiKey,
+
+      // Use enterprise agent provisioning for SSH deployments
+      const { agentManagementService } = await import("./agent-management");
+
+      const provisionResult = await agentManagementService.provisionAgent({
         hostname: asset.assetName || asset.providerResourceId,
-        platform,
+        platform: "linux",
         architecture: "x86_64",
-        ipAddresses: [sshCredentials.host],
-        capabilities: ["telemetry", "vulnerability_scan"],
-        status: "pending",
+        organizationId: asset.organizationId,
+        environment: "production",
         tags: [
           "ssh-deployed",
           `asset:${asset.id}`,
           "auto-deployed",
         ],
-        environment: "production",
       });
+
+      const agentId = provisionResult.agentId;
+      const apiKey = provisionResult.apiKey;
+      const serverUrl = process.env.PUBLIC_ODINFORGE_URL || "http://localhost:5000";
 
       // Deploy via SSH using the deployment service
       const result = await sshDeploymentService.deployAgent(
@@ -433,7 +425,8 @@ export class CloudIntegrationService {
         },
         {
           serverUrl,
-          registrationToken,
+          apiKey,
+          agentId,
           organizationId: asset.organizationId,
           platform: "linux",
         }
@@ -506,15 +499,12 @@ export class CloudIntegrationService {
       return; // Job was cancelled, abort deployment
     }
 
-    // Pre-register the agent in the database immediately
-    // This ensures the agent shows up in the Agents list right away
-    const apiKey = `ak-${randomUUID()}`;
+    // Use enterprise agent provisioning for secure, standardized agent creation
     const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
-    
+
     // Determine platform from asset type/metadata
-    // Normalize provider to lowercase for consistent comparison
     const normalizedProvider = connection.provider.toLowerCase();
-    let platform = "linux";
+    let platform: "linux" | "windows" | "darwin" = "linux";
     if (asset.rawMetadata?.platform === "windows" || asset.rawMetadata?.osType === "Windows") {
       platform = "windows";
     } else if (normalizedProvider === "azure" && asset.rawMetadata?.osType === "Linux") {
@@ -523,64 +513,55 @@ export class CloudIntegrationService {
       platform = "linux";
     }
 
-    // Create the agent record with pending status
+    // Provision agent using enterprise agent management service
     let agentId = "";
+    let apiKey = "";
+    let installCommand = "";
+
     try {
-      const newAgent = await storage.createEndpointAgent({
-        organizationId: asset.organizationId,
-        agentName: `${assetName} (${connection.provider.toUpperCase()})`,
-        apiKey,
+      const { agentManagementService } = await import("./agent-management");
+
+      const provisionResult = await agentManagementService.provisionAgent({
         hostname: asset.assetName || asset.providerResourceId,
         platform,
         architecture: "x86_64",
-        ipAddresses: asset.privateIpAddresses || asset.publicIpAddresses || [],
-        capabilities: ["telemetry", "vulnerability_scan"],
-        status: "pending",
+        organizationId: asset.organizationId,
+        environment: "production",
         tags: [
           `cloud:${connection.provider}`,
           `asset:${asset.id}`,
           `auto-deployed`,
           `region:${asset.region || "unknown"}`,
         ],
-        environment: "production",
       });
-      agentId = newAgent.id;
 
-      console.log(`[CloudDeploy] Pre-registered agent ${agentId} for asset ${assetName}`);
+      agentId = provisionResult.agentId;
+      apiKey = provisionResult.apiKey;
+      installCommand = provisionResult.installCommand;
+
+      console.log(`[CloudDeploy] Provisioned enterprise agent ${agentId} for asset ${assetName}`);
     } catch (error: any) {
-      console.error(`[CloudDeploy] Failed to pre-register agent:`, error.message);
-      // Abort deployment if we can't create the agent record
+      console.error(`[CloudDeploy] Failed to provision agent:`, error.message);
+      // Abort deployment if we can't provision the agent
       await storage.updateAgentDeploymentJob(jobId, {
         status: "failed",
         completedAt: new Date(),
-        errorMessage: `Failed to pre-register agent: ${error.message}`,
+        errorMessage: `Failed to provision agent: ${error.message}`,
       });
       await storage.updateCloudAsset(asset.id, {
         agentDeploymentStatus: "failed",
-        agentDeploymentError: `Failed to pre-register agent: ${error.message}`,
+        agentDeploymentError: `Failed to provision agent: ${error.message}`,
       });
       return;
     }
 
-    // Link the cloud asset to the pre-registered agent immediately (if created)
-    if (agentId) {
-      await storage.updateCloudAsset(asset.id, {
-        agentId,
-      });
-    }
+    // Link the cloud asset to the provisioned agent
+    await storage.updateCloudAsset(asset.id, {
+      agentId,
+    });
 
-    const registrationToken = process.env.AGENT_REGISTRATION_TOKEN || "auto-deploy-token";
-    // Use configured public URL, Replit domains, or fallback to localhost
+    // Use configured public URL or fallback to localhost
     let serverUrl = process.env.PUBLIC_ODINFORGE_URL || "http://localhost:5000";
-
-    // Override with Replit domains if present (for Replit deployments)
-    if (process.env.REPLIT_DOMAINS) {
-      // REPLIT_DOMAINS is comma-separated, use the first one (primary domain)
-      const primaryDomain = process.env.REPLIT_DOMAINS.split(",")[0].trim();
-      serverUrl = `https://${primaryDomain}`;
-    } else if (process.env.REPLIT_DEV_DOMAIN) {
-      serverUrl = `https://${process.env.REPLIT_DEV_DOMAIN}`;
-    }
 
     // Remove trailing slash if present
     serverUrl = serverUrl.replace(/\/$/, '');
@@ -592,8 +573,10 @@ export class CloudIntegrationService {
       asset,
       {
         serverUrl,
-        registrationToken,
+        apiKey,
+        agentId,
         organizationId: asset.organizationId,
+        installCommand,
       }
     );
 
