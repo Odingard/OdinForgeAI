@@ -9,6 +9,8 @@ import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { RiskMatrixHeatmap } from "@/components/RiskMatrixHeatmap";
+import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
+import { HolographicCard, HolographicCardHeader, HolographicCardContent, HolographicCardTitle } from "@/components/ui/holographic-card";
 
 interface EvaluationWithScore {
   id: string;
@@ -165,11 +167,22 @@ export default function RiskDashboard() {
   }
 
   return (
-    <div className="p-6 space-y-6" data-testid="risk-dashboard">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+    <div className="p-6 space-y-6 relative" data-testid="risk-dashboard">
+      {/* Animated particle background */}
+      <ParticleBackground particleCount={30} particleColor="#06b6d4" opacity={0.2} />
+
+      {/* Gradient orbs for depth */}
+      <GradientOrb color1="#ef4444" color2="#f97316" size="lg" className="top-10 right-10" />
+      <GradientOrb color1="#06b6d4" color2="#8b5cf6" size="md" className="bottom-20 left-20" />
+
+      <div className="flex items-center justify-between flex-wrap gap-4 relative z-10">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Risk Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Shield className="h-6 w-6 text-red-400 glow-red-sm" />
+            <span className="text-neon-red">Risk</span>
+            <span>Dashboard</span>
+          </h1>
+          <p className="text-sm text-muted-foreground/90 mt-1 font-medium">
             Executive view of security risks prioritized by business impact
           </p>
         </div>
@@ -206,22 +219,26 @@ export default function RiskDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+        <HolographicCard className={`group ${stats.critical > 0 ? 'pulse-glow glow-red-sm' : ''}`}>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Critical/Emergency</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-red-400" />
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">Critical/Emergency</CardTitle>
+            <div className="p-2 rounded-lg bg-gradient-to-br from-red-500/10 to-orange-500/10 border border-red-500/20 glow-red-sm">
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-foreground" data-testid="stat-critical">{stats.critical}</div>
-            <p className="text-xs text-muted-foreground mt-1">Require immediate attention</p>
+            <div className={`text-3xl font-bold tabular-nums ${stats.critical > 0 ? 'text-neon-red' : 'text-foreground'}`} data-testid="stat-critical">{stats.critical}</div>
+            <p className="text-xs text-muted-foreground/60 mt-1">Require immediate attention</p>
           </CardContent>
-        </Card>
+        </HolographicCard>
 
-        <Card>
+        <HolographicCard className="group">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">High Priority</CardTitle>
-            <TrendingUp className="h-4 w-4 text-orange-400" />
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">High Priority</CardTitle>
+            <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-500/20">
+              <TrendingUp className="h-4 w-4 text-orange-400" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-foreground" data-testid="stat-high">{stats.high}</div>
