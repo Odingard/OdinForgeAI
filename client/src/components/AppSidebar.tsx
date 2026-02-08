@@ -27,6 +27,7 @@ import {
   Radar,
   Calendar,
 } from "lucide-react";
+import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
   Sidebar,
   SidebarContent,
@@ -122,21 +123,11 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-border p-4">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 blur-lg opacity-50" />
-            <div className="relative p-2 bg-gradient-to-br from-red-600 to-red-500 rounded-lg">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-base font-bold tracking-tight bg-gradient-to-r from-red-500 to-red-400 bg-clip-text text-transparent">
-              OdinForge
-            </span>
-            <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
-              AEV Platform
-            </span>
-          </div>
+        <OdinForgeLogo size="md" animated showIcon />
+        <div className="mt-1 ml-11">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground font-medium">
+            AEV Platform
+          </span>
         </div>
       </SidebarHeader>
 
