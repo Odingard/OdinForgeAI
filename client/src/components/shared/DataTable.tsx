@@ -10,13 +10,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Loader2, Search, ChevronLeft, ChevronRight } from "lucide-react";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Loader2,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+} from "lucide-react";
 
 export interface DataTableColumn<T> {
   key: string;
@@ -196,7 +201,7 @@ export function DataTable<T extends Record<string, any>>({
       )}
 
       {/* Table */}
-      <div className="rounded-md border">
+      <div className="rounded-md border overflow-x-auto">
         <Table data-testid={testId}>
           <TableHeader>
             <TableRow>
@@ -220,7 +225,7 @@ export function DataTable<T extends Record<string, any>>({
                 </TableHead>
               ))}
               {actions && actions.length > 0 && (
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
               )}
             </TableRow>
           </TableHeader>
@@ -237,24 +242,35 @@ export function DataTable<T extends Record<string, any>>({
                   </TableCell>
                 ))}
                 {actions && actions.length > 0 && (
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      {actions
-                        .filter((action) => !action.hidden || !action.hidden(item))
-                        .map((action, actionIndex) => (
-                          <Button
-                            key={actionIndex}
-                            variant={action.variant || "ghost"}
-                            size="icon"
-                            onClick={() => action.onClick(item)}
-                            disabled={action.disabled ? action.disabled(item) : false}
-                            title={action.label}
-                            data-testid={`${testId}-action-${actionIndex}-${index}`}
-                          >
-                            {action.icon}
-                          </Button>
-                        ))}
-                    </div>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          data-testid={`${testId}-actions-${index}`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {actions
+                          .filter((action) => !action.hidden || !action.hidden(item))
+                          .map((action, actionIndex) => (
+                            <DropdownMenuItem
+                              key={actionIndex}
+                              onClick={() => action.onClick(item)}
+                              disabled={action.disabled ? action.disabled(item) : false}
+                              className={action.variant === "destructive" ? "text-destructive focus:text-destructive" : ""}
+                              data-testid={`${testId}-action-${actionIndex}-${index}`}
+                            >
+                              {action.icon && <span className="mr-2">{action.icon}</span>}
+                              {action.label}
+                            </DropdownMenuItem>
+                          ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 )}
               </TableRow>

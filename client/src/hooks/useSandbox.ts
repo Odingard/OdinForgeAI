@@ -257,7 +257,7 @@ export function useSubmitUrl() {
 export function useDeleteSandboxSubmission() {
   return useMutation({
     mutationFn: async (submissionId: string) => {
-      const response = await apiRequest("POST", `/api/sandbox/sessions/${submissionId}/close`);
+      const response = await apiRequest("DELETE", `/api/sandbox/sessions/${submissionId}`);
       return response.json();
     },
     onSuccess: () => {

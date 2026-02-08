@@ -9136,6 +9136,17 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
+  // DELETE /api/sandbox/sessions/:id - Delete a sandbox session
+  app.delete("/api/sandbox/sessions/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
+    try {
+      await storage.deleteSandboxSession(req.params.id);
+      res.json({ success: true, message: "Session deleted successfully" });
+    } catch (error: any) {
+      console.error("Failed to delete sandbox session:", error);
+      res.status(500).json({ error: error.message || "Failed to delete session" });
+    }
+  });
+
   // GET /api/sandbox/payloads - Get available payload categories
   app.get("/api/sandbox/payloads", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (_req, res) => {
     try {
