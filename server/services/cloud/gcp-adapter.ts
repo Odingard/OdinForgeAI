@@ -530,8 +530,10 @@ export class GCPAdapter implements ProviderAdapter {
     asset: CloudAssetInfo,
     agentConfig: {
       serverUrl: string;
-      registrationToken: string;
+      apiKey: string;
+      agentId: string;
       organizationId: string;
+      installCommand: string;
     }
   ): Promise<DeploymentResult> {
     const gcpCreds = credentials.gcp;
@@ -543,7 +545,7 @@ export class GCPAdapter implements ProviderAdapter {
       return { success: false, errorMessage: "Asset does not support agent deployment" };
     }
 
-    console.log(`[GCP] Deploying agent to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "os_config"}`);
+    console.log(`[GCP] Deploying enterprise-provisioned agent ${agentConfig.agentId} to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "os_config"}`);
 
     switch (asset.agentDeploymentMethod) {
       case "os_config":
@@ -558,7 +560,7 @@ export class GCPAdapter implements ProviderAdapter {
   private async deployViaOSConfig(
     creds: NonNullable<CloudCredentials["gcp"]>,
     asset: CloudAssetInfo,
-    config: { serverUrl: string; registrationToken: string; organizationId: string }
+    config: { serverUrl: string; apiKey: string; agentId: string; organizationId: string; installCommand: string }
   ): Promise<DeploymentResult> {
     // Use metadata-based startup script approach
     return this.deployViaStartupScript(creds, asset, config);
@@ -567,29 +569,29 @@ export class GCPAdapter implements ProviderAdapter {
   private async deployViaStartupScript(
     creds: NonNullable<CloudCredentials["gcp"]>,
     asset: CloudAssetInfo,
-    config: { serverUrl: string; registrationToken: string; organizationId: string }
+    config: { serverUrl: string; apiKey: string; agentId: string; organizationId: string; installCommand: string }
   ): Promise<DeploymentResult> {
     console.log(`[GCP Startup Script] Deploying to ${asset.providerResourceId}`);
 
     try {
       const clientOptions = this.getClientOptions(creds);
-      
+
       // Parse resource ID: projects/{project}/zones/{zone}/instances/{instance}
       const parts = asset.providerResourceId.split("/");
       const projectIndex = parts.indexOf("projects");
       const zoneIndex = parts.indexOf("zones");
       const instanceIndex = parts.indexOf("instances");
-      
+
       if (projectIndex === -1 || zoneIndex === -1 || instanceIndex === -1) {
         return { success: false, errorMessage: "Invalid GCP resource ID format" };
       }
-      
+
       const project = parts[projectIndex + 1];
       const zone = parts[zoneIndex + 1];
       const instanceName = parts[instanceIndex + 1];
 
       const instancesClient = new compute.InstancesClient(clientOptions);
-      
+
       // Create a startup script that installs the agent
       // This uses a one-time marker file to prevent re-running on every boot
       const startupScript = `#!/bin/bash
@@ -604,7 +606,7 @@ set -e
 echo "Installing OdinForge agent..."
 curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent
 chmod +x /tmp/odinforge-agent
-/tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force
+/tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force
 
 # Fix config file permissions
 chmod 644 /etc/odinforge/agent.yaml

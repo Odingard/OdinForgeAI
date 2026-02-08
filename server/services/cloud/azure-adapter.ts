@@ -306,8 +306,10 @@ export class AzureAdapter implements ProviderAdapter {
     asset: CloudAssetInfo,
     agentConfig: {
       serverUrl: string;
-      registrationToken: string;
+      apiKey: string;
+      agentId: string;
       organizationId: string;
+      installCommand: string;
     }
   ): Promise<DeploymentResult> {
     const azureCreds = credentials.azure;
@@ -319,7 +321,7 @@ export class AzureAdapter implements ProviderAdapter {
       return { success: false, errorMessage: "Asset does not support agent deployment" };
     }
 
-    console.log(`[Azure] Deploying agent to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "vm_extension"}`);
+    console.log(`[Azure] Deploying enterprise-provisioned agent ${agentConfig.agentId} to ${asset.providerResourceId} via ${asset.agentDeploymentMethod || "vm_extension"}`);
 
     switch (asset.agentDeploymentMethod) {
       case "vm_extension":
@@ -334,43 +336,43 @@ export class AzureAdapter implements ProviderAdapter {
   private async deployViaVMExtension(
     creds: NonNullable<CloudCredentials["azure"]>,
     asset: CloudAssetInfo,
-    config: { serverUrl: string; registrationToken: string; organizationId: string }
+    config: { serverUrl: string; apiKey: string; agentId: string; organizationId: string; installCommand: string }
   ): Promise<DeploymentResult> {
     console.log(`[Azure Run Command] Deploying to ${asset.providerResourceId}`);
 
     try {
       const credential = this.getCredential(creds);
-      
+
       // Parse resource ID to get subscription, resource group, and VM name
       const resourceId = asset.providerResourceId;
       const parts = resourceId.split("/");
       const subscriptionIndex = parts.indexOf("subscriptions");
       const rgIndex = parts.indexOf("resourceGroups");
       const vmIndex = parts.indexOf("virtualMachines");
-      
+
       if (subscriptionIndex === -1 || rgIndex === -1 || vmIndex === -1) {
         return { success: false, errorMessage: "Invalid Azure resource ID format" };
       }
-      
+
       const subscriptionId = parts[subscriptionIndex + 1];
       const resourceGroup = parts[rgIndex + 1];
       const vmName = parts[vmIndex + 1];
 
       const computeClient = new ComputeManagementClient(credential, subscriptionId);
-      
+
       // Determine OS type for correct script
       const osType = asset.rawMetadata?.osType?.toLowerCase();
       const isWindows = osType === "windows";
-      
+
       let script: string[];
       let commandId: string;
-      
+
       if (isWindows) {
         commandId = "RunPowerShellScript";
         script = [
           `$ErrorActionPreference = "Stop"`,
           `Invoke-WebRequest -Uri "${config.serverUrl}/api/agents/download/windows-amd64" -OutFile "C:\\Temp\\odinforge-agent.exe"`,
-          `& "C:\\Temp\\odinforge-agent.exe" install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+          `& "C:\\Temp\\odinforge-agent.exe" install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force`,
           `icacls 'C:\\ProgramData\\OdinForge\\agent.yaml' /grant 'Everyone:(R)' /T`,
           `Restart-Service -Name 'odinforge-agent' -Force -ErrorAction SilentlyContinue`,
         ];
@@ -381,7 +383,7 @@ export class AzureAdapter implements ProviderAdapter {
           `set -e`,
           `curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent`,
           `chmod +x /tmp/odinforge-agent`,
-          `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+          `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force`,
           `sudo chmod 644 /etc/odinforge/agent.yaml`,
           `sudo chmod 755 /etc/odinforge`,
           `sudo systemctl restart odinforge-agent || true`,
@@ -438,7 +440,7 @@ export class AzureAdapter implements ProviderAdapter {
   private async deployViaArc(
     creds: NonNullable<CloudCredentials["azure"]>,
     asset: CloudAssetInfo,
-    config: { serverUrl: string; registrationToken: string; organizationId: string }
+    config: { serverUrl: string; apiKey: string; agentId: string; organizationId: string; installCommand: string }
   ): Promise<DeploymentResult> {
     console.log(`[Azure Arc] Would deploy to ${asset.providerResourceId}`);
 

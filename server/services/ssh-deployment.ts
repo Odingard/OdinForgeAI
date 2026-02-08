@@ -113,7 +113,8 @@ class SSHDeploymentService {
     config: SSHDeploymentConfig,
     agentConfig: {
       serverUrl: string;
-      registrationToken: string;
+      apiKey: string;
+      agentId: string;
       organizationId: string;
       platform?: string;
     }
@@ -175,30 +176,30 @@ class SSHDeploymentService {
     config: SSHDeploymentConfig,
     agentConfig: {
       serverUrl: string;
-      registrationToken: string;
+      apiKey: string;
+      agentId: string;
       organizationId: string;
       platform?: string;
     }
   ): Promise<SSHDeploymentResult> {
-    const agentId = `agent-ssh-${randomUUID().slice(0, 8)}`;
-    
     const detectPlatformCmd = "uname -s -m";
     const platformInfo = await this.execCommand(client, detectPlatformCmd);
-    
+
     let platform = "linux";
     let arch = "amd64";
-    
+
     if (platformInfo.output) {
       const parts = platformInfo.output.trim().toLowerCase().split(/\s+/);
       if (parts[0] === "darwin") platform = "darwin";
       if (parts[1]?.includes("arm") || parts[1]?.includes("aarch")) arch = "arm64";
     }
-    
+
     const binaryName = `odinforge-agent-${platform}-${arch}`;
     const installDir = "/opt/odinforge";
     const serverUrl = agentConfig.serverUrl;
-    const registrationToken = agentConfig.registrationToken;
-    
+    const apiKey = agentConfig.apiKey;
+    const agentId = agentConfig.agentId;
+
     const installScript = `
 set -e
 echo "[OdinForge] Starting agent installation..."
@@ -219,9 +220,9 @@ ${config.useSudo ? "sudo " : ""}mv ${binaryName} ${installDir}/odinforge-agent
 echo "[OdinForge] Creating configuration..."
 ${config.useSudo ? "sudo " : ""}tee ${installDir}/agent.conf > /dev/null << 'EOF'
 SERVER_URL=${serverUrl}
-REGISTRATION_TOKEN=${registrationToken}
-ORGANIZATION_ID=${agentConfig.organizationId}
+API_KEY=${apiKey}
 AGENT_ID=${agentId}
+ORGANIZATION_ID=${agentConfig.organizationId}
 EOF
 
 # Create systemd service if available
@@ -378,21 +379,25 @@ echo "[OdinForge] Installation complete - Agent ID: ${agentId}"
       return { success: false, errorMessage: "No host address available for asset" };
     }
 
-    const rawToken = generateSecureToken();
-    const tokenHash = hashToken(rawToken);
-    const tokenId = `regtoken-${randomUUID().slice(0, 8)}`;
-    
-    await storage.createAgentRegistrationToken({
-      id: tokenId,
-      tokenHash,
+    // Use enterprise agent provisioning
+    const { agentManagementService } = await import("./agent-management");
+
+    const provisionResult = await agentManagementService.provisionAgent({
+      hostname: asset.hostname || asset.assetIdentifier || config.host,
+      platform: (asset.operatingSystem?.toLowerCase() as "linux" | "windows" | "darwin") || "linux",
+      architecture: "x86_64",
       organizationId,
-      description: `SSH deployment to ${asset.displayName || asset.assetIdentifier}`,
-      expiresAt: new Date(Date.now() + 3600000),
+      environment: "production",
+      tags: [
+        "ssh-deployed",
+        `asset:${asset.id}`,
+      ],
     });
 
     const result = await this.deployAgent(config, {
       serverUrl,
-      registrationToken: rawToken,
+      apiKey: provisionResult.apiKey,
+      agentId: provisionResult.agentId,
       organizationId,
       platform: asset.operatingSystem || undefined,
     });
