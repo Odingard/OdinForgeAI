@@ -14,6 +14,7 @@ vite.config.ts.*
 data/
 *.db
 *.log
+.local/
 
 # Build artifacts
 *.tsbuildinfo
