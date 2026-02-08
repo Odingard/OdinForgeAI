@@ -39,10 +39,11 @@ import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
 
 pdfMake.vfs = pdfFonts.vfs;
-import { format } from "date-fns";
+import { format, startOfDay, subDays } from "date-fns";
 import type { Report } from "@shared/schema";
 import { DTGRangeDisplay } from "@/components/ui/dtg-display";
 import { formatDTG, formatDTGWithLocal } from "@/lib/utils";
+import { TimeSeriesChart } from "@/components/shared/TimeSeriesChart";
 
 const reportTypes = [
   { value: "executive_summary", label: "Executive Summary", icon: Briefcase, description: "High-level overview for leadership" },
@@ -1211,8 +1212,12 @@ export default function Reports() {
             <FileText className="w-4 h-4 mr-2" />
             Generated Reports
           </TabsTrigger>
-          <TabsTrigger value="preview" data-testid="tab-preview" disabled={!previewData}>
+          <TabsTrigger value="trends" data-testid="tab-trends">
             <BarChart3 className="w-4 h-4 mr-2" />
+            Trends
+          </TabsTrigger>
+          <TabsTrigger value="preview" data-testid="tab-preview" disabled={!previewData}>
+            <FileText className="w-4 h-4 mr-2" />
             Latest Preview
           </TabsTrigger>
         </TabsList>
@@ -1318,6 +1323,71 @@ export default function Reports() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="trends">
+          <Card>
+            <CardHeader>
+              <CardTitle>Report Generation Trends</CardTitle>
+              <CardDescription>
+                Report generation activity over the last 30 days
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {reports.length > 0 ? (
+                <TimeSeriesChart
+                  data={(() => {
+                    const last30Days = Array.from({ length: 30 }, (_, i) => {
+                      const date = startOfDay(subDays(new Date(), 29 - i));
+                      const dateStr = format(date, "yyyy-MM-dd");
+                      const dayReports = reports.filter(r =>
+                        format(new Date(r.generatedAt), "yyyy-MM-dd") === dateStr
+                      );
+                      return {
+                        date: dateStr,
+                        value: dayReports.length,
+                        label: format(date, "MMM d"),
+                      };
+                    });
+                    return last30Days;
+                  })()}
+                  xKey="label"
+                  yKey="value"
+                  height={300}
+                  color="#3b82f6"
+                />
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  <BarChart3 className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                  <p>No reports generated yet</p>
+                </div>
+              )}
+
+              {/* Report Type Distribution */}
+              {reports.length > 0 && (
+                <div className="mt-6 space-y-4">
+                  <h3 className="font-medium">Report Type Distribution</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {reportTypes.map(type => {
+                      const count = reports.filter(r => r.reportType === type.value).length;
+                      const percentage = reports.length > 0 ? ((count / reports.length) * 100).toFixed(1) : "0";
+
+                      return (
+                        <Card key={type.value} className="p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <type.icon className="h-4 w-4 text-muted-foreground" />
+                            <span className="font-medium text-sm">{type.label}</span>
+                          </div>
+                          <div className="text-2xl font-bold">{count}</div>
+                          <div className="text-xs text-muted-foreground">{percentage}% of total</div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="preview">

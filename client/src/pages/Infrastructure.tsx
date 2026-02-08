@@ -63,6 +63,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
+import { AssetDependencyGraph } from "@/components/AssetDependencyGraph";
 
 interface VulnerabilityImport {
   id: string;
@@ -1343,6 +1344,10 @@ export default function Infrastructure() {
             <Cloud className="h-4 w-4 mr-2" />
             Cloud Connections ({cloudConnections.length})
           </TabsTrigger>
+          <TabsTrigger value="dependencies" data-testid="tab-dependencies">
+            <ArrowRight className="h-4 w-4 mr-2" />
+            Asset Dependencies
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="scanner-imports" className="mt-4 space-y-6">
@@ -1639,6 +1644,86 @@ export default function Infrastructure() {
               </div>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="dependencies" className="mt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Asset Dependency Graph</CardTitle>
+              <CardDescription>
+                Visualize dependencies and data flows between infrastructure assets
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AssetDependencyGraph
+                nodes={(() => {
+                  // Generate sample dependency nodes from cloud connections and vulnerabilities
+                  const nodes = [];
+
+                  // Add cloud assets as foundation nodes
+                  cloudConnections.slice(0, 5).forEach((conn, i) => {
+                    nodes.push({
+                      id: `cloud-${conn.id}`,
+                      name: conn.name,
+                      type: conn.provider === "aws" ? "storage" : conn.provider === "azure" ? "database" : "service",
+                      criticality: conn.status === "active" ? "high" : "medium",
+                      dependencies: [],
+                      vulnerabilityCount: 0,
+                    });
+                  });
+
+                  // Add vulnerability hosts as dependent nodes
+                  const hostMap = new Map();
+                  vulnerabilities.slice(0, 10).forEach(vuln => {
+                    if (vuln.affectedHost && !hostMap.has(vuln.affectedHost)) {
+                      const cloudDeps = nodes.slice(0, Math.min(2, nodes.length)).map(n => n.id);
+                      hostMap.set(vuln.affectedHost, {
+                        id: `host-${vuln.affectedHost}`,
+                        name: vuln.affectedHost,
+                        type: vuln.affectedPort === 443 || vuln.affectedPort === 80 ? "load_balancer" : "application",
+                        criticality: vuln.severity === "critical" || vuln.severity === "high" ? "critical" : "medium",
+                        dependencies: cloudDeps,
+                        vulnerabilityCount: vulnerabilities.filter(v => v.affectedHost === vuln.affectedHost).length,
+                      });
+                    }
+                  });
+
+                  nodes.push(...Array.from(hostMap.values()));
+
+                  return nodes.length > 0 ? nodes : [
+                    {
+                      id: "db-1",
+                      name: "Primary Database",
+                      type: "database",
+                      criticality: "critical",
+                      dependencies: [],
+                      vulnerabilityCount: 0,
+                    },
+                    {
+                      id: "api-1",
+                      name: "API Server",
+                      type: "api",
+                      criticality: "high",
+                      dependencies: ["db-1"],
+                      vulnerabilityCount: 2,
+                    },
+                    {
+                      id: "lb-1",
+                      name: "Load Balancer",
+                      type: "load_balancer",
+                      criticality: "high",
+                      dependencies: ["api-1"],
+                      vulnerabilityCount: 0,
+                    },
+                  ];
+                })()}
+                onNodeClick={(node) => {
+                  // Handle node click - could show details dialog
+                  console.log("Asset clicked:", node);
+                }}
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

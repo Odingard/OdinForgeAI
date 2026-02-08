@@ -33,6 +33,7 @@ import {
   AlertCircle,
   HardDrive,
 } from "lucide-react";
+import { EnhancedEmptyState } from "@/components/shared/EnhancedEmptyState";
 
 export default function Evidence() {
   const { toast } = useToast();
@@ -260,17 +261,23 @@ export default function Evidence() {
               Loading evidence...
             </div>
           ) : evidence.length === 0 ? (
-            <div className="text-center py-12">
-              <FileCheck className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
-              <h3 className="font-medium mb-2">No Evidence Found</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Upload evidence to start building your forensic collection
-              </p>
-              <Button onClick={() => setUploadDialogOpen(true)}>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload First Evidence
-              </Button>
-            </div>
+            <EnhancedEmptyState
+              icon={FileCheck}
+              title="No Evidence Found"
+              description="Upload forensic evidence from security evaluations to build your investigation collection"
+              primaryAction={{
+                label: "Upload First Evidence",
+                onClick: () => setUploadDialogOpen(true),
+                icon: Upload,
+              }}
+              showDemoButton={true}
+              steps={[
+                "Upload screenshots, logs, or network captures",
+                "Link evidence to specific evaluations",
+                "Verify file integrity with hash validation",
+                "Build comprehensive forensic timelines"
+              ]}
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {evidence.map((item) => {

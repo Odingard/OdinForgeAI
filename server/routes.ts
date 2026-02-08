@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import fs from "fs";
 import path from "path";
 import { storage } from "./storage";
+import { db } from "./db";
+import { endpointAgents, aevEvaluations } from "@shared/schema";
+import { sql, and, eq } from "drizzle-orm";
 import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
 import { runAISimulation } from "./services/agents/ai-simulation";
@@ -3934,35 +3937,49 @@ export async function registerRoutes(
     const clientCertHeader = req.headers["x-client-cert-fingerprint"] || req.headers["x-ssl-client-cert"];
     const certSecretHeader = req.headers["x-cert-secret"];
     const xApiKeyHeader = req.headers["x-api-key"];
-    
-    // Get all agents for API key comparison
-    const agents = await storage.getEndpointAgents();
-    
-    // Use unified auth service for multi-method authentication
-    const authResult = await unifiedAuthService.authenticateRequest(
-      authHeader,
-      clientCertHeader,
-      agents,
-      certSecretHeader,
-      xApiKeyHeader
-    );
-    
-    if (!authResult.authenticated) {
-      return res.status(401).json({ error: authResult.error || "Authentication failed" });
+
+    try {
+      // Import RLS bypass functions
+      const { withoutTenantContext, setTenantContext } = await import("./services/rls-setup");
+
+      // Get all agents for API key comparison - bypass RLS since we need to check all orgs
+      const agents = await withoutTenantContext(async () => {
+        return await storage.getEndpointAgents();
+      });
+
+      // Use unified auth service for multi-method authentication
+      const authResult = await unifiedAuthService.authenticateRequest(
+        authHeader,
+        clientCertHeader,
+        agents,
+        certSecretHeader,
+        xApiKeyHeader
+      );
+
+      if (!authResult.authenticated) {
+        return res.status(401).json({ error: authResult.error || "No valid authentication credentials provided" });
+      }
+
+      // Find the authenticated agent
+      let authenticatedAgent = null;
+      if (authResult.agentId) {
+        authenticatedAgent = agents.find(a => a.id === authResult.agentId);
+      }
+
+      if (!authenticatedAgent) {
+        return res.status(401).json({ error: "Agent not found" });
+      }
+
+      req.agent = authenticatedAgent;
+
+      // Set tenant context for subsequent operations based on authenticated agent's org
+      await setTenantContext(authenticatedAgent.organizationId);
+
+      next();
+    } catch (error) {
+      console.error("[Auth] Agent authentication error:", error);
+      return res.status(500).json({ error: "Internal authentication error" });
     }
-    
-    // Find the authenticated agent
-    let authenticatedAgent = null;
-    if (authResult.agentId) {
-      authenticatedAgent = agents.find(a => a.id === authResult.agentId);
-    }
-    
-    if (!authenticatedAgent) {
-      return res.status(401).json({ error: "Agent not found" });
-    }
-    
-    req.agent = authenticatedAgent;
-    next();
   }
 
   // Get registration token for display in UI
@@ -10448,6 +10465,115 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     } catch (error: any) {
       console.error("Failed to check PR status:", error);
       res.status(500).json({ error: error.message || "Failed to check PR status" });
+    }
+  });
+
+  // ============================================================================
+  // Demo Data Management Routes
+  // ============================================================================
+
+  /**
+   * Load demo data for testing and demonstration
+   * Available to all authenticated users for exploration
+   */
+  app.post("/api/demo-data/load", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      console.log("[Demo Data API] Loading demo data...");
+      console.log("[Demo Data API] User:", req.user?.email, "Org:", req.user?.organizationId);
+
+      const { generateDemoData } = await import("./services/demo-data");
+      const { withTenantContext } = await import("./services/rls-setup");
+      const organizationId = req.user?.organizationId || "default";
+
+      console.log("[Demo Data API] Calling generateDemoData with organizationId:", organizationId);
+
+      // Execute demo data generation with proper tenant context
+      const results = await withTenantContext(organizationId, async () => {
+        return await generateDemoData({
+          organizationId,
+          agentCount: 12,
+          evaluationCount: 25,
+          includeJobs: true,
+          includeScans: true,
+          includeSessions: true,
+          includeAuditLogs: true,
+          includeAssets: true,
+        });
+      });
+
+      console.log("[Demo Data API] Generation complete, results:", results);
+
+      res.json({
+        success: true,
+        message: "Demo data loaded successfully",
+        ...results
+      });
+    } catch (error: any) {
+      console.error("[Demo Data] Error loading demo data:", error);
+      console.error("[Demo Data] Stack trace:", error.stack);
+      res.status(500).json({ error: error.message || "Failed to load demo data" });
+    }
+  });
+
+  /**
+   * Clear all demo data
+   * Available to all authenticated users
+   */
+  app.post("/api/demo-data/clear", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { clearDemoData } = await import("./services/demo-data");
+      const { withTenantContext } = await import("./services/rls-setup");
+      const organizationId = req.user?.organizationId || "default";
+
+      // Execute demo data clearing with proper tenant context
+      await withTenantContext(organizationId, async () => {
+        await clearDemoData(organizationId);
+      });
+
+      res.json({
+        success: true,
+        message: "Demo data cleared successfully"
+      });
+    } catch (error: any) {
+      console.error("[Demo Data] Error clearing demo data:", error);
+      res.status(500).json({ error: error.message || "Failed to clear demo data" });
+    }
+  });
+
+  /**
+   * Check demo data status
+   */
+  app.get("/api/demo-data/status", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.user?.organizationId || "default";
+
+      // Count demo data records
+      const agentCount = await db.select({ count: sql<number>`count(*)` })
+        .from(endpointAgents)
+        .where(and(
+          eq(endpointAgents.organizationId, organizationId),
+          sql`${endpointAgents.id} LIKE 'agent-demo-%'`
+        ));
+
+      const evalCount = await db.select({ count: sql<number>`count(*)` })
+        .from(aevEvaluations)
+        .where(and(
+          eq(aevEvaluations.organizationId, organizationId),
+          sql`${aevEvaluations.id} LIKE 'eval-demo-%'`
+        ));
+
+      const hasDemoData = (agentCount[0]?.count || 0) > 0 || (evalCount[0]?.count || 0) > 0;
+
+      res.json({
+        hasDemoData,
+        counts: {
+          agents: agentCount[0]?.count || 0,
+          evaluations: evalCount[0]?.count || 0,
+        }
+      });
+    } catch (error: any) {
+      console.error("[Demo Data] Error checking demo data status:", error);
+      res.status(500).json({ error: error.message || "Failed to check demo data status" });
     }
   });
 

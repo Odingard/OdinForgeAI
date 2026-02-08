@@ -21,6 +21,11 @@ import {
   GitBranch,
   ListChecks,
   Activity,
+  FileCheck,
+  Package,
+  UserCheck,
+  Radar,
+  Calendar,
 } from "lucide-react";
 import {
   Sidebar,
@@ -74,6 +79,19 @@ const operationsItems = [
   { title: "Audit Logs", href: "/audit", icon: FileText },
 ];
 
+const complianceItems = [
+  { title: "Evidence", href: "/evidence", icon: FileCheck },
+  { title: "Compliance", href: "/compliance", icon: Shield },
+  { title: "Forensics", href: "/forensics", icon: Package },
+];
+
+const advancedItems = [
+  { title: "Sessions", href: "/sessions", icon: UserCheck },
+  { title: "Live Scans", href: "/scans", icon: Radar },
+  { title: "Scheduled Scans", href: "/scheduled-scans", icon: Calendar },
+  { title: "Sandbox", href: "/sandbox", icon: FlaskConical },
+];
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, hasPermission } = useAuth();
@@ -106,13 +124,13 @@ export function AppSidebar() {
       <SidebarHeader className="border-b border-border p-4">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-cyan-500 to-blue-600 blur-lg opacity-50" />
-            <div className="relative p-2 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-lg">
+            <div className="absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 blur-lg opacity-50" />
+            <div className="relative p-2 bg-gradient-to-br from-red-600 to-red-500 rounded-lg">
               <Shield className="h-5 w-5 text-white" />
             </div>
           </div>
           <div className="flex flex-col">
-            <span className="text-base font-bold tracking-tight bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+            <span className="text-base font-bold tracking-tight bg-gradient-to-r from-red-500 to-red-400 bg-clip-text text-transparent">
               OdinForge
             </span>
             <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
@@ -222,6 +240,60 @@ export function AppSidebar() {
           </SidebarGroup>
         </Collapsible>
 
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <CollapsibleTrigger asChild>
+              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
+                Compliance & Forensics
+                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {complianceItems.map((item) => (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
+                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <CollapsibleTrigger asChild>
+              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
+                Advanced
+                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {advancedItems.map((item) => (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
+                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
         {hasPermission("org:manage_users") && (
           <SidebarGroup>
             <SidebarGroupLabel>Administration</SidebarGroupLabel>
@@ -253,7 +325,7 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t border-border p-4">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-red-600 to-red-500 flex items-center justify-center">
             <span className="text-xs font-bold text-white">
               {user?.displayName?.charAt(0) || user?.username?.charAt(0) || "U"}
             </span>

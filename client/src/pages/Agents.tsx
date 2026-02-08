@@ -42,6 +42,7 @@ import {
 import { InstallWizard } from "@/components/InstallWizard";
 import { CoverageAutopilot } from "@/components/CoverageAutopilot";
 import { Progress } from "@/components/ui/progress";
+import { NetworkTopologyGraph } from "@/components/NetworkTopologyGraph";
 
 interface EndpointAgent {
   id: string;
@@ -561,6 +562,7 @@ export default function Agents() {
       <Tabs defaultValue="agents" className="space-y-4">
         <TabsList>
           <TabsTrigger value="agents" data-testid="tab-agents">Agents</TabsTrigger>
+          <TabsTrigger value="topology" data-testid="tab-topology">Network Topology</TabsTrigger>
           <TabsTrigger value="coverage" data-testid="tab-coverage">Coverage Autopilot</TabsTrigger>
           <TabsTrigger value="findings" data-testid="tab-findings">Findings</TabsTrigger>
           <TabsTrigger value="system" data-testid="tab-system">System</TabsTrigger>
@@ -682,6 +684,36 @@ export default function Agents() {
                   </TableBody>
                 </Table>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="topology" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Network Topology</CardTitle>
+              <CardDescription>
+                Visualize agent network connections and relationships
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <NetworkTopologyGraph
+                agents={agents.map(agent => ({
+                  id: agent.id,
+                  hostname: agent.hostname || agent.agentName,
+                  ipAddress: agent.ipAddresses?.[0] || "Unknown",
+                  status: agent.status === "online" ? "online" : agent.status === "degraded" ? "degraded" : "offline",
+                  connections: [], // TODO: Add connection data when available
+                  riskLevel: undefined, // TODO: Calculate risk level from findings
+                  role: agent.environment === "production" ? "worker" : "sensor",
+                }))}
+                onAgentClick={(agent) => {
+                  const fullAgent = agents.find(a => a.id === agent.id);
+                  if (fullAgent) {
+                    setSelectedAgent(fullAgent);
+                  }
+                }}
+              />
             </CardContent>
           </Card>
         </TabsContent>
