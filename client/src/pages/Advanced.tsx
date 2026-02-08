@@ -176,7 +176,7 @@ export default function Advanced() {
     attackerProfileId: "",
   });
 
-  const { data: posture, isLoading: postureLoading } = useQuery<DefensivePostureScore>({
+  const { data: posture, isLoading: postureLoading, error: postureError } = useQuery<DefensivePostureScore>({
     queryKey: ["/api/defensive-posture", ORG_ID],
   });
 
@@ -317,7 +317,16 @@ export default function Advanced() {
         </p>
       </div>
 
-      {isInitialData && (
+      {postureError && (
+        <Alert className="border-red-500/30 bg-red-500/10" data-testid="alert-error">
+          <AlertTriangle className="h-4 w-4 text-red-400" />
+          <AlertDescription className="text-red-400">
+            Failed to load defensive posture: {(postureError as Error).message}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isInitialData && !postureError && (
         <Alert className="border-amber-500/30 bg-amber-500/10" data-testid="alert-no-data">
           <AlertTriangle className="h-4 w-4 text-amber-400" />
           <AlertDescription className="text-amber-400">

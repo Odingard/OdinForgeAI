@@ -7,7 +7,6 @@ import {
   FileText,
   Shield,
   Bot,
-  Swords,
   Brain,
   ChevronDown,
   Settings,
@@ -16,9 +15,7 @@ import {
   Globe,
   FlaskConical,
   ShieldAlert,
-  Wrench,
   History,
-  GitBranch,
   ListChecks,
   Activity,
   FileCheck,
@@ -58,12 +55,8 @@ const mainNavItems = [
 
 const analysisItems = [
   { title: "Full Assessment", href: "/full-assessment", icon: ScanSearch },
-  { title: "Security Testing", href: "/security-testing", icon: FlaskConical },
-  { title: "Lateral Movement", href: "/lateral-movement", icon: GitBranch },
   { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
-  { title: "Simulations", href: "/simulations", icon: Swords },
-  { title: "Remediation", href: "/remediation", icon: Wrench },
 ];
 
 const systemItems = [
@@ -82,7 +75,6 @@ const operationsItems = [
 
 const complianceItems = [
   { title: "Evidence", href: "/evidence", icon: FileCheck },
-  { title: "Compliance", href: "/compliance", icon: Shield },
   { title: "Forensics", href: "/forensics", icon: Package },
 ];
 

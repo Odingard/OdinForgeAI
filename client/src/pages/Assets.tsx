@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Server, AlertTriangle, CheckCircle, Clock, Trash2, MoreVertical, Cloud, Monitor, Database, Info } from "lucide-react";
+import { Server, AlertTriangle, CheckCircle, Clock, Trash2, MoreVertical, Cloud, Monitor, Database, Info, CheckSquare, Square, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,9 @@ export default function Assets() {
   const [deleteAsset, setDeleteAsset] = useState<UnifiedAsset | null>(null);
   const [removeAsset, setRemoveAsset] = useState<UnifiedAsset | null>(null);
   const [deletingAssetId, setDeletingAssetId] = useState<string | null>(null);
+  const [selectedAssets, setSelectedAssets] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   const { data: discoveredAssets = [], isLoading: loadingAssets } = useQuery<DiscoveredAsset[]>({
@@ -219,6 +222,65 @@ export default function Assets() {
     } finally {
       setDeletingAssetId(null);
       setRemoveAsset(null);
+    }
+  };
+
+  const toggleAssetSelection = (assetId: string) => {
+    setSelectedAssets(prev => {
+      const next = new Set(prev);
+      if (next.has(assetId)) next.delete(assetId);
+      else next.add(assetId);
+      return next;
+    });
+  };
+
+  const selectAllAssets = (assets: UnifiedAsset[]) => {
+    if (selectedAssets.size === assets.length) {
+      setSelectedAssets(new Set());
+    } else {
+      setSelectedAssets(new Set(assets.map(a => a.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedAssets.size === 0) return;
+    setBulkDeleting(true);
+
+    try {
+      const selectedList = unifiedAssets.filter(a => selectedAssets.has(a.id));
+
+      // Delete all evaluations for selected assets first
+      const allEvalIds = selectedList.flatMap(a => a.evaluationIds);
+      for (const evalId of allEvalIds) {
+        try {
+          await deleteEvaluationMutation.mutateAsync(evalId);
+        } catch { /* continue */ }
+      }
+
+      // Bulk delete the discovered assets
+      const discoveredIds = selectedList.filter(a => a.source === "discovered").map(a => a.id);
+      if (discoveredIds.length > 0) {
+        await apiRequest("POST", "/api/assets/bulk-delete", { assetIds: discoveredIds });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/aev/stats"] });
+
+      toast({
+        title: "Assets removed",
+        description: `Successfully removed ${selectedAssets.size} asset(s) and ${allEvalIds.length} evaluation(s).`,
+      });
+      setSelectedAssets(new Set());
+    } catch {
+      toast({
+        title: "Bulk delete failed",
+        description: "Some assets could not be removed. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkConfirm(false);
     }
   };
 
@@ -427,6 +489,53 @@ export default function Assets() {
         </Card>
       </div>
 
+      {canDelete && unifiedAssets.length > 0 && (
+        <div className="flex items-center justify-between gap-4 p-3 bg-muted/30 border border-border rounded-md">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => selectAllAssets(unifiedAssets)}
+              data-testid="select-all-assets"
+            >
+              {selectedAssets.size === unifiedAssets.length ? (
+                <CheckSquare className="h-4 w-4 mr-2 text-cyan-400" />
+              ) : (
+                <Square className="h-4 w-4 mr-2" />
+              )}
+              {selectedAssets.size === unifiedAssets.length ? "Deselect All" : "Select All"}
+            </Button>
+            {selectedAssets.size > 0 && (
+              <span className="text-sm text-muted-foreground">
+                {selectedAssets.size} selected
+              </span>
+            )}
+          </div>
+          {selectedAssets.size > 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedAssets(new Set())}
+              >
+                <XCircle className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowBulkConfirm(true)}
+                disabled={bulkDeleting}
+                data-testid="bulk-delete-assets"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete {selectedAssets.size} Asset{selectedAssets.size !== 1 ? "s" : ""}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {unifiedAssets.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
@@ -448,6 +557,19 @@ export default function Assets() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
+                    {canDelete && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleAssetSelection(asset.id); }}
+                        className="flex-shrink-0"
+                        data-testid={`select-asset-${asset.id}`}
+                      >
+                        {selectedAssets.has(asset.id) ? (
+                          <CheckSquare className="h-5 w-5 text-cyan-400" />
+                        ) : (
+                          <Square className="h-5 w-5 text-muted-foreground hover:text-foreground" />
+                        )}
+                      </button>
+                    )}
                     <div className="p-2 rounded-lg bg-muted/50">
                       {getAssetIcon(asset)}
                     </div>
@@ -590,9 +712,9 @@ export default function Assets() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove Asset?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently remove "{removeAsset?.displayName}" 
-              {removeAsset && removeAsset.evaluationCount > 0 
-                ? ` and its ${removeAsset.evaluationCount} evaluation(s)` 
+              This will permanently remove "{removeAsset?.displayName}"
+              {removeAsset && removeAsset.evaluationCount > 0
+                ? ` and its ${removeAsset.evaluationCount} evaluation(s)`
                 : ""
               }. This action cannot be undone.
             </AlertDialogDescription>
@@ -605,6 +727,28 @@ export default function Assets() {
               data-testid="confirm-remove-asset"
             >
               Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showBulkConfirm} onOpenChange={setShowBulkConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedAssets.size} Asset{selectedAssets.size !== 1 ? "s" : ""}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove {selectedAssets.size} asset(s) and all their associated evaluations. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting} data-testid="cancel-bulk-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground"
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              data-testid="confirm-bulk-delete"
+            >
+              {bulkDeleting ? "Deleting..." : "Delete All"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -31,23 +31,18 @@ const Reports = lazy(() => import("@/pages/Reports"));
 const Governance = lazy(() => import("@/pages/Governance"));
 const Advanced = lazy(() => import("@/pages/Advanced"));
 const Agents = lazy(() => import("@/pages/Agents"));
-const Simulations = lazy(() => import("@/pages/Simulations"));
 const UserManagement = lazy(() => import("@/pages/UserManagement"));
 const Settings = lazy(() => import("@/pages/Settings"));
 const Login = lazy(() => import("@/pages/Login"));
 const Signup = lazy(() => import("@/pages/Signup"));
 const FullAssessment = lazy(() => import("@/pages/FullAssessment"));
-const SecurityTesting = lazy(() => import("@/pages/SecurityTesting"));
 const Approvals = lazy(() => import("@/pages/Approvals"));
 const ApprovalHistory = lazy(() => import("@/pages/ApprovalHistory"));
-const Remediation = lazy(() => import("@/pages/Remediation"));
-const LateralMovement = lazy(() => import("@/pages/LateralMovement"));
 const ExternalRecon = lazy(() => import("@/components/ExternalRecon").then(m => ({ default: m.ExternalRecon })));
 const Jobs = lazy(() => import("@/pages/Jobs"));
 const SystemHealth = lazy(() => import("@/pages/SystemHealth"));
 const AuditLogs = lazy(() => import("@/pages/AuditLogs"));
 const Evidence = lazy(() => import("@/pages/Evidence"));
-const Compliance = lazy(() => import("@/pages/Compliance"));
 const ForensicExports = lazy(() => import("@/pages/ForensicExports"));
 const Sessions = lazy(() => import("@/pages/Sessions"));
 const LiveScans = lazy(() => import("@/pages/LiveScans"));
@@ -80,20 +75,15 @@ function Router() {
         <Route path="/reports" component={Reports} />
         <Route path="/governance" component={Governance} />
         <Route path="/agents" component={Agents} />
-        <Route path="/simulations" component={Simulations} />
         <Route path="/full-assessment" component={FullAssessment} />
-        <Route path="/security-testing" component={SecurityTesting} />
         <Route path="/recon" component={ExternalRecon} />
         <Route path="/advanced" component={Advanced} />
         <Route path="/approvals" component={Approvals} />
         <Route path="/approvals/history" component={ApprovalHistory} />
-        <Route path="/remediation" component={Remediation} />
-        <Route path="/lateral-movement" component={LateralMovement} />
         <Route path="/jobs" component={Jobs} />
         <Route path="/health" component={SystemHealth} />
         <Route path="/audit" component={AuditLogs} />
         <Route path="/evidence" component={Evidence} />
-        <Route path="/compliance" component={Compliance} />
         <Route path="/forensics" component={ForensicExports} />
         <Route path="/sessions" component={Sessions} />
         <Route path="/scans" component={LiveScans} />
