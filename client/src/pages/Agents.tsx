@@ -413,19 +413,26 @@ export default function Agents() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between gap-4">
+    <div className="space-y-6 p-6 relative">
+      {/* Subtle grid background */}
+      <div className="absolute inset-0 grid-bg opacity-20 pointer-events-none" style={{ maskImage: 'linear-gradient(to bottom, black, transparent 50%)' }} />
+
+      <div className="flex items-center justify-between gap-4 relative">
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">Endpoint Agents</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-page-title">
+            <Monitor className="h-6 w-6 text-cyan-400 glow-cyan-sm" />
+            <span>Endpoint Agents</span>
+          </h1>
+          <p className="text-muted-foreground/90 mt-1 font-medium">
             Deploy agents on your infrastructure for live security monitoring
           </p>
         </div>
         <div className="flex gap-2">
           <Dialog open={downloadDialogOpen} onOpenChange={setDownloadDialogOpen}>
             <DialogTrigger asChild>
-              <Button 
+              <Button
                 variant="default"
+                className="glass glow-cyan-sm hover:glow-cyan transition-all"
                 data-testid="btn-install-agent"
               >
                 <Download className="h-4 w-4 mr-2" />
@@ -512,47 +519,55 @@ export default function Agents() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
+      <div className="grid gap-4 md:grid-cols-4 relative">
+        <Card className="glass border-border/50 hover-elevate transition-all">
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Agents</CardTitle>
-            <Server className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">Total Agents</CardTitle>
+            <div className="p-2 rounded-lg bg-gradient-to-br from-cyan-500/10 to-blue-500/10 border border-cyan-500/20">
+              <Server className="h-4 w-4 text-cyan-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-total-agents">
+            <div className="text-3xl font-bold tabular-nums" data-testid="text-total-agents">
               {stats?.totalAgents ?? 0}
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="glass border-border/50 hover-elevate transition-all glow-green-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Online</CardTitle>
-            <Activity className="h-4 w-4 text-green-500" />
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">Online</CardTitle>
+            <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/10 to-green-500/10 border border-emerald-500/20 glow-green-sm">
+              <Activity className="h-4 w-4 text-emerald-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600" data-testid="text-online-agents">
+            <div className="text-3xl font-bold text-emerald-400 tabular-nums" data-testid="text-online-agents">
               {stats?.onlineAgents ?? 0}
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className={`glass border-border/50 hover-elevate transition-all ${(stats?.criticalFindings ?? 0) > 0 ? 'glow-red-sm pulse-glow' : ''}`}>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Critical Findings</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-red-500" />
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">Critical Findings</CardTitle>
+            <div className="p-2 rounded-lg bg-gradient-to-br from-red-500/10 to-orange-500/10 border border-red-500/20 glow-red-sm">
+              <AlertTriangle className="h-4 w-4 text-red-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600" data-testid="text-critical-findings">
+            <div className={`text-3xl font-bold tabular-nums ${(stats?.criticalFindings ?? 0) > 0 ? 'text-neon-red' : 'text-foreground'}`} data-testid="text-critical-findings">
               {stats?.criticalFindings ?? 0}
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="glass border-border/50 hover-elevate transition-all">
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">New Findings</CardTitle>
-            <MonitorSmartphone className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">New Findings</CardTitle>
+            <div className="p-2 rounded-lg bg-gradient-to-br from-purple-500/10 to-pink-500/10 border border-purple-500/20">
+              <MonitorSmartphone className="h-4 w-4 text-purple-400" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-new-findings">
+            <div className="text-3xl font-bold tabular-nums text-purple-400" data-testid="text-new-findings">
               {stats?.newFindings ?? 0}
             </div>
           </CardContent>
