@@ -1161,6 +1161,32 @@ export async function registerRoutes(
     }
   });
   
+  app.get("/api/aev/audit-logs/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("audit:read"), async (req, res) => {
+    try {
+      const { auditService } = await import("./services/validation/audit-service");
+      const organizationId = req.query.organizationId as string || "default";
+
+      const logs = await auditService.getAuditLogs(organizationId, { limit: 10000 });
+
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      const today = logs.filter(l => new Date(l.createdAt) >= todayStart).length;
+      const critical = logs.filter(l => l.riskLevel === "critical").length;
+      const uniqueUsers = new Set(logs.map(l => l.requestedBy).filter(Boolean)).size;
+
+      res.json({
+        total: logs.length,
+        today,
+        critical,
+        uniqueUsers,
+      });
+    } catch (error) {
+      console.error("Error fetching audit log stats:", error);
+      res.status(500).json({ error: "Failed to fetch audit log stats" });
+    }
+  });
+
   app.get("/api/aev/audit-logs/verify", apiRateLimiter, uiAuthMiddleware, requirePermission("audit:read"), async (req, res) => {
     try {
       const { auditService } = await import("./services/validation/audit-service");
@@ -2708,6 +2734,39 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating asset:", error);
       res.status(500).json({ error: "Failed to update asset" });
+    }
+  });
+
+  app.post("/api/assets/bulk-delete", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:delete"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { assetIds } = req.body;
+      if (!Array.isArray(assetIds) || assetIds.length === 0) {
+        return res.status(400).json({ error: "assetIds array is required" });
+      }
+      if (assetIds.length > 100) {
+        return res.status(400).json({ error: "Maximum 100 assets per bulk delete" });
+      }
+
+      let deletedCount = 0;
+      let failedCount = 0;
+
+      for (const assetId of assetIds) {
+        try {
+          if (assetId.startsWith("casset-")) {
+            await storage.deleteCloudAsset(assetId);
+          } else {
+            await storage.deleteDiscoveredAsset(assetId);
+          }
+          deletedCount++;
+        } catch {
+          failedCount++;
+        }
+      }
+
+      res.json({ success: true, deletedCount, failedCount });
+    } catch (error) {
+      console.error("Error bulk deleting assets:", error);
+      res.status(500).json({ error: "Failed to bulk delete assets" });
     }
   });
 

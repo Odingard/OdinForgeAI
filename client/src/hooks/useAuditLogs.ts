@@ -21,6 +21,28 @@ export interface AuditLogStats {
   uniqueUsers: number;
 }
 
+function mapServerAuditLog(l: any): AuditLog {
+  const riskToSeverity: Record<string, AuditLog["severity"]> = {
+    critical: "critical",
+    high: "error",
+    medium: "warning",
+    low: "info",
+  };
+  return {
+    id: l.id,
+    evaluationId: l.evaluationId,
+    action: l.action || "",
+    actorId: l.requestedBy || l.actorId || l.agentId,
+    actorType: l.agentId ? "agent" : l.requestedBy ? "user" : "system",
+    targetResource: l.targetHost || l.targetResource || l.probeType || "",
+    changes: l.metadata || l.changes,
+    ipAddress: l.ipAddress,
+    timestamp: l.createdAt ? new Date(l.createdAt).toISOString() : l.timestamp || new Date().toISOString(),
+    severity: riskToSeverity[l.riskLevel] || l.severity || "info",
+    category: l.vulnerabilityType || l.category,
+  };
+}
+
 export function useAuditLogs(filters?: {
   evaluationId?: string;
   actorType?: string;
@@ -35,7 +57,11 @@ export function useAuditLogs(filters?: {
 
   return useQuery<AuditLog[]>({
     queryKey,
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
+    select: (data: any) => {
+      const arr = Array.isArray(data) ? data : data?.logs || [];
+      return arr.map(mapServerAuditLog);
+    },
   });
 }
 
