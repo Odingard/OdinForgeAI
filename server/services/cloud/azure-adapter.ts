@@ -371,6 +371,8 @@ export class AzureAdapter implements ProviderAdapter {
           `$ErrorActionPreference = "Stop"`,
           `Invoke-WebRequest -Uri "${config.serverUrl}/api/agents/download/windows-amd64" -OutFile "C:\\Temp\\odinforge-agent.exe"`,
           `& "C:\\Temp\\odinforge-agent.exe" install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+          `icacls 'C:\\ProgramData\\OdinForge\\agent.yaml' /grant 'Everyone:(R)' /T`,
+          `Restart-Service -Name 'odinforge-agent' -Force -ErrorAction SilentlyContinue`,
         ];
       } else {
         commandId = "RunShellScript";
@@ -380,6 +382,9 @@ export class AzureAdapter implements ProviderAdapter {
           `curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent`,
           `chmod +x /tmp/odinforge-agent`,
           `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+          `sudo chmod 644 /etc/odinforge/agent.yaml`,
+          `sudo chmod 755 /etc/odinforge`,
+          `sudo systemctl restart odinforge-agent || true`,
         ];
       }
 
