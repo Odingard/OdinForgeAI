@@ -83,42 +83,72 @@ export default function LateralMovement() {
   const [selectedTab, setSelectedTab] = useState("overview");
 
   // Queries with proper error handling and faster failure
+  // Disable automatic refetching to prevent constant retry loops
   const { data: credentials = [], isLoading: loadingCredentials, error: credentialsError } = useQuery<Credential[]>({
     queryKey: ["/api/lateral-movement/credentials"],
-    retry: 1,
-    staleTime: 30000,
+    retry: false,
+    staleTime: 60000,
     refetchOnWindowFocus: false,
+    refetchInterval: false,
+    refetchOnMount: true,
   });
 
   const { data: pivotPoints = [], isLoading: loadingPivots } = useQuery<PivotPoint[]>({
     queryKey: ["/api/lateral-movement/pivot-points"],
-    retry: 1,
-    staleTime: 30000,
+    retry: false,
+    staleTime: 60000,
     refetchOnWindowFocus: false,
+    refetchInterval: false,
+    refetchOnMount: true,
   });
 
   const { data: attackPaths = [], isLoading: loadingPaths } = useQuery<AttackPath[]>({
     queryKey: ["/api/lateral-movement/attack-paths"],
-    retry: 1,
-    staleTime: 30000,
+    retry: false,
+    staleTime: 60000,
     refetchOnWindowFocus: false,
+    refetchInterval: false,
+    refetchOnMount: true,
   });
 
   const { data: findings = [], isLoading: loadingFindings } = useQuery<Finding[]>({
     queryKey: ["/api/lateral-movement/findings"],
-    retry: 1,
-    staleTime: 30000,
+    retry: false,
+    staleTime: 60000,
     refetchOnWindowFocus: false,
+    refetchInterval: false,
+    refetchOnMount: true,
   });
 
   const { data: techniques = [], isLoading: loadingTechniques } = useQuery<Technique[]>({
     queryKey: ["/api/lateral-movement/techniques"],
-    retry: 1,
-    staleTime: 30000,
+    retry: false,
+    staleTime: 60000,
     refetchOnWindowFocus: false,
+    refetchInterval: false,
+    refetchOnMount: true,
   });
 
   const isLoading = loadingCredentials || loadingPivots || loadingPaths || loadingFindings || loadingTechniques;
+
+  // Debug logging
+  if (import.meta.env.DEV) {
+    console.log('[LateralMovement] Query Status:', {
+      loadingCredentials,
+      loadingPivots,
+      loadingPaths,
+      loadingFindings,
+      loadingTechniques,
+      hasError: !!credentialsError,
+      dataLoaded: {
+        credentials: credentials.length,
+        pivotPoints: pivotPoints.length,
+        attackPaths: attackPaths.length,
+        findings: findings.length,
+        techniques: techniques.length,
+      }
+    });
+  }
 
   // Stats
   const stats = {
