@@ -7,7 +7,7 @@
     "aev:ci": "node ./scripts/aev-ci.js",
     "smoke": "node ./scripts/aev-smoke.js",
     "dev": "dotenv -e .env -- tsx server/index.ts",
-    "build": "tsx script/build.ts",
+    "build": "tsx scripts/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
@@ -21,6 +21,7 @@
     "@aws-sdk/client-rds": "^3.958.0",
     "@aws-sdk/client-s3": "^3.958.0",
     "@aws-sdk/client-ssm": "^3.958.0",
+    "@aws-sdk/s3-request-presigner": "^3.958.0",
     "@aws-sdk/client-sts": "^3.958.0",
     "@azure/arm-authorization": "^9.0.0",
     "@azure/arm-compute": "^23.2.0",
@@ -126,9 +127,6 @@
     "zod-validation-error": "^3.5.4"
   },
   "devDependencies": {
-    "@replit/vite-plugin-cartographer": "^0.4.4",
-    "@replit/vite-plugin-dev-banner": "^0.1.1",
-    "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.18",
     "@types/connect-pg-simple": "^7.0.3",

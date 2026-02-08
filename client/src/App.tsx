@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from "./components/ThemeProvider";
 import { AuthProvider } from "./contexts/AuthContext";
 import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
 import { ViewModeProvider } from "./contexts/ViewModeContext";
+import { CyberToastProvider } from "@/components/ui/cyber-toast";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/AppSidebar";
 import { Dashboard } from "./components/Dashboard";
@@ -243,8 +244,10 @@ function AuthenticatedApp() {
     <AuthProvider>
       <ViewModeProvider>
         <TooltipProvider>
-          <AppLayout />
-          <Toaster />
+          <CyberToastProvider>
+            <AppLayout />
+            <Toaster />
+          </CyberToastProvider>
         </TooltipProvider>
       </ViewModeProvider>
     </AuthProvider>

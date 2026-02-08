@@ -122,11 +122,7 @@ export default function Remediation() {
   // Configure Git mutation
   const configureGitMutation = useMutation({
     mutationFn: async (config: Partial<GitConfig>) => {
-      return apiRequest("/api/remediation/configure-pr", {
-        method: "POST",
-        body: JSON.stringify(config),
-        headers: { "Content-Type": "application/json" },
-      });
+      return apiRequest("POST", "/api/remediation/configure-pr", config);
     },
     onSuccess: () => {
       toast({
@@ -148,15 +144,11 @@ export default function Remediation() {
   // Create PR mutation
   const createPRMutation = useMutation({
     mutationFn: async ({ findingId, config }: { findingId: string; config: typeof prConfig }) => {
-      return apiRequest(`/api/remediation/${findingId}/create-pr`, {
-        method: "POST",
-        body: JSON.stringify({
-          repositoryUrl: config.repositoryUrl,
-          branchName: config.branchName || undefined,
-          labels: config.labels.split(",").map(l => l.trim()).filter(Boolean),
-          reviewers: config.reviewers.split(",").map(r => r.trim()).filter(Boolean),
-        }),
-        headers: { "Content-Type": "application/json" },
+      return apiRequest("POST", `/api/remediation/${findingId}/create-pr`, {
+        repositoryUrl: config.repositoryUrl,
+        branchName: config.branchName || undefined,
+        labels: config.labels.split(",").map(l => l.trim()).filter(Boolean),
+        reviewers: config.reviewers.split(",").map(r => r.trim()).filter(Boolean),
       });
     },
     onSuccess: (data: any) => {

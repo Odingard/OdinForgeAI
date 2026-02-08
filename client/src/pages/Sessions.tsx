@@ -54,13 +54,13 @@ export default function Sessions() {
     {
       label: "Total Sessions",
       value: stats?.totalSessions || 0,
-      icon: <UserCheck className="h-4 w-4" />,
+      icon: UserCheck,
       trend: undefined,
     },
     {
       label: "Suspicious Sessions",
       value: stats?.suspiciousSessions || 0,
-      icon: <AlertTriangle className="h-4 w-4" />,
+      icon: AlertTriangle,
       variant: "warning" as const,
       trend: undefined,
     },
@@ -69,13 +69,13 @@ export default function Sessions() {
       value: stats?.averageDuration
         ? `${Math.floor(stats.averageDuration / 60)}m`
         : "-",
-      icon: <Clock className="h-4 w-4" />,
+      icon: Clock,
       trend: undefined,
     },
     {
       label: "Avg Risk Score",
       value: stats?.averageRiskScore?.toFixed(1) || "-",
-      icon: <Shield className="h-4 w-4" />,
+      icon: Shield,
       variant: (stats?.averageRiskScore || 0) > 7 ? "danger" as const : undefined,
       trend: undefined,
     },

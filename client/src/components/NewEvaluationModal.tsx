@@ -43,6 +43,7 @@ const exposureTypeLabels: Record<ExposureType, string> = {
   privilege_boundary: "Privilege Boundary",
   workflow_desync: "Workflow Desync",
   order_lifecycle: "Order Lifecycle Abuse",
+  app_logic: "Application Logic Flaw",
 };
 
 const exposureTypeGroups = {

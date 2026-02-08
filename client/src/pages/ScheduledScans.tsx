@@ -62,25 +62,25 @@ export default function ScheduledScans() {
     {
       label: "Total Schedules",
       value: stats?.totalSchedules || 0,
-      icon: <Calendar className="h-4 w-4" />,
+      icon: Calendar,
       trend: undefined,
     },
     {
       label: "Enabled",
       value: stats?.enabledSchedules || 0,
-      icon: <CheckCircle2 className="h-4 w-4" />,
+      icon: CheckCircle2,
       trend: undefined,
     },
     {
       label: "Upcoming Runs",
       value: stats?.upcomingRuns || 0,
-      icon: <Clock className="h-4 w-4" />,
+      icon: Clock,
       trend: undefined,
     },
     {
       label: "Runs Today",
       value: stats?.lastRunsToday || 0,
-      icon: <Play className="h-4 w-4" />,
+      icon: Play,
       trend: undefined,
     },
   ];

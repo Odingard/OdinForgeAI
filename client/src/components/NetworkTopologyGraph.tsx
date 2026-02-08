@@ -44,15 +44,15 @@ export function NetworkTopologyGraph({ agents, onAgentClick }: NetworkTopologyGr
   const getRiskBadge = (riskLevel?: string) => {
     if (!riskLevel) return null;
 
-    const variants = {
-      low: "outline" as const,
-      medium: "secondary" as const,
-      high: "default" as const,
-      critical: "destructive" as const,
+    const variants: Record<string, "outline" | "secondary" | "default" | "destructive"> = {
+      low: "outline",
+      medium: "secondary",
+      high: "default",
+      critical: "destructive",
     };
 
     return (
-      <Badge variant={variants[riskLevel]} className="text-xs">
+      <Badge variant={variants[riskLevel] || "default"} className="text-xs">
         {riskLevel}
       </Badge>
     );

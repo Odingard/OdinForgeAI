@@ -19,7 +19,18 @@ Welcome to the OdinForge AI documentation. This guide covers installation, confi
 - [Agent Installation](agent/INSTALL.md) - Detailed installation for all platforms
 
 ### API Reference
-- [REST API](api/reference.md) - API endpoints and authentication
+- [REST API](api/reference.md) - Core API endpoints and authentication
+- [Advanced Features API](API_DOCUMENTATION.md) - Cloud pentest, compliance, container security, and advanced features
+
+### Architecture & Design
+- [System Architecture](../wiki/Architecture.md) - Platform architecture and components
+- [Design Guidelines](design-guidelines.md) - UI/UX design system and patterns
+- [Features Overview](../wiki/Features.md) - Platform capabilities and features
+
+### Additional Resources
+- [Implementation Status](implementation-gaps.md) - Feature implementation tracking
+- [Getting Started Guide](../wiki/Getting-Started.md) - Quick start walkthrough
+- [Security Policies](../policies/rules_of_engagement.md) - Rules of engagement
 
 ---
 

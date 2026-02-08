@@ -244,7 +244,7 @@ export default function RiskDashboard() {
             <div className="text-3xl font-bold text-foreground" data-testid="stat-high">{stats.high}</div>
             <p className="text-xs text-muted-foreground mt-1">Should be addressed soon</p>
           </CardContent>
-        </Card>
+        </HolographicCard>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

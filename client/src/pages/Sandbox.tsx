@@ -61,26 +61,26 @@ export default function Sandbox() {
     {
       label: "Total Submissions",
       value: stats?.totalSubmissions || 0,
-      icon: <FlaskConical className="h-4 w-4" />,
+      icon: FlaskConical,
       trend: undefined,
     },
     {
       label: "Analyzing",
       value: stats?.activeAnalyses || 0,
-      icon: <Loader2 className="h-4 w-4" />,
+      icon: Loader2,
       trend: undefined,
     },
     {
       label: "Malicious",
       value: stats?.maliciousCount || 0,
-      icon: <XCircle className="h-4 w-4" />,
+      icon: XCircle,
       variant: (stats?.maliciousCount || 0) > 0 ? "danger" as const : undefined,
       trend: undefined,
     },
     {
       label: "Clean",
       value: stats?.cleanCount || 0,
-      icon: <CheckCircle2 className="h-4 w-4" />,
+      icon: CheckCircle2,
       trend: undefined,
     },
   ];
@@ -197,7 +197,7 @@ export default function Sandbox() {
     {
       label: "Download Report",
       icon: <Download className="h-4 w-4" />,
-      onClick: (sub) => downloadReport.mutate({ submissionId: sub.id, format: "pdf" }),
+      onClick: (sub) => downloadReport.mutate(sub.id),
       variant: "ghost",
       hidden: (sub) => sub.status !== "completed",
       disabled: () => downloadReport.isPending,
@@ -229,7 +229,7 @@ export default function Sandbox() {
         });
         return;
       }
-      await submitFile.mutateAsync({ file: fileToUpload });
+      await submitFile.mutateAsync(fileToUpload);
       setFileToUpload(null);
     } else {
       if (!urlToSubmit.trim()) {
@@ -240,7 +240,7 @@ export default function Sandbox() {
         });
         return;
       }
-      await submitUrl.mutateAsync({ url: urlToSubmit });
+      await submitUrl.mutateAsync(urlToSubmit);
       setUrlToSubmit("");
     }
     setSubmitDialogOpen(false);
@@ -447,7 +447,7 @@ export default function Sandbox() {
                         <Badge key={technique.id} variant="destructive" className="gap-1">
                           <code className="text-xs">{technique.techniqueId}</code>
                           {technique.name}
-                          <span className="text-xs">({(technique.confidence * 100).toFixed(0)}%)</span>
+                          {technique.confidence && <span className="text-xs">({technique.confidence})</span>}
                         </Badge>
                       ))}
                     </div>

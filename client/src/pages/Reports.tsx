@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -952,7 +953,16 @@ export default function Reports() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 relative">
+      {/* Animated backgrounds */}
+      <ParticleBackground particleCount={30} particleColor="#06b6d4" opacity={0.15} />
+      <GradientOrb color1="#ef4444" color2="#f97316" size="lg" className="top-20 right-10" />
+      <GradientOrb color1="#06b6d4" color2="#8b5cf6" size="md" className="bottom-40 left-10" />
+
+      {/* Grid overlay */}
+      <div className="absolute inset-0 grid-bg opacity-10 pointer-events-none" />
+
+      <div className="relative z-10">
       {isExecutiveView && (
         <Alert>
           <Briefcase className="h-4 w-4" />
@@ -962,10 +972,14 @@ export default function Reports() {
           </AlertDescription>
         </Alert>
       )}
-      
+
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-reports-title">Enterprise Reports</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-reports-title">
+            <FileText className="h-6 w-6 text-cyan-400 glow-cyan-sm" />
+            <span className="text-neon-red">Enterprise</span>
+            <span>Reports</span>
+          </h1>
           <p className="text-muted-foreground">Generate executive, technical, and compliance reports</p>
         </div>
         <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
@@ -1224,20 +1238,20 @@ export default function Reports() {
 
         <TabsContent value="reports" className="space-y-4">
           {isLoading ? (
-            <Card>
+            <Card className="glass border-border/50 glow-cyan-sm">
               <CardContent className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
               </CardContent>
             </Card>
           ) : reports.length === 0 ? (
-            <Card>
+            <Card className="glass border-border/50">
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <FileText className="w-12 h-12 text-muted-foreground mb-4" />
+                <FileText className="w-12 h-12 text-cyan-400 glow-cyan-sm mb-4" />
                 <h3 className="font-medium mb-2">No reports generated yet</h3>
                 <p className="text-muted-foreground text-sm mb-4">
                   Generate your first report to see it here
                 </p>
-                <Button onClick={() => setIsGenerateOpen(true)} data-testid="btn-generate-first">
+                <Button onClick={() => setIsGenerateOpen(true)} data-testid="btn-generate-first" className="glow-cyan-sm">
                   <Plus className="w-4 h-4 mr-2" />
                   Generate Report
                 </Button>
@@ -1246,7 +1260,7 @@ export default function Reports() {
           ) : (
             <div className="grid gap-4">
               {reports.map((report) => (
-                <Card key={report.id} data-testid={`card-report-${report.id}`}>
+                <Card key={report.id} data-testid={`card-report-${report.id}`} className="glass border-border/50 hover-elevate scan-line">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between gap-4 flex-wrap">
                       <div className="flex items-center gap-3">
@@ -1326,9 +1340,12 @@ export default function Reports() {
         </TabsContent>
 
         <TabsContent value="trends">
-          <Card>
+          <Card className="glass border-border/50 glow-purple-sm">
             <CardHeader>
-              <CardTitle>Report Generation Trends</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-purple-400" />
+                Report Generation Trends
+              </CardTitle>
               <CardDescription>
                 Report generation activity over the last 30 days
               </CardDescription>
@@ -1341,20 +1358,24 @@ export default function Reports() {
                       const date = startOfDay(subDays(new Date(), 29 - i));
                       const dateStr = format(date, "yyyy-MM-dd");
                       const dayReports = reports.filter(r =>
-                        format(new Date(r.generatedAt), "yyyy-MM-dd") === dateStr
+                        r.createdAt && format(new Date(r.createdAt), "yyyy-MM-dd") === dateStr
                       );
                       return {
-                        date: dateStr,
+                        timestamp: dateStr,
                         value: dayReports.length,
                         label: format(date, "MMM d"),
                       };
                     });
                     return last30Days;
                   })()}
-                  xKey="label"
-                  yKey="value"
+                  metrics={[
+                    {
+                      key: "value",
+                      label: "Reports",
+                      color: "#3b82f6",
+                    },
+                  ]}
                   height={300}
-                  color="#3b82f6"
                 />
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
@@ -1392,9 +1413,12 @@ export default function Reports() {
 
         <TabsContent value="preview">
           {previewData && (
-            <Card>
+            <Card className="glass border-border/50 glow-green-sm">
               <CardHeader>
-                <CardTitle>{previewData.title}</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-green-400" />
+                  {previewData.title}
+                </CardTitle>
                 <CardDescription>Generated report preview</CardDescription>
               </CardHeader>
               <CardContent>
@@ -1577,6 +1601,7 @@ export default function Reports() {
           )}
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }

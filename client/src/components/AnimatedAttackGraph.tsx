@@ -388,7 +388,7 @@ export function AnimatedAttackGraph({
                   <span className="text-xs text-muted-foreground">Affected Assets:</span>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {selectedNodeData.assets.map((asset, i) => (
-                      <Badge key={i} size="sm" className="bg-muted text-muted-foreground">
+                      <Badge key={i} className="bg-muted text-muted-foreground text-xs">
                         {asset}
                       </Badge>
                     ))}
