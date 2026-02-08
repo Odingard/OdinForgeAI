@@ -217,23 +217,28 @@ export function Dashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+    <div className="space-y-6 relative">
+      {/* Subtle grid background */}
+      <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)' }} />
+
+      <div className="flex items-center justify-between flex-wrap gap-4 relative">
         <div>
-          <h1 className="text-xl font-bold text-foreground flex items-center gap-2 flex-wrap">
-            OdinForge AI
-            <span className="text-xs font-medium px-2 py-0.5 rounded bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30">
-              AUTONOMOUS VALIDATION
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-3 flex-wrap">
+            <span className="text-neon-red">Odin</span>
+            <span className="text-neon-cyan">Forge</span>
+            <span className="text-xs font-medium px-3 py-1 rounded glass glow-cyan-sm text-cyan-400 border border-cyan-500/30 uppercase tracking-wider">
+              Autonomous Validation
             </span>
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-sm text-muted-foreground/90 mt-2 font-medium">
             AI-powered adversarial exposure validation with autonomous exploit chaining
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
+            className="glass hover:glow-cyan-sm transition-all"
             data-testid="button-refresh"
             onClick={() => refetch()}
             disabled={isLoading}
@@ -241,9 +246,9 @@ export function Dashboard() {
             <RefreshCw className={`h-3.5 w-3.5 mr-2 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button 
+          <Button
             size="sm"
-            className="bg-gradient-to-r from-cyan-600 to-blue-600"
+            className="bg-gradient-to-r from-cyan-600 to-blue-600 glow-cyan-sm hover:glow-cyan transition-all"
             data-testid="button-full-assessment"
             onClick={() => navigate("/full-assessment")}
           >
@@ -253,33 +258,35 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <StatCard 
-          label="Total Evaluations" 
-          value={stats.total} 
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 relative">
+        <StatCard
+          label="Total Evaluations"
+          value={stats.total}
           icon={Target}
+          colorClass="text-foreground"
         />
-        <StatCard 
-          label="Active" 
-          value={stats.active} 
+        <StatCard
+          label="Active"
+          value={stats.active}
           icon={Activity}
           colorClass="text-amber-400"
         />
-        <StatCard 
-          label="Exploitable" 
-          value={stats.exploitable} 
+        <StatCard
+          label="Exploitable"
+          value={stats.exploitable}
           icon={AlertTriangle}
           colorClass="text-red-400"
+          critical={stats.exploitable > 0}
         />
-        <StatCard 
-          label="Safe" 
-          value={stats.safe} 
+        <StatCard
+          label="Safe"
+          value={stats.safe}
           icon={ShieldCheck}
           colorClass="text-emerald-400"
         />
-        <StatCard 
-          label="Avg Confidence" 
-          value={`${stats.avgConfidence}%`} 
+        <StatCard
+          label="Avg Confidence"
+          value={`${stats.avgConfidence}%`}
           icon={Zap}
           colorClass="text-cyan-400"
         />
