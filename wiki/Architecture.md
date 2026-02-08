@@ -160,7 +160,7 @@ WebSocket channels:
 
 | Layer | Implementation |
 |-------|----------------|
-| Authentication | Replit Auth (OIDC) + Session-based |
+| Authentication | OIDC + Session-based |
 | Authorization | Role-based with org scoping |
 | Agent Auth | API keys with bcrypt hashing + mTLS support |
 | API Security | Rate limiting, CORS, CSP headers |

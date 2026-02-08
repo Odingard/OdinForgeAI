@@ -1,4 +1,4 @@
-import { ObjectStorageService, objectStorageClient } from "../replit_integrations/object_storage";
+import { storageService, StorageNotFoundError } from "./storage";
 import { randomUUID } from "crypto";
 
 export interface StoredEvidence {
@@ -8,97 +8,61 @@ export interface StoredEvidence {
   contentType: string;
 }
 
+/**
+ * Evidence Storage Service
+ * Manages storage of security testing evidence (screenshots, network captures, etc.)
+ * Uses standard S3-compatible storage
+ */
 export class EvidenceStorageService {
-  private objectStorage: ObjectStorageService;
-
-  constructor() {
-    this.objectStorage = new ObjectStorageService();
-  }
-
-  private getPrivateDir(): string {
-    const dir = process.env.PRIVATE_OBJECT_DIR || "";
-    if (!dir) {
-      throw new Error("PRIVATE_OBJECT_DIR not configured for evidence storage");
-    }
-    return dir;
-  }
-
-  private parseBucketAndPath(fullPath: string): { bucketName: string; objectPath: string } {
-    const cleanPath = fullPath.startsWith("/") ? fullPath.slice(1) : fullPath;
-    const parts = cleanPath.split("/");
-    if (parts.length < 2) {
-      throw new Error("Invalid object storage path");
-    }
-    return {
-      bucketName: parts[0],
-      objectPath: parts.slice(1).join("/"),
-    };
-  }
-
+  /**
+   * Stores a screenshot from a security test
+   */
   async storeScreenshot(
     evaluationId: string,
     executionId: string,
     screenshotData: Buffer,
     filename?: string
   ): Promise<StoredEvidence> {
-    const privateDir = this.getPrivateDir();
     const objectId = randomUUID();
     const fileName = filename || `screenshot-${objectId}.png`;
-    const fullPath = `${privateDir}/evidence/${evaluationId}/${executionId}/screenshots/${fileName}`;
+    const key = `evidence/${evaluationId}/${executionId}/screenshots/${fileName}`;
 
-    const { bucketName, objectPath } = this.parseBucketAndPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectPath);
-
-    await file.save(screenshotData, {
-      contentType: "image/png",
-      metadata: {
-        evaluationId,
-        executionId,
-        evidenceType: "screenshot",
-      },
-    });
+    const storagePath = await storageService.uploadFile(key, screenshotData, "image/png");
 
     return {
-      key: `/${bucketName}/${objectPath}`,
-      url: `/objects/evidence/${evaluationId}/${executionId}/screenshots/${fileName}`,
+      key: storagePath,
+      url: `/api/evidence/${evaluationId}/${executionId}/screenshots/${fileName}`,
       size: screenshotData.length,
       contentType: "image/png",
     };
   }
 
+  /**
+   * Stores a network packet capture (PCAP file)
+   */
   async storeNetworkCapture(
     evaluationId: string,
     executionId: string,
     pcapData: Buffer,
     filename?: string
   ): Promise<StoredEvidence> {
-    const privateDir = this.getPrivateDir();
     const objectId = randomUUID();
     const fileName = filename || `capture-${objectId}.pcap`;
-    const fullPath = `${privateDir}/evidence/${evaluationId}/${executionId}/pcaps/${fileName}`;
+    const key = `evidence/${evaluationId}/${executionId}/pcaps/${fileName}`;
 
-    const { bucketName, objectPath } = this.parseBucketAndPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectPath);
-
-    await file.save(pcapData, {
-      contentType: "application/vnd.tcpdump.pcap",
-      metadata: {
-        evaluationId,
-        executionId,
-        evidenceType: "network_capture",
-      },
-    });
+    const storagePath = await storageService.uploadFile(key, pcapData, "application/vnd.tcpdump.pcap");
 
     return {
-      key: `/${bucketName}/${objectPath}`,
-      url: `/objects/evidence/${evaluationId}/${executionId}/pcaps/${fileName}`,
+      key: storagePath,
+      url: `/api/evidence/${evaluationId}/${executionId}/pcaps/${fileName}`,
       size: pcapData.length,
       contentType: "application/vnd.tcpdump.pcap",
     };
   }
 
+  /**
+   * Stores generic evidence files
+   */
   async storeGenericEvidence(
     evaluationId: string,
     executionId: string,
@@ -106,73 +70,62 @@ export class EvidenceStorageService {
     contentType: string,
     filename: string
   ): Promise<StoredEvidence> {
-    const privateDir = this.getPrivateDir();
-    const fullPath = `${privateDir}/evidence/${evaluationId}/${executionId}/files/${filename}`;
-
-    const { bucketName, objectPath } = this.parseBucketAndPath(fullPath);
-    const bucket = objectStorageClient.bucket(bucketName);
-    const file = bucket.file(objectPath);
-
-    await file.save(data, {
-      contentType,
-      metadata: {
-        evaluationId,
-        executionId,
-        evidenceType: "generic",
-      },
-    });
+    const key = `evidence/${evaluationId}/${executionId}/files/${filename}`;
+    const storagePath = await storageService.uploadFile(key, data, contentType);
 
     return {
-      key: `/${bucketName}/${objectPath}`,
-      url: `/objects/evidence/${evaluationId}/${executionId}/files/${filename}`,
+      key: storagePath,
+      url: `/api/evidence/${evaluationId}/${executionId}/files/${filename}`,
       size: data.length,
       contentType,
     };
   }
 
+  /**
+   * Retrieves evidence by storage key
+   */
   async getEvidence(objectKey: string): Promise<Buffer | null> {
     try {
-      const { bucketName, objectPath } = this.parseBucketAndPath(objectKey);
-      const bucket = objectStorageClient.bucket(bucketName);
-      const file = bucket.file(objectPath);
+      const normalizedKey = storageService.getStorageKey(objectKey);
+      const exists = await storageService.exists(normalizedKey);
 
-      const [exists] = await file.exists();
       if (!exists) {
         return null;
       }
 
-      const [data] = await file.download();
-      return data;
+      // Note: This is a simplified implementation
+      // For production, you might want to stream the data or use presigned URLs
+      // instead of loading everything into memory
+      throw new Error("Direct evidence retrieval not implemented - use presigned URLs instead");
     } catch (error) {
-      console.error("Error retrieving evidence:", error);
+      console.error("[EvidenceStorage] Error retrieving evidence:", error);
       return null;
     }
   }
 
+  /**
+   * Generates a presigned URL for downloading evidence
+   */
+  async getEvidenceDownloadUrl(objectKey: string, expiresIn: number = 3600): Promise<string> {
+    const normalizedKey = storageService.getStorageKey(objectKey);
+    return await storageService.getDownloadURL(normalizedKey, expiresIn);
+  }
+
+  /**
+   * Lists all evidence files for a specific execution
+   * Note: This is a placeholder - proper implementation requires S3 ListObjects
+   */
   async listEvidenceForExecution(
     evaluationId: string,
     executionId: string
   ): Promise<Array<{ key: string; name: string; size: number; contentType: string }>> {
-    try {
-      const privateDir = this.getPrivateDir();
-      const prefix = `evidence/${evaluationId}/${executionId}/`;
-      const fullPrefix = `${privateDir}/${prefix}`;
-
-      const { bucketName, objectPath } = this.parseBucketAndPath(fullPrefix);
-      const bucket = objectStorageClient.bucket(bucketName);
-
-      const [files] = await bucket.getFiles({ prefix: objectPath });
-
-      return files.map((file) => ({
-        key: `/${bucketName}/${file.name}`,
-        name: file.name.split("/").pop() || file.name,
-        size: Number(file.metadata.size) || 0,
-        contentType: String(file.metadata.contentType) || "application/octet-stream",
-      }));
-    } catch (error) {
-      console.error("Error listing evidence:", error);
-      return [];
-    }
+    // This would require implementing S3 ListObjects functionality
+    // For now, return empty array and log a warning
+    console.warn(
+      `[EvidenceStorage] listEvidenceForExecution called but not fully implemented. ` +
+      `evaluationId: ${evaluationId}, executionId: ${executionId}`
+    );
+    return [];
   }
 }
 

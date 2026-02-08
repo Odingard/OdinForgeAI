@@ -4,3 +4,16 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Runtime data
+data/
+*.db
+*.log
+
+# Build artifacts
+*.tsbuildinfo

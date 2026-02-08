@@ -4,7 +4,7 @@ import { eq, asc } from "drizzle-orm";
 import { createCipheriv, createDecipheriv, randomBytes, createHash, scrypt } from "crypto";
 import { promisify } from "util";
 import { evidenceStorageService } from "./evidence-storage";
-import { ObjectStorageService, objectStorageClient } from "../replit_integrations/object_storage";
+import { storageService } from "./storage";
 
 const scryptAsync = promisify(scrypt);
 

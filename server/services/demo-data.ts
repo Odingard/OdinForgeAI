@@ -113,10 +113,24 @@ export async function clearDemoData(organizationId: string = DEMO_ORG_ID) {
   console.log(`[Demo Data] Clearing demo data for organization: ${organizationId}`);
 
   try {
+    // Get all evaluation IDs for this organization first
+    const orgEvaluations = await db
+      .select({ id: aevEvaluations.id })
+      .from(aevEvaluations)
+      .where(eq(aevEvaluations.organizationId, organizationId));
+
+    const evaluationIds = orgEvaluations.map(e => e.id);
+
     // Clear in reverse dependency order
+    // First delete aevResults by evaluationId (doesn't have organizationId)
+    if (evaluationIds.length > 0) {
+      for (const evalId of evaluationIds) {
+        await db.delete(aevResults).where(eq(aevResults.evaluationId, evalId));
+      }
+    }
+
     await db.delete(agentTelemetry).where(eq(agentTelemetry.organizationId, organizationId));
     await db.delete(agentFindings).where(eq(agentFindings.organizationId, organizationId));
-    await db.delete(aevResults).where(eq(aevResults.organizationId, organizationId));
     await db.delete(aevEvaluations).where(eq(aevEvaluations.organizationId, organizationId));
     await db.delete(scheduledScans).where(eq(scheduledScans.organizationId, organizationId));
     await db.delete(auditLogs).where(eq(auditLogs.organizationId, organizationId));

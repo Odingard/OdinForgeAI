@@ -24,10 +24,7 @@ import {
 import { format } from "date-fns";
 import type { HitlApprovalRequest } from "@shared/schema";
 
-interface ApprovalHistoryItem extends HitlApprovalRequest {
-  respondedBy?: string;
-  respondedAt?: Date;
-}
+type ApprovalHistoryItem = HitlApprovalRequest;
 
 export default function ApprovalHistory() {
   const [selectedApproval, setSelectedApproval] = useState<ApprovalHistoryItem | null>(null);
@@ -60,6 +57,8 @@ export default function ApprovalHistory() {
       respondedBy: "admin@company.com",
       responseSignature: "sig-123",
       responseNonce: "nonce-123",
+      metadata: null,
+      rejectionReason: null,
     },
     {
       id: "hitl-2",
@@ -79,6 +78,7 @@ export default function ApprovalHistory() {
       respondedBy: "security@company.com",
       responseSignature: "sig-124",
       responseNonce: "nonce-124",
+      metadata: null,
       rejectionReason: "Production database access not authorized for this evaluation",
     },
     {
@@ -95,6 +95,12 @@ export default function ApprovalHistory() {
       status: "expired",
       requestedAt: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
       expiresAt: new Date(Date.now() - 1000 * 60 * 60 * 23.9),
+      respondedAt: null,
+      respondedBy: null,
+      metadata: null,
+      responseSignature: null,
+      responseNonce: null,
+      rejectionReason: null,
     },
   ];
 

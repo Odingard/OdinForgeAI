@@ -266,10 +266,7 @@ export default function Approvals() {
   const approveMutation = useMutation({
     mutationFn: async (approvalId: string) => {
       const nonce = Math.random().toString(36).substring(7);
-      return apiRequest(`/api/hitl/${approvalId}/approve`, {
-        method: "POST",
-        body: JSON.stringify({ nonce }),
-        headers: { "Content-Type": "application/json" },
+      return apiRequest("POST", `/api/hitl/${approvalId}/approve`, { nonce
       });
     },
     onSuccess: () => {
@@ -294,10 +291,7 @@ export default function Approvals() {
   const rejectMutation = useMutation({
     mutationFn: async ({ approvalId, reason }: { approvalId: string; reason: string }) => {
       const nonce = Math.random().toString(36).substring(7);
-      return apiRequest(`/api/hitl/${approvalId}/reject`, {
-        method: "POST",
-        body: JSON.stringify({ nonce, reason }),
-        headers: { "Content-Type": "application/json" },
+      return apiRequest("POST", `/api/hitl/${approvalId}/reject`, { nonce, reason
       });
     },
     onSuccess: () => {

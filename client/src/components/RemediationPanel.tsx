@@ -520,7 +520,7 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                       <div className="flex flex-wrap gap-1">
                         <span className="text-xs text-muted-foreground">Data Sources:</span>
                         {rule.dataSource.map((ds, i) => (
-                          <Badge key={i} size="sm" className="bg-muted text-muted-foreground text-xs">
+                          <Badge key={i} className="bg-muted text-muted-foreground text-xs">
                             {ds}
                           </Badge>
                         ))}
@@ -530,7 +530,7 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
                         <div className="flex flex-wrap gap-1">
                           <span className="text-xs text-muted-foreground">MITRE:</span>
                           {rule.mitreTechniques.map((tech, i) => (
-                            <Badge key={i} size="sm" className="bg-red-500/10 text-red-400 border-red-500/30 text-xs">
+                            <Badge key={i} className="bg-red-500/10 text-red-400 border-red-500/30 text-xs">
                               {tech}
                             </Badge>
                           ))}

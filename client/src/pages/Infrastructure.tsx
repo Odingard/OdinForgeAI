@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Server, 
-  Upload, 
-  Cloud, 
-  AlertTriangle, 
+import {
+  Server,
+  Upload,
+  Cloud,
+  AlertTriangle,
   CheckCircle,
   Trash2,
   RefreshCw,
@@ -26,6 +26,8 @@ import {
   XCircle
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
+import { HolographicCard } from "@/components/ui/holographic-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -1161,10 +1163,23 @@ export default function Infrastructure() {
   const evaluatedCount = vulnerabilities.filter(v => v.aevEvaluationId).length;
 
   return (
-    <div className="space-y-6" data-testid="data-sources-page">
+    <div className="space-y-6 relative" data-testid="data-sources-page">
+      {/* Animated backgrounds */}
+      <ParticleBackground particleCount={40} particleColor="#8b5cf6" opacity={0.2} />
+      <GradientOrb color1="#8b5cf6" color2="#06b6d4" size="lg" className="top-10 right-10" />
+      <GradientOrb color1="#ef4444" color2="#f97316" size="md" className="bottom-20 left-20" />
+
+      {/* Grid overlay */}
+      <div className="absolute inset-0 grid-bg opacity-15 pointer-events-none" />
+
+      <div className="relative z-10 space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Data Sources</h1>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Database className="h-6 w-6 text-purple-400 glow-purple-sm" />
+            <span className="text-neon-cyan">Data</span>
+            <span>Sources</span>
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Import vulnerability data and connect cloud providers for asset discovery
           </p>
@@ -1272,53 +1287,53 @@ export default function Infrastructure() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
+        <HolographicCard className="hover-elevate" variant="subtle">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Vulnerabilities</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
+            <AlertTriangle className="h-4 w-4 text-amber-400 glow-purple-sm" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="stat-total-vulns">
               {statsLoading ? "..." : stats?.totalVulnerabilities || 0}
             </div>
           </CardContent>
-        </Card>
+        </HolographicCard>
 
-        <Card>
+        <HolographicCard className="hover-elevate" variant="subtle">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Awaiting Analysis</CardTitle>
-            <Zap className="h-4 w-4 text-blue-400" />
+            <Zap className="h-4 w-4 text-blue-400 glow-cyan-sm" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-400" data-testid="stat-unevaluated">
+            <div className="text-2xl font-bold text-neon-cyan" data-testid="stat-unevaluated">
               {unevaluatedCount}
             </div>
           </CardContent>
-        </Card>
+        </HolographicCard>
 
-        <Card>
+        <HolographicCard className="hover-elevate" variant="subtle">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Evaluated</CardTitle>
-            <CheckCircle className="h-4 w-4 text-emerald-400" />
+            <CheckCircle className="h-4 w-4 text-emerald-400 glow-green-sm" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-400" data-testid="stat-evaluated">
+            <div className="text-2xl font-bold text-neon-green" data-testid="stat-evaluated">
               {evaluatedCount}
             </div>
           </CardContent>
-        </Card>
+        </HolographicCard>
 
-        <Card>
+        <HolographicCard className="hover-elevate" variant="subtle">
           <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Cloud Connections</CardTitle>
-            <Cloud className="h-4 w-4 text-cyan-400" />
+            <Cloud className="h-4 w-4 text-cyan-400 glow-cyan-sm" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold" data-testid="stat-cloud">
               {statsLoading ? "..." : stats?.cloudConnections || 0}
             </div>
           </CardContent>
-        </Card>
+        </HolographicCard>
       </div>
 
       <div className="flex items-center gap-2">
@@ -1647,9 +1662,12 @@ export default function Infrastructure() {
         </TabsContent>
 
         <TabsContent value="dependencies" className="mt-4">
-          <Card>
+          <Card className="glass border-border/50 glow-purple-sm scan-line">
             <CardHeader>
-              <CardTitle>Asset Dependency Graph</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <ArrowRight className="h-5 w-5 text-purple-400" />
+                Asset Dependency Graph
+              </CardTitle>
               <CardDescription>
                 Visualize dependencies and data flows between infrastructure assets
               </CardDescription>
@@ -1658,7 +1676,7 @@ export default function Infrastructure() {
               <AssetDependencyGraph
                 nodes={(() => {
                   // Generate sample dependency nodes from cloud connections and vulnerabilities
-                  const nodes = [];
+                  const nodes: any[] = [];
 
                   // Add cloud assets as foundation nodes
                   cloudConnections.slice(0, 5).forEach((conn, i) => {
@@ -1726,6 +1744,7 @@ export default function Infrastructure() {
           </Card>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   );
 }

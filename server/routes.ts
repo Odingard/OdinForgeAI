@@ -48,10 +48,10 @@ import { runFullAssessment } from "./services/full-assessment";
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
-import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { forensicExportService } from "./services/forensic-export";
 import { AuditLogger } from "./services/audit-logger";
 import { runtimeGuard } from "./services/runtime-guard";
+import { storageService } from "./services/storage";
 
 // Helper function to normalize platform strings for comparison
 function normalizePlatform(platform: string): string {
@@ -4655,20 +4655,19 @@ export async function registerRoutes(
       const filename = platform === "windows-amd64" 
         ? `odinforge-agent-${platform}.exe` 
         : `odinforge-agent-${platform}`;
-      
-      // Try object storage first (works in both dev and production)
+
+      // Try S3-compatible storage first (works in both dev and production)
       try {
-        const { ObjectStorageService } = await import("./replit_integrations/object_storage/objectStorage");
-        const objectStorage = new ObjectStorageService();
-        const objectFile = await objectStorage.searchPublicObject(`agents/${filename}`);
-        
-        if (objectFile) {
-          console.log(`[AgentDownload] Serving ${filename} from object storage`);
+        const storageKey = `public/agents/${filename}`;
+        const exists = await storageService.exists(storageKey);
+
+        if (exists) {
+          console.log(`[AgentDownload] Serving ${filename} from storage`);
           res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-          return objectStorage.downloadObject(objectFile, res);
+          return await storageService.downloadFile(storageKey, res);
         }
-      } catch (objStorageError: any) {
-        console.log(`[AgentDownload] Object storage lookup failed, trying local: ${objStorageError.message}`);
+      } catch (storageError: any) {
+        console.log(`[AgentDownload] Storage lookup failed, trying local: ${storageError.message}`);
       }
       
       // Fall back to local file (for development)
@@ -5633,15 +5632,11 @@ export async function registerRoutes(
       if (customServerUrl) {
         serverUrl = customServerUrl.replace(/\/$/, ''); // Remove trailing slash
       } else {
-        // Check for Replit deployment domain
-        const replitDomain = process.env.REPLIT_DOMAINS?.split(',')[0];
-        if (replitDomain) {
-          serverUrl = `https://${replitDomain}`;
-        } else {
-          const host = req.get("host") || "localhost:5000";
-          const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
-          const protocol = isLocalhost ? "http" : "https";
-          serverUrl = `${protocol}://${host}`;
+        // Determine server URL from host header
+        const host = req.get("host") || "localhost:5000";
+        const isLocalhost = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+        const protocol = isLocalhost ? "http" : "https";
+        serverUrl = `${protocol}://${host}`;
         }
       }
       
@@ -10577,6 +10572,6 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
-  // Register Object Storage routes for file uploads
-  registerObjectStorageRoutes(app);
+  // Note: Object storage routes removed - using standard S3-compatible storage via storageService
+  // File uploads now handled via presigned URLs from storageService.getUploadURL()
 }

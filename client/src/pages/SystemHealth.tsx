@@ -79,35 +79,35 @@ export default function SystemHealth() {
     },
     {
       label: "Active Agents",
-      value: agentStats?.onlineAgents || 0,
+      value: (agentStats as any)?.onlineAgents || 0,
       icon: Server,
       iconColor: "text-cyan-400",
       "data-testid": "metric-active-agents",
     },
     {
       label: "Queue Depth",
-      value: (jobStats?.pending || 0) + (jobStats?.running || 0),
+      value: ((jobStats as any)?.pending || 0) + ((jobStats as any)?.running || 0),
       icon: Clock,
       iconColor: "text-amber-500",
       "data-testid": "metric-queue-depth",
     },
     {
       label: "Evaluations/Day",
-      value: aevStats?.totalEvaluations || 0,
+      value: (aevStats as any)?.totalEvaluations || 0,
       icon: TrendingUp,
       iconColor: "text-blue-500",
       "data-testid": "metric-eval-rate",
     },
     {
       label: "Total Findings",
-      value: agentStats?.totalFindings || 0,
+      value: (agentStats as any)?.totalFindings || 0,
       icon: AlertTriangle,
       iconColor: "text-orange-500",
       "data-testid": "metric-total-findings",
     },
     {
       label: "Critical Issues",
-      value: agentStats?.criticalFindings || 0,
+      value: (agentStats as any)?.criticalFindings || 0,
       icon: AlertTriangle,
       iconColor: "text-red-500",
       valueColor: "text-red-600",
@@ -131,9 +131,9 @@ export default function SystemHealth() {
     },
     {
       name: "WebSocket Server",
-      status: agentStats?.onlineAgents ? "healthy" : "degraded",
+      status: (agentStats as any)?.onlineAgents ? "healthy" : "degraded",
       lastCheck: new Date().toISOString(),
-      message: agentStats?.onlineAgents ? `${agentStats.onlineAgents} active connections` : "No active connections",
+      message: (agentStats as any)?.onlineAgents ? `${(agentStats as any).onlineAgents} active connections` : "No active connections",
     },
     {
       name: "S3 Storage",
@@ -143,9 +143,9 @@ export default function SystemHealth() {
     },
     {
       name: "Job Queue",
-      status: (jobStats?.running || 0) > 50 ? "degraded" : "healthy",
+      status: ((jobStats as any)?.running || 0) > 50 ? "degraded" : "healthy",
       lastCheck: new Date().toISOString(),
-      message: `${jobStats?.running || 0} running, ${jobStats?.pending || 0} pending`,
+      message: `${(jobStats as any)?.running || 0} running, ${(jobStats as any)?.pending || 0} pending`,
     },
   ];
 
@@ -160,7 +160,7 @@ export default function SystemHealth() {
 
       data.push({
         timestamp: `${hour}:00`,
-        agents: Math.floor(Math.random() * 5) + (agentStats?.onlineAgents || 3),
+        agents: Math.floor(Math.random() * 5) + ((agentStats as any)?.onlineAgents || 3),
         jobs: Math.floor(Math.random() * 10) + 5,
         evaluations: Math.floor(Math.random() * 8) + 2,
       });
@@ -327,11 +327,11 @@ export default function SystemHealth() {
             </div>
             <div>
               <span className="text-muted-foreground">Total Agents:</span>{" "}
-              <span className="font-medium">{agentStats?.totalAgents || 0}</span>
+              <span className="font-medium">{(agentStats as any)?.totalAgents || 0}</span>
             </div>
             <div>
               <span className="text-muted-foreground">Total Jobs:</span>{" "}
-              <span className="font-medium">{jobStats?.total || 0}</span>
+              <span className="font-medium">{(jobStats as any)?.total || 0}</span>
             </div>
           </div>
         </CardContent>

@@ -191,12 +191,13 @@ export default function Compliance() {
       key: "severity",
       header: "Severity",
       cell: (gap) => {
-        const severityConfig = {
-          critical: "destructive" as const,
-          high: "destructive" as const,
-          medium: "secondary" as const,
-          low: "outline" as const,
-        }[gap.severity as keyof typeof severityConfig] || "outline";
+        const severityConfigMap: Record<string, "destructive" | "secondary" | "outline"> = {
+          critical: "destructive",
+          high: "destructive",
+          medium: "secondary",
+          low: "outline",
+        };
+        const severityConfig = severityConfigMap[gap.severity] || "outline";
 
         return <Badge variant={severityConfig}>{gap.severity}</Badge>;
       },

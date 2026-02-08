@@ -431,8 +431,8 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
             </div>
             <div className="p-6">
               {showAnimatedGraph && evaluation.attackGraph ? (
-                <AnimatedAttackGraph 
-                  attackGraph={evaluation.attackGraph}
+                <AnimatedAttackGraph
+                  attackGraph={evaluation.attackGraph as any}
                   isExploitable={evaluation.exploitable ?? false}
                 />
               ) : (
