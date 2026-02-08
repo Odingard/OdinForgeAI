@@ -8963,8 +8963,13 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   app.get("/api/lateral-movement/techniques", apiRateLimiter, requireAdminAuth, async (_req, res) => {
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
-      const techniques = lateralMovementService.getTechniques();
-      res.json(techniques);
+      const techniquesObj = lateralMovementService.getTechniques();
+      // Convert object to array for frontend consumption
+      const techniquesArray = Object.entries(techniquesObj).map(([id, tech]) => ({
+        id,
+        ...tech
+      }));
+      res.json(techniquesArray);
     } catch (error: any) {
       console.error("Failed to get techniques:", error);
       res.status(500).json({ error: error.message || "Failed to get techniques" });
