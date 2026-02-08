@@ -21,6 +21,9 @@ Adversarial Exposure Validation goes beyond traditional vulnerability scanning b
 | **Endpoint Agents** | Cross-platform agents for real-time security telemetry |
 | **Coverage Autopilot** | Automatic agent deployment across your infrastructure |
 | **Governance Controls** | Kill switch, execution modes, and scope rules for safety |
+| **Operations Dashboard** | System health, job monitoring, audit logs, and real-time metrics |
+| **Compliance Tracking** | SOC2, ISO27001, NIST, PCI-DSS, HIPAA, and GDPR frameworks |
+| **Evidence Management** | Secure storage with chain of custody and forensic exports |
 
 ## Quick Navigation
 

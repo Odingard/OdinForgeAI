@@ -221,6 +221,78 @@ Emergency halt for all security operations organization-wide.
 - Time-to-compromise metrics
 - Kill chain visualization
 
+## Operations & Monitoring
+
+### System Health Dashboard
+- Real-time system metrics
+- Active agent monitoring
+- Job queue health
+- Component status (DB, Redis, WebSocket, S3)
+- Performance metrics and trends
+
+### Job Queue Management
+- View all background jobs (evaluations, scans, discoveries)
+- Filter by status, type, and date
+- Real-time job updates via WebSocket
+- Cancel and retry failed jobs
+- Job execution logs and parameters
+
+### Audit Logging
+- Complete event history
+- Filter by user, action, resource, severity
+- IP address tracking
+- Before/after state capture
+- CSV export for compliance
+
+### Evidence Management
+- Screenshot and artifact storage
+- Network capture (PCAP) files
+- Chain of custody tracking
+- SHA256 hash verification
+- Evidence gallery with thumbnails
+
+### Compliance Frameworks
+- SOC2, ISO27001, NIST, PCI-DSS, HIPAA, GDPR support
+- Coverage progress tracking
+- Control matrix with evidence mapping
+- Gap analysis and recommendations
+- Compliance trend reporting
+
+### Forensic Export Center
+- Export builder with date range selection
+- Multiple formats (PDF, JSON, XML, CSV, ZIP)
+- Encryption options (password, PGP)
+- Automated chain of custody
+- Package integrity verification
+
+### Session Replay
+- User session monitoring
+- Event timeline visualization
+- Risk scoring per session
+- Suspicious activity detection
+- Session duration analytics
+
+### Live Scan Monitoring
+- Active scan progress tracking
+- Real-time findings display
+- WebSocket-based updates
+- Scan history with filtering
+- Performance metrics
+
+### Scheduled Scans
+- Cron-based scan scheduling
+- Schedule management (create, edit, enable/disable)
+- Next run time display
+- Execution history timeline
+- Quick actions (run now, cancel)
+
+### Sandbox Analysis
+- File and URL submission
+- Malware behavior analysis
+- MITRE ATT&CK technique detection
+- IOC extraction (IPs, domains, hashes)
+- Verdict classification (malicious/suspicious/clean)
+
 ## Multi-Tenancy
 
 - Tenant and organization hierarchy
