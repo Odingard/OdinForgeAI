@@ -82,26 +82,43 @@ export default function LateralMovement() {
   const queryClient = useQueryClient();
   const [selectedTab, setSelectedTab] = useState("overview");
 
-  // Queries
-  const { data: credentials = [] } = useQuery<Credential[]>({
+  // Queries with proper error handling and faster failure
+  const { data: credentials = [], isLoading: loadingCredentials, error: credentialsError } = useQuery<Credential[]>({
     queryKey: ["/api/lateral-movement/credentials"],
+    retry: 1,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
 
-  const { data: pivotPoints = [] } = useQuery<PivotPoint[]>({
+  const { data: pivotPoints = [], isLoading: loadingPivots } = useQuery<PivotPoint[]>({
     queryKey: ["/api/lateral-movement/pivot-points"],
+    retry: 1,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
 
-  const { data: attackPaths = [] } = useQuery<AttackPath[]>({
+  const { data: attackPaths = [], isLoading: loadingPaths } = useQuery<AttackPath[]>({
     queryKey: ["/api/lateral-movement/attack-paths"],
+    retry: 1,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
 
-  const { data: findings = [] } = useQuery<Finding[]>({
+  const { data: findings = [], isLoading: loadingFindings } = useQuery<Finding[]>({
     queryKey: ["/api/lateral-movement/findings"],
+    retry: 1,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
 
-  const { data: techniques = [] } = useQuery<Technique[]>({
+  const { data: techniques = [], isLoading: loadingTechniques } = useQuery<Technique[]>({
     queryKey: ["/api/lateral-movement/techniques"],
+    retry: 1,
+    staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
+
+  const isLoading = loadingCredentials || loadingPivots || loadingPaths || loadingFindings || loadingTechniques;
 
   // Stats
   const stats = {
@@ -124,6 +141,36 @@ export default function LateralMovement() {
           Discover credential reuse, pivot points, and attack paths across your infrastructure
         </p>
       </div>
+
+      {/* Loading State */}
+      {isLoading && (
+        <Card>
+          <CardContent className="flex items-center justify-center py-12">
+            <div className="text-center space-y-4">
+              <Activity className="h-12 w-12 animate-spin mx-auto text-muted-foreground" />
+              <p className="text-muted-foreground">Loading lateral movement data...</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error State */}
+      {credentialsError && !isLoading && (
+        <Card className="border-destructive">
+          <CardContent className="flex items-center gap-4 py-6">
+            <AlertTriangle className="h-8 w-8 text-destructive" />
+            <div>
+              <p className="font-semibold">Failed to load lateral movement data</p>
+              <p className="text-sm text-muted-foreground">
+                Check that the lateral movement service is running and try refreshing the page
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && !credentialsError && (
+        <>
 
       {/* Stats Overview */}
       <div className="grid gap-4 md:grid-cols-5">
@@ -573,6 +620,8 @@ export default function LateralMovement() {
           </div>
         </TabsContent>
       </Tabs>
+      </>
+      )}
     </div>
   );
 }
