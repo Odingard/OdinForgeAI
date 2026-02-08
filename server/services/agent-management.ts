@@ -64,7 +64,7 @@ export class AgentManagementService {
       platformVersion: "", // Will be updated on first heartbeat
       architecture,
       organizationId,
-      apiKey: "", // Never store plaintext
+      apiKey, // Stored for unique constraint; auth uses apiKeyHash (bcrypt)
       apiKeyHash,
       capabilities: ["telemetry", "vulnerability_scan"],
       status: "pending" as any,
@@ -73,7 +73,7 @@ export class AgentManagementService {
     });
 
     // Get server URL from environment
-    const serverUrl = process.env.ODINFORGE_SERVER_URL || process.env.PUBLIC_URL || "http://localhost:5000";
+    const serverUrl = process.env.PUBLIC_ODINFORGE_URL || process.env.ODINFORGE_SERVER_URL || "http://localhost:5000";
 
     // Generate platform-specific installation command
     const installCommand = this.generateInstallCommand(serverUrl, agent.id, apiKey, platform);
@@ -261,7 +261,7 @@ level = "info"
     });
 
     // Generate new config file
-    const serverUrl = process.env.ODINFORGE_SERVER_URL || process.env.PUBLIC_URL || "http://localhost:5000";
+    const serverUrl = process.env.PUBLIC_ODINFORGE_URL || process.env.ODINFORGE_SERVER_URL || "http://localhost:5000";
     const configFile = this.generateConfigFile(serverUrl, agentId, newApiKey);
 
     return {

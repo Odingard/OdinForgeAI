@@ -74,7 +74,7 @@ export function Dashboard() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const { data: evaluations = [], isLoading, refetch } = useQuery<Evaluation[]>({
+  const { data: evaluations = [], isLoading, error, refetch } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],
   });
 
@@ -291,6 +291,20 @@ export function Dashboard() {
           colorClass="text-cyan-400"
         />
       </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
+          <div className="text-sm">
+            <span className="font-medium text-red-400">Failed to load evaluations: </span>
+            <span className="text-muted-foreground">{error.message}</span>
+          </div>
+          <Button variant="outline" size="sm" className="ml-auto" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Setup Checklist for new users */}
       <SetupChecklist />

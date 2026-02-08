@@ -41,10 +41,51 @@ export interface ComplianceGap {
   estimatedEffort: string;
 }
 
+function mapServerFramework(f: any): ComplianceFramework {
+  return {
+    id: f.id || f.name,
+    name: f.name || f.id,
+    version: f.version || "",
+    description: f.description,
+    controlCount: f.controlCount || 0,
+  };
+}
+
+function mapServerControl(c: any, framework: string): ComplianceControl {
+  return {
+    id: c.id || c.controlId,
+    frameworkId: framework,
+    controlId: c.controlId || c.id,
+    title: c.title || c.name || c.controlId || c.id,
+    description: c.description || "",
+    category: c.category || c.family || "General",
+    severity: c.severity || (c.priority === "P1" ? "high" : c.priority === "P2" ? "medium" : "low"),
+    status: c.status || "not_started",
+    evidenceCount: c.evidenceCount || 0,
+    lastAudit: c.lastAudit,
+  };
+}
+
+function mapServerGap(g: any): ComplianceGap {
+  return {
+    controlId: g.controlId || g.id,
+    title: g.title || g.name || g.controlId,
+    framework: g.framework || "",
+    severity: g.severity || "medium",
+    recommendation: g.recommendation || g.description || "Review and implement this control",
+    estimatedEffort: g.estimatedEffort || g.effort || "medium",
+  };
+}
+
 export function useComplianceFrameworks() {
   return useQuery<ComplianceFramework[]>({
     queryKey: ["/api/compliance/frameworks"],
     refetchInterval: false,
+    select: (data: any) => {
+      // Handle both { frameworks: [...] } and bare array
+      const arr = Array.isArray(data) ? data : data?.frameworks || [];
+      return arr.map(mapServerFramework);
+    },
   });
 }
 
@@ -52,6 +93,11 @@ export function useComplianceControls(framework: string | null) {
   return useQuery<ComplianceControl[]>({
     queryKey: [`/api/compliance/controls/${framework}`],
     enabled: !!framework,
+    select: (data: any) => {
+      // Handle { framework, controls: [...] } or bare array
+      const arr = Array.isArray(data) ? data : data?.controls || [];
+      return arr.map((c: any) => mapServerControl(c, framework || ""));
+    },
   });
 }
 
@@ -63,6 +109,13 @@ export function useComplianceCoverage(framework?: string) {
   return useQuery<ComplianceCoverage[]>({
     queryKey,
     refetchInterval: 300000, // 5 minutes
+    select: (data: any) => {
+      // Handle single object or array
+      if (Array.isArray(data)) return data;
+      if (data?.framework) return [data];
+      if (data?.coverage) return Array.isArray(data.coverage) ? data.coverage : [data.coverage];
+      return [];
+    },
   });
 }
 
@@ -74,6 +127,10 @@ export function useComplianceGaps(framework?: string) {
   return useQuery<ComplianceGap[]>({
     queryKey,
     refetchInterval: 300000,
+    select: (data: any) => {
+      const arr = Array.isArray(data) ? data : data?.gaps || [];
+      return arr.map(mapServerGap);
+    },
   });
 }
 

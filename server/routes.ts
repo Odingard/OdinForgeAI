@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { endpointAgents, aevEvaluations } from "@shared/schema";
 import { sql, and, eq } from "drizzle-orm";
-import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks } from "@shared/schema";
+import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks, getPermissionsForDbRole } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
 import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
@@ -34,6 +34,7 @@ import {
   createInitialAdminUser,
   uiAuthMiddleware,
   requireRole,
+  requirePermission,
   hashPassword,
   type UIAuthenticatedRequest,
 } from "./services/ui-auth";
@@ -444,6 +445,7 @@ export async function registerRoutes(
       }
 
       const role = await storage.getUIRole(user.roleId);
+      const permissions = getPermissionsForDbRole(user.roleId);
       res.json({
         user: {
           id: user.id,
@@ -451,6 +453,7 @@ export async function registerRoutes(
           displayName: user.displayName,
           roleId: user.roleId,
           role: role || undefined,
+          permissions,
           tenantId: user.tenantId,
           organizationId: user.organizationId,
           lastLoginAt: user.lastLoginAt,
@@ -461,6 +464,20 @@ export async function registerRoutes(
       console.error("Session fetch error:", error);
       res.status(500).json({ error: "Failed to fetch session" });
     }
+  });
+
+  // Debug: Check current user's permissions (temporary diagnostic endpoint)
+  app.get("/ui/api/auth/debug-permissions", uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    const permissions = getPermissionsForDbRole(req.uiUser?.roleId || "");
+    res.json({
+      roleId: req.uiUser?.roleId,
+      email: req.uiUser?.email,
+      organizationId: req.uiUser?.organizationId,
+      permissionCount: permissions.length,
+      hasAgentsManage: permissions.includes("agents:manage" as any),
+      hasAssetsRead: permissions.includes("assets:read" as any),
+      permissions,
+    });
   });
 
   // Admin-only: Register new users
@@ -586,10 +603,9 @@ export async function registerRoutes(
 
   // ========== END UI AUTHENTICATION ==========
   
-  // Apply API-wide rate limiting as a fallback for all endpoints
-  app.use("/api", apiRateLimiter);
+  // Rate limiting is applied per-endpoint (not globally) to avoid double-counting
 
-  app.post("/api/aev/evaluate", evaluationRateLimiter, async (req, res) => {
+  app.post("/api/aev/evaluate", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const parsed = insertEvaluationSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -635,7 +651,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/evaluations", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/evaluations", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const evaluations = await storage.getEvaluations(organizationId);
@@ -660,7 +676,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/evaluations/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/evaluations/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const evaluation = await storage.getEvaluation(req.params.id);
       if (!evaluation) {
@@ -693,7 +709,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/aev/evaluations/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/aev/evaluations/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
     try {
       const evaluationId = req.params.id;
       const evaluation = await storage.getEvaluation(evaluationId);
@@ -712,7 +728,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/aev/evaluations/:id/archive", apiRateLimiter, async (req, res) => {
+  app.patch("/api/aev/evaluations/:id/archive", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:archive"), async (req, res) => {
     try {
       const evaluationId = req.params.id;
       const evaluation = await storage.getEvaluation(evaluationId);
@@ -730,7 +746,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/aev/evaluations/:id/unarchive", apiRateLimiter, async (req, res) => {
+  app.patch("/api/aev/evaluations/:id/unarchive", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:archive"), async (req, res) => {
     try {
       const evaluationId = req.params.id;
       const evaluation = await storage.getEvaluation(evaluationId);
@@ -749,7 +765,7 @@ export async function registerRoutes(
   });
 
   // Live scan results endpoints
-  app.get("/api/aev/live-scans", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/live-scans", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const results = await storage.getLiveScanResults(organizationId);
@@ -760,7 +776,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/live-scans/:evaluationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/live-scans/:evaluationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const result = await storage.getLiveScanResultByEvaluationId(req.params.evaluationId);
       if (!result) {
@@ -774,7 +790,7 @@ export async function registerRoutes(
   });
 
   // Abort a running live scan
-  app.post("/api/aev/live-scans/:evaluationId/abort", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/live-scans/:evaluationId/abort", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { abortCurrentScan } = await import("./services/live-network-testing");
       const aborted = abortCurrentScan();
@@ -793,7 +809,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/aev/stats", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const evaluations = await storage.getEvaluations();
       const resultsPromises = evaluations.map(e => storage.getResultByEvaluationId(e.id));
@@ -823,7 +839,7 @@ export async function registerRoutes(
 
   // ========== EXECUTION MODE ENDPOINTS ==========
   
-  app.get("/api/aev/execution-modes", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/execution-modes", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { 
         getExecutionModeSummary, 
@@ -850,7 +866,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/execution-modes/current", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/execution-modes/current", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { 
         getExecutionModeSummary, 
@@ -875,7 +891,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/execution-modes/set", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/execution-modes/set", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const { 
         executionModeEnforcer,
@@ -939,7 +955,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/execution-modes/validate-operation", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/execution-modes/validate-operation", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { 
         validateOperation,
@@ -976,7 +992,7 @@ export async function registerRoutes(
 
   // ========== APPROVAL WORKFLOW ENDPOINTS ==========
   
-  app.get("/api/aev/approval-requests", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/approval-requests", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const organizationId = req.query.organizationId as string || "default";
@@ -994,7 +1010,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/approval-requests/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/approval-requests/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const request = await approvalWorkflowService.getApprovalRequest(req.params.id);
@@ -1010,7 +1026,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/approval-requests", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:approve_live"), async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       
@@ -1063,7 +1079,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests/:id/approve", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/approval-requests/:id/approve", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:approve_live"), async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const { approverId, approverName, notes } = req.body;
@@ -1086,7 +1102,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests/:id/deny", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/approval-requests/:id/deny", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:approve_live"), async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const { denierId, denierName, reason } = req.body;
@@ -1109,7 +1125,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/approval-requests/:id/cancel", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/approval-requests/:id/cancel", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { approvalWorkflowService } = await import("./services/validation/audit-service");
       const { cancelledBy } = req.body;
@@ -1124,7 +1140,7 @@ export async function registerRoutes(
 
   // ========== VALIDATION AUDIT LOG ENDPOINTS ==========
   
-  app.get("/api/aev/audit-logs", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/audit-logs", apiRateLimiter, uiAuthMiddleware, requirePermission("audit:read"), async (req, res) => {
     try {
       const { auditService } = await import("./services/validation/audit-service");
       const organizationId = req.query.organizationId as string || "default";
@@ -1145,7 +1161,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/audit-logs/verify", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/audit-logs/verify", apiRateLimiter, uiAuthMiddleware, requirePermission("audit:read"), async (req, res) => {
     try {
       const { auditService } = await import("./services/validation/audit-service");
       const organizationId = req.query.organizationId as string || "default";
@@ -1161,7 +1177,7 @@ export async function registerRoutes(
 
   // ========== SANDBOX EXECUTION ENDPOINTS ==========
   
-  app.get("/api/aev/sandbox/config", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/sandbox/config", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const tenantId = req.query.tenantId as string || "default";
@@ -1174,7 +1190,7 @@ export async function registerRoutes(
     }
   });
   
-  app.put("/api/aev/sandbox/config", apiRateLimiter, async (req, res) => {
+  app.put("/api/aev/sandbox/config", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { tenantId, ...config } = req.body;
@@ -1192,7 +1208,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/sandbox/stats", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/sandbox/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const tenantId = req.query.tenantId as string | undefined;
@@ -1207,7 +1223,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/aev/sandbox/kill-switch", apiRateLimiter, async (req, res) => {
+  app.get("/api/aev/sandbox/kill-switch", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const state = sandboxExecutor.getKillSwitchState();
@@ -1218,7 +1234,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/kill-switch/engage", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/sandbox/kill-switch/engage", apiRateLimiter, uiAuthMiddleware, requirePermission("platform:emergency_access"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { scope = "global", reason, engagedBy, affectedTenants, affectedOperations } = req.body;
@@ -1242,7 +1258,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/kill-switch/disengage", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/sandbox/kill-switch/disengage", apiRateLimiter, uiAuthMiddleware, requirePermission("platform:emergency_access"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { disengagedBy } = req.body;
@@ -1259,7 +1275,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/abort/:operationId", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/sandbox/abort/:operationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { reason } = req.body;
@@ -1277,7 +1293,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/abort-all", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/sandbox/abort-all", apiRateLimiter, uiAuthMiddleware, requirePermission("platform:emergency_access"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { tenantId, reason } = req.body;
@@ -1290,7 +1306,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/validate-target", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/sandbox/validate-target", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { target, tenantId = "default" } = req.body;
@@ -1307,7 +1323,7 @@ export async function registerRoutes(
     }
   });
   
-  app.post("/api/aev/sandbox/check-limits", apiRateLimiter, async (req, res) => {
+  app.post("/api/aev/sandbox/check-limits", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { sandboxExecutor } = await import("./services/validation/sandbox-executor");
       const { tenantId = "default" } = req.body;
@@ -1329,7 +1345,7 @@ export async function registerRoutes(
 
   // ========== SYSTEM MONITORING ENDPOINTS ==========
   
-  app.get("/api/system/websocket-stats", apiRateLimiter, async (req, res) => {
+  app.get("/api/system/websocket-stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const stats = wsService.getStats();
       res.json(stats);
@@ -1341,7 +1357,7 @@ export async function registerRoutes(
 
   // ========== REPORTING ENDPOINTS ==========
   
-  app.post("/api/reports/generate", reportRateLimiter, async (req, res) => {
+  app.post("/api/reports/generate", reportRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
     try {
       const { type, format, from, to, framework, organizationId = "default", evaluationId, engagementMetadata } = req.body;
       
@@ -1497,7 +1513,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/reports", apiRateLimiter, async (req, res) => {
+  app.get("/api/reports", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const reports = await storage.getReports(organizationId);
@@ -1508,7 +1524,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/reports/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/reports/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {
       const report = await storage.getReport(req.params.id);
       if (!report) {
@@ -1521,7 +1537,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/reports/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/reports/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:delete"), async (req, res) => {
     try {
       const report = await storage.getReport(req.params.id);
       if (!report) {
@@ -1535,7 +1551,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/reports/:id/download", apiRateLimiter, async (req, res) => {
+  app.get("/api/reports/:id/download", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:export"), async (req, res) => {
     try {
       const report = await storage.getReport(req.params.id);
       if (!report) {
@@ -1574,7 +1590,7 @@ export async function registerRoutes(
   });
 
   // Domain Scan Report Generation
-  app.get("/api/reports/domain-scan/:scanId", apiRateLimiter, async (req, res) => {
+  app.get("/api/reports/domain-scan/:scanId", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {
       const { scanId } = req.params;
       const format = (req.query.format as string) || "json";
@@ -1608,7 +1624,7 @@ export async function registerRoutes(
   });
 
   // Web App Scan Report Generation
-  app.get("/api/reports/web-app-scan/:scanId", apiRateLimiter, async (req, res) => {
+  app.get("/api/reports/web-app-scan/:scanId", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {
       const { scanId } = req.params;
       const format = (req.query.format as string) || "json";
@@ -1642,7 +1658,7 @@ export async function registerRoutes(
   });
 
   // Web App Scan Report Generation with persistence
-  app.post("/api/reports/web-app-scan/:scanId", reportRateLimiter, async (req, res) => {
+  app.post("/api/reports/web-app-scan/:scanId", reportRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
     try {
       const { scanId } = req.params;
       const { includeCompliance = false, framework, organizationId = "default" } = req.body;
@@ -1700,7 +1716,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/enhanced/:evaluationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/reports/enhanced/:evaluationId", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {
       const { evaluationId } = req.params;
       const includeKillChain = req.query.includeKillChain !== "false";
@@ -1723,7 +1739,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/reports/enhanced/date-range", reportRateLimiter, async (req, res) => {
+  app.post("/api/reports/enhanced/date-range", reportRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
     try {
       const { from, to, organizationId = "default", includeKillChain = true, includeRemediation = true } = req.body;
       
@@ -1757,7 +1773,7 @@ export async function registerRoutes(
 
   // ========== EVIDENCE EXPORT ENDPOINT ==========
   
-  app.post("/api/evidence/:evaluationId/export", apiRateLimiter, async (req, res) => {
+  app.post("/api/evidence/:evaluationId/export", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
     try {
       const { evaluationId } = req.params;
       const { format = "json" } = req.body;
@@ -1854,7 +1870,7 @@ export async function registerRoutes(
     return nextRun;
   }
   
-  app.post("/api/scheduled-scans", apiRateLimiter, async (req, res) => {
+  app.post("/api/scheduled-scans", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const parsed = insertScheduledScanSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1873,7 +1889,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scheduled-scans", apiRateLimiter, async (req, res) => {
+  app.get("/api/scheduled-scans", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const scans = await storage.getScheduledScans(organizationId);
@@ -1884,7 +1900,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/scheduled-scans/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/scheduled-scans/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const scan = await storage.getScheduledScan(req.params.id);
       if (!scan) {
@@ -1897,7 +1913,7 @@ export async function registerRoutes(
     }
   });
   
-  app.patch("/api/scheduled-scans/:id", apiRateLimiter, async (req, res) => {
+  app.patch("/api/scheduled-scans/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const scan = await storage.getScheduledScan(req.params.id);
       if (!scan) {
@@ -1912,7 +1928,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/scheduled-scans/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/scheduled-scans/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
     try {
       const scan = await storage.getScheduledScan(req.params.id);
       if (!scan) {
@@ -1926,7 +1942,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/scheduled-scans/:id/trigger", apiRateLimiter, async (req, res) => {
+  app.post("/api/scheduled-scans/:id/trigger", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { triggerImmediateScan } = await import("./services/scheduler/scan-scheduler");
       const result = await triggerImmediateScan(req.params.id);
@@ -1943,7 +1959,7 @@ export async function registerRoutes(
   // ========== VALIDATION EVIDENCE ENDPOINTS ==========
   // Tenant context provided by global tenantMiddleware; enforce org scoping per route
   
-  app.get("/api/evidence", apiRateLimiter, async (req, res) => {
+  app.get("/api/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -1956,7 +1972,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evidence/summary", apiRateLimiter, async (req, res) => {
+  app.get("/api/evidence/summary", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -1968,7 +1984,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evidence/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/evidence/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const artifact = await evidenceStorageService.getEvidence(req.params.id);
@@ -1985,7 +2001,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/evaluations/:evaluationId/evidence", apiRateLimiter, async (req, res) => {
+  app.get("/api/evaluations/:evaluationId/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -1998,7 +2014,7 @@ export async function registerRoutes(
   });
 
   // Safety Decisions API - PolicyGuardian audit trail
-  app.get("/api/evaluations/:evaluationId/safety-decisions", apiRateLimiter, async (req, res) => {
+  app.get("/api/evaluations/:evaluationId/safety-decisions", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.tenant!.organizationId;
       const decisions = await storage.getSafetyDecisionsByEvaluationId(req.params.evaluationId);
@@ -2012,7 +2028,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/safety-decisions", apiRateLimiter, async (req, res) => {
+  app.get("/api/safety-decisions", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.tenant!.organizationId;
       const { decision, limit, offset, startDate, endDate } = req.query;
@@ -2032,7 +2048,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/safety-decisions/stats", apiRateLimiter, async (req, res) => {
+  app.get("/api/safety-decisions/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.tenant!.organizationId;
       const decisions = await storage.getSafetyDecisionsByOrganization(organizationId);
@@ -2051,7 +2067,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/findings/:findingId/evidence", apiRateLimiter, async (req, res) => {
+  app.get("/api/findings/:findingId/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const organizationId = req.tenant!.organizationId;
@@ -2063,7 +2079,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/evidence/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/evidence/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const artifact = await evidenceStorageService.getEvidence(req.params.id);
@@ -2081,7 +2097,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/evidence/cleanup", apiRateLimiter, async (req, res) => {
+  app.post("/api/evidence/cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
     try {
       const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
       const result = await evidenceStorageService.cleanupOldArtifacts();
@@ -2092,10 +2108,71 @@ export async function registerRoutes(
     }
   });
 
+  // Upload evidence artifact
+  app.post("/api/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const { evaluationId, evidenceType, fileName, fileSize, mimeType, content, description } = req.body;
+
+      if (!evaluationId || !content) {
+        return res.status(400).json({ error: "evaluationId and content are required" });
+      }
+
+      const organizationId = req.tenant!.organizationId;
+      const tenantId = req.uiUser?.tenantId || "default";
+
+      const artifact = await evidenceStorageService.storeEvidence({
+        tenantId,
+        organizationId,
+        evaluationId,
+        evidenceType: evidenceType || "file",
+        verdict: "theoretical",
+        rawDataBase64: content,
+        artifactSizeBytes: fileSize || Buffer.byteLength(content, "base64"),
+        validationMethod: "manual",
+        observedBehavior: description || undefined,
+        capturedAt: new Date(),
+      });
+
+      res.json(artifact);
+    } catch (error) {
+      console.error("Error uploading evidence:", error);
+      res.status(500).json({ error: "Failed to upload evidence" });
+    }
+  });
+
+  // Verify evidence artifact (update verdict)
+  app.post("/api/evidence/:id/verify", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
+      const artifact = await evidenceStorageService.getEvidence(req.params.id);
+
+      if (!artifact) {
+        return res.status(404).json({ error: "Evidence artifact not found" });
+      }
+      if (artifact.organizationId !== req.tenant!.organizationId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const currentVerdict = artifact.verdict;
+      const isAlreadyVerified = currentVerdict === "confirmed" || currentVerdict === "likely";
+
+      if (isAlreadyVerified) {
+        return res.json({ verified: true, message: "Evidence already verified" });
+      }
+
+      await evidenceStorageService.updateVerdict(req.params.id, "confirmed", 100);
+      res.json({ verified: true, message: "Evidence verified successfully" });
+    } catch (error) {
+      console.error("Error verifying evidence:", error);
+      res.status(500).json({ error: "Failed to verify evidence" });
+    }
+  });
+
   // ========== GOVERNANCE ENDPOINTS ==========
   
   // Rate Limit Status - MUST come before :organizationId route
-  app.get("/api/governance/rate-limits", apiRateLimiter, async (req, res) => {
+  app.get("/api/governance/rate-limits", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const statuses = getAllRateLimitStatuses();
       res.json(statuses);
@@ -2106,7 +2183,7 @@ export async function registerRoutes(
   });
 
   // Get or create organization governance settings
-  app.get("/api/governance/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/governance/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       let governance = await storage.getOrganizationGovernance(req.params.organizationId);
       if (!governance) {
@@ -2121,7 +2198,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/governance/:organizationId", apiRateLimiter, async (req, res) => {
+  app.patch("/api/governance/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       await storage.updateOrganizationGovernance(req.params.organizationId, req.body);
       
@@ -2146,7 +2223,7 @@ export async function registerRoutes(
   });
 
   // Kill Switch
-  app.post("/api/governance/:organizationId/kill-switch", apiRateLimiter, async (req, res) => {
+  app.post("/api/governance/:organizationId/kill-switch", apiRateLimiter, uiAuthMiddleware, requirePermission("platform:emergency_access"), async (req, res) => {
     try {
       const { activate, activatedBy } = req.body;
       
@@ -2184,7 +2261,7 @@ export async function registerRoutes(
   });
 
   // Authorization Logs
-  app.get("/api/authorization-logs/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/authorization-logs/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("audit:read"), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const logs = await storage.getAuthorizationLogs(req.params.organizationId, limit);
@@ -2196,7 +2273,7 @@ export async function registerRoutes(
   });
 
   // Scope Rules
-  app.get("/api/scope-rules/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/scope-rules/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const rules = await storage.getScopeRules(req.params.organizationId);
       res.json(rules);
@@ -2206,7 +2283,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/scope-rules", apiRateLimiter, async (req, res) => {
+  app.post("/api/scope-rules", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const rule = await storage.createScopeRule(req.body);
       
@@ -2228,7 +2305,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/scope-rules/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/scope-rules/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       await storage.deleteScopeRule(req.params.id);
       
@@ -2246,7 +2323,7 @@ export async function registerRoutes(
   // ========== ADVANCED AI ENDPOINTS ==========
 
   // Adversary Profiles
-  app.get("/api/adversary-profiles", apiRateLimiter, async (req, res) => {
+  app.get("/api/adversary-profiles", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       let profiles = await storage.getAdversaryProfiles();
       
@@ -2374,7 +2451,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/adversary-profiles/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/adversary-profiles/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const profile = await storage.getAdversaryProfile(req.params.id);
       if (!profile) {
@@ -2387,7 +2464,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/adversary-profiles", apiRateLimiter, async (req, res) => {
+  app.post("/api/adversary-profiles", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const profile = await storage.createAdversaryProfile(req.body);
       res.json(profile);
@@ -2398,7 +2475,7 @@ export async function registerRoutes(
   });
 
   // Attack Predictions - computed from real evaluation data
-  app.get("/api/attack-predictions/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/attack-predictions/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const timeHorizon = req.query.timeHorizon as string || "30d";
       const predictions = await calculateAttackPredictions(req.params.organizationId, timeHorizon);
@@ -2409,7 +2486,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/attack-predictions/generate", apiRateLimiter, async (req, res) => {
+  app.post("/api/attack-predictions/generate", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { organizationId, timeHorizon } = req.body;
       const predictions = await calculateAttackPredictions(organizationId, timeHorizon || "30d");
@@ -2421,7 +2498,7 @@ export async function registerRoutes(
   });
 
   // Defensive Posture - computed from real evaluation data
-  app.get("/api/defensive-posture/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/defensive-posture/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const posture = await calculateDefensivePosture(req.params.organizationId);
       res.json(posture);
@@ -2431,7 +2508,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/defensive-posture/:organizationId/history", apiRateLimiter, async (req, res) => {
+  app.get("/api/defensive-posture/:organizationId/history", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 30;
       const history = await storage.getDefensivePostureHistory(req.params.organizationId, limit);
@@ -2443,7 +2520,7 @@ export async function registerRoutes(
   });
 
   // Purple Team Findings
-  app.get("/api/purple-team/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/purple-team/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const findings = await storage.getPurpleTeamFindings(req.params.organizationId);
       res.json(findings);
@@ -2453,7 +2530,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/purple-team", apiRateLimiter, async (req, res) => {
+  app.post("/api/purple-team", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const finding = await storage.createPurpleTeamFinding(req.body);
       res.json(finding);
@@ -2463,7 +2540,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/purple-team/:id", apiRateLimiter, async (req, res) => {
+  app.patch("/api/purple-team/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       await storage.updatePurpleTeamFinding(req.params.id, req.body);
       res.json({ success: true });
@@ -2474,7 +2551,7 @@ export async function registerRoutes(
   });
 
   // AI Simulations
-  app.get("/api/ai-simulations/:organizationId", apiRateLimiter, async (req, res) => {
+  app.get("/api/ai-simulations/:organizationId", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const simulations = await storage.getAiSimulations(req.params.organizationId);
       res.json(simulations);
@@ -2484,7 +2561,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/ai-simulations", simulationRateLimiter, async (req, res) => {
+  app.post("/api/ai-simulations", simulationRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const simulation = await storage.createAiSimulation({
         ...req.body,
@@ -2501,7 +2578,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/ai-simulations/detail/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/ai-simulations/detail/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const simulation = await storage.getAiSimulation(req.params.id);
       if (!simulation) {
@@ -2519,7 +2596,7 @@ export async function registerRoutes(
   // ============================================
 
   // Get infrastructure statistics
-  app.get("/api/infrastructure/stats", apiRateLimiter, async (req, res) => {
+  app.get("/api/infrastructure/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const stats = await storage.getInfrastructureStats();
       res.json(stats);
@@ -2531,7 +2608,7 @@ export async function registerRoutes(
 
   // ========== DISCOVERED ASSETS ==========
 
-  app.get("/api/assets", apiRateLimiter, async (req, res) => {
+  app.get("/api/assets", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       // Fetch discovered assets, cloud assets, and endpoint agents
       const [discoveredAssets, cloudAssetsList, allAgents] = await Promise.all([
@@ -2600,7 +2677,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/assets/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/assets/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const asset = await storage.getDiscoveredAsset(req.params.id);
       if (!asset) {
@@ -2613,7 +2690,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/assets/:id/vulnerabilities", apiRateLimiter, async (req, res) => {
+  app.get("/api/assets/:id/vulnerabilities", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const vulns = await storage.getVulnerabilityImportsByAssetId(req.params.id);
       res.json(vulns);
@@ -2623,7 +2700,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/assets/:id", apiRateLimiter, async (req, res) => {
+  app.patch("/api/assets/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:update"), async (req, res) => {
     try {
       await storage.updateDiscoveredAsset(req.params.id, req.body);
       const updated = await storage.getDiscoveredAsset(req.params.id);
@@ -2651,7 +2728,7 @@ export async function registerRoutes(
 
   // ========== VULNERABILITY IMPORTS ==========
 
-  app.get("/api/vulnerabilities", apiRateLimiter, async (req, res) => {
+  app.get("/api/vulnerabilities", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const vulns = await storage.getVulnerabilityImports();
       res.json(vulns);
@@ -2661,7 +2738,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/vulnerabilities/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/vulnerabilities/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const vuln = await storage.getVulnerabilityImport(req.params.id);
       if (!vuln) {
@@ -2674,7 +2751,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/vulnerabilities/:id", apiRateLimiter, async (req, res) => {
+  app.patch("/api/vulnerabilities/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:update"), async (req, res) => {
     try {
       await storage.updateVulnerabilityImport(req.params.id, req.body);
       const updated = await storage.getVulnerabilityImport(req.params.id);
@@ -2686,7 +2763,7 @@ export async function registerRoutes(
   });
 
   // Create AEV evaluation from imported vulnerability
-  app.post("/api/vulnerabilities/:id/evaluate", evaluationRateLimiter, async (req, res) => {
+  app.post("/api/vulnerabilities/:id/evaluate", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const vuln = await storage.getVulnerabilityImport(req.params.id);
       if (!vuln) {
@@ -2724,7 +2801,7 @@ export async function registerRoutes(
 
   // ========== IMPORT JOBS ==========
 
-  app.get("/api/imports", apiRateLimiter, async (req, res) => {
+  app.get("/api/imports", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const jobs = await storage.getImportJobs();
       res.json(jobs);
@@ -2734,7 +2811,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/imports/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/imports/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const job = await storage.getImportJob(req.params.id);
       if (!job) {
@@ -2747,7 +2824,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/imports/:id/vulnerabilities", apiRateLimiter, async (req, res) => {
+  app.get("/api/imports/:id/vulnerabilities", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const vulns = await storage.getVulnerabilityImportsByJobId(req.params.id);
       res.json(vulns);
@@ -2757,7 +2834,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/imports/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/imports/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:delete"), async (req, res) => {
     try {
       await storage.deleteImportJob(req.params.id);
       res.json({ success: true });
@@ -2768,7 +2845,7 @@ export async function registerRoutes(
   });
 
   // Upload and parse scanner file
-  app.post("/api/imports/upload", apiRateLimiter, async (req, res) => {
+  app.post("/api/imports/upload", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:create"), async (req, res) => {
     try {
       const { content, fileName, mimeType, name, sourceType } = req.body;
       
@@ -2833,7 +2910,7 @@ export async function registerRoutes(
 
   // ========== CLOUD CONNECTIONS ==========
 
-  app.get("/api/cloud-connections", apiRateLimiter, async (req, res) => {
+  app.get("/api/cloud-connections", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const connections = await storage.getCloudConnections();
       res.json(connections);
@@ -2843,7 +2920,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/cloud-connections/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/cloud-connections/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
@@ -2856,7 +2933,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cloud-connections", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-connections", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:create"), async (req, res) => {
     try {
       const connection = await storage.createCloudConnection(req.body);
       res.json(connection);
@@ -2866,7 +2943,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/cloud-connections/:id", apiRateLimiter, async (req, res) => {
+  app.patch("/api/cloud-connections/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:update"), async (req, res) => {
     try {
       await storage.updateCloudConnection(req.params.id, req.body);
       const updated = await storage.getCloudConnection(req.params.id);
@@ -2877,7 +2954,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/cloud-connections/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/cloud-connections/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:delete"), async (req, res) => {
     try {
       await storage.deleteCloudConnection(req.params.id);
       res.json({ success: true });
@@ -2888,7 +2965,7 @@ export async function registerRoutes(
   });
 
   // Test cloud connection
-  app.post("/api/cloud-connections/:id/test", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-connections/:id/test", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       const { secretsService } = await import("./services/secrets");
@@ -2953,7 +3030,7 @@ export async function registerRoutes(
   });
 
   // Store credentials for cloud connection (encrypted)
-  app.post("/api/cloud-connections/:id/credentials", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-connections/:id/credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:create"), async (req, res) => {
     try {
       console.log(`[CloudCredentials] Received credential update for connection ${req.params.id}`);
       const { cloudIntegrationService } = await import("./services/cloud/index");
@@ -3010,7 +3087,7 @@ export async function registerRoutes(
   });
 
   // Start asset discovery for a cloud connection
-  app.post("/api/cloud-connections/:id/discover", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-connections/:id/discover", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       console.log(`[CloudDiscovery] Starting discovery for connection ${req.params.id}`);
       const { cloudIntegrationService } = await import("./services/cloud/index");
@@ -3047,7 +3124,7 @@ export async function registerRoutes(
   });
 
   // Get discovered cloud assets for a connection
-  app.get("/api/cloud-connections/:id/assets", apiRateLimiter, async (req, res) => {
+  app.get("/api/cloud-connections/:id/assets", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const assets = await storage.getCloudAssetsByConnection(req.params.id);
       res.json(assets);
@@ -3058,7 +3135,7 @@ export async function registerRoutes(
   });
 
   // Get discovery jobs for a connection
-  app.get("/api/cloud-connections/:id/discovery-jobs", apiRateLimiter, async (req, res) => {
+  app.get("/api/cloud-connections/:id/discovery-jobs", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const jobs = await storage.getCloudDiscoveryJobs(req.params.id);
       res.json(jobs);
@@ -3133,7 +3210,7 @@ export async function registerRoutes(
   });
 
   // Deploy agent to a specific cloud asset
-  app.post("/api/cloud-assets/:id/deploy-agent", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-assets/:id/deploy-agent", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       const { deploymentMethod, sshHost, sshPort, sshUsername, sshPassword, sshPrivateKey, useSudo } = req.body;
@@ -3190,14 +3267,14 @@ export async function registerRoutes(
         jobId: result.jobId,
         message: "Agent deployment started" 
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deploying agent:", error);
-      res.status(500).json({ error: "Failed to deploy agent" });
+      res.status(500).json({ error: "Failed to deploy agent", details: error?.message || String(error) });
     }
   });
 
   // Redeploy agent to a cloud asset (force reinstall)
-  app.post("/api/cloud-assets/:id/redeploy-agent", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-assets/:id/redeploy-agent", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -3252,14 +3329,14 @@ export async function registerRoutes(
         message: "Agent redeployment started",
         previousAgentId: previousAgentId,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error redeploying agent:", error);
-      res.status(500).json({ error: "Failed to redeploy agent" });
+      res.status(500).json({ error: "Failed to redeploy agent", details: error?.message || String(error) });
     }
   });
 
   // Cancel stuck deployment for a cloud asset
-  app.post("/api/cloud-assets/:id/cancel-deployment", apiRateLimiter, async (req, res) => {
+  app.post("/api/cloud-assets/:id/cancel-deployment", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const asset = await storage.getCloudAsset(req.params.id);
       if (!asset) {
@@ -3309,7 +3386,7 @@ export async function registerRoutes(
   });
 
   // Deploy agents to all assets in a connection
-  app.post("/api/cloud-connections/:id/deploy-all-agents", batchRateLimiter, async (req, res) => {
+  app.post("/api/cloud-connections/:id/deploy-all-agents", batchRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { cloudIntegrationService } = await import("./services/cloud/index");
       
@@ -3336,7 +3413,7 @@ export async function registerRoutes(
   });
 
   // Get all cloud assets
-  app.get("/api/cloud-assets", apiRateLimiter, async (req, res) => {
+  app.get("/api/cloud-assets", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const assets = await storage.getCloudAssets();
       res.json(assets);
@@ -3347,7 +3424,7 @@ export async function registerRoutes(
   });
 
   // Get deployment jobs for a connection
-  app.get("/api/cloud-connections/:id/deployment-jobs", apiRateLimiter, async (req, res) => {
+  app.get("/api/cloud-connections/:id/deployment-jobs", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
       const jobs = await storage.getAgentDeploymentJobs(req.params.id);
       res.json(jobs);
@@ -3375,7 +3452,7 @@ export async function registerRoutes(
   // List SSH credentials for organization
   app.get("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const credentials = await storage.getSshCredentials(organizationId);
       
       // Return credentials without sensitive data
@@ -3409,7 +3486,7 @@ export async function registerRoutes(
   // Create SSH credential
   app.post("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const parsed = sshCredentialSchema.safeParse(req.body);
       
       if (!parsed.success) {
@@ -3535,7 +3612,7 @@ export async function registerRoutes(
   // Deploy agent via SSH to a specific asset
   app.post("/api/ssh-credentials/:id/deploy/:assetId", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const serverUrl = process.env.PUBLIC_ODINFORGE_URL || `https://${req.headers.host}`;
       
       const { sshDeploymentService } = await import("./services/ssh-deployment");
@@ -3588,7 +3665,7 @@ export async function registerRoutes(
   // Get auto-deploy configuration for organization - requires authenticated user
   app.get("/api/auto-deploy/config", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       let config = await storage.getAutoDeployConfig(organizationId);
       
       // Return default config if none exists
@@ -3626,7 +3703,7 @@ export async function registerRoutes(
   // Create or update auto-deploy configuration (requires admin)
   app.put("/api/auto-deploy/config", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       
       // Validate request body
       const parseResult = autoDeployConfigSchema.safeParse(req.body);
@@ -3663,7 +3740,7 @@ export async function registerRoutes(
   // Toggle auto-deploy on/off (convenience endpoint) - requires admin
   app.post("/api/auto-deploy/toggle", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       
       // Validate request body
       const parseResult = autoDeployToggleSchema.safeParse(req.body);
@@ -3698,7 +3775,7 @@ export async function registerRoutes(
   // Get auto-deploy statistics - requires authenticated user
   app.get("/api/auto-deploy/stats", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || getOrganizationId(req) || "default";
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const config = await storage.getAutoDeployConfig(organizationId);
       
       res.json({
@@ -3730,7 +3807,7 @@ export async function registerRoutes(
   });
 
   // Start a new AI vs AI simulation
-  app.post("/api/simulations", simulationRateLimiter, async (req, res) => {
+  app.post("/api/simulations", simulationRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const parseResult = createSimulationSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -3815,7 +3892,7 @@ export async function registerRoutes(
   });
 
   // Get all simulations
-  app.get("/api/simulations", apiRateLimiter, async (req, res) => {
+  app.get("/api/simulations", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const simulations = await storage.getAllAiSimulations();
       res.json(simulations);
@@ -3826,7 +3903,7 @@ export async function registerRoutes(
   });
 
   // Get a specific simulation
-  app.get("/api/simulations/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/simulations/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const simulation = await storage.getAiSimulation(req.params.id);
       if (!simulation) {
@@ -3840,7 +3917,7 @@ export async function registerRoutes(
   });
 
   // Delete a simulation
-  app.delete("/api/simulations/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/simulations/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:delete"), async (req, res) => {
     try {
       const simulation = await storage.getAiSimulation(req.params.id);
       if (!simulation) {
@@ -4624,7 +4701,7 @@ export async function registerRoutes(
   });
 
   // Agent build status endpoint
-  app.get("/api/agents/build-status", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/build-status", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const { getAgentBuildStatus } = await import("./services/agent-builder");
       const status = getAgentBuildStatus();
@@ -4716,7 +4793,7 @@ export async function registerRoutes(
   }
 
   // Get all agents (for dashboard)
-  app.get("/api/agents", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const agents = await storage.getEndpointAgents();
       // Don't expose API keys in list view, calculate real-time status
@@ -4732,7 +4809,7 @@ export async function registerRoutes(
   });
 
   // Agent stats for dashboard (must be before :id route)
-  app.get("/api/agents/stats/summary", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/stats/summary", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       // Get agents and calculate real-time status for accurate counts
       const agents = await storage.getEndpointAgents();
@@ -4809,7 +4886,7 @@ export async function registerRoutes(
   };
 
   // Get auto-cleanup settings (must be before /api/agents/:id)
-  app.get("/api/agents/auto-cleanup", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/auto-cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     res.json({
       enabled: autoCleanupConfig.enabled,
       intervalHours: autoCleanupConfig.intervalHours,
@@ -4821,7 +4898,7 @@ export async function registerRoutes(
   });
 
   // Update auto-cleanup settings
-  app.post("/api/agents/auto-cleanup", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/auto-cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { enabled, intervalHours, maxAgeHours } = req.body;
       
@@ -4856,7 +4933,7 @@ export async function registerRoutes(
   });
 
   // Trigger immediate auto-cleanup run
-  app.post("/api/agents/auto-cleanup/run-now", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/auto-cleanup/run-now", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const result = await storage.deleteStaleAgents(autoCleanupConfig.maxAgeHours);
       autoCleanupConfig.lastRun = new Date().toISOString();
@@ -4875,7 +4952,7 @@ export async function registerRoutes(
   });
 
   // Get agent by ID
-  app.get("/api/agents/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4894,7 +4971,7 @@ export async function registerRoutes(
   });
 
   // Force agent check-in - queue command for agent to execute on next heartbeat
-  app.post("/api/agents/:id/force-checkin", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/:id/force-checkin", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4925,7 +5002,7 @@ export async function registerRoutes(
   });
 
   // Queue validation probe command for agent to execute from inside target network
-  app.post("/api/agents/:id/validation-probe", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/:id/validation-probe", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -4995,7 +5072,7 @@ export async function registerRoutes(
   });
 
   // Get pending commands for an agent (called by agent during heartbeat)
-  app.get("/api/agents/:id/commands", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/:id/commands", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const apiKey = req.headers["x-api-key"] as string;
       if (!apiKey) {
@@ -5026,7 +5103,7 @@ export async function registerRoutes(
   });
 
   // Complete a command (called by agent after executing)
-  app.post("/api/agents/:id/commands/:commandId/complete", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/:id/commands/:commandId/complete", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const apiKey = req.headers["x-api-key"] as string;
       if (!apiKey) {
@@ -5050,7 +5127,7 @@ export async function registerRoutes(
   });
 
   // Get agent telemetry
-  app.get("/api/agents/:id/telemetry", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/:id/telemetry", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
       const telemetry = await storage.getAgentTelemetry(req.params.id, limit);
@@ -5094,7 +5171,7 @@ export async function registerRoutes(
   });
 
   // Get agent findings
-  app.get("/api/agents/:id/findings", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/:id/findings", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:read"), async (req, res) => {
     try {
       const includeNoise = req.query.includeNoise === "true";
       let findings = await storage.getAgentFindings(req.params.id);
@@ -5111,7 +5188,7 @@ export async function registerRoutes(
   });
 
   // Delete agent
-  app.delete("/api/agents/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/agents/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:delete"), async (req, res) => {
     try {
       await storage.deleteEndpointAgent(req.params.id);
       res.json({ success: true });
@@ -5122,11 +5199,11 @@ export async function registerRoutes(
   });
 
   // ============================================================================
-  // NOTE: Enterprise agent management endpoints moved to after requireAdminAuth definition
-  // See line ~5500 for these endpoints
+  // NOTE: Enterprise agent management endpoints temporarily removed
+  // ============================================================================
 
   // Cleanup stale agents (agents that haven't checked in for specified hours)
-  app.post("/api/agents/cleanup", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const maxAgeHours = Math.max(1, Math.min(720, Number(req.body.maxAgeHours) || 24));
       if (isNaN(maxAgeHours)) {
@@ -5146,7 +5223,7 @@ export async function registerRoutes(
   });
 
   // Get stale resources summary (agents that never checked in, stuck deployments, expired tokens)
-  app.get("/api/agents/stale-resources", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/stale-resources", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const { agentCleanupService } = await import("./services/agent-cleanup");
       const organizationId = getOrganizationId(req) || "default";
@@ -5159,7 +5236,7 @@ export async function registerRoutes(
   });
 
   // Cleanup stale resources (agents, deployment jobs, expired tokens)
-  app.post("/api/agents/stale-resources/cleanup", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/stale-resources/cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { agentCleanupService } = await import("./services/agent-cleanup");
       const organizationId = getOrganizationId(req) || "default";
@@ -5179,7 +5256,7 @@ export async function registerRoutes(
   });
 
   // Delete a specific agent
-  app.delete("/api/agents/stale-resources/agent/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/agents/stale-resources/agent/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:delete"), async (req, res) => {
     try {
       const { agentCleanupService } = await import("./services/agent-cleanup");
       const organizationId = getOrganizationId(req) || "default";
@@ -5196,7 +5273,7 @@ export async function registerRoutes(
   });
 
   // Retry a failed deployment job
-  app.post("/api/agents/stale-resources/deployment/:id/retry", apiRateLimiter, async (req, res) => {
+  app.post("/api/agents/stale-resources/deployment/:id/retry", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { agentCleanupService } = await import("./services/agent-cleanup");
       const organizationId = getOrganizationId(req) || "default";
@@ -5213,7 +5290,7 @@ export async function registerRoutes(
   });
 
   // Get all agent findings
-  app.get("/api/agent-findings", apiRateLimiter, async (req, res) => {
+  app.get("/api/agent-findings", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:read"), async (req, res) => {
     try {
       const includeNoise = req.query.includeNoise === "true";
       let findings = await storage.getAgentFindings();
@@ -5230,7 +5307,7 @@ export async function registerRoutes(
   });
 
   // Update agent finding status
-  app.patch("/api/agent-findings/:id", apiRateLimiter, async (req, res) => {
+  app.patch("/api/agent-findings/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:triage"), async (req, res) => {
     try {
       await storage.updateAgentFinding(req.params.id, req.body);
       const finding = await storage.getAgentFinding(req.params.id);
@@ -5256,7 +5333,7 @@ export async function registerRoutes(
       }
       
       const { verificationStatus, verificationNotes } = parseResult.data;
-      const verifiedBy = req.user?.username || "unknown";
+      const verifiedBy = req.uiUser?.email || "unknown";
       
       const finding = await storage.getAgentFinding(req.params.id);
       if (!finding) {
@@ -5281,31 +5358,10 @@ export async function registerRoutes(
 
   // ============================================================================
   // mTLS Certificate Management Endpoints
-  // Note: These endpoints require authenticated session (admin access)
   // ============================================================================
 
-  // Middleware to check admin authentication for credential management
-  const requireAdminAuth = (req: any, res: any, next: any) => {
-    // Check for authenticated session (Replit Auth)
-    if (req.isAuthenticated && req.isAuthenticated()) {
-      return next();
-    }
-    // Check for admin API key header
-    const adminKey = req.headers["x-admin-key"];
-    const expectedAdminKey = process.env.ADMIN_API_KEY;
-    if (expectedAdminKey && adminKey === expectedAdminKey) {
-      return next();
-    }
-    // In development mode without session, allow access with warning
-    if (process.env.NODE_ENV === "development" && !expectedAdminKey) {
-      console.warn("WARNING: Credential management endpoint accessed without authentication (development mode)");
-      return next();
-    }
-    return res.status(401).json({ error: "Admin authentication required for credential management" });
-  };
-
   // Request a new certificate for an agent
-  app.post("/api/agents/:id/certificates", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/certificates", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -5340,7 +5396,7 @@ export async function registerRoutes(
   });
 
   // List certificates for an agent
-  app.get("/api/agents/:id/certificates", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/:id/certificates", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -5365,7 +5421,7 @@ export async function registerRoutes(
   });
 
   // Renew a certificate
-  app.post("/api/agents/:id/certificates/:certId/renew", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/certificates/:certId/renew", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -5395,7 +5451,7 @@ export async function registerRoutes(
   });
 
   // Revoke a certificate
-  app.delete("/api/agents/:id/certificates/:certId", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/agents/:id/certificates/:certId", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const reason = req.body.reason || "Manually revoked";
       const success = await mtlsAuthService.revokeCertificate(req.params.certId, reason);
@@ -5419,7 +5475,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Generate JWT tokens for an agent
-  app.post("/api/agents/:id/tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/tokens", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -5475,7 +5531,7 @@ export async function registerRoutes(
   });
 
   // Revoke all credentials for an agent
-  app.post("/api/agents/:id/revoke-all", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/:id/revoke-all", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:revoke"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -5498,7 +5554,7 @@ export async function registerRoutes(
   });
 
   // Get agent authentication status
-  app.get("/api/agents/:id/auth-status", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/:id/auth-status", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const agent = await storage.getEndpointAgent(req.params.id);
       if (!agent) {
@@ -5524,7 +5580,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Generate a new single-use registration token
-  app.post("/api/agents/registration-tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/registration-tokens", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:register"), async (req, res) => {
     try {
       const { organizationId, label, expiresInHours } = req.body;
       const org = organizationId || "default";
@@ -5561,7 +5617,7 @@ export async function registerRoutes(
   });
 
   // List registration tokens for an organization (admin only)
-  app.get("/api/agents/registration-tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/agents/registration-tokens", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const organizationId = (req.query.organizationId as string) || "default";
       const tokens = await storage.getAgentRegistrationTokens(organizationId);
@@ -5585,7 +5641,7 @@ export async function registerRoutes(
   });
 
   // Delete a registration token
-  app.delete("/api/agents/registration-tokens/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/agents/registration-tokens/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       await storage.deleteAgentRegistrationToken(req.params.id);
       console.log(`[AUDIT] Registration token ${req.params.id} deleted`);
@@ -5597,7 +5653,7 @@ export async function registerRoutes(
   });
 
   // Cleanup expired/used tokens (maintenance endpoint)
-  app.post("/api/agents/registration-tokens/cleanup", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/registration-tokens/cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const deletedCount = await storage.cleanupExpiredAgentRegistrationTokens();
       console.log(`[AUDIT] Cleaned up ${deletedCount} expired/used registration tokens`);
@@ -5610,7 +5666,7 @@ export async function registerRoutes(
 
   // Generate a ready-to-use install command with embedded token (zero user interaction)
   // This is the primary endpoint for automated agent deployment
-  app.post("/api/agents/install-command", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/agents/install-command", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:register"), async (req, res) => {
     try {
       const { platform, organizationId, label, expiresInHours, serverUrl: customServerUrl } = req.body;
       const org = organizationId || "default";
@@ -5680,7 +5736,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Create a new tenant
-  app.post("/api/tenants", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/tenants", apiRateLimiter, uiAuthMiddleware, requirePermission("platform:emergency_access"), async (req, res) => {
     try {
       const { name, organizationId, allowedScopes, accessTokenTTL, refreshTokenTTL } = req.body;
       if (!name) {
@@ -5715,7 +5771,7 @@ export async function registerRoutes(
   });
 
   // List tenants
-  app.get("/api/tenants", apiRateLimiter, async (req, res) => {
+  app.get("/api/tenants", apiRateLimiter, uiAuthMiddleware, requirePermission("org:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const tenants = await jwtAuthService.listTenants(organizationId);
@@ -5727,7 +5783,7 @@ export async function registerRoutes(
   });
 
   // Get tenant by ID
-  app.get("/api/tenants/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/tenants/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("org:read"), async (req, res) => {
     try {
       const tenant = await jwtAuthService.getTenant(req.params.id);
       if (!tenant) {
@@ -5752,7 +5808,7 @@ export async function registerRoutes(
   });
 
   // Deactivate tenant
-  app.delete("/api/tenants/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/tenants/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("platform:emergency_access"), async (req, res) => {
     try {
       const success = await jwtAuthService.deactivateTenant(req.params.id);
       if (!success) {
@@ -5785,7 +5841,7 @@ export async function registerRoutes(
   });
 
   // Update authentication configuration (admin only)
-  app.patch("/api/auth/config", authRateLimiter, requireAdminAuth, async (req, res) => {
+  app.patch("/api/auth/config", authRateLimiter, uiAuthMiddleware, requirePermission("org:manage_settings"), async (req, res) => {
     try {
       const updates = req.body;
       unifiedAuthService.configure(updates);
@@ -5835,7 +5891,7 @@ export async function registerRoutes(
   };
 
   // Get organization settings
-  app.get("/api/organization/settings", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/organization/settings", apiRateLimiter, uiAuthMiddleware, requirePermission("org:read"), async (req, res) => {
     try {
       res.json(organizationSettings);
     } catch (error) {
@@ -5845,7 +5901,7 @@ export async function registerRoutes(
   });
 
   // Update organization settings
-  app.patch("/api/organization/settings", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.patch("/api/organization/settings", apiRateLimiter, uiAuthMiddleware, requirePermission("org:manage_settings"), async (req, res) => {
     try {
       const updates = req.body;
       Object.keys(updates).forEach(key => {
@@ -5867,7 +5923,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Get all users
-  app.get("/api/users", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/users", apiRateLimiter, uiAuthMiddleware, requirePermission("org:manage_users"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const users = await storage.getAllUsers(organizationId);
@@ -5879,7 +5935,7 @@ export async function registerRoutes(
   });
 
   // Create a new user
-  app.post("/api/users", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/users", apiRateLimiter, uiAuthMiddleware, requirePermission("org:manage_users"), async (req, res) => {
     try {
       const { username, password, role, displayName, email } = req.body;
       
@@ -5910,7 +5966,7 @@ export async function registerRoutes(
   });
 
   // Update a user
-  app.patch("/api/users/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.patch("/api/users/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("org:manage_users"), async (req, res) => {
     try {
       const { role, displayName, email, password } = req.body;
       const user = await storage.getUser(req.params.id);
@@ -5937,7 +5993,7 @@ export async function registerRoutes(
   });
 
   // Delete a user
-  app.delete("/api/users/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/users/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("org:manage_users"), async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       
@@ -5969,7 +6025,7 @@ export async function registerRoutes(
     }).optional(),
   });
 
-  app.post("/api/recon/scan", evaluationRateLimiter, async (req, res) => {
+  app.post("/api/recon/scan", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const parsed = reconScanSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -6065,7 +6121,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/recon/results/:scanId", apiRateLimiter, async (req, res) => {
+  app.get("/api/recon/results/:scanId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const { scanId } = req.params;
       const scan = await storage.getReconScan(scanId);
@@ -6134,7 +6190,7 @@ export async function registerRoutes(
   });
 
   // Create evaluation from recon findings
-  app.post("/api/recon/create-evaluation", evaluationRateLimiter, async (req, res) => {
+  app.post("/api/recon/create-evaluation", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { scanId, selectedExposures } = req.body;
       
@@ -6238,7 +6294,7 @@ export async function registerRoutes(
   // ============================================================================
 
   // Create and start a full assessment (supports enhanced mode with target URL)
-  app.post("/api/full-assessments", evaluationRateLimiter, async (req, res) => {
+  app.post("/api/full-assessments", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { 
         name, 
@@ -6320,7 +6376,7 @@ export async function registerRoutes(
   });
 
   // Get all full assessments
-  app.get("/api/full-assessments", apiRateLimiter, async (req, res) => {
+  app.get("/api/full-assessments", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const assessments = await storage.getFullAssessments(organizationId);
@@ -6332,7 +6388,7 @@ export async function registerRoutes(
   });
 
   // Get a specific full assessment
-  app.get("/api/full-assessments/:id", apiRateLimiter, async (req, res) => {
+  app.get("/api/full-assessments/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const assessment = await storage.getFullAssessment(req.params.id);
       if (!assessment) {
@@ -6346,7 +6402,7 @@ export async function registerRoutes(
   });
 
   // Delete a full assessment
-  app.delete("/api/full-assessments/:id", apiRateLimiter, async (req, res) => {
+  app.delete("/api/full-assessments/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
     try {
       await storage.deleteFullAssessment(req.params.id);
       res.json({ success: true });
@@ -6820,31 +6876,7 @@ async function runAiSimulation(simulationId: string) {
 // ========== JOB QUEUE API ROUTES ==========
 
 function registerJobQueueRoutes(app: Express) {
-  // Admin auth middleware for job queue routes
-  const requireAdminAuth = (req: any, res: any, next: any) => {
-    // Check for authenticated session (Replit Auth)
-    if (req.isAuthenticated && req.isAuthenticated()) {
-      return next();
-    }
-    // Check for admin password header
-    const adminPassword = req.headers["x-admin-password"];
-    const expectedAdminPassword = process.env.ADMIN_PASSWORD;
-    if (expectedAdminPassword && adminPassword === expectedAdminPassword) {
-      return next();
-    }
-    // Check for admin API key header
-    const adminKey = req.headers["x-admin-key"];
-    const expectedAdminKey = process.env.ADMIN_API_KEY;
-    if (expectedAdminKey && adminKey === expectedAdminKey) {
-      return next();
-    }
-    // In development mode without session, allow access with warning
-    if (process.env.NODE_ENV === "development" && !expectedAdminKey && !expectedAdminPassword) {
-      console.warn("WARNING: Endpoint accessed without authentication (development mode)");
-      return next();
-    }
-    return res.status(401).json({ error: "Admin authentication required" });
-  };
+  // Legacy requireAdminAuth removed — all endpoints now use uiAuthMiddleware + requirePermission()
 
   // Get queue stats
   app.get("/api/jobs/stats", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
@@ -6951,6 +6983,31 @@ function registerJobQueueRoutes(app: Express) {
     } catch (error) {
       console.error("Failed to retry job:", error);
       res.status(500).json({ error: "Failed to retry job" });
+    }
+  });
+
+  // Delete job
+  app.delete("/api/jobs/:jobId", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const job = await queueService.getJob(req.params.jobId);
+      if (!job) {
+        return res.status(404).json({ error: "Job not found" });
+      }
+
+      const tenantId = req.uiUser?.tenantId || "default";
+      if (job.tenantId !== tenantId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (job.status === "processing") {
+        return res.status(400).json({ error: "Cannot delete a running job" });
+      }
+
+      const success = await queueService.cancelJob(req.params.jobId);
+      res.json({ success: true, message: "Job deleted" });
+    } catch (error) {
+      console.error("Failed to delete job:", error);
+      res.status(500).json({ error: "Failed to delete job" });
     }
   });
 
@@ -7266,7 +7323,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get web app recon scan status
-  app.get("/api/web-app-recon/:scanId", apiRateLimiter, async (req, res) => {
+  app.get("/api/web-app-recon/:scanId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const scan = await storage.getWebAppReconScan(req.params.scanId);
       if (!scan) {
@@ -7280,7 +7337,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // Get all web app recon scans
-  app.get("/api/web-app-recon", apiRateLimiter, async (req, res) => {
+  app.get("/api/web-app-recon", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const scans = await storage.getWebAppReconScans(organizationId);
@@ -7380,7 +7437,7 @@ function registerJobQueueRoutes(app: Express) {
   // ============================================================================
 
   // POST /api/enrollment/token - Create a new enrollment token (60 min expiry)
-  app.post("/api/enrollment/token", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/enrollment/token", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:register"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       
@@ -7418,7 +7475,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // GET /api/enrollment/tokens - List active enrollment tokens (no raw tokens)
-  app.get("/api/enrollment/tokens", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/enrollment/tokens", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       
@@ -7440,7 +7497,7 @@ function registerJobQueueRoutes(app: Express) {
   });
 
   // DELETE /api/enrollment/tokens/:id - Revoke an enrollment token
-  app.delete("/api/enrollment/tokens/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/enrollment/tokens/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     try {
       const { id } = req.params;
       const organizationId = getOrganizationId(req) || "default";
@@ -7621,7 +7678,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/inventory/assets - Ingest discovered assets
-  app.post("/api/inventory/assets", batchRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/inventory/assets", batchRateLimiter, uiAuthMiddleware, requirePermission("assets:create"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       const { provider, assets } = req.body;
@@ -7669,7 +7726,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/coverage - Get coverage statistics
-  app.get("/api/coverage", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/coverage", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       
@@ -7687,7 +7744,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
 
   // POST /api/api-definitions - Upload and parse OpenAPI/Swagger spec
-  app.post("/api/api-definitions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/api-definitions", apiRateLimiter, uiAuthMiddleware, requirePermission("api:write"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       const tenantId = req.headers["x-tenant-id"] as string || "default";
@@ -7742,7 +7799,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/api-definitions - List API definitions
-  app.get("/api/api-definitions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/api-definitions", apiRateLimiter, uiAuthMiddleware, requirePermission("api:read"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
       const definitions = await storage.getApiDefinitions(organizationId);
@@ -7754,7 +7811,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/api-definitions/:id - Get API definition with endpoints
-  app.get("/api/api-definitions/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/api-definitions/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("api:read"), async (req, res) => {
     try {
       const { id } = req.params;
       const definition = await storage.getApiDefinition(id);
@@ -7773,7 +7830,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // DELETE /api/api-definitions/:id - Delete API definition
-  app.delete("/api/api-definitions/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/api-definitions/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("api:write"), async (req, res) => {
     try {
       const { id } = req.params;
       const definition = await storage.getApiDefinition(id);
@@ -7791,7 +7848,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/api-definitions/:id/endpoints - Get endpoints for definition
-  app.get("/api/api-definitions/:id/endpoints", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/api-definitions/:id/endpoints", apiRateLimiter, uiAuthMiddleware, requirePermission("api:read"), async (req, res) => {
     try {
       const { id } = req.params;
       const { priority, method } = req.query;
@@ -7813,7 +7870,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/api-definitions/:id/scan - Trigger web app scan using API definition endpoints
-  app.post("/api/api-definitions/:id/scan", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/api-definitions/:id/scan", apiRateLimiter, uiAuthMiddleware, requirePermission("api:write"), async (req, res) => {
     try {
       const { id } = req.params;
       const organizationId = getOrganizationId(req) || "default";
@@ -8004,7 +8061,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
 
   // POST /api/probes/credentials - Run credential probe against a target
-  app.post("/api/probes/credentials", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/probes/credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { target, services } = req.body;
 
@@ -8027,7 +8084,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/probes/ldap - Run LDAP injection probe against a target
-  app.post("/api/probes/ldap", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/probes/ldap", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { target, port = 389, baseDn, testUser } = req.body;
 
@@ -8047,7 +8104,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/probes/smtp-relay - Run SMTP open relay probe against a target
-  app.post("/api/probes/smtp-relay", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/probes/smtp-relay", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { target, port = 25, testEmail } = req.body;
 
@@ -8070,42 +8127,196 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // COMPLIANCE MAPPING
   // ============================================================================
 
+  // Framework ID mapping: frontend tab IDs → backend service IDs
+  const frameworkIdMap: Record<string, { mappingId: string | null; reportId: string | null; name: string; version: string; description: string }> = {
+    SOC2: { mappingId: "soc2", reportId: "soc2", name: "SOC 2", version: "2017", description: "Service Organization Control 2 Trust Services Criteria" },
+    ISO27001: { mappingId: "iso27001", reportId: null, name: "ISO 27001", version: "2022", description: "Information Security Management System" },
+    NIST: { mappingId: "nist_csf", reportId: "nist-800-53", name: "NIST CSF", version: "2.0", description: "NIST Cybersecurity Framework" },
+    "PCI-DSS": { mappingId: "pci_dss", reportId: "pci-dss", name: "PCI DSS", version: "4.0", description: "Payment Card Industry Data Security Standard" },
+    HIPAA: { mappingId: null, reportId: "hipaa", name: "HIPAA", version: "2023", description: "Health Insurance Portability and Accountability Act Security Rule" },
+    GDPR: { mappingId: null, reportId: null, name: "GDPR", version: "2018", description: "EU General Data Protection Regulation" },
+    FedRAMP: { mappingId: null, reportId: null, name: "FedRAMP", version: "Rev. 5", description: "Federal Risk and Authorization Management Program" },
+  };
+
+  // Also map backend IDs back to canonical frontend IDs
+  const backendToFrontendId: Record<string, string> = {
+    soc2: "SOC2", iso27001: "ISO27001", nist_csf: "NIST", pci_dss: "PCI-DSS",
+    "nist-800-53": "NIST", "pci-dss": "PCI-DSS", hipaa: "HIPAA",
+  };
+
+  function resolveFrameworkControls(frameworkId: string): any[] {
+    const canonical = backendToFrontendId[frameworkId] || frameworkId;
+    const mapping = frameworkIdMap[canonical];
+    if (!mapping) return [];
+
+    // Try compliance-mapping service first (has soc2, iso27001, nist_csf, pci_dss)
+    if (mapping.mappingId) {
+      try {
+        const complianceMapping = require("./services/compliance-mapping");
+        const controls = complianceMapping.getAllControls(mapping.mappingId);
+        if (controls && controls.length > 0) return controls;
+      } catch {}
+    }
+
+    // Fall back to compliance-report-service templates (has hipaa, nist-800-53, pci-dss, soc2)
+    if (mapping.reportId) {
+      try {
+        const { COMPLIANCE_FRAMEWORKS } = require("./services/compliance/compliance-templates");
+        const framework = COMPLIANCE_FRAMEWORKS[mapping.reportId];
+        if (framework?.controls) return framework.controls;
+      } catch {}
+    }
+
+    return [];
+  }
+
   // GET /api/compliance/frameworks - List available compliance frameworks
-  app.get("/api/compliance/frameworks", apiRateLimiter, async (req, res) => {
+  app.get("/api/compliance/frameworks", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
-      const { complianceService } = await import("./services/compliance-mapping");
-      res.json({
-        frameworks: complianceService.frameworks.map(f => ({
-          id: f,
-          name: {
-            soc2: "SOC 2",
-            iso27001: "ISO 27001:2022",
-            nist_csf: "NIST Cybersecurity Framework",
-            pci_dss: "PCI DSS v4.0",
-          }[f],
-          controlCount: complianceService.getAllControls(f).length,
-        })),
-      });
+      const frameworks = Object.entries(frameworkIdMap).map(([id, meta]) => ({
+        id,
+        name: meta.name,
+        version: meta.version,
+        description: meta.description,
+        controlCount: resolveFrameworkControls(id).length,
+      }));
+      res.json(frameworks);
     } catch (error) {
       console.error("Failed to get compliance frameworks:", error);
       res.status(500).json({ error: "Failed to get compliance frameworks" });
     }
   });
 
+  // GET /api/compliance/coverage - Get compliance coverage for a framework
+  app.get("/api/compliance/coverage", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const frameworkId = (req.query.framework as string) || "SOC2";
+      const controls = resolveFrameworkControls(frameworkId);
+      const totalControls = controls.length;
+      const canonical = backendToFrontendId[frameworkId] || frameworkId;
+      const mappingId = frameworkIdMap[canonical]?.mappingId;
+
+      let testedControlIds = new Set<string>();
+      let failedControlIds = new Set<string>();
+
+      // Try to compute coverage from evaluation findings
+      if (mappingId) {
+        try {
+          const tenantId = req.uiUser?.tenantId || "default";
+          const evaluations = await storage.getEvaluations(tenantId);
+          if (evaluations && evaluations.length > 0) {
+            const complianceMapping = require("./services/compliance-mapping");
+            for (const evaluation of evaluations) {
+              const findings = (evaluation as any).findings;
+              if (findings && Array.isArray(findings)) {
+                for (const finding of findings) {
+                  const fType = (finding.type || finding.category || "").toLowerCase().replace(/\s+/g, "_");
+                  if (!fType) continue;
+                  const result = complianceMapping.mapFindingToControls(fType);
+                  if (result?.controls) {
+                    for (const ctrl of result.controls) {
+                      if (ctrl.framework === mappingId) {
+                        testedControlIds.add(ctrl.controlId);
+                        if (finding.severity === "critical" || finding.severity === "high") {
+                          failedControlIds.add(ctrl.controlId);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      const compliantControls = Math.max(0, testedControlIds.size - failedControlIds.size);
+      const coveragePercentage = totalControls > 0 ? (testedControlIds.size / totalControls) * 100 : 0;
+
+      res.json({
+        framework: frameworkId,
+        totalControls,
+        compliantControls,
+        nonCompliantControls: failedControlIds.size,
+        notApplicableControls: 0,
+        coveragePercentage: Math.round(coveragePercentage * 10) / 10,
+      });
+    } catch (error) {
+      console.error("Failed to get compliance coverage:", error);
+      res.status(500).json({ error: "Failed to get compliance coverage" });
+    }
+  });
+
+  // GET /api/compliance/gaps - Get compliance gaps for a framework
+  app.get("/api/compliance/gaps", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const frameworkId = (req.query.framework as string) || "SOC2";
+      const controls = resolveFrameworkControls(frameworkId);
+      const canonical = backendToFrontendId[frameworkId] || frameworkId;
+      const mappingId = frameworkIdMap[canonical]?.mappingId;
+
+      let testedControlIds = new Set<string>();
+
+      // Check which controls have been tested via evaluation findings
+      if (mappingId) {
+        try {
+          const tenantId = req.uiUser?.tenantId || "default";
+          const evaluations = await storage.getEvaluations(tenantId);
+          if (evaluations && evaluations.length > 0) {
+            const complianceMapping = require("./services/compliance-mapping");
+            for (const evaluation of evaluations) {
+              const findings = (evaluation as any).findings;
+              if (findings && Array.isArray(findings)) {
+                for (const finding of findings) {
+                  const fType = (finding.type || finding.category || "").toLowerCase().replace(/\s+/g, "_");
+                  if (!fType) continue;
+                  const result = complianceMapping.mapFindingToControls(fType);
+                  if (result?.controls) {
+                    for (const ctrl of result.controls) {
+                      if (ctrl.framework === mappingId) {
+                        testedControlIds.add(ctrl.controlId);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Gaps = controls that haven't been tested yet
+      const gaps = controls
+        .filter((c: any) => !testedControlIds.has(c.id))
+        .map((c: any) => ({
+          controlId: c.id,
+          title: c.name || c.title || c.id,
+          framework: frameworkId,
+          severity: c.priority === "P1" ? "high" : "medium",
+          recommendation: `Implement and validate: ${c.description || c.name || c.id}`,
+          estimatedEffort: c.priority === "P1" ? "high" : "medium",
+        }));
+
+      res.json(gaps);
+    } catch (error) {
+      console.error("Failed to get compliance gaps:", error);
+      res.status(500).json({ error: "Failed to get compliance gaps" });
+    }
+  });
+
   // GET /api/compliance/controls/:framework - Get controls for a framework
-  app.get("/api/compliance/controls/:framework", apiRateLimiter, async (req, res) => {
+  app.get("/api/compliance/controls/:framework", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const { framework } = req.params;
-      const { complianceService } = await import("./services/compliance-mapping");
-      
-      if (!complianceService.frameworks.includes(framework as any)) {
-        return res.status(400).json({ 
+      const controls = resolveFrameworkControls(framework);
+
+      if (controls.length === 0 && !frameworkIdMap[framework] && !backendToFrontendId[framework]) {
+        return res.status(400).json({
           error: "Invalid framework",
-          validFrameworks: complianceService.frameworks,
+          validFrameworks: Object.keys(frameworkIdMap),
         });
       }
-      
-      const controls = complianceService.getAllControls(framework as any);
+
       res.json({ framework, controls });
     } catch (error) {
       console.error("Failed to get compliance controls:", error);
@@ -8114,7 +8325,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/compliance/map-finding - Map a finding type to compliance controls
-  app.post("/api/compliance/map-finding", apiRateLimiter, async (req, res) => {
+  app.post("/api/compliance/map-finding", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const { findingType } = req.body;
       
@@ -8133,7 +8344,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/compliance/gap-report - Generate compliance gap report from findings
-  app.post("/api/compliance/gap-report", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/compliance/gap-report", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const { framework, findings } = req.body;
       
@@ -8164,7 +8375,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/compliance/scan-report/:scanId - Generate compliance report from a scan's findings
-  app.get("/api/compliance/scan-report/:scanId", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/compliance/scan-report/:scanId", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const { scanId } = req.params;
       const { framework = "soc2" } = req.query;
@@ -8211,7 +8422,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ========================================
 
   // POST /api/fuzz/generate - Generate fuzz test cases for an endpoint
-  app.post("/api/fuzz/generate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/fuzz/generate", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { endpoint } = req.body;
 
@@ -8236,7 +8447,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/fuzz/execute - Execute fuzz test cases against a target
-  app.post("/api/fuzz/execute", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/fuzz/execute", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { 
         endpoint,
@@ -8276,7 +8487,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/fuzz/api-definition/:id - Fuzz all endpoints from an API definition
-  app.post("/api/fuzz/api-definition/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/fuzz/api-definition/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { id } = req.params;
       const { targetBaseUrl, config = {} } = req.body;
@@ -8339,7 +8550,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/fuzz/validate-response - Validate a response against expected schema
-  app.post("/api/fuzz/validate-response", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/fuzz/validate-response", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { responseBody, statusCode, responseHeaders, responseTimeMs, expected } = req.body;
 
@@ -8364,7 +8575,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/fuzz/infer-schema - Infer JSON schema from a sample response
-  app.post("/api/fuzz/infer-schema", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/fuzz/infer-schema", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { sampleResponse } = req.body;
 
@@ -8383,7 +8594,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/fuzz/categories - Get available fuzzing categories
-  app.get("/api/fuzz/categories", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/fuzz/categories", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (_req, res) => {
     try {
       const { apiFuzzingEngine } = await import("./services/api-fuzzer");
       res.json({
@@ -8401,7 +8612,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ========================================
 
   // POST /api/auth-test/jwt/analyze - Analyze a JWT token
-  app.post("/api/auth-test/jwt/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/auth-test/jwt/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { token } = req.body;
 
@@ -8420,7 +8631,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/auth-test/jwt/test - Run JWT security tests
-  app.post("/api/auth-test/jwt/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/auth-test/jwt/test", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { targetUrl, token, headers, testTypes, timeoutMs } = req.body;
 
@@ -8455,7 +8666,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/auth-test/oauth/redirect - Test OAuth redirect URI validation
-  app.post("/api/auth-test/oauth/redirect", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/auth-test/oauth/redirect", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { 
         authorizationEndpoint, 
@@ -8506,7 +8717,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/auth-test/saml/analyze - Analyze a SAML assertion
-  app.post("/api/auth-test/saml/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/auth-test/saml/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { assertion } = req.body;
 
@@ -8525,7 +8736,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/auth-test/saml/test - Run SAML security tests
-  app.post("/api/auth-test/saml/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/auth-test/saml/test", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { acsUrl, originalAssertion, relayState, headers, timeoutMs, testTypes } = req.body;
 
@@ -8565,7 +8776,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ========================================
 
   // POST /api/container-security/scan-manifest - Scan a single K8s manifest
-  app.post("/api/container-security/scan-manifest", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/container-security/scan-manifest", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { manifest } = req.body;
 
@@ -8593,7 +8804,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/container-security/scan-manifests - Scan multiple K8s manifests (YAML/JSON)
-  app.post("/api/container-security/scan-manifests", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/container-security/scan-manifests", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { content } = req.body;
 
@@ -8622,7 +8833,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/container-security/scan-dockerfile - Scan a Dockerfile for security issues
-  app.post("/api/container-security/scan-dockerfile", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/container-security/scan-dockerfile", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { content, imageName } = req.body;
 
@@ -8651,7 +8862,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/container-security/scan-pod-spec - Scan a pod spec directly
-  app.post("/api/container-security/scan-pod-spec", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/container-security/scan-pod-spec", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { podSpec, resourceName, namespace, resourceType } = req.body;
 
@@ -8688,7 +8899,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
 
   // POST /api/sandbox/sessions - Create a new sandbox session
-  app.post("/api/sandbox/sessions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/sessions", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { name, description, targetUrl, targetHost, executionMode, resourceLimits } = req.body;
 
@@ -8714,7 +8925,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/sessions - List all sandbox sessions
-  app.get("/api/sandbox/sessions", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/sandbox/sessions", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (_req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const sessions = await sandboxSessionManager.listSessions();
@@ -8726,7 +8937,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/sessions/:id - Get a specific sandbox session
-  app.get("/api/sandbox/sessions/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sandbox/sessions/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const session = await sandboxSessionManager.getSession(req.params.id);
@@ -8741,7 +8952,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/sessions/:id/execute - Execute a payload in the sandbox
-  app.post("/api/sandbox/sessions/:id/execute", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/sessions/:id/execute", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { payloadName, payloadCategory, payloadContent, targetEndpoint, targetMethod, mitreAttackId, mitreTactic } = req.body;
 
@@ -8768,7 +8979,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/sessions/:id/snapshots - Create a snapshot
-  app.post("/api/sandbox/sessions/:id/snapshots", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/sessions/:id/snapshots", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { name, description } = req.body;
 
@@ -8791,7 +9002,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/sessions/:id/snapshots - List snapshots for a session
-  app.get("/api/sandbox/sessions/:id/snapshots", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sandbox/sessions/:id/snapshots", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const snapshots = await sandboxSessionManager.listSnapshots(req.params.id);
@@ -8803,7 +9014,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/sessions/:id/rollback - Rollback to a snapshot
-  app.post("/api/sandbox/sessions/:id/rollback", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/sessions/:id/rollback", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { snapshotId } = req.body;
 
@@ -8821,7 +9032,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/sessions/:id/executions - Get execution history
-  app.get("/api/sandbox/sessions/:id/executions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sandbox/sessions/:id/executions", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const executions = await sandboxSessionManager.getExecutions(req.params.id);
@@ -8833,7 +9044,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/sessions/:id/stats - Get session statistics
-  app.get("/api/sandbox/sessions/:id/stats", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sandbox/sessions/:id/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const stats = await sandboxSessionManager.getSessionStats(req.params.id);
@@ -8850,7 +9061,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/sessions/:id/close - Close a sandbox session
-  app.post("/api/sandbox/sessions/:id/close", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/sessions/:id/close", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const success = await sandboxSessionManager.closeSession(req.params.id);
@@ -8867,7 +9078,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/payloads - Get available payload categories
-  app.get("/api/sandbox/payloads", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/sandbox/payloads", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (_req, res) => {
     try {
       const { sandboxSessionManager } = await import("./services/sandbox");
       const categories = sandboxSessionManager.getPayloadCategories();
@@ -8879,7 +9090,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/command-injection/test - Test for command injection vulnerabilities
-  app.post("/api/sandbox/command-injection/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/command-injection/test", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { command, userInput, injectionType } = req.body;
 
@@ -8902,7 +9113,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/command-injection/validate - Validate a command for safety
-  app.post("/api/sandbox/command-injection/validate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/command-injection/validate", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { command } = req.body;
 
@@ -8921,7 +9132,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sandbox/command-injection/execute - Execute a validated safe command
-  app.post("/api/sandbox/command-injection/execute", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sandbox/command-injection/execute", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const { command, expectedPattern } = req.body;
 
@@ -8942,7 +9153,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sandbox/command-injection/safe-commands - Get list of safe commands
-  app.get("/api/sandbox/command-injection/safe-commands", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/sandbox/command-injection/safe-commands", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (_req, res) => {
     try {
       const { commandExecutor } = await import("./services/sandbox/command-executor");
       const safeCommands = commandExecutor.getSafeCommands();
@@ -8960,7 +9171,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
 
   // GET /api/lateral-movement/techniques - Get available lateral movement techniques
-  app.get("/api/lateral-movement/techniques", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/lateral-movement/techniques", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (_req, res) => {
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const techniquesObj = lateralMovementService.getTechniques();
@@ -8977,7 +9188,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/credentials - Add a discovered credential
-  app.post("/api/lateral-movement/credentials", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { sourceType, sourceHost, credentialType, username, domain, credentialValue, privilegeLevel } = req.body;
 
@@ -9005,7 +9216,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/lateral-movement/credentials - List discovered credentials
-  app.get("/api/lateral-movement/credentials", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/lateral-movement/credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (_req, res) => {
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const credentials = await lateralMovementService.listCredentials();
@@ -9017,7 +9228,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/test-reuse - Test credential reuse across hosts
-  app.post("/api/lateral-movement/test-reuse", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/test-reuse", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { credentialType, username, domain, credentialValue, targetHosts, techniques } = req.body;
 
@@ -9043,7 +9254,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/test - Test a specific lateral movement technique
-  app.post("/api/lateral-movement/test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/test", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { sourceHost, targetHost, technique, credentialId, customCredential, useRealConnection, timeout } = req.body;
 
@@ -9074,7 +9285,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/probe-host - Probe a host for lateral movement protocols
-  app.post("/api/lateral-movement/probe-host", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/probe-host", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { host, protocols, timeout } = req.body;
 
@@ -9094,7 +9305,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/test-protocol - Test a specific protocol connection
-  app.post("/api/lateral-movement/test-protocol", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/test-protocol", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { targetHost, port, protocol, username, domain, credential, timeout } = req.body;
 
@@ -9121,7 +9332,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/pass-the-hash - Simulate pass-the-hash attack
-  app.post("/api/lateral-movement/pass-the-hash", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/pass-the-hash", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { ntlmHash, username, domain, targetHost } = req.body;
 
@@ -9145,7 +9356,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/pass-the-ticket - Simulate pass-the-ticket attack
-  app.post("/api/lateral-movement/pass-the-ticket", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/pass-the-ticket", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { ticket, servicePrincipal, targetHost } = req.body;
 
@@ -9168,7 +9379,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/lateral-movement/discover-pivots - Discover pivot points in a network
-  app.post("/api/lateral-movement/discover-pivots", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/lateral-movement/discover-pivots", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { startingHost, scanDepth, techniques, excludeHosts } = req.body;
 
@@ -9192,7 +9403,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/lateral-movement/findings - Get lateral movement findings
-  app.get("/api/lateral-movement/findings", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/lateral-movement/findings", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (_req, res) => {
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const findings = await lateralMovementService.getFindings();
@@ -9204,7 +9415,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/lateral-movement/pivot-points - Get discovered pivot points
-  app.get("/api/lateral-movement/pivot-points", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/lateral-movement/pivot-points", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (_req, res) => {
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const pivotPoints = await lateralMovementService.getPivotPoints();
@@ -9216,7 +9427,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/lateral-movement/attack-paths - Get discovered attack paths
-  app.get("/api/lateral-movement/attack-paths", apiRateLimiter, requireAdminAuth, async (_req, res) => {
+  app.get("/api/lateral-movement/attack-paths", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (_req, res) => {
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const attackPaths = await lateralMovementService.getAttackPaths();
@@ -9232,7 +9443,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/cloud-pentest/aws/iam/analyze - Analyze IAM permissions for privilege escalation
-  app.post("/api/cloud-pentest/aws/iam/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/aws/iam/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { permissions, userId, userName, accountId } = req.body;
 
@@ -9256,7 +9467,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/cloud-pentest/aws/s3/analyze - Analyze S3 buckets for misconfigurations
-  app.post("/api/cloud-pentest/aws/s3/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/aws/s3/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { buckets } = req.body;
 
@@ -9275,7 +9486,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/cloud-pentest/aws/lambda/analyze - Analyze Lambda functions for vulnerabilities
-  app.post("/api/cloud-pentest/aws/lambda/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/aws/lambda/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { functions } = req.body;
 
@@ -9298,7 +9509,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/cloud-pentest/azure/managed-identities/analyze - Analyze managed identity exploitation
-  app.post("/api/cloud-pentest/azure/managed-identities/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/azure/managed-identities/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { identities } = req.body;
 
@@ -9317,7 +9528,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/cloud-pentest/azure/storage/analyze - Analyze storage exposure
-  app.post("/api/cloud-pentest/azure/storage/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/azure/storage/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { accounts, containers } = req.body;
 
@@ -9336,7 +9547,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/cloud-pentest/azure/rbac/analyze - Analyze RBAC escalation
-  app.post("/api/cloud-pentest/azure/rbac/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/azure/rbac/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { principalId, principalName, roleAssignments } = req.body;
 
@@ -9363,7 +9574,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/cloud-pentest/gcp/service-accounts/analyze - Analyze service account impersonation
-  app.post("/api/cloud-pentest/gcp/service-accounts/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/gcp/service-accounts/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { accounts } = req.body;
 
@@ -9382,7 +9593,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/cloud-pentest/gcp/compute-metadata/analyze - Analyze compute metadata abuse
-  app.post("/api/cloud-pentest/gcp/compute-metadata/analyze", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/cloud-pentest/gcp/compute-metadata/analyze", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (req, res) => {
     try {
       const { instances } = req.body;
 
@@ -9404,27 +9615,10 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // Compliance Reporting Endpoints
   // ============================================
 
-  // GET /api/compliance/frameworks - Get available compliance frameworks
-  app.get("/api/compliance/frameworks", apiRateLimiter, async (req, res) => {
-    try {
-      const { complianceReportService } = await import("./services/compliance/compliance-report-service");
-      const frameworks = complianceReportService.getAvailableFrameworks();
-
-      res.json(frameworks.map(f => ({
-        id: f.id,
-        name: f.name,
-        version: f.version,
-        description: f.description,
-        controlCount: f.controls.length,
-      })));
-    } catch (error: any) {
-      console.error("Failed to get compliance frameworks:", error);
-      res.status(500).json({ error: error.message || "Failed to get compliance frameworks" });
-    }
-  });
+  // NOTE: GET /api/compliance/frameworks is defined earlier with unified framework ID mapping
 
   // GET /api/compliance/frameworks/:frameworkId - Get framework details
-  app.get("/api/compliance/frameworks/:frameworkId", apiRateLimiter, async (req, res) => {
+  app.get("/api/compliance/frameworks/:frameworkId", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const { frameworkId } = req.params;
       const { complianceReportService } = await import("./services/compliance/compliance-report-service");
@@ -9442,7 +9636,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/compliance/reports/generate - Generate compliance report
-  app.post("/api/compliance/reports/generate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/compliance/reports/generate", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const {
         frameworkId,
@@ -9495,7 +9689,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/compliance/map-findings - Map findings to compliance controls
-  app.post("/api/compliance/map-findings", apiRateLimiter, async (req, res) => {
+  app.post("/api/compliance/map-findings", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const { frameworkId, findings } = req.body;
 
@@ -9529,7 +9723,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/container-security/escape-test - Test container for escape vectors
-  app.post("/api/container-security/escape-test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/container-security/escape-test", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const config = req.body;
 
@@ -9562,7 +9756,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/container-security/kubernetes/abuse-test - Test Kubernetes cluster for abuse vectors
-  app.post("/api/container-security/kubernetes/abuse-test", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/container-security/kubernetes/abuse-test", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const config = req.body;
 
@@ -9594,7 +9788,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/business-logic/fuzz-workflow - Fuzz a multi-step business workflow
-  app.post("/api/business-logic/fuzz-workflow", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/business-logic/fuzz-workflow", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_safe"), async (req, res) => {
     try {
       const config = req.body;
 
@@ -9626,7 +9820,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/remediation/generate - Generate IaC fixes for a finding
-  app.post("/api/remediation/generate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/remediation/generate", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:triage"), async (req, res) => {
     try {
       const finding = req.body;
 
@@ -9657,7 +9851,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/remediation/batch - Generate fixes for multiple findings
-  app.post("/api/remediation/batch", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/remediation/batch", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:triage"), async (req, res) => {
     try {
       const { findings } = req.body;
 
@@ -9676,7 +9870,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/remediation/create-pr - Create a pull request with security fixes
-  app.post("/api/remediation/create-pr", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/remediation/create-pr", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:triage"), async (req, res) => {
     try {
       const { repositoryUrl, branchName, title, description, changes, labels, reviewers } = req.body;
 
@@ -9707,7 +9901,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // GET /api/tools/metasploit/modules - List available Metasploit modules
-  app.get("/api/tools/metasploit/modules", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/tools/metasploit/modules", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { type } = req.query;
       const { metasploitService } = await import("./services/tool-integration/metasploit-service");
@@ -9721,7 +9915,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/tools/metasploit/modules/search - Search Metasploit modules
-  app.get("/api/tools/metasploit/modules/search", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/tools/metasploit/modules/search", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { query } = req.query;
       if (!query) {
@@ -9738,7 +9932,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/tools/metasploit/exploit - Run an exploit
-  app.post("/api/tools/metasploit/exploit", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/tools/metasploit/exploit", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { module, target, port, options, payload, payloadOptions } = req.body;
 
@@ -9764,7 +9958,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/tools/metasploit/sessions - List active sessions
-  app.get("/api/tools/metasploit/sessions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/tools/metasploit/sessions", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { metasploitService } = await import("./services/tool-integration/metasploit-service");
       const sessions = await metasploitService.listSessions();
@@ -9776,7 +9970,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/tools/metasploit/sessions/:sessionId/exec - Execute command in session
-  app.post("/api/tools/metasploit/sessions/:sessionId/exec", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/tools/metasploit/sessions/:sessionId/exec", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { command } = req.body;
@@ -9799,7 +9993,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // GET /api/tools/nuclei/templates - List Nuclei templates
-  app.get("/api/tools/nuclei/templates", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/tools/nuclei/templates", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { tags, severity } = req.query;
       const { nucleiService } = await import("./services/tool-integration/nuclei-service");
@@ -9816,7 +10010,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/tools/nuclei/scan - Run Nuclei scan
-  app.post("/api/tools/nuclei/scan", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/tools/nuclei/scan", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_live"), async (req, res) => {
     try {
       const { target, templates, tags, severity, excludeTags, rateLimit, concurrency, timeout } = req.body;
 
@@ -9848,7 +10042,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================
 
   // POST /api/sessions/create - Create a new exploit session
-  app.post("/api/sessions/create", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sessions/create", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { name, target, assessor, organization, scope, tools, notes } = req.body;
 
@@ -9874,8 +10068,34 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
+  // GET /api/sessions/stats - Get session statistics
+  app.get("/api/sessions/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
+    try {
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const sessions = await sessionReplayService.listSessions();
+      const activeSessions = sessions.filter(s => s.status === "recording").length;
+      const completedSessions = sessions.filter(s => s.status === "completed").length;
+      const avgDuration = sessions
+        .filter(s => s.endTime)
+        .reduce((sum, s) => sum + ((s.endTime!.getTime() - s.startTime.getTime()) / 1000), 0) / (completedSessions || 1);
+
+      res.json({
+        totalSessions: sessions.length,
+        activeSessions,
+        suspiciousSessions: sessions.filter(s => s.findings.length > 3).length,
+        averageDuration: Math.round(avgDuration),
+        averageRiskScore: sessions.length > 0
+          ? sessions.reduce((sum, s) => sum + Math.min(10, s.findings.length * 2), 0) / sessions.length
+          : 0,
+      });
+    } catch (error: any) {
+      console.error("Failed to get session stats:", error);
+      res.status(500).json({ error: error.message || "Failed to get session stats" });
+    }
+  });
+
   // GET /api/sessions - List all sessions
-  app.get("/api/sessions", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sessions", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { status } = req.query;
       const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
@@ -9889,7 +10109,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sessions/:sessionId - Get session details
-  app.get("/api/sessions/:sessionId", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sessions/:sessionId", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
@@ -9907,7 +10127,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sessions/:sessionId/stop - Stop recording a session
-  app.post("/api/sessions/:sessionId/stop", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sessions/:sessionId/stop", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
@@ -9925,7 +10145,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sessions/:sessionId/events - Add event to session
-  app.post("/api/sessions/:sessionId/events", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sessions/:sessionId/events", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { type, source, description, data } = req.body;
@@ -9948,8 +10168,96 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
+  // GET /api/sessions/:sessionId/events - Get events for a session
+  app.get("/api/sessions/:sessionId/events", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const session = await sessionReplayService.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session.events || []);
+    } catch (error: any) {
+      console.error("Failed to get session events:", error);
+      res.status(500).json({ error: error.message || "Failed to get session events" });
+    }
+  });
+
+  // POST /api/sessions/:sessionId/terminate - Terminate/stop a session (alias for stop)
+  app.post("/api/sessions/:sessionId/terminate", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const session = await sessionReplayService.stopRecording(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session);
+    } catch (error: any) {
+      console.error("Failed to terminate session:", error);
+      res.status(500).json({ error: error.message || "Failed to terminate session" });
+    }
+  });
+
+  // POST /api/sessions/:sessionId/flag - Flag session for review
+  app.post("/api/sessions/:sessionId/flag", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { reason } = req.body;
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const session = await sessionReplayService.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      // Add flag event to the session
+      await sessionReplayService.addEvent(sessionId, {
+        type: "note",
+        source: "system",
+        description: `Session flagged for review: ${reason || "No reason provided"}`,
+        data: { flagged: true, reason },
+      });
+      res.json({ success: true, message: "Session flagged for review" });
+    } catch (error: any) {
+      console.error("Failed to flag session:", error);
+      res.status(500).json({ error: error.message || "Failed to flag session" });
+    }
+  });
+
+  // GET /api/sessions/:sessionId/export - Export session data
+  app.get("/api/sessions/:sessionId/export", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const format = (req.query.format as string) || "json";
+      const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
+      const session = await sessionReplayService.getSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      if (format === "json") {
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="session-${sessionId}.json"`);
+        res.json(session);
+      } else if (format === "csv") {
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="session-${sessionId}.csv"`);
+        const header = "timestamp,type,source,description\n";
+        const rows = session.events.map(e =>
+          `"${e.timestamp}","${e.type}","${e.source}","${e.description.replace(/"/g, '""')}"`
+        ).join("\n");
+        res.send(header + rows);
+      } else {
+        res.status(400).json({ error: "Unsupported format. Use json or csv." });
+      }
+    } catch (error: any) {
+      console.error("Failed to export session:", error);
+      res.status(500).json({ error: error.message || "Failed to export session" });
+    }
+  });
+
   // GET /api/sessions/:sessionId/playback - Get session playback data
-  app.get("/api/sessions/:sessionId/playback", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sessions/:sessionId/playback", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { startTime, endTime, eventTypes, speed } = req.query;
@@ -9975,7 +10283,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sessions/:sessionId/network - Get network visualization
-  app.get("/api/sessions/:sessionId/network", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sessions/:sessionId/network", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
@@ -9993,7 +10301,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/sessions/:sessionId/evidence-chain - Get evidence chain
-  app.get("/api/sessions/:sessionId/evidence-chain", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/sessions/:sessionId/evidence-chain", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:read"), async (req, res) => {
     try {
       const { sessionId } = req.params;
       const { sessionReplayService } = await import("./services/session-replay/session-replay-service");
@@ -10011,7 +10319,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/sessions/simulate - Create a simulated session for demo
-  app.post("/api/sessions/simulate", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/sessions/simulate", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
     try {
       const { target } = req.body;
 
@@ -10035,7 +10343,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
 
   // POST /api/policies/search - Semantic search over security policies
-  app.post("/api/policies/search", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/policies/search", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const { query, organizationId, policyType, limit, minSimilarity } = req.body;
 
@@ -10063,7 +10371,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/policies/context - Get policy context for AI agent injection
-  app.get("/api/policies/context", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/policies/context", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const query = req.query.query as string;
       const organizationId = req.query.organizationId as string | undefined;
@@ -10087,7 +10395,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/policies/check-compliance - Check if an action is permitted by policies
-  app.post("/api/policies/check-compliance", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.post("/api/policies/check-compliance", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const { action, targetType, executionMode, organizationId } = req.body;
 
@@ -10110,7 +10418,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/policies - List all policies
-  app.get("/api/policies", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/policies", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
       const policyType = req.query.policyType as string | undefined;
@@ -10129,7 +10437,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/policies/stats - Get policy statistics
-  app.get("/api/policies/stats", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.get("/api/policies/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
 
@@ -10144,7 +10452,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // DELETE /api/policies/:id - Delete a policy
-  app.delete("/api/policies/:id", apiRateLimiter, requireAdminAuth, async (req, res) => {
+  app.delete("/api/policies/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -10393,7 +10701,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // POST /api/remediation/:findingId/create-pr - Create a PR for a specific finding
-  app.post("/api/remediation/:findingId/create-pr", apiRateLimiter, async (req, res) => {
+  app.post("/api/remediation/:findingId/create-pr", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:triage"), async (req, res) => {
     try {
       const { findingId } = req.params;
       const { repositoryUrl, branchName, labels, reviewers } = req.body;
@@ -10452,7 +10760,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // GET /api/remediation/pr/:prId/status - Check PR status
-  app.get("/api/remediation/pr/:prId/status", apiRateLimiter, async (req, res) => {
+  app.get("/api/remediation/pr/:prId/status", apiRateLimiter, uiAuthMiddleware, requirePermission("findings:read"), async (req, res) => {
     try {
       const { prId } = req.params;
       const { repositoryUrl } = req.query;
@@ -10482,11 +10790,11 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   app.post("/api/demo-data/load", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       console.log("[Demo Data API] Loading demo data...");
-      console.log("[Demo Data API] User:", req.user?.email, "Org:", req.user?.organizationId);
+      console.log("[Demo Data API] User:", req.uiUser?.email, "Org:", req.uiUser?.organizationId);
 
       const { generateDemoData } = await import("./services/demo-data");
       const { withTenantContext } = await import("./services/rls-setup");
-      const organizationId = req.user?.organizationId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
 
       console.log("[Demo Data API] Calling generateDemoData with organizationId:", organizationId);
 
@@ -10526,7 +10834,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { clearDemoData } = await import("./services/demo-data");
       const { withTenantContext } = await import("./services/rls-setup");
-      const organizationId = req.user?.organizationId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
 
       // Execute demo data clearing with proper tenant context
       await withTenantContext(organizationId, async () => {
@@ -10548,7 +10856,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
    */
   app.get("/api/demo-data/status", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
-      const organizationId = req.user?.organizationId || "default";
+      const organizationId = req.uiUser?.organizationId || "default";
 
       // Count demo data records
       const agentCount = await db.select({ count: sql<number>`count(*)` })

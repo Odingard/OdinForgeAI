@@ -38,6 +38,11 @@ export function useJobs(filters?: {
   return useQuery<Job[]>({
     queryKey,
     refetchInterval: 5000, // Refresh every 5 seconds for real-time updates
+    select: (data: any) => {
+      if (Array.isArray(data)) return data;
+      if (data?.jobs && Array.isArray(data.jobs)) return data.jobs;
+      return [];
+    },
   });
 }
 
@@ -53,6 +58,14 @@ export function useJobStats() {
   return useQuery<JobStats>({
     queryKey: ["/api/jobs/stats"],
     refetchInterval: 10000, // Refresh every 10 seconds
+    select: (data: any) => ({
+      total: (data?.waiting || 0) + (data?.active || 0) + (data?.completed || 0) + (data?.failed || 0) + (data?.delayed || 0),
+      pending: data?.waiting || 0,
+      running: data?.active || 0,
+      completed: data?.completed || 0,
+      failed: data?.failed || 0,
+      cancelled: data?.delayed || 0,
+    }),
   });
 }
 

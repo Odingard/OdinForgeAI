@@ -403,6 +403,25 @@ export function isApiOnlyRole(role: AllRole): boolean {
   return roleMetadata[role]?.apiOnly ?? false;
 }
 
+// Database role ID to schema role mapping
+// DB uses short IDs (org_owner), schema uses full names (organization_owner)
+export const dbRoleToSchemaRole: Record<string, UserRole> = {
+  org_owner: "organization_owner",
+  security_admin: "security_administrator",
+  security_engineer: "security_engineer",
+  security_analyst: "security_analyst",
+  executive_viewer: "executive_viewer",
+  compliance_officer: "compliance_officer",
+  automation_account: "automation_account",
+  platform_super_admin: "platform_super_admin",
+};
+
+// Get granular permissions for a database role ID
+export function getPermissionsForDbRole(dbRoleId: string): Permission[] {
+  const schemaRole = dbRoleToSchemaRole[dbRoleId];
+  return schemaRole ? (rolePermissions[schemaRole] || []) : [];
+}
+
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),

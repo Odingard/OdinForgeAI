@@ -606,7 +606,7 @@ set -e
 echo "Installing OdinForge agent..."
 curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent
 chmod +x /tmp/odinforge-agent
-/tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force
+/tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --tenant-id "${config.organizationId}" --force
 
 # Fix config file permissions
 chmod 644 /etc/odinforge/agent.yaml

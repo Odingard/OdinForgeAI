@@ -282,7 +282,13 @@ function CloudConnectionCard({
       toast({ title: "Agent Deployment Started" });
     },
     onError: (error: any) => {
-      toast({ title: "Deployment Failed", description: error.message, variant: "destructive" });
+      let description = error.message;
+      try {
+        const jsonStr = error.message?.replace(/^\d+:\s*/, "");
+        const parsed = JSON.parse(jsonStr);
+        description = parsed.message || parsed.error || error.message;
+      } catch {}
+      toast({ title: "Deployment Failed", description, variant: "destructive" });
     },
   });
   
@@ -350,6 +356,15 @@ function CloudConnectionCard({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
       toast({ title: "Agent Redeployment Started" });
+    },
+    onError: (error: any) => {
+      let description = error.message;
+      try {
+        const jsonStr = error.message?.replace(/^\d+:\s*/, "");
+        const parsed = JSON.parse(jsonStr);
+        description = parsed.message || parsed.error || error.message;
+      } catch {}
+      toast({ title: "Redeployment Failed", description, variant: "destructive" });
     },
   });
 

@@ -394,7 +394,7 @@ export class CloudIntegrationService {
       const assetName = asset.assetName || asset.providerResourceId || "Cloud Agent";
 
       // Use enterprise agent provisioning for SSH deployments
-      const { agentManagementService } = await import("./agent-management");
+      const { agentManagementService } = await import("../agent-management");
 
       const provisionResult = await agentManagementService.provisionAgent({
         hostname: asset.assetName || asset.providerResourceId,
@@ -443,11 +443,11 @@ export class CloudIntegrationService {
         await this.updateAssetIfNotCancelled(jobId, asset.id, {
           agentDeploymentStatus: "success",
           agentInstalled: true,
-          agentId: result.agentId || newAgent.id,
+          agentId: result.agentId || agentId,
           agentDeploymentError: null,
         });
 
-        await storage.updateEndpointAgent(newAgent.id, {
+        await storage.updateEndpointAgent(agentId, {
           status: "online",
         });
       } else {
@@ -519,7 +519,7 @@ export class CloudIntegrationService {
     let installCommand = "";
 
     try {
-      const { agentManagementService } = await import("./agent-management");
+      const { agentManagementService } = await import("../agent-management");
 
       const provisionResult = await agentManagementService.provisionAgent({
         hostname: asset.assetName || asset.providerResourceId,

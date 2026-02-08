@@ -3,7 +3,8 @@ import * as crypto from "crypto";
 import * as bcrypt from "bcrypt";
 import { SignJWT, jwtVerify, JWTPayload as JoseJWTPayload } from "jose";
 import { storage } from "../storage";
-import type { UIUser, InsertUIRole } from "@shared/schema";
+import type { UIUser, InsertUIRole, Permission } from "@shared/schema";
+import { getPermissionsForDbRole } from "@shared/schema";
 import { setTenantContext, clearTenantContext } from "./rls-setup";
 
 const UI_JWT_SECRET = new TextEncoder().encode(
@@ -260,9 +261,52 @@ export function requireRole(...roleIds: string[]) {
     }
 
     if (!roleIds.includes(req.uiUser.roleId)) {
-      return res.status(403).json({ 
-        error: "Forbidden", 
-        message: `This action requires one of the following roles: ${roleIds.join(", ")}` 
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `This action requires one of the following roles: ${roleIds.join(", ")}`
+      });
+    }
+
+    next();
+  };
+}
+
+// Granular permission check: user must have ANY of the listed permissions
+export function requirePermission(...requiredPermissions: Permission[]) {
+  return (req: UIAuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.uiUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userPermissions = getPermissionsForDbRole(req.uiUser.roleId);
+    const hasPermission = requiredPermissions.some(p => userPermissions.includes(p));
+
+    if (!hasPermission) {
+      console.warn(`[RBAC] Permission denied for ${req.uiUser.email} (role: ${req.uiUser.roleId}). Required: ${requiredPermissions.join(" or ")}. Has ${userPermissions.length} permissions.`);
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `Requires permission: ${requiredPermissions.join(" or ")}`,
+      });
+    }
+
+    next();
+  };
+}
+
+// Strict permission check: user must have ALL listed permissions
+export function requireAllPermissions(...requiredPermissions: Permission[]) {
+  return (req: UIAuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.uiUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const userPermissions = getPermissionsForDbRole(req.uiUser.roleId);
+    const missingPermissions = requiredPermissions.filter(p => !userPermissions.includes(p));
+
+    if (missingPermissions.length > 0) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `Missing permissions: ${missingPermissions.join(", ")}`,
       });
     }
 

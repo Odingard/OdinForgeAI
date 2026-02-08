@@ -44,7 +44,7 @@ export const rateLimitConfigs = {
   },
   apiGeneral: {
     windowMs: 60 * 1000,
-    maxRequests: 100,
+    maxRequests: 300,
     message: "API rate limit exceeded. Please slow down your requests.",
   },
   batchOperations: {

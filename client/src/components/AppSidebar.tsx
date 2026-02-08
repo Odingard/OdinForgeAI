@@ -326,7 +326,7 @@ export function AppSidebar() {
               {user?.displayName || user?.username || "User"}
             </span>
             <Badge className={`text-[10px] w-fit ${getRoleBadgeStyle(user?.role || "security_analyst")}`}>
-              {user?.role ? roleMetadata[user.role]?.displayName || user.role : "Security Analyst"}
+              {user?.role ? roleMetadata[user.role as keyof typeof roleMetadata]?.displayName || user.role : "Security Analyst"}
             </Badge>
           </div>
         </div>
