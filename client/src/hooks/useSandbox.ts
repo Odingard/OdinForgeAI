@@ -81,39 +81,135 @@ export interface SandboxStats {
   cleanCount: number;
 }
 
+/**
+ * Map server SandboxSession to frontend SandboxSubmission.
+ * Server fields: id, name, status, targetUrl, targetHost, executionMode,
+ *   createdAt, closedAt, totalExecutions, successfulExecutions, failedExecutions
+ */
+function mapSessionToSubmission(s: any): SandboxSubmission {
+  const status = s.status === "active"
+    ? "analyzing"
+    : s.status === "closed" || s.status === "completed"
+      ? "completed"
+      : s.status === "failed"
+        ? "failed"
+        : "queued";
+
+  // Derive verdict from execution results
+  const totalExec = s.totalExecutions || s.executionCount || 0;
+  const failedExec = s.failedExecutions || 0;
+  const successExec = s.successfulExecutions || 0;
+  let verdict: SandboxSubmission["verdict"] = undefined;
+  if (status === "completed" && totalExec > 0) {
+    if (successExec > totalExec * 0.5) verdict = "malicious";
+    else if (successExec > 0) verdict = "suspicious";
+    else verdict = "clean";
+  }
+
+  return {
+    id: s.id,
+    fileName: undefined,
+    url: s.targetUrl || s.targetHost || s.target,
+    submissionType: "url",
+    type: "url",
+    status,
+    verdict,
+    score: totalExec > 0 ? Math.round((successExec / totalExec) * 10) : undefined,
+    submittedAt: s.createdAt ? new Date(s.createdAt).toISOString() : new Date().toISOString(),
+    completedAt: s.closedAt ? new Date(s.closedAt).toISOString() : undefined,
+  };
+}
+
+/**
+ * Map server execution results to frontend SandboxBehavior.
+ */
+function mapExecutionsToBehavior(sessionId: string, session: any, executions: any[]): SandboxBehavior {
+  const networkActivity = executions
+    .filter((e: any) => e.evidence?.request)
+    .map((e: any, i: number) => ({
+      id: e.id || `net-${i}`,
+      destination: e.evidence?.request?.url || session?.targetUrl || "",
+      port: 443,
+      protocol: "HTTPS",
+      timestamp: e.executedAt ? new Date(e.executedAt).toISOString() : new Date().toISOString(),
+      type: e.evidence?.request?.method || "GET",
+      destIp: session?.targetHost,
+      domain: session?.targetUrl ? (() => { try { return new URL(session.targetUrl).hostname; } catch { return undefined; } })() : undefined,
+      suspicious: e.success === true,
+    }));
+
+  const mitreAttackTechniques = executions
+    .filter((e: any) => e.mitreAttackId)
+    .map((e: any, i: number) => ({
+      id: `mitre-${i}`,
+      techniqueId: e.mitreAttackId || "",
+      name: e.payloadName || e.payloadCategory || "Unknown",
+      tactic: e.mitreTactic || "unknown",
+      confidence: e.success ? "high" : "low",
+    }));
+
+  const iocs = executions
+    .filter((e: any) => e.evidence?.indicators?.length)
+    .flatMap((e: any) =>
+      (e.evidence.indicators as string[]).map((indicator: string, i: number) => ({
+        type: "indicator",
+        value: indicator,
+        malicious: e.success === true,
+        context: e.payloadCategory || "sandbox execution",
+      }))
+    );
+
+  return {
+    submissionId: sessionId,
+    networkActivity,
+    fileActivity: [],
+    registryActivity: [],
+    processActivity: { processes: [] },
+    mitreAttackTechniques,
+    iocs,
+  };
+}
+
 export function useSandboxSubmissions() {
   return useQuery<SandboxSubmission[]>({
-    queryKey: ["/api/sandbox/submissions"],
-    queryFn: async () => {
-      return [];
+    queryKey: ["/api/sandbox/sessions"],
+    refetchInterval: 10000,
+    select: (data: any) => {
+      const sessions = Array.isArray(data) ? data : data?.sessions || [];
+      return sessions.map(mapSessionToSubmission);
     },
   });
 }
 
 export function useSandboxBehavior(submissionId: string | null) {
   return useQuery<SandboxBehavior | null>({
-    queryKey: ["/api/sandbox/behavior", submissionId],
-    queryFn: async () => {
-      if (!submissionId) return null;
-      return null;
-    },
+    queryKey: [`/api/sandbox/sessions/${submissionId}/executions`],
     enabled: !!submissionId,
+    refetchInterval: 5000,
+    select: (data: any) => {
+      if (!data) return null;
+      const executions = Array.isArray(data) ? data : data?.executions || [];
+      return mapExecutionsToBehavior(submissionId || "", null, executions);
+    },
   });
 }
 
 export function useSandboxStats() {
   return useQuery<SandboxStats>({
-    queryKey: ["/api/sandbox/stats"],
-    queryFn: async () => {
+    queryKey: ["/api/sandbox/sessions"],
+    refetchInterval: 30000,
+    select: (data: any) => {
+      const sessions = Array.isArray(data) ? data : data?.sessions || [];
+      const submissions = sessions.map(mapSessionToSubmission);
       return {
-        totalSubmissions: 0,
-        queuedSubmissions: 0,
-        analyzingSubmissions: 0,
-        activeAnalyses: 0,
-        completedSubmissions: 0,
-        maliciousCount: 0,
-        suspiciousCount: 0,
-        cleanCount: 0,
+        totalSubmissions: submissions.length,
+        queuedSubmissions: submissions.filter((s: SandboxSubmission) => s.status === "queued").length,
+        analyzingSubmissions: submissions.filter((s: SandboxSubmission) => s.status === "analyzing").length,
+        activeAnalyses: submissions.filter((s: SandboxSubmission) => s.status === "analyzing").length,
+        completedSubmissions: submissions.filter((s: SandboxSubmission) => s.status === "completed").length,
+        maliciousCount: submissions.filter((s: SandboxSubmission) => s.verdict === "malicious").length,
+        suspiciousCount: submissions.filter((s: SandboxSubmission) => s.verdict === "suspicious").length,
+        cleanCount: submissions.filter((s: SandboxSubmission) => s.verdict === "clean").length,
       };
     },
   });
@@ -122,19 +218,21 @@ export function useSandboxStats() {
 export function useSubmitFile() {
   return useMutation({
     mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      return {
-        id: `submission-${Date.now()}`,
-        fileName: file.name,
-        submissionType: "file" as const,
-        status: "queued" as const,
-        submittedAt: new Date().toISOString(),
-      };
+      // Convert file to base64 and create a sandbox session
+      const arrayBuffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(arrayBuffer).reduce((s, b) => s + String.fromCharCode(b), "")
+      );
+
+      const response = await apiRequest("POST", "/api/sandbox/sessions", {
+        name: `File Analysis: ${file.name}`,
+        description: `Sandbox analysis of uploaded file: ${file.name}`,
+        executionMode: "safe",
+      });
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/submissions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/sessions"] });
     },
   });
 }
@@ -142,17 +240,16 @@ export function useSubmitFile() {
 export function useSubmitUrl() {
   return useMutation({
     mutationFn: async (url: string) => {
-      return {
-        id: `submission-${Date.now()}`,
-        url,
-        submissionType: "url" as const,
-        status: "queued" as const,
-        submittedAt: new Date().toISOString(),
-      };
+      const response = await apiRequest("POST", "/api/sandbox/sessions", {
+        name: `URL Analysis: ${url}`,
+        description: `Sandbox analysis of URL target`,
+        targetUrl: url,
+        executionMode: "safe",
+      });
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/submissions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/sessions"] });
     },
   });
 }
@@ -160,11 +257,11 @@ export function useSubmitUrl() {
 export function useDeleteSandboxSubmission() {
   return useMutation({
     mutationFn: async (submissionId: string) => {
-      return { success: true };
+      const response = await apiRequest("POST", `/api/sandbox/sessions/${submissionId}/close`);
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/submissions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/sessions"] });
     },
   });
 }
@@ -172,13 +269,18 @@ export function useDeleteSandboxSubmission() {
 export function useReanalyzeSubmission() {
   return useMutation({
     mutationFn: async (submissionId: string) => {
-      return {
-        id: submissionId,
-        status: "queued" as const,
-      };
+      // Re-execute with a basic probe payload
+      const response = await apiRequest("POST", `/api/sandbox/sessions/${submissionId}/execute`, {
+        payloadName: "Reanalysis Probe",
+        payloadCategory: "reconnaissance",
+        payloadContent: "GET / HTTP/1.1",
+        targetEndpoint: "/",
+        targetMethod: "GET",
+      });
+      return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/submissions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sandbox/sessions"] });
     },
   });
 }
@@ -186,8 +288,20 @@ export function useReanalyzeSubmission() {
 export function useDownloadSandboxReport() {
   return useMutation({
     mutationFn: async (submissionId: string) => {
+      const response = await apiRequest("GET", `/api/sandbox/sessions/${submissionId}`);
+      const sessionData = await response.json();
+
+      const execResponse = await apiRequest("GET", `/api/sandbox/sessions/${submissionId}/executions`);
+      const execData = await execResponse.json();
+
+      const report = {
+        session: sessionData.session || sessionData,
+        executions: execData.executions || execData,
+        exportedAt: new Date().toISOString(),
+      };
+
       const blob = new Blob(
-        [JSON.stringify({ submissionId, report: "Mock report data" }, null, 2)],
+        [JSON.stringify(report, null, 2)],
         { type: "application/json" }
       );
       const url = window.URL.createObjectURL(blob);

@@ -372,7 +372,7 @@ export class AzureAdapter implements ProviderAdapter {
         script = [
           `$ErrorActionPreference = "Stop"`,
           `Invoke-WebRequest -Uri "${config.serverUrl}/api/agents/download/windows-amd64" -OutFile "C:\\Temp\\odinforge-agent.exe"`,
-          `& "C:\\Temp\\odinforge-agent.exe" install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force`,
+          `& "C:\\Temp\\odinforge-agent.exe" install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --tenant-id "${config.organizationId}" --force`,
           `icacls 'C:\\ProgramData\\OdinForge\\agent.yaml' /grant 'Everyone:(R)' /T`,
           `Restart-Service -Name 'odinforge-agent' -Force -ErrorAction SilentlyContinue`,
         ];
@@ -383,7 +383,7 @@ export class AzureAdapter implements ProviderAdapter {
           `set -e`,
           `curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinforge-agent`,
           `chmod +x /tmp/odinforge-agent`,
-          `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force`,
+          `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --tenant-id "${config.organizationId}" --force`,
           `sudo chmod 644 /etc/odinforge/agent.yaml`,
           `sudo chmod 755 /etc/odinforge`,
           `sudo systemctl restart odinforge-agent || true`,

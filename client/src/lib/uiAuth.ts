@@ -26,6 +26,7 @@ export interface UIUser {
   displayName: string | null;
   roleId: string;
   role?: UIRole;
+  permissions?: string[];
   tenantId: string;
   organizationId: string;
   lastLoginAt?: string;

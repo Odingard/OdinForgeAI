@@ -5,7 +5,6 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider, useTheme } from "./components/ThemeProvider";
-import { AuthProvider } from "./contexts/AuthContext";
 import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
 import { ViewModeProvider } from "./contexts/ViewModeContext";
 import { CyberToastProvider } from "@/components/ui/cyber-toast";
@@ -23,8 +22,6 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useAuth } from "./contexts/AuthContext";
-import { roleMetadata } from "@shared/schema";
 
 // Lazy load pages for code splitting (reduces initial bundle size by ~50%)
 const RiskDashboard = lazy(() => import("@/pages/RiskDashboard"));
@@ -112,7 +109,6 @@ function Router() {
 
 function AppHeader() {
   const { theme, toggleTheme } = useTheme();
-  const { user, setUserRole, availableRoles } = useAuth();
   const { user: uiUser, logout } = useUIAuth();
 
   const handleLogout = async () => {
@@ -149,7 +145,7 @@ function AppHeader() {
                 <div className="h-7 w-7 rounded-full bg-gradient-to-br from-red-600 to-red-500 flex items-center justify-center">
                   <User className="h-4 w-4 text-white" />
                 </div>
-                <span className="hidden sm:inline text-sm">{uiUser?.displayName || uiUser?.email || user?.displayName || "User"}</span>
+                <span className="hidden sm:inline text-sm">{uiUser?.displayName || uiUser?.email || "User"}</span>
                 <ChevronDown className="h-3 w-3" />
               </Button>
             </DropdownMenuTrigger>
@@ -163,19 +159,6 @@ function AppHeader() {
               )}
               <DropdownMenuItem data-testid="menu-profile">Profile</DropdownMenuItem>
               <DropdownMenuItem data-testid="menu-settings">Settings</DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">Switch Role (Demo)</div>
-              {availableRoles.map(role => (
-                <DropdownMenuItem 
-                  key={role}
-                  onClick={() => setUserRole(role)}
-                  className={user?.role === role ? "bg-accent" : ""}
-                  data-testid={`menu-role-${role}`}
-                >
-                  {roleMetadata[role]?.displayName || role}
-                  {user?.role === role && <span className="ml-auto text-xs text-muted-foreground">Current</span>}
-                </DropdownMenuItem>
-              ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout} data-testid="menu-logout">
                 <LogOut className="h-4 w-4 mr-2" />
@@ -241,16 +224,14 @@ function AuthenticatedApp() {
   }
 
   return (
-    <AuthProvider>
-      <ViewModeProvider>
-        <TooltipProvider>
-          <CyberToastProvider>
-            <AppLayout />
-            <Toaster />
-          </CyberToastProvider>
-        </TooltipProvider>
-      </ViewModeProvider>
-    </AuthProvider>
+    <ViewModeProvider>
+      <TooltipProvider>
+        <CyberToastProvider>
+          <AppLayout />
+          <Toaster />
+        </CyberToastProvider>
+      </TooltipProvider>
+    </ViewModeProvider>
   );
 }
 

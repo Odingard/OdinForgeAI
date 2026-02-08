@@ -356,7 +356,7 @@ export class AWSAdapter implements ProviderAdapter {
         "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
         `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentDownload -UseBasicParsing`,
         "Write-Host 'Installing OdinForge agent...'",
-        `& $agentDownload install --server-url '${config.serverUrl}' --api-key '${config.apiKey}' --agent-id '${config.agentId}' --tenant-id '${config.organizationId}' --force`,
+        `& $agentDownload install --server-url '${config.serverUrl}' --api-key '${config.apiKey}' --tenant-id '${config.organizationId}' --force`,
         "Write-Host 'Fixing config file permissions...'",
         // Fix config file permissions so the service can read it
         "icacls 'C:\\ProgramData\\OdinForge\\agent.yaml' /grant 'Everyone:(R)' /T",
@@ -373,7 +373,7 @@ export class AWSAdapter implements ProviderAdapter {
         "set -e",
         `curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent`,
         "chmod +x /tmp/odinforge-agent",
-        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --agent-id "${config.agentId}" --tenant-id "${config.organizationId}" --force`,
+        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --tenant-id "${config.organizationId}" --force`,
         // Fix config file permissions so the agent service can read it
         "sudo chmod 644 /etc/odinforge/agent.yaml",
         "sudo chmod 755 /etc/odinforge",

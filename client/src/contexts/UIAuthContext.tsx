@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   UIUser,
   getStoredTokens,
@@ -10,6 +10,8 @@ import {
   refreshTokens,
   fetchSession,
 } from "@/lib/uiAuth";
+import type { Permission, UserRole, ExecutionMode } from "@shared/schema";
+import { getPermissionsForDbRole, canExecuteMode as schemaCanExecuteMode, needsSanitizedView as schemaNeedsSanitizedView, dbRoleToSchemaRole } from "@shared/schema";
 
 interface UIAuthContextType {
   user: UIUser | null;
@@ -20,6 +22,14 @@ interface UIAuthContextType {
   logout: () => Promise<void>;
   getAccessToken: () => string | null;
   refreshSession: () => Promise<boolean>;
+  // Permission helpers
+  hasPermission: (permission: Permission) => boolean;
+  hasAnyPermission: (permissions: Permission[]) => boolean;
+  hasRole: (roleId: string) => boolean;
+  hasAnyRole: (roleIds: string[]) => boolean;
+  canExecuteMode: (mode: ExecutionMode) => boolean;
+  needsSanitizedView: () => boolean;
+  permissions: Permission[];
 }
 
 const UIAuthContext = createContext<UIAuthContextType | null>(null);
@@ -140,6 +150,44 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
     return false;
   };
 
+  // Derive permissions from the user's role
+  const permissions = useMemo<Permission[]>(() => {
+    if (!user) return [];
+    // Prefer server-provided permissions, fall back to schema lookup
+    if (user.permissions && user.permissions.length > 0) {
+      return user.permissions as Permission[];
+    }
+    return getPermissionsForDbRole(user.roleId);
+  }, [user]);
+
+  const hasPermission = useCallback((permission: Permission): boolean => {
+    return permissions.includes(permission);
+  }, [permissions]);
+
+  const hasAnyPermission = useCallback((perms: Permission[]): boolean => {
+    return perms.some(p => permissions.includes(p));
+  }, [permissions]);
+
+  const hasRole = useCallback((roleId: string): boolean => {
+    return user?.roleId === roleId;
+  }, [user]);
+
+  const hasAnyRole = useCallback((roleIds: string[]): boolean => {
+    return user ? roleIds.includes(user.roleId) : false;
+  }, [user]);
+
+  const canExecuteMode = useCallback((mode: ExecutionMode): boolean => {
+    if (!user) return false;
+    const schemaRole = dbRoleToSchemaRole[user.roleId];
+    return schemaRole ? schemaCanExecuteMode(schemaRole, mode) : false;
+  }, [user]);
+
+  const needsSanitizedView = useCallback((): boolean => {
+    if (!user) return true;
+    const schemaRole = dbRoleToSchemaRole[user.roleId];
+    return schemaRole ? schemaNeedsSanitizedView(schemaRole) : true;
+  }, [user]);
+
   return (
     <UIAuthContext.Provider
       value={{
@@ -151,6 +199,13 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         getAccessToken,
         refreshSession,
+        hasPermission,
+        hasAnyPermission,
+        hasRole,
+        hasAnyRole,
+        canExecuteMode,
+        needsSanitizedView,
+        permissions,
       }}
     >
       {children}

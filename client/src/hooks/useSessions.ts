@@ -37,6 +37,47 @@ export interface SessionStats {
   averageRiskScore: number;
 }
 
+function mapServerSession(s: any): Session {
+  const startTime = s.startTime ? new Date(s.startTime).toISOString() : new Date().toISOString();
+  const endTime = s.endTime ? new Date(s.endTime).toISOString() : undefined;
+  const durationSec = s.endTime
+    ? (new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 1000
+    : undefined;
+  const eventCount = s.eventCount ?? s.events?.length ?? 0;
+  const riskScore = s.riskScore ?? (s.findings?.length ? Math.min(10, s.findings.length * 2) : 0);
+  const riskLevel: Session["riskLevel"] =
+    riskScore >= 8 ? "critical" : riskScore >= 5 ? "high" : riskScore >= 3 ? "medium" : "low";
+
+  return {
+    id: s.id,
+    userId: s.userId || s.metadata?.assessor || "system",
+    username: s.username || s.metadata?.assessor || s.name || "Unknown",
+    startTime,
+    endTime,
+    duration: durationSec,
+    eventCount,
+    riskScore,
+    riskLevel,
+    suspicious: s.suspicious ?? riskScore >= 7,
+    ipAddress: s.ipAddress || s.target,
+    userAgent: s.userAgent,
+    location: s.location,
+  };
+}
+
+function mapServerEvent(e: any, sessionId: string): SessionEvent {
+  return {
+    id: e.id,
+    sessionId,
+    timestamp: e.timestamp ? new Date(e.timestamp).toISOString() : new Date().toISOString(),
+    type: e.type || "action",
+    action: e.description || e.action || "",
+    resource: e.source || e.resource,
+    details: e.data || e.details || {},
+    riskScore: e.riskScore,
+  };
+}
+
 export function useSessions(filters?: {
   userId?: string;
   riskLevel?: string;
@@ -51,6 +92,10 @@ export function useSessions(filters?: {
   return useQuery<Session[]>({
     queryKey,
     refetchInterval: 30000,
+    select: (data: any) => {
+      const arr = Array.isArray(data) ? data : data?.sessions || [];
+      return arr.map(mapServerSession);
+    },
   });
 }
 
@@ -58,21 +103,46 @@ export function useSessionById(sessionId: string | null) {
   return useQuery<Session>({
     queryKey: [`/api/sessions/${sessionId}`],
     enabled: !!sessionId,
+    select: (data: any) => mapServerSession(data),
   });
 }
 
 export function useSessionEvents(sessionId: string | null) {
+  // Events are embedded in the session object, so fetch the session and extract events
   return useQuery<SessionEvent[]>({
-    queryKey: [`/api/sessions/${sessionId}/events`],
+    queryKey: [`/api/sessions/${sessionId}`],
     enabled: !!sessionId,
     refetchInterval: 10000,
+    select: (data: any) => {
+      const events = data?.events || [];
+      return events.map((e: any) => mapServerEvent(e, sessionId || ""));
+    },
   });
 }
 
 export function useSessionStats() {
+  // Derive stats from the sessions list since no dedicated stats endpoint exists
   return useQuery<SessionStats>({
-    queryKey: ["/api/sessions/stats"],
+    queryKey: ["/api/sessions"],
     refetchInterval: 60000,
+    select: (data: any) => {
+      const arr = Array.isArray(data) ? data : data?.sessions || [];
+      const sessions = arr.map(mapServerSession);
+      const activeSessions = sessions.filter((s: Session) => !s.endTime).length;
+      const suspiciousSessions = sessions.filter((s: Session) => s.suspicious).length;
+      const durations = sessions.filter((s: Session) => s.duration).map((s: Session) => s.duration!);
+      const avgDuration = durations.length > 0 ? durations.reduce((a: number, b: number) => a + b, 0) / durations.length : 0;
+      const avgRisk = sessions.length > 0
+        ? sessions.reduce((a: number, s: Session) => a + s.riskScore, 0) / sessions.length
+        : 0;
+      return {
+        totalSessions: sessions.length,
+        activeSessions,
+        suspiciousSessions,
+        averageDuration: avgDuration,
+        averageRiskScore: avgRisk,
+      };
+    },
   });
 }
 
@@ -81,7 +151,7 @@ export function useTerminateSession() {
 
   return useMutation({
     mutationFn: async (sessionId: string) => {
-      const response = await apiRequest("POST", `/api/sessions/${sessionId}/terminate`);
+      const response = await apiRequest("POST", `/api/sessions/${sessionId}/stop`);
       return response.json();
     },
     onSuccess: () => {
@@ -137,8 +207,12 @@ export function useExportSession() {
       sessionId: string;
       format: "json" | "csv" | "pdf";
     }) => {
+      const accessToken = localStorage.getItem("odinforge_access_token");
+      const headers: Record<string, string> = {};
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
       const response = await fetch(`/api/sessions/${data.sessionId}/export?format=${data.format}`, {
         method: "GET",
+        headers,
         credentials: "include",
       });
 
