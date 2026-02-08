@@ -9091,7 +9091,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const techniques = lateralMovementService.getTechniques();
-      res.json({ techniques });
+      res.json(techniques);
     } catch (error: any) {
       console.error("Failed to get techniques:", error);
       res.status(500).json({ error: error.message || "Failed to get techniques" });
@@ -9131,7 +9131,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const credentials = await lateralMovementService.listCredentials();
-      res.json({ credentials });
+      res.json(credentials);
     } catch (error: any) {
       console.error("Failed to list credentials:", error);
       res.status(500).json({ error: error.message || "Failed to list credentials" });
@@ -9318,7 +9318,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const findings = await lateralMovementService.getFindings();
-      res.json({ findings });
+      res.json(findings);
     } catch (error: any) {
       console.error("Failed to get findings:", error);
       res.status(500).json({ error: error.message || "Failed to get findings" });
@@ -9330,7 +9330,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const pivotPoints = await lateralMovementService.getPivotPoints();
-      res.json({ pivotPoints });
+      res.json(pivotPoints);
     } catch (error: any) {
       console.error("Failed to get pivot points:", error);
       res.status(500).json({ error: error.message || "Failed to get pivot points" });
@@ -9342,7 +9342,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { lateralMovementService } = await import("./services/lateral-movement");
       const attackPaths = await lateralMovementService.getAttackPaths();
-      res.json({ attackPaths });
+      res.json(attackPaths);
     } catch (error: any) {
       console.error("Failed to get attack paths:", error);
       res.status(500).json({ error: error.message || "Failed to get attack paths" });
