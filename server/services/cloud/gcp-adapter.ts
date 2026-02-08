@@ -606,6 +606,11 @@ curl -fsSL "${config.serverUrl}/api/agents/download/linux-amd64" -o /tmp/odinfor
 chmod +x /tmp/odinforge-agent
 /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force
 
+# Fix config file permissions
+chmod 644 /etc/odinforge/agent.yaml
+chmod 755 /etc/odinforge
+systemctl restart odinforge-agent || true
+
 # Create marker file to prevent re-running
 touch "$MARKER_FILE"
 echo "OdinForge agent installed successfully"

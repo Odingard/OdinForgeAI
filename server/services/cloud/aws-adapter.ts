@@ -355,6 +355,13 @@ export class AWSAdapter implements ProviderAdapter {
         `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentDownload -UseBasicParsing`,
         "Write-Host 'Installing OdinForge agent...'",
         `& $agentDownload install --server-url '${config.serverUrl}' --registration-token '${config.registrationToken}' --tenant-id '${config.organizationId}' --force`,
+        "Write-Host 'Fixing config file permissions...'",
+        // Fix config file permissions so the service can read it
+        "icacls 'C:\\ProgramData\\OdinForge\\agent.yaml' /grant 'Everyone:(R)' /T",
+        "Write-Host 'Restarting OdinForge agent service...'",
+        // Restart the service to ensure it picks up the correct permissions
+        "Restart-Service -Name 'odinforge-agent' -Force -ErrorAction SilentlyContinue",
+        "Start-Sleep -Seconds 3",
         "Write-Host 'OdinForge agent installed successfully'"
       ];
     } else {
@@ -364,7 +371,12 @@ export class AWSAdapter implements ProviderAdapter {
         "set -e",
         `curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent`,
         "chmod +x /tmp/odinforge-agent",
-        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`
+        `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --registration-token "${config.registrationToken}" --tenant-id "${config.organizationId}" --force`,
+        // Fix config file permissions so the agent service can read it
+        "sudo chmod 644 /etc/odinforge/agent.yaml",
+        "sudo chmod 755 /etc/odinforge",
+        // Restart the agent to ensure it picks up the correct permissions
+        "sudo systemctl restart odinforge-agent || true"
       ];
     }
   }
