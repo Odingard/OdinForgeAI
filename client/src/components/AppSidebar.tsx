@@ -19,6 +19,8 @@ import {
   Wrench,
   History,
   GitBranch,
+  ListChecks,
+  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -64,6 +66,12 @@ const systemItems = [
   { title: "Approval History", href: "/approvals/history", icon: History },
   { title: "Governance", href: "/governance", icon: Shield },
   { title: "Advanced", href: "/advanced", icon: Brain },
+];
+
+const operationsItems = [
+  { title: "Jobs", href: "/jobs", icon: ListChecks },
+  { title: "System Health", href: "/health", icon: Activity },
+  { title: "Audit Logs", href: "/audit", icon: FileText },
 ];
 
 export function AppSidebar() {
@@ -172,6 +180,33 @@ export function AppSidebar() {
               <SidebarGroupContent>
                 <SidebarMenu>
                   {systemItems.map((item) => (
+                    <SidebarMenuItem key={item.href}>
+                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
+                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </CollapsibleContent>
+          </SidebarGroup>
+        </Collapsible>
+
+        <Collapsible defaultOpen className="group/collapsible">
+          <SidebarGroup>
+            <CollapsibleTrigger asChild>
+              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
+                Operations
+                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
+              </SidebarGroupLabel>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {operationsItems.map((item) => (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton asChild isActive={isActive(item.href)}>
                         <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
