@@ -42,6 +42,7 @@ const SecurityTesting = lazy(() => import("@/pages/SecurityTesting"));
 const Approvals = lazy(() => import("@/pages/Approvals"));
 const ApprovalHistory = lazy(() => import("@/pages/ApprovalHistory"));
 const Remediation = lazy(() => import("@/pages/Remediation"));
+const LateralMovement = lazy(() => import("@/pages/LateralMovement"));
 const ExternalRecon = lazy(() => import("@/components/ExternalRecon").then(m => ({ default: m.ExternalRecon })));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -78,6 +79,7 @@ function Router() {
         <Route path="/approvals" component={Approvals} />
         <Route path="/approvals/history" component={ApprovalHistory} />
         <Route path="/remediation" component={Remediation} />
+        <Route path="/lateral-movement" component={LateralMovement} />
         <Route path="/admin/users" component={UserManagement} />
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />
