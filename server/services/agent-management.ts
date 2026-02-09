@@ -192,7 +192,7 @@ level = "info"
     }
 
     // Calculate uptime
-    const registeredAt = new Date(agent.registeredAt || agent.createdAt);
+    const registeredAt = new Date((agent as any).registeredAt || agent.createdAt!);
     const uptimeSeconds = (now.getTime() - registeredAt.getTime()) / 1000;
 
     const isHealthy = issues.length === 0 && isHeartbeatHealthy;
@@ -226,7 +226,7 @@ level = "info"
     if (hoursSinceHeartbeat > this.STALE_AGENT_HOURS) {
       await storage.updateEndpointAgent(agentId, {
         status: "offline" as any,
-        tags: [...(await storage.getEndpointAgent(agentId))!.tags, "needs-redeployment"],
+        tags: [...((await storage.getEndpointAgent(agentId))!.tags || []), "needs-redeployment"],
       });
 
       return {

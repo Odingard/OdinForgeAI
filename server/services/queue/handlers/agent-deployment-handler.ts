@@ -131,7 +131,7 @@ async function deployViaSSHWithCredential(
       registrationToken,
       organizationId,
       platform: "linux",
-    });
+    } as any);
     
     if (result.success) {
       console.log(`[AgentDeployment] SSH deployment successful: ${result.agentId}`);

@@ -259,7 +259,7 @@ async function generateAgentTelemetry(organizationId: string, agents: any[]) {
   }
 
   if (telemetryToInsert.length > 0) {
-    await db.insert(agentTelemetry).values(telemetryToInsert);
+    await db.insert(agentTelemetry).values(telemetryToInsert as any);
   }
   return count;
 }
@@ -298,7 +298,7 @@ async function generateEvaluations(organizationId: string, count: number) {
     });
   }
 
-  await db.insert(aevEvaluations).values(evaluationsToInsert);
+  await db.insert(aevEvaluations).values(evaluationsToInsert as any);
   return evaluationsToInsert;
 }
 
@@ -321,7 +321,7 @@ async function generateScheduledScans(organizationId: string) {
     createdAt: subDays(new Date(), 30),
   }));
 
-  await db.insert(scheduledScans).values(scansToInsert);
+  await db.insert(scheduledScans).values(scansToInsert as any);
   return scansToInsert.length;
 }
 
@@ -346,7 +346,7 @@ async function generateAuditLogs(organizationId: string) {
     });
   }
 
-  await db.insert(auditLogs).values(logsToInsert);
+  await db.insert(auditLogs).values(logsToInsert as any);
   return logsToInsert.length;
 }
 
@@ -370,6 +370,6 @@ async function generateCloudAssets(organizationId: string) {
     });
   }
 
-  await db.insert(discoveredAssets).values(assetsToInsert);
+  await db.insert(discoveredAssets).values(assetsToInsert as any);
   return assetsToInsert.length;
 }

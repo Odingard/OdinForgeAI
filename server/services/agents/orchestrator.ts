@@ -175,7 +175,7 @@ export async function runAgentOrchestrator(
     
     wsService.sendReasoningTrace(evaluationId, "debate_module", "DebateModule", 
       `Debate concluded: ${debateResult.finalVerdict} verdict. ${verifiedCount} verified, ${rejectedCount} rejected as false positives.`,
-      { decision: debateResult.finalVerdict === "VERIFIED" ? "VERIFIED" : debateResult.finalVerdict === "FALSE_POSITIVE" ? "FALSE_POSITIVE" : "DISPUTED" }
+      { decision: debateResult.finalVerdict === "verified" ? "VERIFIED" : debateResult.finalVerdict === "false_positive" ? "FALSE_POSITIVE" : "DISPUTED" }
     );
     
     console.log(`[Orchestrator] Debate complete: ${debateResult.finalVerdict} (${verifiedCount} verified, ${rejectedCount} rejected)`);

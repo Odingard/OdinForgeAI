@@ -86,9 +86,9 @@ export async function handleAISimulationJob(
     });
     
     try {
-      await storage.updateAiSimulation(simulationId, { 
-        status: "failed",
-        results: { error: governanceCheck.reason, blockedByGovernance: true } as any
+      await storage.updateAiSimulation(simulationId, {
+        simulationStatus: "failed",
+        simulationResults: { error: governanceCheck.reason, blockedByGovernance: true } as any
       });
     } catch {}
     
@@ -117,12 +117,9 @@ export async function handleAISimulationJob(
       simulation = await storage.createAiSimulation({
         organizationId,
         name: scenario,
-        attackScenario: scenario,
-        targetSystem: "default",
-        status: "running",
-      });
+      } as any);
     } else {
-      await storage.updateAiSimulation(simulationId, { status: "running" });
+      await storage.updateAiSimulation(simulationId, { simulationStatus: "running" });
     }
 
     await job.updateProgress?.({
@@ -158,15 +155,15 @@ export async function handleAISimulationJob(
     );
 
     await storage.updateAiSimulation(simulationId, {
-      status: "completed",
-      results: {
+      simulationStatus: "completed",
+      simulationResults: {
         rounds: result.rounds || [],
         summary: result.executiveSummary || "Simulation completed",
         winner: result.winner,
         finalAttackScore: result.finalAttackScore,
         finalDefenseScore: result.finalDefenseScore,
         recommendations: result.recommendations || [],
-      },
+      } as any,
     });
 
     await job.updateProgress?.({
@@ -202,7 +199,7 @@ export async function handleAISimulationJob(
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error(`[AISimulation] Simulation failed:`, errorMessage);
 
-    await storage.updateAiSimulation(simulationId, { status: "failed" }).catch(() => {});
+    await storage.updateAiSimulation(simulationId, { simulationStatus: "failed" }).catch(() => {});
 
     emitSimulationProgress(tenantId, organizationId, simulationId, {
       type: "ai_simulation_failed",

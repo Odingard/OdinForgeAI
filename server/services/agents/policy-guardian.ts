@@ -230,7 +230,7 @@ function getExecutionModeRules(mode: string): string {
   }
 }
 
-export function formatSafetyBlockForUI(block: SafetyBlock): {
+export function formatSafetyBlockForUI(block: SafetyDecision): {
   type: "safety_block";
   evaluationId: string;
   agentName: string;
@@ -300,7 +300,7 @@ export async function checkActionWithRuntimeGuard(
   }
 
   return {
-    allowed: runtimeResult.allowed && policyResult.decision !== "DENY",
+    allowed: runtimeResult.allowed && (policyResult.decision as string) !== "DENY",
     policyResult,
     runtimeGuardResult: runtimeResult,
     requiresApproval: false,

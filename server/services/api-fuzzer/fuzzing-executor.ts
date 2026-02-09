@@ -486,7 +486,7 @@ class FuzzingExecutor {
       byEndpoint.get(key)!.push(anomaly);
     }
 
-    for (const [endpoint, findings] of byEndpoint) {
+    for (const [endpoint, findings] of Array.from(byEndpoint)) {
       lines.push(`### ${endpoint}`);
       lines.push("");
       lines.push("| Parameter | Type | Severity | Details |");

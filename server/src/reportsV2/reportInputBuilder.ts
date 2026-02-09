@@ -188,8 +188,7 @@ export function buildReportInputFromEvaluation(
     // Extract attack path if available
     if (result.attackPath && Array.isArray(result.attackPath)) {
       // Extract time to compromise from attack path steps if available
-      const ttcStep = result.attackPath.find((s: any) => s.timeToCompromise);
-      const timeToCompromise = ttcStep?.timeToCompromise || undefined;
+      const timeToCompromise = (result as any).timeToCompromise || undefined;
       
       attackPaths.push({
         evaluationId: evaluation.id,

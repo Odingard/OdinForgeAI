@@ -44,7 +44,7 @@ export class AuditLogger {
       id,
       ...logData,
       checksum,
-    });
+    } as any);
 
     return id;
   }

@@ -589,7 +589,7 @@ export async function generateFullReport(
   await Promise.all(sectionPromises);
   
   // If we have at least the ENO and one section, consider it a partial success
-  const hasAnySections = report.executive || report.technical || report.compliance || report.evidence;
+  const hasAnySections = !!(report.executive || report.technical || report.compliance || report.evidence);
   
   return {
     success: errors.length === 0 || hasAnySections,

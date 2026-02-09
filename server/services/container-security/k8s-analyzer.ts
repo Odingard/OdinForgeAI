@@ -148,7 +148,7 @@ class K8sManifestAnalyzer {
       }
     }
 
-    for (const ns of allNamespacesWithWorkloads) {
+    for (const ns of Array.from(allNamespacesWithWorkloads)) {
       if (!namespacesWithNetPol.has(ns)) {
         networkPolicyFindings.push({
           id: `netpol-missing-${ns}`,
@@ -322,7 +322,7 @@ class K8sManifestAnalyzer {
 
         for (const resource of resources) {
           if (this.dangerousResources.includes(resource)) {
-            const hasDangerousVerb = verbs.some(v => this.dangerousVerbs.includes(v));
+            const hasDangerousVerb = verbs.some((v: any) => this.dangerousVerbs.includes(v));
             
             if (hasDangerousVerb) {
               const severity = ["secrets", "pods/exec", "clusterroles", "clusterrolebindings"].includes(resource)
@@ -336,7 +336,7 @@ class K8sManifestAnalyzer {
                 description: `${kind} grants ${verbs.join(", ")} on ${resource}`,
                 resource: `${namespace}/${name}`,
                 resourceType: kind as RbacFinding["resourceType"],
-                evidence: `resources: ["${resource}"], verbs: [${verbs.map(v => `"${v}"`).join(", ")}]`,
+                evidence: `resources: ["${resource}"], verbs: [${verbs.map((v: any) => `"${v}"`).join(", ")}]`,
                 recommendation: `Review necessity of ${verbs.join("/")} permissions on ${resource}.`,
                 mitreAttackId: resource === "secrets" ? "T1552.007" : "T1078.004",
                 cisControl: "CIS 5.1.3",
@@ -364,8 +364,8 @@ class K8sManifestAnalyzer {
     }
 
     if (kind === "ClusterRoleBinding" || kind === "RoleBinding") {
-      const roleRef = manifest.roleRef || {};
-      const subjects = manifest.subjects || [];
+      const roleRef = (manifest as any).roleRef || {};
+      const subjects = (manifest as any).subjects || [];
 
       if (this.privilegedRoles.includes(roleRef.name)) {
         for (const subject of subjects) {
@@ -408,7 +408,7 @@ class K8sManifestAnalyzer {
     }
 
     if (kind === "ServiceAccount") {
-      const automount = manifest.automountServiceAccountToken;
+      const automount = (manifest as any).automountServiceAccountToken;
       
       if (automount !== false && namespace !== "kube-system") {
         findings.push({
@@ -465,7 +465,7 @@ class K8sManifestAnalyzer {
       
       for (const finding of [...criticalContainer, ...criticalRbac, ...criticalNetPol]) {
         lines.push(`### ${finding.title}`);
-        lines.push(`- **Resource:** ${finding.resource || (finding as any).namespace}`);
+        lines.push(`- **Resource:** ${(finding as any).resource || (finding as any).namespace}`);
         lines.push(`- **Evidence:** \`${finding.evidence}\``);
         lines.push(`- **Recommendation:** ${finding.recommendation}`);
         lines.push("");
