@@ -45,7 +45,7 @@ const SIMULATION_TEMPLATES: SimulationTemplate[] = [
     description: "SQL injection, XSS, and authentication bypass attacks against web applications",
     icon: Globe,
     iconColor: "text-blue-500",
-    exposureType: "api",
+    exposureType: "api_sequence_abuse",
     priority: "high",
     defaultRounds: 3,
     scenarioDescription: "Simulate a sophisticated attacker targeting web application vulnerabilities including SQL injection, cross-site scripting (XSS), broken authentication, and API abuse. The attacker will attempt to gain unauthorized access, escalate privileges, and exfiltrate sensitive data.",
@@ -69,7 +69,7 @@ const SIMULATION_TEMPLATES: SimulationTemplate[] = [
     description: "Simulate ransomware deployment, lateral movement, and data encryption tactics",
     icon: HardDrive,
     iconColor: "text-red-500",
-    exposureType: "network",
+    exposureType: "network_vulnerability",
     priority: "critical",
     defaultRounds: 5,
     scenarioDescription: "Simulate a ransomware attack scenario including initial access via phishing or RDP exposure, credential harvesting, lateral movement through the network, disabling backups and security tools, and simulated encryption of critical systems.",
@@ -423,10 +423,21 @@ export default function Simulations() {
                         <SelectContent>
                           <SelectItem value="cve">CVE Vulnerability</SelectItem>
                           <SelectItem value="misconfiguration">Misconfiguration</SelectItem>
-                          <SelectItem value="network">Network Exposure</SelectItem>
-                          <SelectItem value="api">API Vulnerability</SelectItem>
+                          <SelectItem value="network_vulnerability">Network Vulnerability</SelectItem>
+                          <SelectItem value="cloud_misconfiguration">Cloud Misconfiguration</SelectItem>
+                          <SelectItem value="api_sequence_abuse">API Sequence Abuse</SelectItem>
                           <SelectItem value="iam_abuse">IAM Abuse</SelectItem>
+                          <SelectItem value="saas_permission">SaaS Permission Abuse</SelectItem>
+                          <SelectItem value="shadow_admin">Shadow Admin</SelectItem>
                           <SelectItem value="data_exfiltration">Data Exfiltration</SelectItem>
+                          <SelectItem value="payment_flow">Payment Flow</SelectItem>
+                          <SelectItem value="subscription_bypass">Subscription Bypass</SelectItem>
+                          <SelectItem value="state_machine">State Machine</SelectItem>
+                          <SelectItem value="privilege_boundary">Privilege Boundary</SelectItem>
+                          <SelectItem value="workflow_desync">Workflow Desync</SelectItem>
+                          <SelectItem value="order_lifecycle">Order Lifecycle</SelectItem>
+                          <SelectItem value="app_logic">Application Logic</SelectItem>
+                          <SelectItem value="behavioral_anomaly">Behavioral Anomaly</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
