@@ -547,6 +547,7 @@ export const exposureTypes = [
   "saas_permission",        // SaaS permission abuse
   "shadow_admin",           // Shadow admin discovery
   "api_sequence_abuse",     // API sequence/workflow abuse
+  "data_exfiltration",      // Data exfiltration techniques
   "payment_flow",           // Payment flow vulnerabilities
   "subscription_bypass",    // Subscription & billing bypass
   "state_machine",          // State machine violations

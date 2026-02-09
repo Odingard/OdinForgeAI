@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { endpointAgents, aevEvaluations } from "@shared/schema";
 import { sql, and, eq } from "drizzle-orm";
-import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks, getPermissionsForDbRole } from "@shared/schema";
+import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks, getPermissionsForDbRole, exposureTypes } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
 import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
@@ -3858,7 +3858,7 @@ export async function registerRoutes(
   // Validation schema for simulation creation
   const createSimulationSchema = z.object({
     assetId: z.string().min(1, "assetId is required"),
-    exposureType: z.enum(["cve", "misconfiguration", "network", "api", "iam_abuse", "data_exfiltration", "payment_flow"]),
+    exposureType: z.enum(exposureTypes),
     priority: z.enum(["critical", "high", "medium", "low"]).default("high"),
     description: z.string().min(1, "description is required"),
     rounds: z.number().int().min(1).max(10).default(3),

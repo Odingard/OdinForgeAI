@@ -37,6 +37,7 @@ const exposureTypeLabels: Record<ExposureType, string> = {
   saas_permission: "SaaS Permission Abuse",
   shadow_admin: "Shadow Admin Discovery",
   api_sequence_abuse: "API Sequence Abuse",
+  data_exfiltration: "Data Exfiltration",
   payment_flow: "Payment Flow",
   subscription_bypass: "Subscription Bypass",
   state_machine: "State Machine Violation",
@@ -47,7 +48,7 @@ const exposureTypeLabels: Record<ExposureType, string> = {
 };
 
 const exposureTypeGroups = {
-  "Traditional Vectors": ["cve", "misconfiguration", "behavioral_anomaly", "network_vulnerability"] as ExposureType[],
+  "Traditional Vectors": ["cve", "misconfiguration", "behavioral_anomaly", "network_vulnerability", "data_exfiltration"] as ExposureType[],
   "Cloud & IAM": ["cloud_misconfiguration", "iam_abuse", "saas_permission", "shadow_admin"] as ExposureType[],
   "Business Logic": ["api_sequence_abuse", "payment_flow", "subscription_bypass", "state_machine", "privilege_boundary", "workflow_desync", "order_lifecycle"] as ExposureType[],
 };
