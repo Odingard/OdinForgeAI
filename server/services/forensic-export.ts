@@ -8,6 +8,8 @@ import { storageService } from "./storage";
 
 const scryptAsync = promisify(scrypt);
 
+declare const objectStorageClient: any;
+
 export interface ForensicExportBundle {
   metadata: {
     evaluationId: string;

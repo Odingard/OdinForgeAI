@@ -197,6 +197,7 @@ export interface JobResult {
   error?: string;
   duration?: number;
   metrics?: Record<string, number>;
+  metadata?: Record<string, any>;
 }
 
 export interface JobProgress {

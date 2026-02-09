@@ -115,7 +115,7 @@ export class DnsProbe {
         socket.write(Buffer.concat([lengthPrefix, axfrQuery]));
       });
 
-      socket.on("data", (chunk) => {
+      socket.on("data", (chunk: Buffer) => {
         responseData = Buffer.concat([responseData, chunk]);
         const answerCount = this.parseAnswerCount(responseData);
         if (answerCount > 0) {

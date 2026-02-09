@@ -341,7 +341,7 @@ class PRAutomationService {
         url: mr.web_url,
         branchName: mr.source_branch,
         title: mr.title,
-        filesChanged: mr.changes_count || 0,
+        filesChanged: Number(mr.changes_count) || 0,
       };
     }
 

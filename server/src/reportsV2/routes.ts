@@ -46,7 +46,7 @@ const generateReportV2Schema = z.object({
   organizationId: z.string().optional(),
   customerContext: z.object({
     industry: z.string().optional(),
-    primaryDataTypes: z.array(z.string()).optional(),
+    primaryDataTypes: z.array(z.enum(["PII", "PCI", "PHI", "IP", "FINANCIAL", "CLASSIFIED"])).optional(),
     criticalSystems: z.array(z.string()).optional(),
     riskTolerance: z.enum(["low", "medium", "high"]).optional(),
   }).optional(),
@@ -56,7 +56,7 @@ const generateReportV2Schema = z.object({
 const regenerateReportV2Schema = z.object({
   customerContext: z.object({
     industry: z.string().optional(),
-    primaryDataTypes: z.array(z.string()).optional(),
+    primaryDataTypes: z.array(z.enum(["PII", "PCI", "PHI", "IP", "FINANCIAL", "CLASSIFIED"])).optional(),
     criticalSystems: z.array(z.string()).optional(),
     riskTolerance: z.enum(["low", "medium", "high"]).optional(),
   }).optional(),
@@ -227,7 +227,7 @@ export function registerReportV2Routes(app: Express): void {
         content: reportResult.report,
         evaluationIds: evaluationsWithResults.map(e => e.evaluation.id),
         generatedBy: "system",
-      });
+      } as any);
       
       res.json({
         success: true,
@@ -387,7 +387,7 @@ export function registerReportV2Routes(app: Express): void {
         content: reportResult.report,
         evaluationIds,
         generatedBy: "system",
-      });
+      } as any);
       
       res.json({
         success: true,

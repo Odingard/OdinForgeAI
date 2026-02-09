@@ -4670,7 +4670,6 @@ export const insertSecurityPolicySchema = createInsertSchema(securityPolicies, {
   // Override embedding type since drizzle-zod doesn't handle customType
   embedding: z.array(z.number()).optional(),
 }).omit({
-  id: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -4697,12 +4696,10 @@ export const messages = pgTable("messages", {
 });
 
 export const insertConversationSchema = createInsertSchema(conversations).omit({
-  id: true,
   createdAt: true,
 });
 
 export const insertMessageSchema = createInsertSchema(messages).omit({
-  id: true,
   createdAt: true,
 });
 

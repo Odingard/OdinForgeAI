@@ -77,7 +77,7 @@ async function sendSmtpCommand(socket: Socket, command: string, timeout: number 
     
     const responseHandler = (data: Buffer) => {
       response += data.toString();
-      if (response.match(/^\d{3} /m) || response.match(/^\d{3}-.*\n\d{3} /ms)) {
+      if (response.match(/^\d{3} /m) || response.match(/^\d{3}-[\s\S]*\n\d{3} /m)) {
         socket.removeListener("data", responseHandler);
         resolve(response.trim());
       }

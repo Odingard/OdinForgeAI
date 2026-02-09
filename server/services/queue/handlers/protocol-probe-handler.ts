@@ -154,7 +154,7 @@ async function storeProbeFindings(
     };
     
     try {
-      await storage.createResult(resultData);
+      await storage.createResult(resultData as any);
       console.log(`[ProtocolProbeHandler] Stored finding for ${type}`);
     } catch (error) {
       console.error(`[ProtocolProbeHandler] Error storing finding for ${type}:`, error);
@@ -185,9 +185,9 @@ async function storeProbeFindings(
         technique: "T1078",
       }],
     };
-    
+
     try {
-      await storage.createResult(resultData);
+      await storage.createResult(resultData as any);
       console.log(`[ProtocolProbeHandler] Stored credential finding for ${service}`);
     } catch (error) {
       console.error(`[ProtocolProbeHandler] Error storing credential finding for ${service}:`, error);

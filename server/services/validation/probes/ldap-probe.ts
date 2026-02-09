@@ -130,7 +130,7 @@ export class LdapProbe {
 
       socket.once("data", (data) => {
         clearTimeout(timeoutId);
-        const resultCode = this.parseBindResponse(data);
+        const resultCode = this.parseBindResponse(data as Buffer);
         resolve({ allowed: resultCode === 0 });
       });
 
@@ -140,7 +140,7 @@ export class LdapProbe {
 
   private async testNullBind(socket: net.Socket): Promise<{ allowed: boolean }> {
     const bindRequest = this.buildSimpleBindRequest("cn=null", "");
-    
+
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
         resolve({ allowed: false });
@@ -148,7 +148,7 @@ export class LdapProbe {
 
       socket.once("data", (data) => {
         clearTimeout(timeoutId);
-        const resultCode = this.parseBindResponse(data);
+        const resultCode = this.parseBindResponse(data as Buffer);
         resolve({ allowed: resultCode === 0 });
       });
 
@@ -192,7 +192,7 @@ export class LdapProbe {
 
       socket.once("data", (data) => {
         clearTimeout(timeoutId);
-        const hasEntries = this.hasSearchResults(data);
+        const hasEntries = this.hasSearchResults(data as Buffer);
         resolve({ exposed: hasEntries });
       });
 

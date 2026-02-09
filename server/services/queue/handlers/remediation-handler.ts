@@ -194,8 +194,7 @@ export async function handleRemediationJob(
       const evaluation = await storage.getEvaluation(evaluationId);
       
       if (evaluation) {
-        const results = await storage.getResultsByEvaluationId(evaluationId);
-        const result = results[0];
+        const result = await storage.getResultByEvaluationId(evaluationId);
         
         const context = {
           assetId: evaluation.assetId,
@@ -329,7 +328,7 @@ export async function handleRemediationJob(
           error: r.status === "failed" ? r.message : undefined,
         })),
         guidance: guidance ? {
-          prioritizedActions: guidance.prioritizedActions?.map(pa => ({
+          prioritizedActions: guidance.prioritizedActions?.map((pa: any) => ({
             priority: pa.priority,
             action: pa.action,
             impact: pa.impact,
@@ -350,7 +349,7 @@ export async function handleRemediationJob(
         status: failedCount === 0 ? "completed" : "failed",
         remediationStarted: new Date(startTime),
         remediationCompleted: new Date(),
-      });
+      } as any);
       console.log(`[Remediation] Results persisted to database for ${remediationId}`);
     } catch (dbError) {
       console.warn(`[Remediation] Failed to persist results:`, dbError instanceof Error ? dbError.message : "Unknown error");

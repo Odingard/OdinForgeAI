@@ -173,7 +173,7 @@ export async function handleReportGenerationJob(
       status: "completed",
       reportVersion: "v1_template",
       content: { ...reportContent, format },
-    });
+    } as any);
 
     await job.updateProgress?.({
       percent: 100,

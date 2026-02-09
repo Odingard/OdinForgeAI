@@ -236,14 +236,13 @@ class RuntimeGuard {
       type: "hitl_approval_required",
       approvalId,
       evaluationId: context.evaluationId,
-      executionId: context.executionId,
       agentName: context.agentName,
       command: command.substring(0, 500),
       target,
       riskLevel,
       riskReason,
       expiresAt: expiresAt.toISOString(),
-    });
+    } as any);
 
     console.log(`[RuntimeGuard] Sent HITL approval notification: ${approvalId}`);
   }

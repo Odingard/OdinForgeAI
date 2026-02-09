@@ -693,7 +693,7 @@ class ContainerSecurityScanner {
       byCategory.get(finding.category)!.push(finding);
     }
 
-    for (const [category, categoryFindings] of byCategory) {
+    for (const [category, categoryFindings] of Array.from(byCategory)) {
       lines.push(`### ${category.replace(/_/g, " ").toUpperCase()}`);
       lines.push("");
       lines.push("| Resource | Title | Severity |");

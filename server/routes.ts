@@ -1711,7 +1711,7 @@ export async function registerRoutes(
         title,
         reportType,
         status: "completed",
-        dateRangeFrom: new Date(scan.createdAt),
+        dateRangeFrom: new Date(scan.createdAt || Date.now()),
         dateRangeTo: new Date(),
         framework: includeCompliance ? framework : null,
         content: {
@@ -1725,7 +1725,7 @@ export async function registerRoutes(
           scanMetadata: {
             scanId: scan.id,
             targetUrl: scan.targetUrl,
-            completedAt: scan.updatedAt || scan.createdAt,
+            completedAt: scan.completedAt || scan.createdAt,
           }
         },
       });
@@ -1975,7 +1975,7 @@ export async function registerRoutes(
       if (!result) {
         return res.status(404).json({ error: "Scheduled scan not found" });
       }
-      res.json({ success: true, batchJobId: result.batchJobId, message: "Scan triggered successfully" });
+      res.json({ success: true, evaluationIds: result.evaluationIds, message: "Scan triggered successfully" });
     } catch (error) {
       console.error("Error triggering scheduled scan:", error);
       res.status(500).json({ error: "Failed to trigger scheduled scan" });
@@ -3231,7 +3231,7 @@ export async function registerRoutes(
       
       if (normalizedProvider === "aws") {
         const { awsAdapter } = await import("./services/cloud/aws-adapter");
-        const result = await awsAdapter.scanIAM({ aws: credentials });
+        const result = await awsAdapter.scanIAM({ aws: credentials as any });
         res.json({
           success: true,
           provider: "aws",
@@ -3241,7 +3241,7 @@ export async function registerRoutes(
         });
       } else if (normalizedProvider === "azure") {
         const { azureAdapter } = await import("./services/cloud/azure-adapter");
-        const result = await azureAdapter.scanIAM({ azure: credentials });
+        const result = await azureAdapter.scanIAM({ azure: credentials as any });
         res.json({
           success: true,
           provider: "azure",
@@ -3416,9 +3416,9 @@ export async function registerRoutes(
       for (const job of activeJobs) {
         await storage.updateAgentDeploymentJob(job.id, {
           status: "cancelled",
-          error: "Cancelled by user",
+          errorDetails: { message: "Cancelled by user" },
           completedAt: new Date(),
-        });
+        } as any);
         cancelledJobIds.push(job.id);
       }
 
@@ -3782,9 +3782,9 @@ export async function registerRoutes(
       
       let config;
       if (existingConfig) {
-        config = await storage.updateAutoDeployConfig(organizationId, configData);
+        config = await storage.updateAutoDeployConfig(organizationId, configData as any);
       } else {
-        config = await storage.createAutoDeployConfig(configData);
+        config = await storage.createAutoDeployConfig(configData as any);
       }
       
       console.log(`[AutoDeploy] Configuration ${existingConfig ? 'updated' : 'created'} for org ${organizationId}: enabled=${config?.enabled}`);
@@ -4353,7 +4353,7 @@ export async function registerRoutes(
         configData,
         securityFindings,
         collectedAt: collectedAt ? new Date(collectedAt) : new Date(),
-      });
+      } as any);
 
       // Process security findings with deduplication
       const createdFindings: string[] = [];
@@ -4598,7 +4598,7 @@ export async function registerRoutes(
           configData: validatedEvent.configData || null,
           securityFindings: validatedEvent.securityFindings || null,
           collectedAt: validatedEvent.collectedAt ? new Date(validatedEvent.collectedAt) : new Date(),
-        });
+        } as any);
         const telemetryId = telemetry.id;
         telemetryIds.push(telemetry.id);
 
@@ -4858,7 +4858,7 @@ export async function registerRoutes(
       // Don't expose API keys in list view, calculate real-time status
       const safeAgents = agents.map(({ apiKey, apiKeyHash, ...agent }) => ({
         ...agent,
-        status: calculateAgentStatus(agent.lastHeartbeat, agent.status),
+        status: calculateAgentStatus(agent.lastHeartbeat, agent.status || "unknown"),
       }));
       res.json(safeAgents);
     } catch (error) {
@@ -4874,9 +4874,9 @@ export async function registerRoutes(
       const agents = await storage.getEndpointAgents();
       const agentsWithRealStatus = agents.map(agent => ({
         ...agent,
-        status: calculateAgentStatus(agent.lastHeartbeat, agent.status),
+        status: calculateAgentStatus(agent.lastHeartbeat, agent.status || "unknown"),
       }));
-      
+
       const findings = await storage.getAgentFindings();
       
       const stats = {
@@ -4922,11 +4922,7 @@ export async function registerRoutes(
       if (result.deleted > 0) {
         console.log(`[Auto-Cleanup] Deleted ${result.deleted} stale agent(s): ${result.agents.join(", ")}`);
         // Broadcast update via WebSocket
-        wsService.broadcastProgress("agent-cleanup", {
-          type: "auto_cleanup_complete",
-          deleted: result.deleted,
-          agents: result.agents
-        });
+        wsService.broadcastScanProgress("agent-cleanup", "cleanup", result.deleted, `Deleted ${result.deleted} stale agents`);
       }
     } catch (error) {
       console.error("[Auto-Cleanup] Error during automatic cleanup:", error);
@@ -5021,7 +5017,7 @@ export async function registerRoutes(
       const { apiKey, apiKeyHash, ...safeAgent } = agent;
       res.json({
         ...safeAgent,
-        status: calculateAgentStatus(agent.lastHeartbeat, agent.status),
+        status: calculateAgentStatus(agent.lastHeartbeat, agent.status || "unknown"),
       });
     } catch (error) {
       console.error("Error fetching agent:", error);
@@ -5655,16 +5651,16 @@ export async function registerRoutes(
         id,
         tokenHash,
         organizationId: org,
-        label: label || `Token created at ${new Date().toISOString()}`,
+        name: label || `Token created at ${new Date().toISOString()}`,
         expiresAt,
       });
-      
+
       console.log(`[AUDIT] Registration token ${id} created for org ${org}, expires ${expiresAt.toISOString()}`);
-      
+
       res.json({
         id: registrationToken.id,
         token, // Only returned once, never stored
-        label: registrationToken.label,
+        label: registrationToken.name,
         organizationId: registrationToken.organizationId,
         expiresAt: registrationToken.expiresAt,
         message: "Single-use registration token created. Store securely - the token value cannot be retrieved again.",
@@ -5684,7 +5680,7 @@ export async function registerRoutes(
       // Return token metadata without the hash
       res.json(tokens.map(t => ({
         id: t.id,
-        label: t.label,
+        label: t.name,
         organizationId: t.organizationId,
         expiresAt: t.expiresAt,
         usedAt: t.usedAt,
@@ -5742,10 +5738,10 @@ export async function registerRoutes(
         id,
         tokenHash,
         organizationId: org,
-        label: label || `Auto-install command generated at ${new Date().toISOString()}`,
+        name: label || `Auto-install command generated at ${new Date().toISOString()}`,
         expiresAt,
       });
-      
+
       // Construct the server URL - prefer custom URL, then Replit domain, then request host
       let serverUrl: string;
       if (customServerUrl) {
@@ -6140,7 +6136,7 @@ export async function registerRoutes(
         dnsEnum: scanTypes?.dnsEnum ?? true,
       }, (phase, progress, message, portsFound, vulnerabilitiesFound) => {
         // Send progress update via WebSocket
-        wsService.sendReconProgress(scanId, phase, progress, message, portsFound, vulnerabilitiesFound);
+        wsService.sendReconProgress(scanId, phase as any, progress, message, portsFound, vulnerabilitiesFound);
       }).then(async (result) => {
         try {
           // Save completed scan to database
@@ -6152,14 +6148,14 @@ export async function registerRoutes(
             httpFingerprint: result.httpFingerprint || null,
             dnsEnum: result.dnsEnum || null,
             errors: result.errors || [],
-          });
+          } as any);
           // Notify via WebSocket
           wsService.broadcast({
-            type: 'recon_complete',
+            type: 'recon_progress' as const,
             scanId,
             target: hostname,
             timestamp: new Date().toISOString(),
-          });
+          } as any);
         } catch (dbErr) {
           console.error("Failed to save recon scan result:", dbErr);
         }
@@ -6219,9 +6215,9 @@ export async function registerRoutes(
       const result: ReconResult = {
         target: scan.target,
         scanTime: scan.scanTime || new Date(),
-        portScan: scan.portScan || undefined,
+        portScan: (scan.portScan || undefined) as any,
         networkExposure: scan.networkExposure || undefined,
-        sslCheck: scan.sslCheck || undefined,
+        sslCheck: (scan.sslCheck || undefined) as any,
         transportSecurity: scan.transportSecurity || undefined,
         httpFingerprint: scan.httpFingerprint || undefined,
         applicationIdentity: scan.applicationIdentity || undefined,
@@ -6252,7 +6248,7 @@ export async function registerRoutes(
   app.post("/api/recon/create-evaluation", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
     try {
       const { scanId, selectedExposures } = req.body;
-      
+
       if (!scanId || !Array.isArray(selectedExposures) || selectedExposures.length === 0) {
         return res.status(400).json({ error: "scanId and selectedExposures are required" });
       }
@@ -6267,8 +6263,8 @@ export async function registerRoutes(
       const result: ReconResult = {
         target: scan.target,
         scanTime: scan.scanTime || new Date(),
-        portScan: scan.portScan || undefined,
-        sslCheck: scan.sslCheck || undefined,
+        portScan: (scan.portScan || undefined) as any,
+        sslCheck: (scan.sslCheck || undefined) as any,
         httpFingerprint: scan.httpFingerprint || undefined,
         dnsEnum: scan.dnsEnum || undefined,
         errors: scan.errors || [],
@@ -6314,17 +6310,21 @@ export async function registerRoutes(
         banner: p.banner || null,
       }));
 
-      const vulnerabilities = selected.map((exp: any) => ({
-        issue: exp.description,
-        recommendation: `Address ${exp.type} finding: ${exp.description}`,
-        cve: null,
-        severity: exp.severity,
+      const vulnerabilities = selected.map((exp: any, i: number) => ({
+        id: `vuln-recon-${i + 1}`,
+        port: 0,
+        service: exp.type || "unknown",
+        severity: exp.severity || "medium",
+        title: exp.description,
+        description: `Address ${exp.type} finding: ${exp.description}`,
+        cveIds: [] as string[],
+        remediation: `Remediate ${exp.type} exposure`,
       }));
 
       // Use current time for timestamps
       const now = new Date();
       const startTime = scan.scanTime instanceof Date ? scan.scanTime : now;
-      
+
       await storage.createLiveScanResult({
         evaluationId: evaluation.id,
         organizationId: "default",
@@ -6526,7 +6526,7 @@ async function runEvaluation(evaluationId: string, data: {
         score: result.score,
         attackPath: result.attackPath,
         impact: result.impact,
-        recommendations: result.recommendations.map(r => r.title),
+        recommendations: result.recommendations.map(r => r.title) as any,
         evidenceArtifacts: [],
         intelligentScore: {
           overall: result.score,
@@ -6534,17 +6534,17 @@ async function runEvaluation(evaluationId: string, data: {
           impact: result.exploitable ? 70 : 30,
           defensibility: result.exploitable ? 30 : 70,
           confidence: result.confidence,
-        },
+        } as any,
         remediationGuidance: {
           immediate: result.recommendations.filter(r => r.priority === "critical" || r.priority === "high").map(r => r.description),
           shortTerm: result.recommendations.filter(r => r.priority === "medium").map(r => r.description),
           longTerm: result.recommendations.filter(r => r.priority === "low").map(r => r.description),
           estimatedEffort: result.exploitable ? "medium" : "low",
           priorityOrder: result.recommendations.map(r => r.title),
-        },
+        } as any,
         duration,
       });
-      
+
       await storage.updateEvaluationStatus(evaluationId, "completed");
       wsService.sendComplete(evaluationId, true);
       console.log(`[AEV] App logic evaluation ${evaluationId} completed in ${duration}ms (deterministic, no LLM)`);
@@ -6584,7 +6584,7 @@ async function runEvaluation(evaluationId: string, data: {
         purpleTeamFindings: [simulationResult.purpleTeamFeedback],
         recommendations: simulationResult.recommendations,
         duration,
-      });
+      } as any);
 
       // Also create a standard result with simulation summary for UI compatibility
       const attackerScore = simulationResult.finalAttackScore;
@@ -6603,7 +6603,7 @@ async function runEvaluation(evaluationId: string, data: {
         multiVectorFindings: simulationResult.rounds[0]?.attackerFindings?.multiVectorFindings,
         workflowAnalysis: simulationResult.rounds[0]?.attackerFindings?.workflowAnalysis,
         impact: simulationResult.rounds[0]?.attackerFindings?.impact,
-        recommendations: recsAsStrings,
+        recommendations: recsAsStrings as any,
         evidenceArtifacts: [],
         intelligentScore: {
           overall: attackerScore,
@@ -6611,14 +6611,14 @@ async function runEvaluation(evaluationId: string, data: {
           impact: defenderScore > 70 ? 30 : 70,
           defensibility: defenderScore,
           confidence: 85,
-        },
+        } as any,
         remediationGuidance: {
           immediate: recsAsStrings.slice(0, 2),
           shortTerm: recsAsStrings.slice(2, 4),
           longTerm: recsAsStrings.slice(4),
           estimatedEffort: "medium",
           priorityOrder: recsAsStrings,
-        },
+        } as any,
         duration,
       });
 
@@ -6632,18 +6632,18 @@ async function runEvaluation(evaluationId: string, data: {
     if (executionMode === "live") {
       console.log(`[GOVERNANCE] Live mode enabled for evaluation ${evaluationId} - performing network scan`);
       
-      const { performLiveScan, parseTargetFromAsset } = await import("./services/live-network-testing");
+      const { executeLiveNetworkTest, parseTargetFromAsset } = await import("./services/live-network-testing");
       const target = parseTargetFromAsset(data.assetId, data.description);
-      
+
       if (target) {
         try {
           wsService.sendProgress(evaluationId, "Live Scanner", "init", 5, `Initializing live scan for ${target.host}...`);
-          
-          liveScanResult = await performLiveScan(
+
+          liveScanResult = await executeLiveNetworkTest(
             evaluationId,
             target,
             orgId,
-            (progress) => {
+            (progress: any) => {
               wsService.sendProgress(
                 evaluationId, 
                 "Live Scanner", 
@@ -6659,16 +6659,16 @@ async function runEvaluation(evaluationId: string, data: {
             evaluationId,
             organizationId: orgId,
             targetHost: target.host,
-            resolvedIp: liveScanResult.ip,
-            resolvedHostname: liveScanResult.hostname,
-            ports: liveScanResult.ports.map(p => ({
+            resolvedIp: liveScanResult!.ip,
+            resolvedHostname: liveScanResult!.hostname,
+            ports: liveScanResult!.ports.map(p => ({
               port: p.port,
               state: p.state,
               service: p.service,
               banner: p.banner,
               version: p.version,
             })),
-            vulnerabilities: liveScanResult.vulnerabilities.map((v, i) => ({
+            vulnerabilities: liveScanResult!.vulnerabilities.map((v, i) => ({
               id: `vuln-${i + 1}`,
               port: v.port,
               service: v.service,
@@ -6678,12 +6678,12 @@ async function runEvaluation(evaluationId: string, data: {
               cveIds: v.cve ? [v.cve] : [],
               remediation: v.recommendation,
             })),
-            scanStarted: liveScanResult.scanStarted,
-            scanCompleted: liveScanResult.scanCompleted,
+            scanStarted: liveScanResult!.scanStarted,
+            scanCompleted: liveScanResult!.scanCompleted,
             status: "completed",
           });
-          
-          console.log(`[LIVE] Scan completed: ${liveScanResult.ports.length} open ports, ${liveScanResult.vulnerabilities.length} vulnerabilities`);
+
+          console.log(`[LIVE] Scan completed: ${liveScanResult!.ports.length} open ports, ${liveScanResult!.vulnerabilities.length} vulnerabilities`);
         } catch (liveError) {
           console.error(`[LIVE] Scan failed for ${target.host}:`, liveError);
           wsService.sendProgress(evaluationId, "Live Scanner", "error", 0, `Live scan failed: ${String(liveError)}`);
@@ -6734,12 +6734,12 @@ async function runEvaluation(evaluationId: string, data: {
         ];
         
         // Merge recommendations (result.recommendations is string[], appLogicResult has structured recs)
-        const existingRecTitles = new Set(result.recommendations || []);
+        const existingRecTitles = new Set((result.recommendations || []) as any[]);
         const newRecTitles = (appLogicResult.recommendations || [])
-          .map(r => r.title)
-          .filter(title => !existingRecTitles.has(title));
+          .map((r: any) => r.title)
+          .filter((title: string) => !existingRecTitles.has(title));
         const mergedRecommendations = [
-          ...(result.recommendations || []),
+          ...((result.recommendations || []) as any[]),
           ...newRecTitles,
         ];
         
@@ -6761,11 +6761,11 @@ async function runEvaluation(evaluationId: string, data: {
           exploitable: result.exploitable || appLogicResult.exploitable,
           confidence: Math.max(result.confidence, appLogicResult.confidence),
           score: Math.max(result.score, appLogicResult.score),
-          attackPath: mergedAttackPath,
-          recommendations: mergedRecommendations,
-          businessLogicFindings: result.businessLogicFindings || appLogicFindings,
-          impact: appLogicResult.exploitable && !result.exploitable 
-            ? appLogicResult.impact 
+          attackPath: mergedAttackPath as any,
+          recommendations: mergedRecommendations as any,
+          businessLogicFindings: (result.businessLogicFindings || appLogicFindings) as any,
+          impact: appLogicResult.exploitable && !result.exploitable
+            ? appLogicResult.impact
             : result.impact,
         };
       }
@@ -6792,7 +6792,7 @@ async function runEvaluation(evaluationId: string, data: {
         .filter(v => v.recommendation)
         .map(v => `[Live] ${v.recommendation}`);
       
-      const existingRecs = new Set(finalResult.recommendations || []);
+      const existingRecs = new Set((finalResult.recommendations || []) as any[]);
       const newLiveRecs = liveRecommendations.filter(r => !existingRecs.has(r));
       
       // Update score based on live findings
@@ -6804,17 +6804,17 @@ async function runEvaluation(evaluationId: string, data: {
         ...finalResult,
         exploitable: finalResult.exploitable || criticalCount > 0 || highCount > 0,
         score: Math.min(100, finalResult.score + liveScoreBoost),
-        attackPath: [...(finalResult.attackPath || []), ...liveAttackSteps],
-        recommendations: [...(finalResult.recommendations || []), ...newLiveRecs],
+        attackPath: [...(finalResult.attackPath || []), ...liveAttackSteps] as any,
+        recommendations: [...((finalResult.recommendations || []) as any[]), ...newLiveRecs] as any,
         evidenceArtifacts: [
           ...(finalResult.evidenceArtifacts || []),
           {
-            type: "live_scan" as const,
+            type: "live_scan",
             name: "Network Scan Results",
             content: `Scanned ${liveScanResult.ip}: ${liveScanResult.ports.length} open ports found`,
             timestamp: liveScanResult.scanCompleted?.toISOString() || new Date().toISOString(),
           },
-        ],
+        ] as any,
       };
     }
 
@@ -7290,8 +7290,8 @@ function registerJobQueueRoutes(app: Express) {
               targetUrl: webAppReconResult.targetUrl,
               durationMs: webAppReconResult.durationMs,
               applicationInfo: webAppReconResult.applicationInfo,
-              attackSurface: webAppReconResult.attackSurface,
-              endpoints: webAppReconResult.endpoints.slice(0, 100),
+              attackSurface: webAppReconResult.attackSurface as any,
+              endpoints: webAppReconResult.endpoints.slice(0, 100) as any,
             },
           });
           
@@ -8359,7 +8359,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
           const dispatchResult = await dispatchParallelAgents(
             mockReconResult as any,
             {
-              maxConcurrent: maxConcurrentAgents,
+              maxConcurrentAgents: maxConcurrentAgents,
               vulnerabilityTypes: vulnerabilityTypes,
               enableLLMValidation,
             },
@@ -8371,13 +8371,12 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
 
           // Update endpoint scan statuses and findings counts
           for (const endpoint of endpoints) {
-            const relatedFindings = dispatchResult.findings.filter(f => 
-              f.endpoint?.includes(endpoint.path)
+            const relatedFindings = dispatchResult.findings.filter(f =>
+              f.endpointPath?.includes(endpoint.path)
             );
             await storage.updateApiEndpoint(endpoint.id, {
               scanStatus: "completed",
               lastScannedAt: new Date(),
-              findingsCount: relatedFindings.length,
             });
           }
 
@@ -8389,9 +8388,9 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
               totalTasks: dispatchResult.totalTasks,
               completedTasks: dispatchResult.completedTasks,
               failedTasks: dispatchResult.failedTasks,
-              findingsCount: dispatchResult.findings.length,
               falsePositivesFiltered: dispatchResult.falsePositivesFiltered,
               executionTimeMs: dispatchResult.executionTimeMs,
+              tasksByVulnerabilityType: dispatchResult.tasksByVulnerabilityType || {},
             },
             validatedFindings: dispatchResult.findings,
           });
@@ -8778,7 +8777,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.json({
         scanId,
         targetUrl: scan.targetUrl,
-        scanCompletedAt: scan.updatedAt,
+        scanCompletedAt: scan.completedAt,
         ...report,
         markdownReport: markdown,
       });
@@ -8868,7 +8867,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
         return res.status(404).json({ error: "API definition not found" });
       }
 
-      const endpoints = await storage.getApiEndpointsByDefinition(id);
+      const endpoints = await storage.getApiEndpoints(id);
       if (!endpoints || endpoints.length === 0) {
         return res.status(404).json({ error: "No endpoints found for this API definition" });
       }
@@ -8880,7 +8879,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
 
       const { apiFuzzingEngine, fuzzingExecutor } = await import("./services/api-fuzzer");
       
-      const allTestCases = endpoints.flatMap(ep => 
+      const allTestCases = endpoints.flatMap((ep: any) =>
         apiFuzzingEngine.generateTestCasesFromOpenAPIEndpoint({
           path: ep.path,
           method: ep.method,
@@ -10860,7 +10859,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     try {
       const { evaluationId, executionId, encryptionPassword, includeEvidenceFiles } = req.body;
       const authReq = req as UIAuthenticatedRequest;
-      const exportedBy = authReq.user?.email || "unknown";
+      const exportedBy = authReq.uiUser?.email || "unknown";
 
       if (!evaluationId || !encryptionPassword) {
         return res.status(400).json({ error: "evaluationId and encryptionPassword are required" });
@@ -10941,7 +10940,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   app.get("/api/hitl/pending", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
     try {
       const authReq = req as UIAuthenticatedRequest;
-      const organizationId = authReq.user?.organizationId || "default";
+      const organizationId = authReq.uiUser?.organizationId || "default";
       const pendingApprovals = await runtimeGuard.getPendingApprovals(organizationId);
       res.json(pendingApprovals);
     } catch (error: any) {
@@ -10981,7 +10980,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       const { approvalId } = req.params;
       const { nonce } = req.body;
       const authReq = req as UIAuthenticatedRequest;
-      const respondedBy = authReq.user?.email || "unknown";
+      const respondedBy = authReq.uiUser?.email || "unknown";
 
       if (!nonce) {
         return res.status(400).json({ error: "nonce is required" });
@@ -11015,7 +11014,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       const { approvalId } = req.params;
       const { nonce, reason } = req.body;
       const authReq = req as UIAuthenticatedRequest;
-      const respondedBy = authReq.user?.email || "unknown";
+      const respondedBy = authReq.uiUser?.email || "unknown";
 
       if (!nonce) {
         return res.status(400).json({ error: "nonce is required" });
