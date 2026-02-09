@@ -4,6 +4,7 @@ import { queueService } from "../queue/queue-service";
 import type { ScheduledScan } from "@shared/schema";
 
 let schedulerTask: ReturnType<typeof cron.schedule> | null = null;
+let threatIntelTask: ReturnType<typeof cron.schedule> | null = null;
 
 function calculateNextRunAt(scan: ScheduledScan): Date {
   const now = new Date();
@@ -140,6 +141,32 @@ async function processDueScans(): Promise<void> {
   }
 }
 
+async function syncDueThreatIntelFeeds(): Promise<void> {
+  try {
+    const { syncFeed } = await import("../threat-intel/index");
+    // Check all orgs - get feeds that are enabled and due for sync
+    const feeds = await storage.getThreatIntelFeeds("default");
+    const now = new Date();
+
+    for (const feed of feeds) {
+      if (!feed.enabled) continue;
+      const interval = (feed.checkInterval || 86400) * 1000;
+      const lastChecked = feed.lastCheckedAt ? new Date(feed.lastCheckedAt).getTime() : 0;
+      if (now.getTime() - lastChecked < interval) continue;
+
+      try {
+        console.log(`[ThreatIntel] Auto-syncing feed: ${feed.name}`);
+        const result = await syncFeed(feed.id);
+        console.log(`[ThreatIntel] Synced ${feed.name}: ${result.newIndicators} new, ${result.updatedIndicators} updated`);
+      } catch (err) {
+        console.error(`[ThreatIntel] Failed to sync feed ${feed.id}:`, err);
+      }
+    }
+  } catch (error) {
+    console.error("[ThreatIntel] Scheduler error:", error);
+  }
+}
+
 export function initScheduler(): void {
   if (schedulerTask) {
     console.log("[Scheduler] Scheduler already running");
@@ -150,7 +177,13 @@ export function initScheduler(): void {
     await processDueScans();
   });
 
+  // Threat intel feed sync - check every hour, feeds control their own interval
+  threatIntelTask = cron.schedule("0 * * * *", async () => {
+    await syncDueThreatIntelFeeds();
+  });
+
   console.log("[Scheduler] Scan scheduler initialized (checking every minute)");
+  console.log("[Scheduler] Threat intel sync scheduled (checking every hour)");
 
   setTimeout(() => {
     processDueScans().catch((err) => {
@@ -163,8 +196,12 @@ export function stopScheduler(): void {
   if (schedulerTask) {
     schedulerTask.stop();
     schedulerTask = null;
-    console.log("[Scheduler] Scan scheduler stopped");
   }
+  if (threatIntelTask) {
+    threatIntelTask.stop();
+    threatIntelTask = null;
+  }
+  console.log("[Scheduler] All schedulers stopped");
 }
 
 export async function triggerImmediateScan(scanId: string): Promise<{ evaluationIds: string[] } | null> {
