@@ -239,6 +239,7 @@ export default function Simulations() {
       recommendations: results.recommendations || [],
       winner: results.winner,
       summary: results.summary,
+      error: results.error,
     };
   };
 
@@ -584,6 +585,12 @@ export default function Simulations() {
                             {results.winner === "defender" ? "Defender Wins" : results.winner === "attacker" ? "Attacker Wins" : "Draw"}
                           </Badge>
                         )}
+                      </div>
+                    )}
+
+                    {results?.error && simulation.simulationStatus === "failed" && (
+                      <div className="w-full mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-500">
+                        <span className="font-medium">Error: </span>{results.error}
                       </div>
                     )}
 

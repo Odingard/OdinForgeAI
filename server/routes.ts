@@ -4001,8 +4001,10 @@ export async function registerRoutes(
     liveScanData?: import("./services/agents/ai-simulation").LiveScanInput
   ) {
     try {
-      wsService.sendProgress(simulationId, "AI Simulation", "starting", 0, 
+      wsService.sendProgress(simulationId, "AI Simulation", "starting", 0,
         liveScanData ? "Starting AI vs AI simulation with live scan data..." : "Starting AI vs AI simulation...");
+
+      console.log(`[SIMULATION ${simulationId}] Starting: asset=${assetId}, type=${exposureType}, rounds=${rounds}`);
 
       const result = await runAISimulation(
         assetId,
@@ -4017,36 +4019,63 @@ export async function registerRoutes(
         liveScanData
       );
 
+      console.log(`[SIMULATION ${simulationId}] Completed successfully, processing results...`);
+
+      // Safely extract results with fallbacks
+      const attackPath = result.rounds?.flatMap(r =>
+        (r.attackerFindings?.attackPath || []).map(s => s?.title || "Unknown step")
+      ) || [];
+      const detectionPoints = result.rounds?.flatMap(r =>
+        (r.defenderFindings?.detectedAttacks || []).map(d => d?.attackType || "Unknown")
+      ) || [];
+      const missedAttacks = result.rounds?.flatMap(r =>
+        r.defenderFindings?.gapsIdentified || []
+      ) || [];
+      const recommendations = (result.recommendations || []).map(r => r?.description || "");
+
       // Update simulation with results
       await storage.updateAiSimulation(simulationId, {
         simulationStatus: "completed",
         completedAt: new Date(),
         simulationResults: {
-          attackerSuccesses: Math.round(result.finalAttackScore * 100),
-          defenderBlocks: Math.round(result.finalDefenseScore * 100),
+          attackerSuccesses: Math.round((result.finalAttackScore || 0) * 100),
+          defenderBlocks: Math.round((result.finalDefenseScore || 0) * 100),
           timeToDetection: 0,
           timeToContainment: 0,
-          attackPath: result.rounds.flatMap(r => 
-            r.attackerFindings.attackPath.map(s => s.title)
-          ),
-          detectionPoints: result.rounds.flatMap(r => 
-            r.defenderFindings.detectedAttacks.map(d => d.attackType)
-          ),
-          missedAttacks: result.rounds.flatMap(r => 
-            r.defenderFindings.gapsIdentified
-          ),
-          recommendations: result.recommendations.map(r => r.description),
-        },
+          attackPath,
+          detectionPoints,
+          missedAttacks,
+          recommendations,
+        } as any,
       });
 
       wsService.sendComplete(simulationId, true);
     } catch (error) {
-      console.error("Simulation failed:", error);
-      await storage.updateAiSimulation(simulationId, {
-        simulationStatus: "failed",
-        completedAt: new Date(),
-      });
-      wsService.sendComplete(simulationId, false, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      console.error(`[SIMULATION ${simulationId}] Failed:`, errorMessage);
+      if (errorStack) console.error(`[SIMULATION ${simulationId}] Stack:`, errorStack);
+
+      try {
+        await storage.updateAiSimulation(simulationId, {
+          simulationStatus: "failed",
+          completedAt: new Date(),
+          simulationResults: {
+            error: errorMessage,
+            attackerSuccesses: 0,
+            defenderBlocks: 0,
+            timeToDetection: 0,
+            timeToContainment: 0,
+            attackPath: [],
+            detectionPoints: [],
+            missedAttacks: [],
+            recommendations: [],
+          } as any,
+        });
+      } catch (updateError) {
+        console.error(`[SIMULATION ${simulationId}] Failed to update simulation status:`, updateError);
+      }
+      wsService.sendComplete(simulationId, false, errorMessage);
     }
   }
 

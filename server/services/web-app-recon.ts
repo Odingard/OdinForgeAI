@@ -2,11 +2,11 @@ import OpenAI from "openai";
 import dns from "dns";
 import net from "net";
 
-const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
+const OPENAI_TIMEOUT_MS = 90000;
 
 const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined,
   timeout: OPENAI_TIMEOUT_MS,
   maxRetries: 2,
 });

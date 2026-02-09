@@ -44,15 +44,15 @@ let openaiClient: OpenAI | null = null;
 function getOpenAIClient(): OpenAI | null {
   if (openaiClient) return openaiClient;
   
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) {
     console.warn("OpenAI API key not configured - reports will use templated narratives");
     return null;
   }
-  
+
   openaiClient = new OpenAI({
     apiKey,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined,
     timeout: 90000, // 90 second timeout to prevent hanging
     maxRetries: 2,
   });
