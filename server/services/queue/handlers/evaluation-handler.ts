@@ -176,6 +176,35 @@ export async function handleEvaluationJob(
       duration: Date.now() - startTime,
     });
 
+    // Post-evaluation hooks (non-blocking)
+    try {
+      const { markAssetEvaluated } = await import("../../continuous-validation/index");
+      if (assetId) markAssetEvaluated(assetId).catch(() => {});
+
+      // Extract ATT&CK techniques from attack graph for SIEM validation
+      const attackGraph = result.attackGraph as any;
+      const techniques: Array<{ mitreAttackId: string; mitreTactic: string }> = [];
+      if (attackGraph?.edges) {
+        for (const edge of attackGraph.edges) {
+          if (edge.techniqueId) {
+            techniques.push({
+              mitreAttackId: edge.techniqueId,
+              mitreTactic: edge.tactic || "unknown",
+            });
+          }
+        }
+      }
+      if (techniques.length > 0 && organizationId) {
+        const { runPostEvaluationValidation } = await import("../../siem-integration/index");
+        runPostEvaluationValidation(evaluationId, organizationId, techniques, assetId).catch(err => {
+          console.error("[SIEM] Post-evaluation validation failed:", err.message);
+        });
+      }
+    } catch (hookErr) {
+      // Hooks should never break evaluation completion
+      console.error("[PostEvalHooks] Error:", hookErr);
+    }
+
     await job.updateProgress?.({
       percent: 100,
       stage: "complete",

@@ -163,6 +163,16 @@ import {
   type InsertThreatIntelFeed,
   type ThreatIntelIndicator,
   type InsertThreatIntelIndicator,
+  // Phase 2: SIEM + Continuous Validation
+  siemConnections,
+  defensiveValidations,
+  metricsHistory,
+  type SiemConnection,
+  type InsertSiemConnection,
+  type DefensiveValidation,
+  type InsertDefensiveValidation,
+  type MetricsHistory,
+  type InsertMetricsHistory,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -401,6 +411,28 @@ export interface IStorage {
   updateThreatIntelIndicator(id: string, updates: Partial<ThreatIntelIndicator>): Promise<void>;
   upsertThreatIntelIndicator(data: InsertThreatIntelIndicator & { id: string }): Promise<ThreatIntelIndicator>;
   countThreatIntelIndicators(feedId: string): Promise<number>;
+
+  // SIEM Connection operations
+  createSiemConnection(data: InsertSiemConnection & { id: string }): Promise<SiemConnection>;
+  getSiemConnection(id: string): Promise<SiemConnection | undefined>;
+  getSiemConnections(organizationId: string): Promise<SiemConnection[]>;
+  updateSiemConnection(id: string, updates: Partial<SiemConnection>): Promise<void>;
+  deleteSiemConnection(id: string): Promise<void>;
+
+  // Defensive Validation operations
+  createDefensiveValidation(data: InsertDefensiveValidation & { id: string }): Promise<DefensiveValidation>;
+  getDefensiveValidation(id: string): Promise<DefensiveValidation | undefined>;
+  getDefensiveValidationsByEvaluation(evaluationId: string): Promise<DefensiveValidation[]>;
+  getDefensiveValidationsByOrg(organizationId: string, limit?: number): Promise<DefensiveValidation[]>;
+  updateDefensiveValidation(id: string, updates: Partial<DefensiveValidation>): Promise<void>;
+
+  // Metrics History operations
+  createMetricsHistory(data: InsertMetricsHistory & { id: string }): Promise<MetricsHistory>;
+  getMetricsHistory(organizationId: string, metricType?: string, limit?: number): Promise<MetricsHistory[]>;
+
+  // Continuous validation helpers
+  updateAssetLastEvaluated(assetId: string, evaluatedAt: Date): Promise<void>;
+  getStaleAssets(organizationId: string, staleThresholdDays?: number): Promise<DiscoveredAsset[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3043,6 +3075,98 @@ export class DatabaseStorage implements IStorage {
       .from(threatIntelIndicators)
       .where(eq(threatIntelIndicators.feedId, feedId));
     return Number(result?.count ?? 0);
+  }
+
+  // ====== SIEM Connections ======
+
+  async createSiemConnection(data: InsertSiemConnection & { id: string }): Promise<SiemConnection> {
+    const [conn] = await db.insert(siemConnections).values(data).returning();
+    return conn;
+  }
+
+  async getSiemConnection(id: string): Promise<SiemConnection | undefined> {
+    const [conn] = await db.select().from(siemConnections).where(eq(siemConnections.id, id));
+    return conn;
+  }
+
+  async getSiemConnections(organizationId: string): Promise<SiemConnection[]> {
+    return db.select().from(siemConnections)
+      .where(eq(siemConnections.organizationId, organizationId))
+      .orderBy(desc(siemConnections.createdAt));
+  }
+
+  async updateSiemConnection(id: string, updates: Partial<SiemConnection>): Promise<void> {
+    await db.update(siemConnections).set({ ...updates, updatedAt: new Date() }).where(eq(siemConnections.id, id));
+  }
+
+  async deleteSiemConnection(id: string): Promise<void> {
+    await db.delete(defensiveValidations).where(eq(defensiveValidations.siemConnectionId, id));
+    await db.delete(siemConnections).where(eq(siemConnections.id, id));
+  }
+
+  // ====== Defensive Validations ======
+
+  async createDefensiveValidation(data: InsertDefensiveValidation & { id: string }): Promise<DefensiveValidation> {
+    const [val] = await db.insert(defensiveValidations).values(data).returning();
+    return val;
+  }
+
+  async getDefensiveValidation(id: string): Promise<DefensiveValidation | undefined> {
+    const [val] = await db.select().from(defensiveValidations).where(eq(defensiveValidations.id, id));
+    return val;
+  }
+
+  async getDefensiveValidationsByEvaluation(evaluationId: string): Promise<DefensiveValidation[]> {
+    return db.select().from(defensiveValidations)
+      .where(eq(defensiveValidations.evaluationId, evaluationId))
+      .orderBy(desc(defensiveValidations.createdAt));
+  }
+
+  async getDefensiveValidationsByOrg(organizationId: string, limit = 100): Promise<DefensiveValidation[]> {
+    return db.select().from(defensiveValidations)
+      .where(eq(defensiveValidations.organizationId, organizationId))
+      .orderBy(desc(defensiveValidations.createdAt))
+      .limit(limit);
+  }
+
+  async updateDefensiveValidation(id: string, updates: Partial<DefensiveValidation>): Promise<void> {
+    await db.update(defensiveValidations).set({ ...updates, updatedAt: new Date() }).where(eq(defensiveValidations.id, id));
+  }
+
+  // ====== Metrics History ======
+
+  async createMetricsHistory(data: InsertMetricsHistory & { id: string }): Promise<MetricsHistory> {
+    const [m] = await db.insert(metricsHistory).values(data).returning();
+    return m;
+  }
+
+  async getMetricsHistory(organizationId: string, metricType?: string, limit = 100): Promise<MetricsHistory[]> {
+    const conditions = [eq(metricsHistory.organizationId, organizationId)];
+    if (metricType) conditions.push(eq(metricsHistory.metricType, metricType));
+    return db.select().from(metricsHistory)
+      .where(and(...conditions))
+      .orderBy(desc(metricsHistory.createdAt))
+      .limit(limit);
+  }
+
+  // ====== Continuous Validation Helpers ======
+
+  async updateAssetLastEvaluated(assetId: string, evaluatedAt: Date): Promise<void> {
+    await db.update(discoveredAssets)
+      .set({ lastEvaluatedAt: evaluatedAt, updatedAt: new Date() })
+      .where(eq(discoveredAssets.id, assetId));
+  }
+
+  async getStaleAssets(organizationId: string, staleThresholdDays = 30): Promise<DiscoveredAsset[]> {
+    const threshold = new Date();
+    threshold.setDate(threshold.getDate() - staleThresholdDays);
+    return db.select().from(discoveredAssets)
+      .where(and(
+        eq(discoveredAssets.organizationId, organizationId),
+        eq(discoveredAssets.status, "active"),
+        sql`(${discoveredAssets.lastEvaluatedAt} IS NULL OR ${discoveredAssets.lastEvaluatedAt} < ${threshold})`
+      ))
+      .orderBy(discoveredAssets.lastEvaluatedAt);
   }
 }
 

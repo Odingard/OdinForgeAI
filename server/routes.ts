@@ -7913,6 +7913,159 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // ============================================================================
+  // SIEM/EDR INTEGRATION
+  // ============================================================================
+
+  // GET /api/siem-connections - List SIEM connections
+  app.get("/api/siem-connections", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const connections = await storage.getSiemConnections(organizationId);
+      res.json(connections);
+    } catch (error: any) {
+      console.error("Failed to get SIEM connections:", error);
+      res.status(500).json({ error: "Failed to get SIEM connections" });
+    }
+  });
+
+  // POST /api/siem-connections - Create a SIEM connection
+  app.post("/api/siem-connections", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { randomUUID } = await import("crypto");
+      const id = `siem-${randomUUID().slice(0, 8)}`;
+      const connection = await storage.createSiemConnection({
+        ...req.body,
+        id,
+        organizationId,
+      });
+      res.status(201).json(connection);
+    } catch (error: any) {
+      console.error("Failed to create SIEM connection:", error);
+      res.status(500).json({ error: "Failed to create SIEM connection" });
+    }
+  });
+
+  // PATCH /api/siem-connections/:id - Update a SIEM connection
+  app.patch("/api/siem-connections/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      await storage.updateSiemConnection(req.params.id, req.body);
+      const updated = await storage.getSiemConnection(req.params.id);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Failed to update SIEM connection:", error);
+      res.status(500).json({ error: "Failed to update SIEM connection" });
+    }
+  });
+
+  // DELETE /api/siem-connections/:id - Delete a SIEM connection
+  app.delete("/api/siem-connections/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      await storage.deleteSiemConnection(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Failed to delete SIEM connection:", error);
+      res.status(500).json({ error: "Failed to delete SIEM connection" });
+    }
+  });
+
+  // POST /api/siem-connections/:id/test - Test SIEM connectivity
+  app.post("/api/siem-connections/:id/test", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      const { testSiemConnection } = await import("./services/siem-integration/index");
+      const result = await testSiemConnection(req.params.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to test SIEM connection:", error);
+      res.status(500).json({ error: error.message || "Failed to test connection" });
+    }
+  });
+
+  // GET /api/defensive-validations/:evaluationId - Get detection results for an evaluation
+  app.get("/api/defensive-validations/:evaluationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const validations = await storage.getDefensiveValidationsByEvaluation(req.params.evaluationId);
+      const { getDetectionSummary } = await import("./services/siem-integration/index");
+      const summary = await getDetectionSummary(req.params.evaluationId);
+      res.json({ validations, summary });
+    } catch (error: any) {
+      console.error("Failed to get defensive validations:", error);
+      res.status(500).json({ error: "Failed to get defensive validations" });
+    }
+  });
+
+  // GET /api/defensive-validations - Get all validations for org
+  app.get("/api/defensive-validations", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const limit = parseInt(req.query.limit as string) || 100;
+      const validations = await storage.getDefensiveValidationsByOrg(organizationId, limit);
+      res.json(validations);
+    } catch (error: any) {
+      console.error("Failed to get defensive validations:", error);
+      res.status(500).json({ error: "Failed to get validations" });
+    }
+  });
+
+  // ============================================================================
+  // CONTINUOUS VALIDATION
+  // ============================================================================
+
+  // POST /api/validation-campaigns - Create a validation campaign
+  app.post("/api/validation-campaigns", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { createValidationCampaign } = await import("./services/continuous-validation/index");
+      const scanId = await createValidationCampaign({ ...req.body, organizationId });
+      res.status(201).json({ id: scanId });
+    } catch (error: any) {
+      console.error("Failed to create validation campaign:", error);
+      res.status(500).json({ error: "Failed to create campaign" });
+    }
+  });
+
+  // GET /api/validation-campaigns - List validation campaigns
+  app.get("/api/validation-campaigns", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { getValidationCampaigns } = await import("./services/continuous-validation/index");
+      const campaigns = await getValidationCampaigns(organizationId);
+      res.json(campaigns);
+    } catch (error: any) {
+      console.error("Failed to get validation campaigns:", error);
+      res.status(500).json({ error: "Failed to get campaigns" });
+    }
+  });
+
+  // GET /api/assets/stale - Get assets not evaluated in 30+ days
+  app.get("/api/assets/stale", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const days = parseInt(req.query.days as string) || 30;
+      const { getStaleAssets } = await import("./services/continuous-validation/index");
+      const assets = await getStaleAssets(organizationId, days);
+      res.json(assets);
+    } catch (error: any) {
+      console.error("Failed to get stale assets:", error);
+      res.status(500).json({ error: "Failed to get stale assets" });
+    }
+  });
+
+  // GET /api/metrics/history - Get metrics history trends
+  app.get("/api/metrics/history", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const metricType = req.query.type as string || undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const history = await storage.getMetricsHistory(organizationId, metricType, limit);
+      res.json(history);
+    } catch (error: any) {
+      console.error("Failed to get metrics history:", error);
+      res.status(500).json({ error: "Failed to get metrics history" });
+    }
+  });
+
+  // ============================================================================
   // API DEFINITIONS (OpenAPI/Swagger)
   // ============================================================================
 

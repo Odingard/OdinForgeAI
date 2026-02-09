@@ -26,7 +26,9 @@ import {
   XCircle,
   Rss,
   ShieldAlert,
-  Loader2
+  Loader2,
+  Radio,
+  Plug
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
@@ -1105,6 +1107,51 @@ export default function Infrastructure() {
     },
   });
 
+  // SIEM Connections
+  const { data: siemConnections = [], isLoading: siemLoading } = useQuery<any[]>({
+    queryKey: ["/api/siem-connections"],
+    refetchInterval: 30000,
+  });
+
+  const [showSiemDialog, setShowSiemDialog] = useState(false);
+  const [siemForm, setSiemForm] = useState({ name: "", provider: "elastic", apiEndpoint: "", apiPort: 9200, elasticApiKey: "", elasticIndex: ".alerts-security.alerts-*", splunkToken: "", splunkIndex: "notable", sentinelWorkspaceId: "", sentinelTenantId: "", sentinelClientId: "", sentinelClientSecret: "" });
+
+  const createSiemMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/siem-connections", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/siem-connections"] });
+      setShowSiemDialog(false);
+      toast({ title: "SIEM connection created" });
+    },
+    onError: () => {
+      toast({ title: "Failed", description: "Could not create SIEM connection", variant: "destructive" });
+    },
+  });
+
+  const testSiemMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/siem-connections/${id}/test`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/siem-connections"] });
+      toast({ title: data.success ? "Connection successful" : "Connection failed", description: data.message, variant: data.success ? "default" : "destructive" });
+    },
+  });
+
+  const deleteSiemMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/siem-connections/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/siem-connections"] });
+      toast({ title: "SIEM connection deleted" });
+    },
+  });
+
   const toggleAutoDeployMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       const res = await apiRequest("POST", "/api/auto-deploy/toggle", { enabled });
@@ -1487,6 +1534,10 @@ export default function Infrastructure() {
           <TabsTrigger value="threat-intel" data-testid="tab-threat-intel">
             <Rss className="h-4 w-4 mr-2" />
             Threat Intel ({threatFeeds.length})
+          </TabsTrigger>
+          <TabsTrigger value="siem" data-testid="tab-siem">
+            <Radio className="h-4 w-4 mr-2" />
+            SIEM/EDR ({siemConnections.length})
           </TabsTrigger>
         </TabsList>
 
@@ -2103,6 +2154,228 @@ export default function Infrastructure() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* SIEM/EDR Connections Tab */}
+        <TabsContent value="siem" className="mt-4 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">SIEM/EDR Connections</h3>
+              <p className="text-sm text-muted-foreground">
+                Connect your SIEM to validate whether attacks are detected by your defenses
+              </p>
+            </div>
+            <Button size="sm" onClick={() => setShowSiemDialog(true)}>
+              <Plug className="h-4 w-4 mr-2" />
+              Add Connection
+            </Button>
+          </div>
+
+          {siemConnections.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-12">
+                <Radio className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
+                <h3 className="font-medium mb-2">No SIEM Connections</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Connect Elastic, Splunk, or Microsoft Sentinel to validate detection coverage
+                </p>
+                <Button onClick={() => setShowSiemDialog(true)}>
+                  <Plug className="h-4 w-4 mr-2" />
+                  Add SIEM Connection
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {siemConnections.map((conn: any) => (
+                <Card key={conn.id}>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Radio className="h-4 w-4 text-blue-400" />
+                        {conn.name}
+                      </CardTitle>
+                      <CardDescription>
+                        {conn.provider === "elastic" ? "Elasticsearch / Elastic Security" :
+                         conn.provider === "splunk" ? "Splunk Enterprise Security" :
+                         conn.provider === "sentinel" ? "Microsoft Sentinel" : conn.provider}
+                        {" "}&middot;{" "}{conn.apiEndpoint}
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {conn.status === "connected" ? (
+                        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">Connected</Badge>
+                      ) : conn.status === "error" ? (
+                        <Badge className="bg-red-500/10 text-red-400 border-red-500/30">Error</Badge>
+                      ) : (
+                        <Badge variant="outline">Pending</Badge>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => testSiemMutation.mutate(conn.id)}
+                        disabled={testSiemMutation.isPending}
+                      >
+                        {testSiemMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Zap className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteSiemMutation.mutate(conn.id)}
+                        disabled={deleteSiemMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Alert window:</span>{" "}
+                        {conn.alertQueryWindow || 300}s after attack
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Last tested:</span>{" "}
+                        {conn.lastSyncAt ? new Date(conn.lastSyncAt).toLocaleString() : "Never"}
+                      </div>
+                      {conn.lastError && (
+                        <div className="text-red-400">
+                          <AlertTriangle className="h-3 w-3 inline mr-1" />
+                          {conn.lastError}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Add SIEM Connection Dialog */}
+          <Dialog open={showSiemDialog} onOpenChange={setShowSiemDialog}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Add SIEM Connection</DialogTitle>
+                <DialogDescription>
+                  Connect your SIEM to validate attack detection coverage
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Connection Name</Label>
+                  <Input
+                    placeholder="e.g., Production Elastic"
+                    value={siemForm.name}
+                    onChange={(e) => setSiemForm({ ...siemForm, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Provider</Label>
+                  <Select value={siemForm.provider} onValueChange={(v) => setSiemForm({ ...siemForm, provider: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="elastic">Elasticsearch / Elastic Security</SelectItem>
+                      <SelectItem value="splunk">Splunk Enterprise Security</SelectItem>
+                      <SelectItem value="sentinel">Microsoft Sentinel</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>API Endpoint</Label>
+                  <Input
+                    placeholder={siemForm.provider === "sentinel" ? "Workspace ID" : "https://your-siem.example.com"}
+                    value={siemForm.apiEndpoint}
+                    onChange={(e) => setSiemForm({ ...siemForm, apiEndpoint: e.target.value })}
+                  />
+                </div>
+                {siemForm.provider === "elastic" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>API Key</Label>
+                      <Input
+                        type="password"
+                        placeholder="Elastic API key"
+                        value={siemForm.elasticApiKey}
+                        onChange={(e) => setSiemForm({ ...siemForm, elasticApiKey: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Alert Index</Label>
+                      <Input
+                        placeholder=".alerts-security.alerts-*"
+                        value={siemForm.elasticIndex}
+                        onChange={(e) => setSiemForm({ ...siemForm, elasticIndex: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+                {siemForm.provider === "splunk" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Bearer Token</Label>
+                      <Input
+                        type="password"
+                        placeholder="Splunk bearer token"
+                        value={siemForm.splunkToken}
+                        onChange={(e) => setSiemForm({ ...siemForm, splunkToken: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Index</Label>
+                      <Input
+                        placeholder="notable"
+                        value={siemForm.splunkIndex}
+                        onChange={(e) => setSiemForm({ ...siemForm, splunkIndex: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+                {siemForm.provider === "sentinel" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Tenant ID</Label>
+                      <Input
+                        placeholder="Azure AD Tenant ID"
+                        value={siemForm.sentinelTenantId}
+                        onChange={(e) => setSiemForm({ ...siemForm, sentinelTenantId: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Client ID</Label>
+                      <Input
+                        placeholder="App Registration Client ID"
+                        value={siemForm.sentinelClientId}
+                        onChange={(e) => setSiemForm({ ...siemForm, sentinelClientId: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Client Secret</Label>
+                      <Input
+                        type="password"
+                        placeholder="Client secret"
+                        value={siemForm.sentinelClientSecret}
+                        onChange={(e) => setSiemForm({ ...siemForm, sentinelClientSecret: e.target.value })}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowSiemDialog(false)}>Cancel</Button>
+                <Button
+                  onClick={() => createSiemMutation.mutate(siemForm)}
+                  disabled={!siemForm.name || !siemForm.apiEndpoint || createSiemMutation.isPending}
+                >
+                  {createSiemMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  Create Connection
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
       </Tabs>
       </div>
