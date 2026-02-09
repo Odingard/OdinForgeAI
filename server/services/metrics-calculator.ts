@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import type { Evaluation, Result } from "@shared/schema";
+import type { Evaluation, Result, DefensiveValidation } from "@shared/schema";
 
 interface CategoryScore {
   networkSecurity: number;
@@ -26,6 +26,10 @@ export interface DefensivePostureMetrics {
   breachLikelihood: number;
   meanTimeToDetect: number;
   meanTimeToRespond: number;
+  mttdDataSource: "siem_observed" | "synthetic";
+  mttrDataSource: "siem_observed" | "synthetic";
+  mttdSampleSize: number;
+  mttrSampleSize: number;
   vulnerabilityExposure: VulnerabilityExposure;
   trendDirection: "improving" | "stable" | "declining";
   benchmarkPercentile: number;
@@ -135,21 +139,31 @@ export async function calculateDefensivePosture(
 
   const benchmarkPercentile = calculateBenchmarkPercentile(overallScore, vulnerabilityExposure);
 
+  // Try to get real SIEM-observed MTTD/MTTR from defensive validations
+  const siemMetrics = await getSiemObservedMetrics(organizationId);
+
+  const useSiemMttd = siemMetrics.mttdSampleSize >= 3;
+  const useSiemMttr = siemMetrics.mttrSampleSize >= 3;
+
   return {
     id: `posture-${organizationId}-${Date.now()}`,
     organizationId,
     overallScore,
     categoryScores,
     breachLikelihood,
-    meanTimeToDetect: calculateMTTD(results),
-    meanTimeToRespond: calculateMTTR(completedEvaluations),
+    meanTimeToDetect: useSiemMttd ? siemMetrics.avgMttdHours : calculateMTTD(results),
+    meanTimeToRespond: useSiemMttr ? siemMetrics.avgMttrHours : calculateMTTR(completedEvaluations),
+    mttdDataSource: useSiemMttd ? "siem_observed" : "synthetic",
+    mttrDataSource: useSiemMttr ? "siem_observed" : "synthetic",
+    mttdSampleSize: useSiemMttd ? siemMetrics.mttdSampleSize : results.length,
+    mttrSampleSize: useSiemMttr ? siemMetrics.mttrSampleSize : completedEvaluations.length,
     vulnerabilityExposure,
     trendDirection,
     benchmarkPercentile,
     recommendations: generateRecommendations(categoryScores, vulnerabilityExposure),
     dataSource: "computed",
     evaluationsAnalyzed: completedEvaluations.length,
-    modelVersion: "v2.0.0-computed",
+    modelVersion: "v3.0.0-siem-enhanced",
     calculatedAt: new Date().toISOString(),
   };
 }
@@ -186,6 +200,171 @@ export async function calculateAttackPredictions(
     modelVersion: "v2.0.0-computed",
     calculatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Query defensive validations for real SIEM-observed MTTD/MTTR metrics.
+ */
+async function getSiemObservedMetrics(organizationId: string): Promise<{
+  avgMttdHours: number;
+  avgMttrHours: number;
+  mttdSampleSize: number;
+  mttrSampleSize: number;
+}> {
+  try {
+    const validations = await storage.getDefensiveValidationsByOrg(organizationId);
+
+    const mttdValues = validations
+      .filter(v => v.status === "detected" && v.mttdSeconds !== null && v.mttdSeconds !== undefined)
+      .map(v => v.mttdSeconds as number);
+
+    const mttrValues = validations
+      .filter(v => v.mttrSeconds !== null && v.mttrSeconds !== undefined)
+      .map(v => v.mttrSeconds as number);
+
+    const avgMttdHours = mttdValues.length > 0
+      ? Math.round((mttdValues.reduce((a, b) => a + b, 0) / mttdValues.length / 3600) * 10) / 10
+      : 24;
+
+    const avgMttrHours = mttrValues.length > 0
+      ? Math.round((mttrValues.reduce((a, b) => a + b, 0) / mttrValues.length / 3600) * 10) / 10
+      : 48;
+
+    return {
+      avgMttdHours,
+      avgMttrHours,
+      mttdSampleSize: mttdValues.length,
+      mttrSampleSize: mttrValues.length,
+    };
+  } catch {
+    return { avgMttdHours: 24, avgMttrHours: 48, mttdSampleSize: 0, mttrSampleSize: 0 };
+  }
+}
+
+/**
+ * Get per-technique MTTD/MTTR breakdown from SIEM defensive validations.
+ */
+export async function getPerTechniqueMetrics(organizationId: string): Promise<Array<{
+  mitreAttackId: string;
+  mitreTactic: string;
+  detectionCount: number;
+  missCount: number;
+  detectionRate: number;
+  avgMttdSeconds: number | null;
+  avgMttrSeconds: number | null;
+  lastTestedAt: string | null;
+}>> {
+  const validations = await storage.getDefensiveValidationsByOrg(organizationId);
+
+  const byTechnique: Record<string, DefensiveValidation[]> = {};
+  for (const v of validations) {
+    if (!v.mitreAttackId) continue;
+    if (!byTechnique[v.mitreAttackId]) byTechnique[v.mitreAttackId] = [];
+    byTechnique[v.mitreAttackId].push(v);
+  }
+
+  const results: Array<{
+    mitreAttackId: string;
+    mitreTactic: string;
+    detectionCount: number;
+    missCount: number;
+    detectionRate: number;
+    avgMttdSeconds: number | null;
+    avgMttrSeconds: number | null;
+    lastTestedAt: string | null;
+  }> = [];
+
+  for (const techniqueId of Object.keys(byTechnique)) {
+    const vals = byTechnique[techniqueId];
+    const detected = vals.filter((v: DefensiveValidation) => v.status === "detected");
+    const missed = vals.filter((v: DefensiveValidation) => v.status === "missed");
+
+    const mttdValues = detected
+      .filter((v: DefensiveValidation) => v.mttdSeconds !== null && v.mttdSeconds !== undefined)
+      .map((v: DefensiveValidation) => v.mttdSeconds as number);
+
+    const mttrValues = vals
+      .filter((v: DefensiveValidation) => v.mttrSeconds !== null && v.mttrSeconds !== undefined)
+      .map((v: DefensiveValidation) => v.mttrSeconds as number);
+
+    const totalDecided = detected.length + missed.length;
+
+    const sorted = [...vals].sort((a: DefensiveValidation, b: DefensiveValidation) =>
+      new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime()
+    );
+    const latest = sorted[0];
+
+    results.push({
+      mitreAttackId: techniqueId,
+      mitreTactic: latest?.mitreTactic || "unknown",
+      detectionCount: detected.length,
+      missCount: missed.length,
+      detectionRate: totalDecided > 0 ? Math.round((detected.length / totalDecided) * 100) : 0,
+      avgMttdSeconds: mttdValues.length > 0
+        ? Math.round(mttdValues.reduce((a: number, b: number) => a + b, 0) / mttdValues.length)
+        : null,
+      avgMttrSeconds: mttrValues.length > 0
+        ? Math.round(mttrValues.reduce((a: number, b: number) => a + b, 0) / mttrValues.length)
+        : null,
+      lastTestedAt: latest?.createdAt?.toISOString?.() || (latest?.createdAt as any) || null,
+    });
+  }
+
+  return results.sort((a, b) => b.detectionCount + b.missCount - (a.detectionCount + a.missCount));
+}
+
+/**
+ * Aggregate daily metrics and store in metricsHistory for trend tracking.
+ */
+export async function aggregateDailyMetrics(organizationId: string): Promise<void> {
+  const { randomUUID } = await import("crypto");
+  const siemMetrics = await getSiemObservedMetrics(organizationId);
+  const now = new Date();
+  const periodStart = new Date(now);
+  periodStart.setHours(0, 0, 0, 0);
+  const periodEnd = new Date(periodStart);
+  periodEnd.setDate(periodEnd.getDate() + 1);
+
+  if (siemMetrics.mttdSampleSize > 0) {
+    await storage.createMetricsHistory({
+      id: `mh-${randomUUID().slice(0, 8)}`,
+      organizationId,
+      metricType: "mttd",
+      valueSeconds: Math.round(siemMetrics.avgMttdHours * 3600),
+      sampleSize: siemMetrics.mttdSampleSize,
+      periodStart,
+      periodEnd,
+    });
+  }
+
+  if (siemMetrics.mttrSampleSize > 0) {
+    await storage.createMetricsHistory({
+      id: `mh-${randomUUID().slice(0, 8)}`,
+      organizationId,
+      metricType: "mttr",
+      valueSeconds: Math.round(siemMetrics.avgMttrHours * 3600),
+      sampleSize: siemMetrics.mttrSampleSize,
+      periodStart,
+      periodEnd,
+    });
+  }
+
+  // Detection rate
+  const validations = await storage.getDefensiveValidationsByOrg(organizationId);
+  const detected = validations.filter(v => v.status === "detected").length;
+  const missed = validations.filter(v => v.status === "missed").length;
+  const total = detected + missed;
+  if (total > 0) {
+    await storage.createMetricsHistory({
+      id: `mh-${randomUUID().slice(0, 8)}`,
+      organizationId,
+      metricType: "detection_rate",
+      valueSeconds: Math.round((detected / total) * 10000), // store as basis points (100% = 10000)
+      sampleSize: total,
+      periodStart,
+      periodEnd,
+    });
+  }
 }
 
 function countBySeverity(evaluations: Evaluation[], results: Result[]): VulnerabilityExposure {
@@ -490,6 +669,10 @@ function createInsufficientDataPosture(organizationId: string, evaluationCount: 
     breachLikelihood: 0,
     meanTimeToDetect: 0,
     meanTimeToRespond: 0,
+    mttdDataSource: "synthetic",
+    mttrDataSource: "synthetic",
+    mttdSampleSize: 0,
+    mttrSampleSize: 0,
     vulnerabilityExposure: { critical: 0, high: 0, medium: 0, low: 0 },
     trendDirection: "stable",
     benchmarkPercentile: 0,
@@ -499,7 +682,7 @@ function createInsufficientDataPosture(organizationId: string, evaluationCount: 
     ],
     dataSource: "insufficient_data",
     evaluationsAnalyzed: evaluationCount,
-    modelVersion: "v2.0.0-computed",
+    modelVersion: "v3.0.0-siem-enhanced",
     calculatedAt: new Date().toISOString(),
   };
 }
