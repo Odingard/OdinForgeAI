@@ -114,44 +114,60 @@ export class ReportGenerator {
     reportType: "executive" | "technical" | "compliance",
     data: any
   ): AIResponse {
+    const totalEvals = data.metrics?.totalEvaluations || 0;
+    const exploitableCount = data.metrics?.exploitableFindings || 0;
+    const criticalCount = data.metrics?.criticalFindings || 0;
+    const highCount = data.metrics?.highFindings || 0;
+    const exploitableRate = totalEvals > 0 ? Math.round((exploitableCount / totalEvals) * 100) : 0;
+    const riskLevel = data.overallRiskLevel?.toUpperCase() || "UNDETERMINED";
+
     const templates = {
       executive: {
-        executiveSummary: `During the assessment period, ${data.metrics?.totalEvaluations || 0} security evaluations were conducted. ${data.metrics?.exploitableFindings || 0} exploitable vulnerabilities were identified, with ${data.metrics?.criticalFindings || 0} classified as critical. The overall risk level is ${data.overallRiskLevel?.toUpperCase() || "UNKNOWN"}. Immediate action is recommended for critical findings to prevent potential security incidents and business impact.`,
-        findings: (data.topRisks || []).slice(0, 5).map((r: any) => ({
-          title: `Security Issue: ${r.assetId || "Unknown Asset"}`,
-          description: r.riskDescription || "Security vulnerability requiring attention",
-          recommendation: "Remediate according to priority and business impact assessment"
-        })),
+        executiveSummary: `OdinForge's automated security assessment evaluated ${totalEvals} exposure${totalEvals !== 1 ? "s" : ""} across the organization's attack surface using a multi-agent AI analysis pipeline encompassing reconnaissance, exploit validation, lateral movement analysis, business logic testing, and impact assessment.\n\nThe assessment team determined the organization's overall security posture to be ${riskLevel}. Of the ${totalEvals} exposures evaluated, ${exploitableCount} (${exploitableRate}%) were confirmed exploitable through validated attack paths. ${criticalCount > 0 ? `${criticalCount} finding${criticalCount !== 1 ? "s" : ""} were classified as CRITICAL severity, presenting immediate risk to business operations and requiring emergency remediation.` : "No critical-severity findings were identified during this assessment period."} ${highCount > 0 ? `An additional ${highCount} HIGH severity finding${highCount !== 1 ? "s" : ""} require${highCount === 1 ? "s" : ""} prioritized remediation within 30 days.` : ""}\n\n${exploitableCount > 0 ? "Exploitable findings present material risk to business continuity, data confidentiality, and regulatory compliance. The assessment team recommends immediate deployment of compensating controls for critical findings while remediation is executed." : "The assessment did not identify exploitable attack paths during this evaluation period. The organization should maintain current security controls and continue regular assessment cycles to preserve this favorable posture."}\n\nThe assessment team recommends a phased remediation approach: immediate action on critical findings within 0-30 days, defense-in-depth hardening within 30-60 days, and strategic security program improvements within 60-90 days aligned to NIST CSF and ISO 27001 control frameworks.`,
+        findings: (data.topRisks || []).slice(0, 5).map((r: any) => {
+          const vulnInfo = r.exposureType ? getVulnerabilityInfo(r.exposureType) : null;
+          return {
+            title: `Exploitable Exposure: ${r.assetId || "Evaluated Asset"}${vulnInfo ? ` — ${vulnInfo.name}` : ""}`,
+            description: `${r.riskDescription || "Security exposure confirmed exploitable during assessment."} This finding presents risk to business operations including potential financial exposure${r.financialImpact ? ` estimated at ${r.financialImpact}` : ""}, operational disruption, and regulatory compliance impact.`,
+            recommendation: "Deploy compensating controls immediately while executing full remediation. Validate fix effectiveness through re-assessment of the affected attack surface."
+          };
+        }),
         recommendations: [
-          "Address critical vulnerabilities within 24-48 hours",
-          "Implement compensating controls for high-risk findings",
-          "Schedule regular security assessments to maintain posture"
+          "Immediate (0-30 days): Remediate critical and exploitable findings — deploy compensating controls, apply emergency patches, and restrict access to affected assets",
+          "Short-term (30-60 days): Strengthen defense-in-depth posture — implement network segmentation, enhance monitoring and detection capabilities, and harden access controls across the attack surface",
+          "Strategic (60-90 days): Mature the security program — establish continuous security validation processes, align controls to NIST CSF categories, and implement automated vulnerability management workflows"
         ]
       },
       technical: {
-        executiveSummary: `Technical security assessment identified ${data.findingsCount || 0} findings across the evaluated assets. ${data.attackPathsCount || 0} exploitable attack paths were documented. Vulnerability distribution shows ${JSON.stringify(data.vulnerabilityBreakdown?.bySeverity || {})}. Technical remediation guidance is provided for each finding.`,
-        findings: (data.topFindings || []).slice(0, 5).map((f: any) => ({
-          title: f.title || "Technical Finding",
-          description: f.description || "Technical vulnerability requiring remediation",
-          recommendation: f.recommendation || "Apply vendor patches and configuration hardening"
-        })),
+        executiveSummary: `This automated security assessment employed a multi-agent AI analysis pipeline consisting of six specialized agents: Reconnaissance (attack surface mapping), Exploit Validation (vulnerability confirmation), Lateral Movement (pivot path analysis), Business Logic (application-layer testing), Multi-Vector (chained attack identification), and Impact Assessment (business consequence analysis).\n\nThe assessment identified ${data.findingsCount || 0} finding${(data.findingsCount || 0) !== 1 ? "s" : ""} across the evaluated assets. ${data.attackPathsCount || 0} validated attack path${(data.attackPathsCount || 0) !== 1 ? "s" : ""} were documented with complete exploitation chains. Severity distribution: ${Object.entries(data.vulnerabilityBreakdown?.bySeverity || {}).map(([sev, count]) => `${String(sev).toUpperCase()}: ${count}`).join(", ") || "No severity data available"}. Vulnerability categories assessed: ${Object.entries(data.vulnerabilityBreakdown?.byType || {}).map(([type, count]) => `${type.replace(/_/g, " ")}: ${count}`).join(", ") || "No type data available"}.\n\nRemediation is prioritized by exploitability and business impact. Immediate actions target confirmed exploitable findings, short-term efforts focus on defense-in-depth improvements, and long-term recommendations address architectural security enhancements.`,
+        findings: (data.topFindings || []).slice(0, 10).map((f: any) => {
+          const vulnInfo = f.exposureType ? getVulnerabilityInfo(f.exposureType) : null;
+          const cweRef = vulnInfo?.cweIds?.[0] ? ` | ${vulnInfo.cweIds[0]}` : "";
+          const mitreRef = vulnInfo?.mitreTechniques?.[0] ? ` | MITRE: ${vulnInfo.mitreTechniques[0]}` : "";
+          const severity = (f.severity || "MEDIUM").toUpperCase();
+          return {
+            title: `[${severity}] ${f.title || "Security Finding"}${cweRef}${mitreRef}`,
+            description: `${f.description || "Vulnerability identified during automated assessment."} Asset: ${f.assetId || "N/A"}. Exploitable: ${f.exploitable ? "CONFIRMED" : "Not confirmed"}. Confidence: ${f.score || 0}/100.`,
+            recommendation: f.recommendation || "Apply vendor-recommended patches and configuration hardening. Verify remediation by re-scanning the affected asset and confirming the vulnerability is no longer exploitable."
+          };
+        }),
         recommendations: [
-          "Apply security patches to affected systems",
-          "Implement network segmentation to limit lateral movement",
-          "Enable enhanced logging and monitoring for affected assets"
+          "IMMEDIATE (0-30 days): Apply patches and configuration fixes for all confirmed exploitable findings. Validate each remediation through targeted re-assessment.",
+          "SHORT-TERM (30-90 days): Implement network segmentation to constrain lateral movement paths. Deploy enhanced logging and monitoring (SIEM integration) for all affected assets. Review and harden access control policies.",
+          "LONG-TERM (90+ days): Establish continuous security validation through automated assessment scheduling. Implement defense-in-depth architecture aligned to MITRE ATT&CK framework. Integrate security testing into CI/CD pipeline."
         ]
       },
       compliance: {
-        executiveSummary: `Compliance assessment against ${data.framework?.toUpperCase() || "framework"} shows ${data.overallCompliance || 0}% overall compliance. ${data.gaps?.length || 0} control gaps were identified requiring remediation. Audit readiness score is ${data.auditReadiness?.score || 0}%. Priority actions should focus on addressing control gaps to improve compliance posture.`,
+        executiveSummary: `Compliance assessment against ${data.framework?.toUpperCase() || "the target framework"} evaluated ${data.auditReadiness?.totalControls || 0} controls and determined an overall compliance rate of ${data.overallCompliance || 0}%. ${data.gaps?.length || 0} material control gap${(data.gaps?.length || 0) !== 1 ? "s" : ""} were identified requiring remediation to maintain compliance posture. Current audit readiness is assessed at ${data.auditReadiness?.score || 0}%.\n\n${(data.gaps?.length || 0) > 0 ? `The identified control gaps present regulatory exposure that could result in audit findings, certification delays, or regulatory penalties if unaddressed. The assessment team recommends immediate attention to material gaps with a structured evidence collection plan to demonstrate compliance.` : "No material control gaps were identified. The organization should maintain current controls and establish continuous compliance monitoring to preserve this favorable posture."}\n\nRemediation should follow a phased approach: immediate gap closure with interim compensating controls (0-30 days), full control implementation with audit-ready evidence packages (30-60 days), and ongoing compliance assurance through automated monitoring (60-90 days).`,
         findings: (data.gaps || []).slice(0, 5).map((g: any) => ({
-          title: `Control Gap: ${g.controlId || "Unknown Control"}`,
-          description: g.gapDescription || "Compliance control gap requiring attention",
-          recommendation: g.remediationGuidance || "Implement required controls to achieve compliance"
+          title: `Control Gap: ${g.controlId || "Unknown Control"} — ${g.gapDescription?.split(" ").slice(0, 5).join(" ") || "Compliance Deficiency"}`,
+          description: `${g.gapDescription || "Control gap identified during compliance assessment."} This gap presents regulatory exposure and may result in audit findings if unaddressed. Evidence of remediation must be documented for audit readiness.`,
+          recommendation: `${g.remediationGuidance || "Implement required controls to achieve compliance."} Document all remediation activities and collect evidence artifacts for audit review. Verify control effectiveness through independent testing.`
         })),
         recommendations: [
-          "Prioritize remediation of non-compliant controls",
-          "Document compensating controls for gaps that cannot be immediately addressed",
-          "Schedule follow-up assessment to verify remediation effectiveness"
+          "IMMEDIATE (0-30 days): Close material control gaps — implement compensating controls and begin evidence collection for audit documentation",
+          "SHORT-TERM (30-60 days): Complete control implementation — produce audit-ready evidence packages including policies, procedures, technical configurations, and test results",
+          "ONGOING: Establish continuous compliance monitoring — automate control validation, maintain evidence repository, and schedule periodic compliance assessments"
         ]
       }
     };
@@ -172,84 +188,88 @@ export class ReportGenerator {
     
     try {
       const prompts = {
-        executive: `You are a principal security consultant at a leading professional services firm (similar to Big 4 consulting) preparing an executive security assessment report for the Board of Directors and C-suite leadership.
+        executive: `You are a principal security consultant at a top-tier penetration testing firm (comparable to NCC Group, Rapid7, or CrowdStrike) preparing an executive report for Board of Directors and C-suite leadership following a completed security engagement.
 
-Based on the following security assessment data, craft a polished executive summary that reflects enterprise consulting standards:
-
+Assessment Data:
 ${JSON.stringify(data, null, 2)}
 
-Provide your response as JSON with this exact structure (no additional fields):
+Produce a JSON response with this exact structure (no additional fields):
 {
-  "executiveSummary": "A 2-3 paragraph executive summary using formal, measured language. Begin with the overall security posture assessment, followed by key risk areas requiring leadership attention, and conclude with strategic recommendations. Use language such as 'Our assessment revealed...', 'The organization's current security posture...', 'We recommend the following strategic initiatives...'",
+  "executiveSummary": "3-4 paragraphs structured as follows:\n\nParagraph 1 — ENGAGEMENT OVERVIEW: State the scope of the assessment, the number of assets evaluated, the methodology employed (automated multi-agent AI assessment including reconnaissance, exploit validation, lateral movement analysis, and impact assessment), and the assessment period.\n\nParagraph 2 — SECURITY POSTURE ASSESSMENT: Provide the assessment team's overall characterization of the organization's security posture. Reference the ratio of exploitable findings to total evaluations. Contextualize severity distribution against industry benchmarks. Use authoritative but measured language.\n\nParagraph 3 — CRITICAL FINDINGS AND BUSINESS RISK: Summarize the highest-impact findings in business terms — financial exposure, operational disruption potential, regulatory implications, and reputational risk. Reference specific finding categories (not technical details). Cite NIST CSF or ISO 27001 control areas where gaps exist.\n\nParagraph 4 — STRATEGIC RECOMMENDATIONS: Present a phased remediation roadmap: immediate actions (0-30 days), short-term hardening (30-60 days), and strategic security program improvements (60-90 days). Frame each recommendation as a risk-reduction investment with expected outcome.",
   "findings": [
-    {"title": "Finding title using active, professional language", "description": "Clear articulation of the business risk and potential impact on operations, reputation, and financial position", "recommendation": "Strategic remediation approach with implementation considerations"}
+    {"title": "Concise finding title in active voice (e.g., 'Exploitable Remote Code Execution in External-Facing Application')", "description": "Business-impact description: what is at risk, which business processes are affected, the likelihood of exploitation based on assessment evidence, and the potential financial/operational consequence. Do NOT use technical jargon — write for a non-technical board audience.", "recommendation": "Strategic remediation approach framed as an investment: what to implement, expected risk reduction, and implementation considerations including resource requirements."}
   ],
-  "recommendations": ["Strategic recommendation framed as an investment in security posture", "Risk reduction initiative with measurable outcomes", "Governance improvement with accountability structure"]
+  "recommendations": ["Immediate (0-30 days): Specific remediation action with expected risk reduction outcome", "Short-term (30-60 days): Security hardening initiative with measurable success criteria", "Strategic (60-90 days): Security program maturity improvement aligned to NIST CSF or ISO 27001"]
 }
 
-Writing guidelines:
-- Use formal third-person perspective ("The assessment team identified..." not "We found...")
-- Quantify risk in business terms (potential financial impact, operational disruption)
-- Frame recommendations as strategic investments, not just fixes
-- Reference industry frameworks (NIST CSF, ISO 27001) where appropriate
-- Maintain objective, measured tone without alarmist language
-- Limit findings to 5 highest-priority items`,
+WRITING RULES — follow these precisely:
+- Voice: "The assessment team identified..." / "OdinForge's automated security assessment revealed..." — NEVER use "We" or "I"
+- Quantify everything: "3 of 7 evaluated assets (43%) presented exploitable attack paths" not "several assets had issues"
+- Business framing: Every finding must connect to financial exposure, operational disruption, regulatory risk, or reputational damage
+- No alarmism: Use "presents material risk" not "catastrophic" or "devastating". Use "requires immediate attention" not "emergency"
+- Recommendations must be investment-framed: "Investing in network segmentation reduces lateral movement risk by constraining blast radius" not "Implement network segmentation"
+- Reference NIST CSF categories (Identify, Protect, Detect, Respond, Recover) or ISO 27001 Annex A controls where relevant
+- Limit findings to 5 highest-priority items
+- Do NOT include any markdown formatting, only plain text with paragraph breaks`,
 
-        technical: `You are a senior penetration testing consultant preparing a technical assessment report following professional services firm standards (Big 4 / specialized security consultancy format).
+        technical: `You are a senior penetration tester at an elite security consultancy (comparable to NCC Group, SpecterOps, or Rapid7) preparing the technical findings section of a penetration test report. Your audience is the security engineering team and technical leadership (CISO, VP Security).
 
-Based on the following security assessment data, write detailed technical findings suitable for security teams and technical leadership:
-
+Assessment Data:
 ${JSON.stringify(data, null, 2)}
 
-Provide your response as JSON with this exact structure (no additional fields):
+Produce a JSON response with this exact structure (no additional fields):
 {
-  "executiveSummary": "A technical summary opening with assessment scope and methodology, followed by key technical findings categorized by severity, and concluding with remediation prioritization. Reference MITRE ATT&CK techniques and CVSS scores where applicable.",
+  "executiveSummary": "3-4 paragraphs structured as follows:\n\nParagraph 1 — SCOPE AND METHODOLOGY: Define what was tested (asset count, exposure types), the testing methodology (automated multi-agent AI assessment pipeline: Reconnaissance Agent, Exploit Validation Agent, Lateral Movement Agent, Business Logic Agent, Multi-Vector Agent, and Impact Assessment Agent), testing constraints and limitations, and the execution mode (safe/simulation/live).\n\nParagraph 2 — FINDINGS SUMMARY: State total findings count with severity distribution. Reference MITRE ATT&CK tactic coverage (e.g., 'Validated techniques span Initial Access, Execution, Persistence, and Lateral Movement tactic categories'). Highlight the exploitability rate and average confidence score.\n\nParagraph 3 — ATTACK PATH NARRATIVE: Describe the most significant attack chain(s) discovered, connecting individual findings into a coherent exploitation narrative. Explain how an attacker would chain these vulnerabilities from initial access through to business impact. Reference specific MITRE ATT&CK technique IDs (T####).\n\nParagraph 4 — REMEDIATION PRIORITIZATION: Present remediation in three phases: Immediate (0-30 days) for critical/exploitable findings, Short-term (30-90 days) for defense-in-depth improvements, Long-term (90+ days) for architectural security enhancements. Each recommendation should include verification criteria.",
   "findings": [
-    {"title": "Technical finding with CVE/CWE reference where applicable", "description": "Detailed technical description including: attack vector, prerequisites, exploitation proof-of-concept summary, and potential escalation paths. Reference specific assets and evidence artifacts.", "recommendation": "Prioritized remediation steps with specific technical guidance, configuration changes, and validation criteria"}
+    {"title": "[SEVERITY] Finding Title | CWE-XXX | MITRE: TXXXX.XXX (include CWE and MITRE IDs where the data supports it)", "description": "Structured as: DESCRIPTION — What the vulnerability is and where it exists (specific asset, service, endpoint). ATTACK VECTOR — How an attacker exploits this (prerequisites, complexity, access required). IMPACT — Technical and business consequences of successful exploitation. EVIDENCE — Reference to assessment evidence supporting this finding (attack path data, scores, confidence levels). ESCALATION POTENTIAL — How this finding connects to other vulnerabilities or enables further compromise.", "recommendation": "Structured as: REMEDIATION — Specific technical fix (configuration change, patch, code fix). VERIFICATION — How to confirm the fix is effective (test procedure, expected result). COMPENSATING CONTROL — Interim mitigation if immediate fix is not feasible."}
   ],
-  "recommendations": ["Immediate remediation actions (0-30 days)", "Short-term security improvements (30-90 days)", "Strategic security architecture enhancements (90+ days)"]
+  "recommendations": ["IMMEDIATE (0-30 days): Specific technical remediation with verification criteria", "SHORT-TERM (30-90 days): Defense-in-depth improvement with measurable outcome", "LONG-TERM (90+ days): Architectural security enhancement aligned to MITRE ATT&CK defense framework"]
 }
 
-Writing guidelines:
-- Reference specific MITRE ATT&CK technique IDs (T####) and tactics
-- Include CWE identifiers for vulnerability classes
-- Provide evidence-based findings with specific asset references
-- Structure remediation as actionable, testable items
-- Include validation criteria for confirming fixes
-- Limit findings to 10 highest-impact items`,
+WRITING RULES — follow these precisely:
+- Active voice throughout: "The application accepts..." not "It was observed that the application..."
+- Reference MITRE ATT&CK technique IDs (T####) and tactic names in findings and attack path narrative
+- Include CWE identifiers (CWE-XXX) for each vulnerability class
+- Every finding must reference the specific asset(s) affected
+- Remediation must be testable: include verification criteria ("Confirm by..." or "Validate that...")
+- Findings title format: "[CRITICAL] Title | CWE-79 | MITRE: T1059.007" — include severity, CWE, and technique ID
+- Do NOT use passive hedging language ("may potentially", "could possibly") — be direct and evidence-based
+- Limit findings to 10 highest-impact items sorted by severity then exploitability
+- Do NOT include any markdown formatting, only plain text`,
 
-        compliance: `You are a compliance and risk advisory consultant preparing a regulatory compliance assessment report following professional services firm standards.
+        compliance: `You are a GRC (Governance, Risk, and Compliance) consultant at a Big 4 professional services firm preparing a compliance assessment report for the audit committee and compliance leadership.
 
-Based on the following compliance assessment data, prepare a compliance-focused report suitable for audit committees and compliance leadership:
-
+Assessment Data:
 ${JSON.stringify(data, null, 2)}
 
-Provide your response as JSON with this exact structure (no additional fields):
+Produce a JSON response with this exact structure (no additional fields):
 {
-  "executiveSummary": "A compliance summary presenting current compliance posture against the framework, material control gaps requiring attention, and a risk-prioritized remediation roadmap. Include compliance percentage and trajectory.",
+  "executiveSummary": "3 paragraphs structured as follows:\n\nParagraph 1 — COMPLIANCE POSTURE: State the overall compliance percentage against the framework, the number of controls assessed, and the number of control gaps identified. Characterize the organization's compliance maturity (initial, developing, defined, managed, optimizing). Reference the specific framework version assessed.\n\nParagraph 2 — MATERIAL CONTROL GAPS: Describe the most significant gaps in business terms — which control objectives are unmet, what regulatory exposure this creates, and the potential consequences (audit findings, regulatory penalties, loss of certification). Reference specific control IDs.\n\nParagraph 3 — REMEDIATION ROADMAP: Present a phased plan to achieve and maintain compliance: immediate gap closure (0-30 days), control implementation and evidence collection (30-60 days), and ongoing compliance assurance program (60-90 days). Include evidence requirements for each phase.",
   "findings": [
-    {"title": "Control gap with specific framework control reference", "description": "Gap analysis including: control objective, current state, target state, and compliance implications. Reference specific regulatory requirements.", "recommendation": "Remediation approach with implementation timeline and evidence requirements for audit"}
+    {"title": "Control Gap: [Framework Control ID] — [Control Name]", "description": "GAP ANALYSIS — Control Objective: What the framework requires. Current State: What the assessment found. Target State: What must be achieved. Compliance Impact: Specific regulatory/audit exposure if unaddressed. Evidence Required: What documentation or technical evidence demonstrates compliance.", "recommendation": "REMEDIATION — Implementation: Specific control to implement. Timeline: Expected implementation duration. Evidence: Documentation and artifacts needed to demonstrate compliance to auditors. Verification: How to confirm the control is operating effectively."}
   ],
-  "recommendations": ["Immediate compliance gaps requiring 30-day remediation", "Control enhancements for sustained compliance", "Governance improvements for ongoing compliance assurance"]
+  "recommendations": ["IMMEDIATE (0-30 days): Close material control gaps with specific implementation steps and evidence requirements", "SHORT-TERM (30-60 days): Implement and document controls with audit-ready evidence packages", "ONGOING: Establish continuous compliance monitoring with automated control validation"]
 }
 
-Writing guidelines:
-- Reference specific framework control IDs (e.g., NIST SP 800-53, PCI DSS, SOC 2 TSC)
-- Frame gaps in terms of audit risk and regulatory exposure
-- Provide evidence requirements for demonstrating compliance
-- Include suggested control implementations
-- Limit findings to 5 most material gaps`
+WRITING RULES — follow these precisely:
+- Reference specific framework control IDs (SOC 2 TSC CC#.#, PCI DSS Req #.#, HIPAA §164.###, ISO 27001 A.##, NIST CSF XX.XX)
+- Frame every gap in terms of audit risk and regulatory exposure — not just technical deficiency
+- Each finding must include evidence requirements for demonstrating compliance
+- Recommendations must be audit-actionable with clear deliverables
+- Use compliance-specific language: "control gap", "compensating control", "evidence artifact", "control objective"
+- Limit findings to 5 most material gaps sorted by regulatory exposure
+- Do NOT include any markdown formatting, only plain text`
       };
 
       const response = await client.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { role: "system", content: "You are a senior cybersecurity consultant at a leading professional services firm preparing formal deliverables. Write in polished, formal language suitable for board-level and executive audiences. Always respond with valid JSON matching the exact schema requested. Never include extra fields." },
+          { role: "system", content: "You are a senior penetration testing consultant at an elite security firm (NCC Group / Rapid7 / CrowdStrike caliber) preparing formal engagement deliverables. Your reports are read by CISOs, boards of directors, and audit committees. Write with the authority of an experienced practitioner — direct, evidence-based, and precise. NEVER use filler phrases ('it should be noted', 'it is worth mentioning', 'it is important to'). NEVER use passive hedging ('may potentially', 'could possibly'). Use active voice and definitive statements grounded in assessment evidence. Frame every finding in terms of business impact. Always respond with valid JSON matching the exact schema requested. Never include extra fields or markdown formatting." },
           { role: "user", content: prompts[reportType] }
         ],
         response_format: { type: "json_object" },
         temperature: 0.7,
-        max_tokens: 2500,
+        max_tokens: reportType === "technical" ? 5000 : 4000,
       });
 
       const content = response.choices[0].message.content;
@@ -690,33 +710,33 @@ Writing guidelines:
     criticalCount: number,
     overallRiskLevel: string
   ): string {
-    const exploitablePercent = totalEvaluations > 0 ? 
+    const exploitablePercent = totalEvaluations > 0 ?
       Math.round((exploitableCount / totalEvaluations) * 100) : 0;
-    
-    let narrative = `During the reporting period, ${totalEvaluations} security evaluations were conducted. `;
-    
+
+    let narrative = `OdinForge's automated security assessment evaluated ${totalEvaluations} exposure${totalEvaluations !== 1 ? "s" : ""} using a multi-agent AI analysis pipeline encompassing reconnaissance, exploit validation, lateral movement analysis, and impact assessment. `;
+
     if (exploitableCount === 0) {
-      narrative += "No exploitable vulnerabilities were identified, indicating a strong security posture. ";
+      narrative += "The assessment did not identify exploitable attack paths during this evaluation period, indicating effective security controls are in place. ";
     } else {
-      narrative += `${exploitableCount} (${exploitablePercent}%) of the evaluated exposures were found to be exploitable. `;
+      narrative += `${exploitableCount} of ${totalEvaluations} evaluated exposures (${exploitablePercent}%) were confirmed exploitable through validated attack paths. `;
     }
-    
+
     if (criticalCount > 0) {
-      narrative += `Critical attention is required for ${criticalCount} critical finding${criticalCount > 1 ? "s" : ""} that pose${criticalCount === 1 ? "s" : ""} immediate risk to the organization. `;
+      narrative += `${criticalCount} critical-severity finding${criticalCount > 1 ? "s" : ""} present${criticalCount === 1 ? "s" : ""} immediate risk to business operations and require${criticalCount === 1 ? "s" : ""} emergency remediation. `;
     }
-    
+
     switch (overallRiskLevel) {
       case "critical":
-        narrative += "The overall risk posture is CRITICAL and requires immediate executive attention and resource allocation for remediation.";
+        narrative += "The assessment team assessed the overall security posture as CRITICAL. Immediate executive attention and emergency remediation resources are required. The assessment team recommends activating incident response procedures for critical findings.";
         break;
       case "high":
-        narrative += "The overall risk posture is HIGH. A prioritized remediation plan should be executed within the next 30 days.";
+        narrative += "The assessment team assessed the overall security posture as HIGH risk. A prioritized remediation plan should be executed within 30 days, with compensating controls deployed immediately for exploitable findings.";
         break;
       case "medium":
-        narrative += "The overall risk posture is MODERATE. Continued monitoring and scheduled remediation activities are recommended.";
+        narrative += "The assessment team assessed the overall security posture as MODERATE. Findings should be addressed through scheduled remediation activities within 60 days, with enhanced monitoring deployed for affected assets.";
         break;
       case "low":
-        narrative += "The overall risk posture is LOW. Maintain current security practices and continue regular assessments.";
+        narrative += "The assessment team assessed the overall security posture as LOW risk. The organization should maintain current security controls and continue regular assessment cycles to preserve this favorable posture.";
         break;
     }
     

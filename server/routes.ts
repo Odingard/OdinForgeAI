@@ -644,6 +644,8 @@ export async function registerRoutes(
         adversaryProfile: parsed.data.adversaryProfile || undefined,
         organizationId: parsed.data.organizationId || "default",
         appLogicData,
+      }).catch(err => {
+        console.error(`[AEV] Background evaluation ${evaluation.id} failed:`, err);
       });
     } catch (error) {
       console.error("Error starting evaluation:", error);
@@ -2595,8 +2597,10 @@ export async function registerRoutes(
       });
       
       // Start simulation in background
-      runAiSimulation(simulation.id);
-      
+      runAiSimulation(simulation.id).catch(err => {
+        console.error(`[AI Simulation] Background simulation ${simulation.id} failed:`, err);
+      });
+
       res.json(simulation);
     } catch (error) {
       console.error("Error creating AI simulation:", error);
@@ -4048,6 +4052,62 @@ export async function registerRoutes(
           recommendations,
         } as any,
       });
+
+      // Bridge: Also create an evaluation + result so simulation data appears on Risk Dashboard
+      try {
+        const attackerScore = Math.round((result.finalAttackScore || 0) * 100);
+        const defenderScore = Math.round((result.finalDefenseScore || 0) * 100);
+        const evalId = `aev-sim-${simulationId.replace("sim-", "")}`;
+
+        const evaluation = await storage.createEvaluation({
+          organizationId: "default",
+          assetId,
+          exposureType,
+          priority,
+          description: `[AI Simulation] ${description}`,
+          executionMode: "simulation",
+          status: "completed",
+        });
+
+        await storage.createResult({
+          id: `res-sim-${simulationId.replace("sim-", "")}`,
+          evaluationId: evaluation.id,
+          exploitable: attackerScore > 50,
+          confidence: Math.round((attackerScore + defenderScore) / 2),
+          score: attackerScore,
+          attackPath: attackPath.map((title, i) => ({
+            id: i + 1,
+            title,
+            phase: "simulation",
+            technique: "ai_simulation",
+            severity: "high",
+            description: title,
+          })) as any,
+          impact: result.executiveSummary || `Attack: ${attackerScore}%, Defense: ${defenderScore}%`,
+          recommendations: recommendations as any,
+          evidenceArtifacts: [],
+          intelligentScore: {
+            overall: attackerScore,
+            exploitability: attackerScore,
+            impact: defenderScore > 70 ? 30 : 70,
+            defensibility: defenderScore,
+            confidence: 85,
+          } as any,
+          remediationGuidance: {
+            immediate: recommendations.slice(0, 2),
+            shortTerm: recommendations.slice(2, 4),
+            longTerm: recommendations.slice(4),
+            estimatedEffort: "medium",
+            priorityOrder: recommendations,
+          } as any,
+          duration: result.totalProcessingTime || 0,
+        });
+
+        console.log(`[SIMULATION ${simulationId}] Bridged to evaluation ${evaluation.id} for Risk Dashboard visibility`);
+      } catch (bridgeErr) {
+        // Non-blocking — simulation results are still saved
+        console.error(`[SIMULATION ${simulationId}] Failed to bridge to evaluation:`, bridgeErr);
+      }
 
       wsService.sendComplete(simulationId, true);
     } catch (error) {
@@ -6514,8 +6574,12 @@ async function runEvaluation(evaluationId: string, data: {
 }) {
   const startTime = Date.now();
   const orgId = data.organizationId || "default";
-  
+
   try {
+    // Set RLS tenant context for this background task
+    const { setTenantContext: setCtx } = await import("./services/rls-setup");
+    await setCtx(orgId);
+
     // Check governance execution mode
     const governance = await storage.getOrganizationGovernance(orgId);
     const executionMode = governance?.executionMode || "safe";

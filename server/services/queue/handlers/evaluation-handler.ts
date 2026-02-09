@@ -101,7 +101,7 @@ export async function handleEvaluationJob(
       throw new Error(`Evaluation not found: ${evaluationId}`);
     }
 
-    await storage.updateEvaluationStatus(evaluationId, "running", executionMode);
+    await storage.updateEvaluationStatus(evaluationId, "in_progress", executionMode);
 
     await job.updateProgress?.({
       percent: 10,
