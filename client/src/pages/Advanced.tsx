@@ -505,10 +505,29 @@ export default function Advanced() {
                       <div className="text-2xl font-bold text-foreground" data-testid="text-mttd">
                         {posture?.meanTimeToDetect || 0}h
                       </div>
+                      {(posture as any)?.mttdDataSource && (
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 text-[10px] px-1.5 py-0 ${
+                            (posture as any).mttdDataSource === "siem_observed"
+                              ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
+                              : "text-muted-foreground border-muted-foreground/30"
+                          }`}
+                        >
+                          {(posture as any).mttdDataSource === "siem_observed"
+                            ? `SIEM (${(posture as any).mttdSampleSize})`
+                            : "Estimated"}
+                        </Badge>
+                      )}
                     </div>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
-                    <p>Mean Time To Detect - Average time to identify a security incident. Lower is better.</p>
+                    <p>
+                      Mean Time To Detect - Average time to identify a security incident. Lower is better.
+                      {(posture as any)?.mttdDataSource === "siem_observed"
+                        ? " Based on real SIEM alert data."
+                        : " Estimated from evaluation confidence scores. Connect a SIEM for real measurements."}
+                    </p>
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>
@@ -522,10 +541,29 @@ export default function Advanced() {
                       <div className="text-2xl font-bold text-foreground" data-testid="text-mttr">
                         {posture?.meanTimeToRespond || 0}h
                       </div>
+                      {(posture as any)?.mttrDataSource && (
+                        <Badge
+                          variant="outline"
+                          className={`mt-1 text-[10px] px-1.5 py-0 ${
+                            (posture as any).mttrDataSource === "siem_observed"
+                              ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
+                              : "text-muted-foreground border-muted-foreground/30"
+                          }`}
+                        >
+                          {(posture as any).mttrDataSource === "siem_observed"
+                            ? `SIEM (${(posture as any).mttrSampleSize})`
+                            : "Estimated"}
+                        </Badge>
+                      )}
                     </div>
                   </TooltipTrigger>
                   <TooltipContent className="max-w-xs">
-                    <p>Mean Time To Respond - Average time to contain a threat after detection. Lower is better.</p>
+                    <p>
+                      Mean Time To Respond - Average time to contain a threat after detection. Lower is better.
+                      {(posture as any)?.mttrDataSource === "siem_observed"
+                        ? " Based on real SIEM resolution data."
+                        : " Estimated from evaluation severity data. Connect a SIEM for real measurements."}
+                    </p>
                   </TooltipContent>
                 </Tooltip>
               </div>

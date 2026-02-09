@@ -8065,6 +8065,51 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
+  // GET /api/metrics/mttd - Get current MTTD with data source indicator
+  app.get("/api/metrics/mttd", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const posture = await calculateDefensivePosture(organizationId);
+      res.json({
+        meanTimeToDetect: posture.meanTimeToDetect,
+        meanTimeToRespond: posture.meanTimeToRespond,
+        mttdDataSource: posture.mttdDataSource,
+        mttrDataSource: posture.mttrDataSource,
+        mttdSampleSize: posture.mttdSampleSize,
+        mttrSampleSize: posture.mttrSampleSize,
+      });
+    } catch (error: any) {
+      console.error("Failed to get MTTD metrics:", error);
+      res.status(500).json({ error: "Failed to get MTTD metrics" });
+    }
+  });
+
+  // GET /api/metrics/by-technique - Per-technique MTTD/MTTR breakdown
+  app.get("/api/metrics/by-technique", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { getPerTechniqueMetrics } = await import("./services/metrics-calculator");
+      const techniques = await getPerTechniqueMetrics(organizationId);
+      res.json(techniques);
+    } catch (error: any) {
+      console.error("Failed to get per-technique metrics:", error);
+      res.status(500).json({ error: "Failed to get per-technique metrics" });
+    }
+  });
+
+  // POST /api/metrics/aggregate - Trigger manual metrics aggregation
+  app.post("/api/metrics/aggregate", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { aggregateDailyMetrics } = await import("./services/metrics-calculator");
+      await aggregateDailyMetrics(organizationId);
+      res.json({ success: true, message: "Metrics aggregation complete" });
+    } catch (error: any) {
+      console.error("Failed to aggregate metrics:", error);
+      res.status(500).json({ error: "Failed to aggregate metrics" });
+    }
+  });
+
   // ============================================================================
   // API DEFINITIONS (OpenAPI/Swagger)
   // ============================================================================

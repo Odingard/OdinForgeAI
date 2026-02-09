@@ -5,6 +5,7 @@ import type { ScheduledScan } from "@shared/schema";
 
 let schedulerTask: ReturnType<typeof cron.schedule> | null = null;
 let threatIntelTask: ReturnType<typeof cron.schedule> | null = null;
+let metricsAggregationTask: ReturnType<typeof cron.schedule> | null = null;
 
 function calculateNextRunAt(scan: ScheduledScan): Date {
   const now = new Date();
@@ -167,6 +168,17 @@ async function syncDueThreatIntelFeeds(): Promise<void> {
   }
 }
 
+async function aggregateAllOrgMetrics(): Promise<void> {
+  try {
+    const { aggregateDailyMetrics } = await import("../metrics-calculator");
+    // Aggregate for default org — extend to multi-org by querying distinct orgIds
+    await aggregateDailyMetrics("default");
+    console.log("[MetricsAggregation] Daily metrics aggregation complete");
+  } catch (error) {
+    console.error("[MetricsAggregation] Error aggregating metrics:", error);
+  }
+}
+
 export function initScheduler(): void {
   if (schedulerTask) {
     console.log("[Scheduler] Scheduler already running");
@@ -182,8 +194,14 @@ export function initScheduler(): void {
     await syncDueThreatIntelFeeds();
   });
 
+  // Daily metrics aggregation — runs at midnight UTC
+  metricsAggregationTask = cron.schedule("0 0 * * *", async () => {
+    await aggregateAllOrgMetrics();
+  });
+
   console.log("[Scheduler] Scan scheduler initialized (checking every minute)");
   console.log("[Scheduler] Threat intel sync scheduled (checking every hour)");
+  console.log("[Scheduler] Metrics aggregation scheduled (daily at midnight UTC)");
 
   setTimeout(() => {
     processDueScans().catch((err) => {
@@ -200,6 +218,10 @@ export function stopScheduler(): void {
   if (threatIntelTask) {
     threatIntelTask.stop();
     threatIntelTask = null;
+  }
+  if (metricsAggregationTask) {
+    metricsAggregationTask.stop();
+    metricsAggregationTask = null;
   }
   console.log("[Scheduler] All schedulers stopped");
 }
