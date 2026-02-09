@@ -259,6 +259,7 @@ export const rolePermissions: Record<UserRole, Permission[]> = {
     "simulations:run",
     "simulations:delete",
     "governance:read",
+    "governance:manage",
     "audit:read",
     "org:read",
     "org:manage_settings",
@@ -4861,3 +4862,71 @@ export interface DebateSummary {
   criticReasoning: string;
   processingTime: number;
 }
+
+// ============================================================================
+// THREAT INTELLIGENCE FEEDS
+// ============================================================================
+
+export const threatIntelFeedTypes = ["cisa_kev", "custom_cve", "stix_taxii"] as const;
+export type ThreatIntelFeedType = typeof threatIntelFeedTypes[number];
+
+export const threatIntelFeeds = pgTable("threat_intel_feeds", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  name: text("name").notNull(),
+  feedType: varchar("feed_type").notNull(), // One of threatIntelFeedTypes
+  feedUrl: text("feed_url").notNull(),
+  enabled: boolean("enabled").default(true),
+  checkInterval: integer("check_interval").default(86400), // seconds, default 24h
+
+  lastCheckedAt: timestamp("last_checked_at"),
+  lastSuccessAt: timestamp("last_success_at"),
+  lastError: text("last_error"),
+  indicatorCount: integer("indicator_count").default(0),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertThreatIntelFeedSchema = createInsertSchema(threatIntelFeeds).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertThreatIntelFeed = z.infer<typeof insertThreatIntelFeedSchema>;
+export type ThreatIntelFeed = typeof threatIntelFeeds.$inferSelect;
+
+export const threatIntelIndicators = pgTable("threat_intel_indicators", {
+  id: varchar("id").primaryKey(),
+  feedId: varchar("feed_id").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  indicatorType: varchar("indicator_type").notNull(), // "cve", "ip", "domain", "hash"
+  indicatorValue: varchar("indicator_value").notNull(), // e.g. "CVE-2024-12345"
+
+  // CISA KEV-specific fields
+  vendorProject: varchar("vendor_project"),
+  product: varchar("product"),
+  vulnerabilityName: text("vulnerability_name"),
+  shortDescription: text("short_description"),
+  requiredAction: text("required_action"),
+  dueDate: timestamp("due_date"),
+  knownRansomwareCampaignUse: boolean("known_ransomware_campaign_use").default(false),
+
+  // Matching to internal findings
+  matchedAssetCount: integer("matched_asset_count").default(0),
+  matchedFindingIds: jsonb("matched_finding_ids").$type<string[]>(),
+
+  dateAdded: timestamp("date_added"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertThreatIntelIndicatorSchema = createInsertSchema(threatIntelIndicators).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertThreatIntelIndicator = z.infer<typeof insertThreatIntelIndicatorSchema>;
+export type ThreatIntelIndicator = typeof threatIntelIndicators.$inferSelect;

@@ -156,6 +156,13 @@ import {
   type InsertPivotPoint,
   type AttackPath,
   type InsertAttackPath,
+  // Threat Intelligence
+  threatIntelFeeds,
+  threatIntelIndicators,
+  type ThreatIntelFeed,
+  type InsertThreatIntelFeed,
+  type ThreatIntelIndicator,
+  type InsertThreatIntelIndicator,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -378,6 +385,22 @@ export interface IStorage {
     endDate?: Date;
   }): Promise<SafetyDecisionRecord[]>;
   createSafetyDecisionsBatch(decisions: (InsertSafetyDecision & { id: string })[]): Promise<SafetyDecisionRecord[]>;
+
+  // Threat Intel Feed operations
+  createThreatIntelFeed(data: InsertThreatIntelFeed & { id: string }): Promise<ThreatIntelFeed>;
+  getThreatIntelFeed(id: string): Promise<ThreatIntelFeed | undefined>;
+  getThreatIntelFeeds(organizationId: string): Promise<ThreatIntelFeed[]>;
+  updateThreatIntelFeed(id: string, updates: Partial<ThreatIntelFeed>): Promise<void>;
+  deleteThreatIntelFeed(id: string): Promise<void>;
+
+  // Threat Intel Indicator operations
+  createThreatIntelIndicator(data: InsertThreatIntelIndicator & { id: string }): Promise<ThreatIntelIndicator>;
+  getThreatIntelIndicators(organizationId: string, limit?: number, offset?: number): Promise<ThreatIntelIndicator[]>;
+  getThreatIntelIndicatorByValue(indicatorValue: string, organizationId: string): Promise<ThreatIntelIndicator | undefined>;
+  getThreatIntelIndicatorsByFeed(feedId: string): Promise<ThreatIntelIndicator[]>;
+  updateThreatIntelIndicator(id: string, updates: Partial<ThreatIntelIndicator>): Promise<void>;
+  upsertThreatIntelIndicator(data: InsertThreatIntelIndicator & { id: string }): Promise<ThreatIntelIndicator>;
+  countThreatIntelIndicators(feedId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2929,6 +2952,97 @@ export class DatabaseStorage implements IStorage {
       executionMode: d.executionMode,
     }));
     return db.insert(safetyDecisions).values(insertData).returning();
+  }
+
+  // Threat Intel Feed operations
+  async createThreatIntelFeed(data: InsertThreatIntelFeed & { id: string }): Promise<ThreatIntelFeed> {
+    const [feed] = await db.insert(threatIntelFeeds).values(data).returning();
+    return feed;
+  }
+
+  async getThreatIntelFeed(id: string): Promise<ThreatIntelFeed | undefined> {
+    const [feed] = await db.select().from(threatIntelFeeds).where(eq(threatIntelFeeds.id, id));
+    return feed;
+  }
+
+  async getThreatIntelFeeds(organizationId: string): Promise<ThreatIntelFeed[]> {
+    return db
+      .select()
+      .from(threatIntelFeeds)
+      .where(eq(threatIntelFeeds.organizationId, organizationId))
+      .orderBy(desc(threatIntelFeeds.createdAt));
+  }
+
+  async updateThreatIntelFeed(id: string, updates: Partial<ThreatIntelFeed>): Promise<void> {
+    await db.update(threatIntelFeeds).set({ ...updates, updatedAt: new Date() }).where(eq(threatIntelFeeds.id, id));
+  }
+
+  async deleteThreatIntelFeed(id: string): Promise<void> {
+    // Delete indicators first, then feed
+    await db.delete(threatIntelIndicators).where(eq(threatIntelIndicators.feedId, id));
+    await db.delete(threatIntelFeeds).where(eq(threatIntelFeeds.id, id));
+  }
+
+  // Threat Intel Indicator operations
+  async createThreatIntelIndicator(data: InsertThreatIntelIndicator & { id: string }): Promise<ThreatIntelIndicator> {
+    const [indicator] = await db.insert(threatIntelIndicators).values(data).returning();
+    return indicator;
+  }
+
+  async getThreatIntelIndicators(organizationId: string, limit = 100, offset = 0): Promise<ThreatIntelIndicator[]> {
+    return db
+      .select()
+      .from(threatIntelIndicators)
+      .where(eq(threatIntelIndicators.organizationId, organizationId))
+      .orderBy(desc(threatIntelIndicators.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getThreatIntelIndicatorByValue(indicatorValue: string, organizationId: string): Promise<ThreatIntelIndicator | undefined> {
+    const [indicator] = await db
+      .select()
+      .from(threatIntelIndicators)
+      .where(
+        and(
+          eq(threatIntelIndicators.indicatorValue, indicatorValue),
+          eq(threatIntelIndicators.organizationId, organizationId)
+        )
+      );
+    return indicator;
+  }
+
+  async getThreatIntelIndicatorsByFeed(feedId: string): Promise<ThreatIntelIndicator[]> {
+    return db
+      .select()
+      .from(threatIntelIndicators)
+      .where(eq(threatIntelIndicators.feedId, feedId))
+      .orderBy(desc(threatIntelIndicators.dateAdded));
+  }
+
+  async updateThreatIntelIndicator(id: string, updates: Partial<ThreatIntelIndicator>): Promise<void> {
+    await db.update(threatIntelIndicators).set({ ...updates, updatedAt: new Date() }).where(eq(threatIntelIndicators.id, id));
+  }
+
+  async upsertThreatIntelIndicator(data: InsertThreatIntelIndicator & { id: string }): Promise<ThreatIntelIndicator> {
+    // Check if already exists by value + org
+    const existing = await this.getThreatIntelIndicatorByValue(
+      data.indicatorValue,
+      data.organizationId || "default"
+    );
+    if (existing) {
+      await this.updateThreatIntelIndicator(existing.id, data);
+      return { ...existing, ...data } as ThreatIntelIndicator;
+    }
+    return this.createThreatIntelIndicator(data);
+  }
+
+  async countThreatIntelIndicators(feedId: string): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(threatIntelIndicators)
+      .where(eq(threatIntelIndicators.feedId, feedId));
+    return Number(result?.count ?? 0);
   }
 }
 

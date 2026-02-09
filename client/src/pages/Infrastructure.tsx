@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -23,7 +23,10 @@ import {
   Settings,
   Bot,
   Power,
-  XCircle
+  XCircle,
+  Rss,
+  ShieldAlert,
+  Loader2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
@@ -66,6 +69,8 @@ import {
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
 import { AssetDependencyGraph } from "@/components/AssetDependencyGraph";
+import { DataTable } from "@/components/shared/DataTable";
+import type { DataTableColumn } from "@/components/shared/DataTable";
 
 interface VulnerabilityImport {
   id: string;
@@ -972,6 +977,37 @@ function CloudConnectionCard({
   );
 }
 
+/**
+ * Live countdown timer that ticks every second.
+ * Uses server-authoritative timestamps: targetTime = lastSuccessAt + checkInterval.
+ */
+function CountdownTimer({ targetTime }: { targetTime: Date }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const diff = targetTime.getTime() - now;
+
+  if (diff <= 0) {
+    return <span className="text-amber-400 font-medium animate-pulse">Syncing soon...</span>;
+  }
+
+  const hrs = Math.floor(diff / 3600000);
+  const mins = Math.floor((diff % 3600000) / 60000);
+  const secs = Math.floor((diff % 60000) / 1000);
+
+  return (
+    <span className="font-mono tabular-nums">
+      {hrs > 0 && <>{String(hrs).padStart(2, "0")}h {String(mins).padStart(2, "0")}m {String(secs).padStart(2, "0")}s</>}
+      {hrs === 0 && mins > 0 && <>{String(mins).padStart(2, "0")}m {String(secs).padStart(2, "0")}s</>}
+      {hrs === 0 && mins === 0 && <>{String(secs).padStart(2, "0")}s</>}
+    </span>
+  );
+}
+
 export default function Infrastructure() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("scanner-imports");
@@ -997,6 +1033,76 @@ export default function Infrastructure() {
 
   const { data: autoDeployConfig } = useQuery<AutoDeployConfig>({
     queryKey: ["/api/auto-deploy/config"],
+  });
+
+  // Threat Intel
+  const { data: threatFeeds = [], isLoading: feedsLoading } = useQuery<any[]>({
+    queryKey: ["/api/threat-intel/feeds"],
+    refetchInterval: 30000,
+  });
+
+  const { data: threatIndicators = [], isLoading: indicatorsLoading } = useQuery<any[]>({
+    queryKey: ["/api/threat-intel/indicators?limit=5000"],
+    refetchInterval: 60000,
+  });
+
+  const [indicatorFilter, setIndicatorFilter] = useState<"all" | "ransomware" | "matched">("all");
+
+  const syncFeedMutation = useMutation({
+    mutationFn: async (feedId: string) => {
+      const res = await apiRequest("POST", `/api/threat-intel/feeds/${feedId}/sync`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threat-intel/feeds"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threat-intel/indicators"] });
+      toast({ title: "Feed synced", description: `${data.newIndicators} new, ${data.updatedIndicators} updated indicators` });
+    },
+    onError: (error: any) => {
+      toast({ title: "Sync failed", description: error.message || "Failed to sync feed", variant: "destructive" });
+    },
+  });
+
+  const addCisaKevMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/threat-intel/feeds", {
+        name: "CISA Known Exploited Vulnerabilities",
+        feedType: "cisa_kev",
+        feedUrl: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+        enabled: true,
+        checkInterval: 86400,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threat-intel/feeds"] });
+      toast({ title: "Feed added", description: "CISA KEV feed created. Click Sync to fetch indicators." });
+    },
+    onError: () => {
+      toast({ title: "Failed", description: "Could not add CISA KEV feed", variant: "destructive" });
+    },
+  });
+
+  const deleteFeedMutation = useMutation({
+    mutationFn: async (feedId: string) => {
+      await apiRequest("DELETE", `/api/threat-intel/feeds/${feedId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threat-intel/feeds"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threat-intel/indicators"] });
+      toast({ title: "Feed deleted" });
+    },
+  });
+
+  const matchFindingsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/threat-intel/match");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threat-intel/indicators"] });
+      toast({ title: "Matching complete", description: `${data.matchedIndicators} CVEs matched to ${data.totalMatches} findings` });
+    },
   });
 
   const toggleAutoDeployMutation = useMutation({
@@ -1378,6 +1484,10 @@ export default function Infrastructure() {
             <ArrowRight className="h-4 w-4 mr-2" />
             Asset Dependencies
           </TabsTrigger>
+          <TabsTrigger value="threat-intel" data-testid="tab-threat-intel">
+            <Rss className="h-4 w-4 mr-2" />
+            Threat Intel ({threatFeeds.length})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="scanner-imports" className="mt-4 space-y-6">
@@ -1757,6 +1867,242 @@ export default function Infrastructure() {
               />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Threat Intelligence Tab */}
+        <TabsContent value="threat-intel" className="mt-4 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Threat Intelligence Feeds</h3>
+              <p className="text-sm text-muted-foreground">
+                Ingest external threat intelligence to prioritize exposures
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => matchFindingsMutation.mutate()}
+                disabled={matchFindingsMutation.isPending || threatIndicators.length === 0}
+              >
+                {matchFindingsMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <ShieldAlert className="h-4 w-4 mr-2" />
+                )}
+                Match to Findings
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => addCisaKevMutation.mutate()}
+                disabled={addCisaKevMutation.isPending || threatFeeds.some((f: any) => f.feedType === "cisa_kev")}
+              >
+                <Rss className="h-4 w-4 mr-2" />
+                Add CISA KEV Feed
+              </Button>
+            </div>
+          </div>
+
+          {/* Feed Cards */}
+          {threatFeeds.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-12">
+                <Rss className="h-12 w-12 mx-auto mb-3 text-muted-foreground opacity-30" />
+                <h3 className="font-medium mb-2">No Threat Intel Feeds</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Add the CISA KEV feed to automatically track known exploited vulnerabilities
+                </p>
+                <Button onClick={() => addCisaKevMutation.mutate()} disabled={addCisaKevMutation.isPending}>
+                  <Rss className="h-4 w-4 mr-2" />
+                  Add CISA KEV Feed
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-4">
+              {threatFeeds.map((feed: any) => (
+                <Card key={feed.id} data-testid={`feed-${feed.id}`}>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Rss className="h-4 w-4 text-orange-400" />
+                        {feed.name}
+                      </CardTitle>
+                      <CardDescription>
+                        {feed.feedType === "cisa_kev" ? "CISA Known Exploited Vulnerabilities" : feed.feedType}
+                        {" "}&middot;{" "}
+                        {feed.indicatorCount || 0} indicators
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {feed.enabled ? (
+                        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">Active</Badge>
+                      ) : (
+                        <Badge variant="outline">Disabled</Badge>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => syncFeedMutation.mutate(feed.id)}
+                        disabled={syncFeedMutation.isPending}
+                      >
+                        {syncFeedMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteFeedMutation.mutate(feed.id)}
+                        disabled={deleteFeedMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Last Synced:</span>{" "}
+                        {feed.lastSuccessAt ? new Date(feed.lastSuccessAt).toLocaleString() : "Never"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Interval:</span>{" "}
+                        Every {Math.round((feed.checkInterval || 86400) / 3600)}h
+                      </div>
+                      {feed.lastSuccessAt && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-muted-foreground">Next sync:</span>{" "}
+                          <CountdownTimer
+                            targetTime={new Date(new Date(feed.lastSuccessAt).getTime() + (feed.checkInterval || 86400) * 1000)}
+                          />
+                        </div>
+                      )}
+                      {feed.lastError && (
+                        <div className="text-red-400">
+                          <AlertTriangle className="h-3 w-3 inline mr-1" />
+                          {feed.lastError}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Indicators Table */}
+          {(threatIndicators.length > 0 || indicatorsLoading) && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ShieldAlert className="h-5 w-5 text-red-400" />
+                      CVE Indicators ({threatIndicators.length})
+                    </CardTitle>
+                    <CardDescription>
+                      Known exploited vulnerabilities from threat intelligence feeds
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select value={indicatorFilter} onValueChange={(v: any) => setIndicatorFilter(v)}>
+                      <SelectTrigger className="h-8 w-[150px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All CVEs</SelectItem>
+                        <SelectItem value="ransomware">Ransomware Only</SelectItem>
+                        <SelectItem value="matched">Matched Only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <DataTable
+                  data={threatIndicators.filter((i: any) => {
+                    if (indicatorFilter === "ransomware") return i.knownRansomwareCampaignUse;
+                    if (indicatorFilter === "matched") return (i.matchedAssetCount || 0) > 0;
+                    return true;
+                  })}
+                  columns={[
+                    {
+                      key: "indicatorValue",
+                      header: "CVE ID",
+                      sortable: true,
+                      cell: (i: any) => (
+                        <span className="font-mono text-sm font-medium">{i.indicatorValue}</span>
+                      ),
+                    },
+                    {
+                      key: "vendorProject",
+                      header: "Vendor / Product",
+                      sortable: true,
+                      cell: (i: any) => (
+                        <span className="text-sm">{i.vendorProject} / {i.product}</span>
+                      ),
+                    },
+                    {
+                      key: "vulnerabilityName",
+                      header: "Vulnerability",
+                      cell: (i: any) => (
+                        <span className="text-sm max-w-[300px] block truncate" title={i.vulnerabilityName || i.shortDescription}>
+                          {i.vulnerabilityName || i.shortDescription}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: "dueDate",
+                      header: "Due Date",
+                      sortable: true,
+                      cell: (i: any) => (
+                        <span className="text-sm">
+                          {i.dueDate ? new Date(i.dueDate).toLocaleDateString() : "—"}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: "knownRansomwareCampaignUse",
+                      header: "Ransomware",
+                      sortable: true,
+                      cell: (i: any) => i.knownRansomwareCampaignUse ? (
+                        <Badge className="bg-red-500/10 text-red-400 border-red-500/30">Known</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">No</Badge>
+                      ),
+                    },
+                    {
+                      key: "matchedAssetCount",
+                      header: "Matches",
+                      sortable: true,
+                      cell: (i: any) => (i.matchedAssetCount || 0) > 0 ? (
+                        <Badge className="bg-orange-500/10 text-orange-400 border-orange-500/30">
+                          {i.matchedAssetCount} findings
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      ),
+                    },
+                  ] as DataTableColumn<any>[]}
+                  isLoading={indicatorsLoading}
+                  searchable
+                  searchPlaceholder="Search CVE, vendor, product..."
+                  searchKeys={["indicatorValue", "vendorProject", "product", "vulnerabilityName"] as any}
+                  paginated
+                  pageSize={25}
+                  data-testid="threat-intel-indicators"
+                  emptyState={{
+                    icon: <ShieldAlert className="h-12 w-12" />,
+                    title: "No indicators",
+                    description: "Sync a threat intel feed to populate CVE indicators",
+                  }}
+                />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
       </div>

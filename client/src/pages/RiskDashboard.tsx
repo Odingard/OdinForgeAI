@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3 } from "lucide-react";
+import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3, Target, Crosshair, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,8 +9,7 @@ import { useState } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { RiskMatrixHeatmap } from "@/components/RiskMatrixHeatmap";
-import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
-import { HolographicCard, HolographicCardHeader, HolographicCardContent, HolographicCardTitle } from "@/components/ui/holographic-card";
+import { useCoverageMetrics, useCoverageGaps } from "@/hooks/useCoverage";
 
 interface EvaluationWithScore {
   id: string;
@@ -60,6 +59,9 @@ export default function RiskDashboard() {
   const { data: evaluations = [], isLoading } = useQuery<EvaluationWithScore[]>({
     queryKey: ["/api/aev/evaluations"],
   });
+
+  const { data: coverage } = useCoverageMetrics();
+  const { data: gaps } = useCoverageGaps();
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -158,7 +160,7 @@ export default function RiskDashboard() {
           <div className="h-8 w-48 bg-muted rounded" />
           <div className="grid grid-cols-4 gap-4">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-32 bg-muted rounded-lg" />
+              <div key={i} className="h-24 bg-muted rounded-lg" />
             ))}
           </div>
         </div>
@@ -167,44 +169,35 @@ export default function RiskDashboard() {
   }
 
   return (
-    <div className="p-6 space-y-6 relative" data-testid="risk-dashboard">
-      {/* Animated particle background */}
-      <ParticleBackground particleCount={30} particleColor="#06b6d4" opacity={0.2} />
-
-      {/* Gradient orbs for depth */}
-      <GradientOrb color1="#ef4444" color2="#f97316" size="lg" className="top-10 right-10" />
-      <GradientOrb color1="#06b6d4" color2="#8b5cf6" size="md" className="bottom-20 left-20" />
-
-      <div className="flex items-center justify-between flex-wrap gap-4 relative z-10">
+    <div className="space-y-6" data-testid="risk-dashboard">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Shield className="h-6 w-6 text-red-400 glow-red-sm" />
-            <span className="text-neon-red">Risk</span>
-            <span>Dashboard</span>
+            <Shield className="h-6 w-6 text-red-400" />
+            Risk Dashboard
           </h1>
-          <p className="text-sm text-muted-foreground/90 mt-1 font-medium">
-            Executive view of security risks prioritized by business impact
+          <p className="text-sm text-muted-foreground mt-1">
+            Security risks prioritized by business impact
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <Select value={riskFilter} onValueChange={setRiskFilter}>
-              <SelectTrigger className="w-[140px]" data-testid="select-risk-filter">
-                <SelectValue placeholder="Risk Level" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Levels</SelectItem>
-                <SelectItem value="emergency">Emergency</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <Select value={riskFilter} onValueChange={setRiskFilter}>
+            <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-risk-filter">
+              <SelectValue placeholder="Risk Level" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Levels</SelectItem>
+              <SelectItem value="emergency">Emergency</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={timeframeFilter} onValueChange={setTimeframeFilter}>
-            <SelectTrigger className="w-[140px]" data-testid="select-timeframe-filter">
+            <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-timeframe-filter">
               <SelectValue placeholder="Timeframe" />
             </SelectTrigger>
             <SelectContent>
@@ -219,261 +212,207 @@ export default function RiskDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
-        <HolographicCard className={`group ${stats.critical > 0 ? 'pulse-glow glow-red-sm' : ''}`}>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">Critical/Emergency</CardTitle>
-            <div className="p-2 rounded-lg bg-gradient-to-br from-red-500/10 to-orange-500/10 border border-red-500/20 glow-red-sm">
-              <AlertTriangle className="h-4 w-4 text-red-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className={`text-3xl font-bold tabular-nums ${stats.critical > 0 ? 'text-neon-red' : 'text-foreground'}`} data-testid="stat-critical">{stats.critical}</div>
-            <p className="text-xs text-muted-foreground/60 mt-1">Require immediate attention</p>
-          </CardContent>
-        </HolographicCard>
-
-        <HolographicCard className="group">
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium uppercase tracking-wider text-muted-foreground/80">High Priority</CardTitle>
-            <div className="p-2 rounded-lg bg-gradient-to-br from-orange-500/10 to-amber-500/10 border border-orange-500/20">
-              <TrendingUp className="h-4 w-4 text-orange-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground" data-testid="stat-high">{stats.high}</div>
-            <p className="text-xs text-muted-foreground mt-1">Should be addressed soon</p>
-          </CardContent>
-        </HolographicCard>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Exposure</CardTitle>
-            <Building2 className="h-4 w-4 text-cyan-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground" data-testid="stat-exposure">{formatCurrency(stats.totalExposure)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Maximum financial risk</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Avg Risk Score</CardTitle>
-            <Shield className="h-4 w-4 text-purple-400" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground" data-testid="stat-avg-score">{stats.avgRiskScore}</div>
-            <Progress value={stats.avgRiskScore} className="mt-2 h-1.5" />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Risk Matrix Heatmap */}
-      {evaluationsWithScores.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Grid3x3 className="h-5 w-5 text-cyan-400" />
-              Risk Matrix
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              Likelihood vs Impact visualization of security risks
-            </p>
-          </CardHeader>
-          <CardContent>
-            <RiskMatrixHeatmap
-              items={evaluationsWithScores.map(e => {
-                const score = e.intelligentScore?.riskRank.overallScore || 50;
-                const exploitability = e.intelligentScore?.exploitability.score || 50;
-                const businessImpact = e.intelligentScore?.businessImpact.score || 50;
-
-                // Map exploitability score (0-100) to likelihood (1-5)
-                const likelihood = Math.min(5, Math.max(1, Math.ceil(exploitability / 20)));
-
-                // Map business impact score (0-100) to impact (1-5)
-                const impact = Math.min(5, Math.max(1, Math.ceil(businessImpact / 20)));
-
-                return {
-                  id: e.id,
-                  title: e.assetId,
-                  likelihood,
-                  impact,
-                  riskScore: score,
-                  severity: (e.intelligentScore?.riskRank.riskLevel === "critical" || e.intelligentScore?.riskRank.riskLevel === "emergency")
-                    ? "critical"
-                    : e.intelligentScore?.riskRank.riskLevel === "high"
-                    ? "high"
-                    : e.intelligentScore?.riskRank.riskLevel === "medium"
-                    ? "medium"
-                    : "low",
-                };
-              })}
-              onItemClick={(item) => {
-                window.location.href = `/?evaluation=${item.id}`;
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
-
+      {/* Consolidated Metrics Strip */}
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-cyan-400" />
-            Fix Priority Queue
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {filteredEvaluations.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <Shield className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>No evaluations with intelligent scores yet</p>
-              <p className="text-sm mt-1">Run an evaluation to see risk prioritization</p>
+        <CardContent className="pt-5 pb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 divide-x-0 lg:divide-x divide-border">
+            {/* Risk Metrics */}
+            <div className="text-center lg:text-left">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Critical</div>
+              <div className={`text-2xl font-bold tabular-nums ${stats.critical > 0 ? 'text-red-400' : 'text-foreground'}`} data-testid="stat-critical">
+                {stats.critical}
+              </div>
+              {stats.critical > 0 && <div className="text-[10px] text-red-400/80 mt-0.5">Immediate action</div>}
             </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredEvaluations.map((evaluation, index) => (
-                <div
-                  key={evaluation.id}
-                  className="flex items-center gap-4 p-4 bg-muted/20 rounded-lg border border-border hover-elevate"
-                  data-testid={`risk-item-${evaluation.id}`}
-                >
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted font-mono text-sm font-bold">
-                    {index + 1}
+            <div className="text-center lg:text-left lg:pl-4">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">High</div>
+              <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-high">{stats.high}</div>
+            </div>
+            <div className="text-center lg:text-left lg:pl-4">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Exposure</div>
+              <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-exposure">{formatCurrency(stats.totalExposure)}</div>
+            </div>
+            <div className="text-center lg:text-left lg:pl-4">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Avg Score</div>
+              <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-avg-score">{stats.avgRiskScore}</div>
+              <Progress value={stats.avgRiskScore} className="mt-1 h-1" />
+            </div>
+
+            {/* Coverage Metrics */}
+            {coverage && (
+              <>
+                <div className="text-center lg:text-left lg:pl-4">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                    <Target className="h-3 w-3" /> Assets
                   </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-foreground truncate">{evaluation.assetId}</span>
-                      <Badge className={getRiskLevelColor(evaluation.intelligentScore?.riskRank.riskLevel || "medium")}>
-                        {evaluation.intelligentScore?.riskRank.riskLevel?.toUpperCase()}
-                      </Badge>
-                      <Badge className={getTimeframeColor(evaluation.intelligentScore?.riskRank.recommendation.timeframe || "30_days")}>
-                        <Clock className="h-3 w-3 mr-1" />
-                        {getTimeframeLabel(evaluation.intelligentScore?.riskRank.recommendation.timeframe || "30_days")}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1 truncate">
-                      {evaluation.intelligentScore?.riskRank.executiveLabel}
-                    </p>
+                  <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-asset-coverage">
+                    {coverage.assetCoverage.coveragePercent}%
                   </div>
-
-                  <div className="text-right hidden sm:block">
-                    <div className="text-sm text-muted-foreground">Financial Exposure</div>
-                    <div className="font-semibold text-foreground">
-                      {formatCurrency(evaluation.intelligentScore?.businessImpact.factors.financialExposure.directLoss.max || 0)}
-                    </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {coverage.assetCoverage.assetsEvaluatedLast30d}/{coverage.assetCoverage.totalActiveAssets} tested
                   </div>
-
-                  <div className="text-right hidden md:block">
-                    <div className="text-sm text-muted-foreground">Risk Score</div>
-                    <div className="font-mono font-bold text-lg text-foreground">
-                      {evaluation.intelligentScore?.riskRank.overallScore}
-                    </div>
-                  </div>
-
-                  <div className="hidden lg:flex flex-wrap gap-1 max-w-[150px]">
-                    {evaluation.intelligentScore?.businessImpact.factors.complianceImpact.affectedFrameworks.slice(0, 3).map((fw) => (
-                      <Badge key={fw} variant="outline" className="text-xs">
-                        {fw.toUpperCase()}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  <Button variant="ghost" size="icon" asChild>
-                    <a href={`/?evaluation=${evaluation.id}`} data-testid={`link-evaluation-${evaluation.id}`}>
-                      <ArrowUpRight className="h-4 w-4" />
-                    </a>
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteMutation.mutate(evaluation.id)}
-                    disabled={deleteMutation.isPending}
-                    data-testid={`btn-delete-risk-${evaluation.id}`}
-                  >
-                    <Trash2 className="h-4 w-4 text-muted-foreground" />
-                  </Button>
                 </div>
-              ))}
-            </div>
-          )}
+                <div className="text-center lg:text-left lg:pl-4">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                    <Crosshair className="h-3 w-3" /> Tactics
+                  </div>
+                  <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-technique-coverage">
+                    {coverage.techniqueCoverage.tacticsExercised}/{coverage.techniqueCoverage.totalTactics}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {coverage.techniqueCoverage.uniqueTechniqueIds > 0 && `${coverage.techniqueCoverage.uniqueTechniqueIds} techniques`}
+                    {coverage.techniqueCoverage.uniqueTechniqueIds === 0 && "ATT\u0026CK coverage"}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {evaluationsWithScores.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ATT&CK Kill Chain — compact inline strip */}
+      {coverage && coverage.tacticalBreakdown.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {coverage.tacticalBreakdown.map((tactic) => (
+            <div
+              key={tactic.tactic}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                tactic.covered
+                  ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-400"
+                  : "border-border bg-muted/30 text-muted-foreground/60"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${tactic.covered ? "bg-emerald-400" : "bg-muted-foreground/30"}`} />
+              {tactic.displayName}
+            </div>
+          ))}
+          {gaps && gaps.untestedTactics.length > 0 && (
+            <div className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] text-muted-foreground">
+              <AlertCircle className="h-3 w-3" />
+              {gaps.untestedTactics.length} untested
+              {gaps.staleAssets.length > 0 && ` · ${gaps.staleAssets.length} stale assets`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main Content: Risk Matrix + Priority Queue */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Risk Matrix */}
+        {evaluationsWithScores.length > 0 && (
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Risk Distribution</CardTitle>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Grid3x3 className="h-4 w-4 text-cyan-400" />
+                Risk Matrix
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Critical/Emergency</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={(stats.critical / evaluationsWithScores.length) * 100} className="w-32 h-2" />
-                    <span className="text-sm font-mono w-8">{stats.critical}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">High</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={(stats.high / evaluationsWithScores.length) * 100} className="w-32 h-2" />
-                    <span className="text-sm font-mono w-8">{stats.high}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Medium</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={(stats.medium / evaluationsWithScores.length) * 100} className="w-32 h-2" />
-                    <span className="text-sm font-mono w-8">{stats.medium}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Low/Info</span>
-                  <div className="flex items-center gap-2">
-                    <Progress value={(stats.low / evaluationsWithScores.length) * 100} className="w-32 h-2" />
-                    <span className="text-sm font-mono w-8">{stats.low}</span>
-                  </div>
-                </div>
-              </div>
+              <RiskMatrixHeatmap
+                items={evaluationsWithScores.map(e => {
+                  const score = e.intelligentScore?.riskRank.overallScore || 50;
+                  const exploitability = e.intelligentScore?.exploitability.score || 50;
+                  const businessImpact = e.intelligentScore?.businessImpact.score || 50;
+                  const likelihood = Math.min(5, Math.max(1, Math.ceil(exploitability / 20)));
+                  const impact = Math.min(5, Math.max(1, Math.ceil(businessImpact / 20)));
+                  return {
+                    id: e.id,
+                    title: e.assetId,
+                    likelihood,
+                    impact,
+                    riskScore: score,
+                    severity: (e.intelligentScore?.riskRank.riskLevel === "critical" || e.intelligentScore?.riskRank.riskLevel === "emergency")
+                      ? "critical"
+                      : e.intelligentScore?.riskRank.riskLevel === "high"
+                      ? "high"
+                      : e.intelligentScore?.riskRank.riskLevel === "medium"
+                      ? "medium"
+                      : "low",
+                  };
+                })}
+                onItemClick={(item) => {
+                  window.location.href = `/?evaluation=${item.id}`;
+                }}
+              />
             </CardContent>
           </Card>
+        )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Top Actions Required</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {filteredEvaluations.slice(0, 5).map((evaluation) => (
-                  <div key={evaluation.id} className="flex items-start gap-3">
-                    <AlertTriangle className={`h-4 w-4 mt-0.5 ${
-                      evaluation.intelligentScore?.riskRank.riskLevel === "critical" || evaluation.intelligentScore?.riskRank.riskLevel === "emergency"
-                        ? "text-red-400"
-                        : evaluation.intelligentScore?.riskRank.riskLevel === "high"
-                        ? "text-orange-400"
-                        : "text-amber-400"
-                    }`} />
+        {/* Fix Priority Queue */}
+        <Card className={evaluationsWithScores.length === 0 ? "col-span-full" : ""}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-4 w-4 text-cyan-400" />
+              Fix Priority Queue
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {filteredEvaluations.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground">
+                <Shield className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">No evaluations with intelligent scores yet</p>
+                <p className="text-xs mt-1">Run an evaluation to see risk prioritization</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredEvaluations.map((evaluation, index) => (
+                  <div
+                    key={evaluation.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-colors"
+                    data-testid={`risk-item-${evaluation.id}`}
+                  >
+                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-muted text-xs font-mono font-bold shrink-0">
+                      {index + 1}
+                    </div>
+
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {evaluation.intelligentScore?.riskRank.recommendation.action}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-medium text-foreground truncate">{evaluation.assetId}</span>
+                        <Badge className={`text-[10px] py-0 ${getRiskLevelColor(evaluation.intelligentScore?.riskRank.riskLevel || "medium")}`}>
+                          {evaluation.intelligentScore?.riskRank.riskLevel?.toUpperCase()}
+                        </Badge>
+                        <Badge className={`text-[10px] py-0 ${getTimeframeColor(evaluation.intelligentScore?.riskRank.recommendation.timeframe || "30_days")}`}>
+                          {getTimeframeLabel(evaluation.intelligentScore?.riskRank.recommendation.timeframe || "30_days")}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {evaluation.intelligentScore?.riskRank.executiveLabel}
                       </p>
-                      <p className="text-xs text-muted-foreground">{evaluation.assetId}</p>
+                    </div>
+
+                    <div className="text-right hidden sm:block shrink-0">
+                      <div className="font-mono text-sm font-bold text-foreground">
+                        {evaluation.intelligentScore?.riskRank.overallScore}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {formatCurrency(evaluation.intelligentScore?.businessImpact.factors.financialExposure.directLoss.max || 0)}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center shrink-0">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                        <a href={`/?evaluation=${evaluation.id}`} data-testid={`link-evaluation-${evaluation.id}`}>
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </a>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => deleteMutation.mutate(evaluation.id)}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`btn-delete-risk-${evaluation.id}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      </Button>
                     </div>
                   </div>
                 ))}
-                {filteredEvaluations.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">No actions pending</p>
-                )}
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

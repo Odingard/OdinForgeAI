@@ -7799,6 +7799,120 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // ============================================================================
+  // AEV ATTACK SURFACE COVERAGE
+  // ============================================================================
+
+  // GET /api/aev-coverage - Attack surface coverage metrics (asset + technique)
+  app.get("/api/aev-coverage", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { calculateCoverage } = await import("./services/coverage-calculator");
+      const metrics = await calculateCoverage(organizationId);
+      res.json(metrics);
+    } catch (error: any) {
+      console.error("Failed to calculate AEV coverage:", error);
+      res.status(500).json({ error: "Failed to calculate coverage metrics" });
+    }
+  });
+
+  // GET /api/aev-coverage/gaps - Untested techniques and stale assets
+  app.get("/api/aev-coverage/gaps", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { calculateGaps } = await import("./services/coverage-calculator");
+      const gaps = await calculateGaps(organizationId);
+      res.json(gaps);
+    } catch (error: any) {
+      console.error("Failed to calculate AEV coverage gaps:", error);
+      res.status(500).json({ error: "Failed to calculate coverage gaps" });
+    }
+  });
+
+  // ============================================================================
+  // THREAT INTELLIGENCE FEEDS
+  // ============================================================================
+
+  // GET /api/threat-intel/feeds - List all threat intel feeds
+  app.get("/api/threat-intel/feeds", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const feeds = await storage.getThreatIntelFeeds(organizationId);
+      res.json(feeds);
+    } catch (error: any) {
+      console.error("Failed to get threat intel feeds:", error);
+      res.status(500).json({ error: "Failed to get threat intel feeds" });
+    }
+  });
+
+  // POST /api/threat-intel/feeds - Create a new threat intel feed
+  app.post("/api/threat-intel/feeds", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { randomUUID } = await import("crypto");
+      const id = `feed-${randomUUID().slice(0, 8)}`;
+      const feed = await storage.createThreatIntelFeed({
+        ...req.body,
+        id,
+        organizationId,
+      });
+      res.status(201).json(feed);
+    } catch (error: any) {
+      console.error("Failed to create threat intel feed:", error);
+      res.status(500).json({ error: "Failed to create feed" });
+    }
+  });
+
+  // POST /api/threat-intel/feeds/:id/sync - Manually sync a feed
+  app.post("/api/threat-intel/feeds/:id/sync", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      const { syncFeed } = await import("./services/threat-intel/index");
+      const result = await syncFeed(req.params.id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to sync threat intel feed:", error);
+      res.status(500).json({ error: error.message || "Failed to sync feed" });
+    }
+  });
+
+  // DELETE /api/threat-intel/feeds/:id - Delete a feed and its indicators
+  app.delete("/api/threat-intel/feeds/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      await storage.deleteThreatIntelFeed(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Failed to delete threat intel feed:", error);
+      res.status(500).json({ error: "Failed to delete feed" });
+    }
+  });
+
+  // GET /api/threat-intel/indicators - List indicators (paginated)
+  app.get("/api/threat-intel/indicators", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const indicators = await storage.getThreatIntelIndicators(organizationId, limit, offset);
+      res.json(indicators);
+    } catch (error: any) {
+      console.error("Failed to get threat intel indicators:", error);
+      res.status(500).json({ error: "Failed to get indicators" });
+    }
+  });
+
+  // POST /api/threat-intel/match - Match CVEs to internal findings
+  app.post("/api/threat-intel/match", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req, res) => {
+    try {
+      const organizationId = getOrganizationId(req) || "default";
+      const { matchToFindings } = await import("./services/threat-intel/index");
+      const result = await matchToFindings(organizationId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Failed to match threat intel to findings:", error);
+      res.status(500).json({ error: "Failed to match indicators" });
+    }
+  });
+
+  // ============================================================================
   // API DEFINITIONS (OpenAPI/Swagger)
   // ============================================================================
 
