@@ -1716,6 +1716,11 @@ export const scheduledScans = pgTable("scheduled_scans", {
   enabled: boolean("enabled").default(true),
   lastRunAt: timestamp("last_run_at"),
   nextRunAt: timestamp("next_run_at"),
+  // Continuous validation fields
+  scanType: varchar("scan_type").default("standard"), // standard, validation_campaign, revalidation
+  techniqueSet: jsonb("technique_set").$type<string[]>(), // ATT&CK IDs to test
+  triggerCondition: varchar("trigger_condition"), // manual, finding_resolved, asset_changed
+  sourceEvaluationId: varchar("source_evaluation_id"), // For revalidation: original eval that found the issue
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -2291,7 +2296,8 @@ export const discoveredAssets = pgTable("discovered_assets", {
   firstDiscovered: timestamp("first_discovered").defaultNow(),
   discoverySource: varchar("discovery_source"), // Which import/scan found it
   importJobId: varchar("import_job_id"),
-  
+  lastEvaluatedAt: timestamp("last_evaluated_at"), // Continuous validation: when last tested
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -4930,3 +4936,119 @@ export const insertThreatIntelIndicatorSchema = createInsertSchema(threatIntelIn
 
 export type InsertThreatIntelIndicator = z.infer<typeof insertThreatIntelIndicatorSchema>;
 export type ThreatIntelIndicator = typeof threatIntelIndicators.$inferSelect;
+
+// ============================================================================
+// Phase 2: SIEM/EDR Integration + Continuous Validation
+// ============================================================================
+
+// SIEM Provider Types
+export const siemProviders = ["elastic", "splunk", "sentinel"] as const;
+export type SiemProvider = typeof siemProviders[number];
+
+// SIEM Connections - Follows cloudConnections pattern
+export const siemConnections = pgTable("siem_connections", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  name: text("name").notNull(),
+  provider: varchar("provider").notNull(), // elastic, splunk, sentinel
+  apiEndpoint: text("api_endpoint").notNull(),
+  apiPort: integer("api_port"),
+  status: varchar("status").default("pending"), // pending, connected, error, disconnected
+  lastSyncAt: timestamp("last_sync_at"),
+  lastError: text("last_error"),
+
+  // Provider-specific config
+  elasticIndex: varchar("elastic_index"), // e.g. ".alerts-*"
+  elasticApiKey: text("elastic_api_key"),
+  elasticCloudId: text("elastic_cloud_id"),
+  splunkToken: text("splunk_token"),
+  splunkIndex: varchar("splunk_index"),
+  sentinelWorkspaceId: varchar("sentinel_workspace_id"),
+  sentinelTenantId: varchar("sentinel_tenant_id"),
+  sentinelClientId: varchar("sentinel_client_id"),
+  sentinelClientSecret: text("sentinel_client_secret"),
+
+  // Sync settings
+  syncEnabled: boolean("sync_enabled").default(true),
+  alertQueryWindow: integer("alert_query_window").default(300), // seconds to look back after attack
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSiemConnectionSchema = createInsertSchema(siemConnections).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertSiemConnection = z.infer<typeof insertSiemConnectionSchema>;
+export type SiemConnection = typeof siemConnections.$inferSelect;
+
+// Defensive Validations - Records whether SIEM detected each attack technique
+export const defensiveValidationStatuses = ["pending", "querying", "detected", "missed", "error"] as const;
+export type DefensiveValidationStatus = typeof defensiveValidationStatuses[number];
+
+export const defensiveValidations = pgTable("defensive_validations", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  evaluationId: varchar("evaluation_id").notNull(),
+  siemConnectionId: varchar("siem_connection_id").notNull(),
+
+  // Attack timing
+  attackStartedAt: timestamp("attack_started_at"),
+  attackCompletedAt: timestamp("attack_completed_at"),
+  mitreAttackId: varchar("mitre_attack_id"), // e.g. T1059
+  mitreTactic: varchar("mitre_tactic"), // e.g. execution
+
+  // Detection results
+  detected: boolean("detected").default(false),
+  firstAlertAt: timestamp("first_alert_at"),
+  alertCount: integer("alert_count").default(0),
+  alertIds: jsonb("alert_ids").$type<string[]>(),
+  alertDetails: jsonb("alert_details").$type<Record<string, any>[]>(),
+
+  // Metrics
+  mttdSeconds: integer("mttd_seconds"), // firstAlertAt - attackStartedAt
+  mttrSeconds: integer("mttr_seconds"), // resolvedAt - firstAlertAt
+  resolvedAt: timestamp("resolved_at"),
+
+  // Status
+  status: varchar("status").default("pending"), // pending, querying, detected, missed, error
+  errorMessage: text("error_message"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertDefensiveValidationSchema = createInsertSchema(defensiveValidations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertDefensiveValidation = z.infer<typeof insertDefensiveValidationSchema>;
+export type DefensiveValidation = typeof defensiveValidations.$inferSelect;
+
+// Metrics History - Time-series for MTTD/MTTR/detection rate trends
+export const metricsHistory = pgTable("metrics_history", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  metricType: varchar("metric_type").notNull(), // mttd, mttr, detection_rate
+  mitreAttackId: varchar("mitre_attack_id"), // optional, for per-technique breakdown
+  assetId: varchar("asset_id"), // optional, for per-asset breakdown
+  valueSeconds: integer("value_seconds"),
+  valuePercent: integer("value_percent"), // for detection_rate (0-100)
+  sampleSize: integer("sample_size").default(0),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertMetricsHistorySchema = createInsertSchema(metricsHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertMetricsHistory = z.infer<typeof insertMetricsHistorySchema>;
+export type MetricsHistory = typeof metricsHistory.$inferSelect;
