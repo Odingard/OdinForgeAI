@@ -1,29 +1,20 @@
-import OpenAI from "openai";
 import type { AgentMemory, AgentResult, LateralFindings, LateralShadowAdminIndicator } from "./types";
 import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
+import { openai } from "./openai-client";
 
 /**
  * ARCHITECTURAL CONSTRAINT: Plan-Only Agent
- * 
+ *
  * This agent generates lateral movement PLANS (pivot paths, escalation routes)
  * but does NOT execute any real lateral movement actions. All outputs are
  * analytical assessments describing potential movement paths.
- * 
+ *
  * Actual action execution is gated by PolicyGuardian in the Orchestrator,
  * which validates planned paths against Rules of Engagement before they
  * are committed to final results.
  */
-
-const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  timeout: OPENAI_TIMEOUT_MS,
-  maxRetries: 2,
-});
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
 

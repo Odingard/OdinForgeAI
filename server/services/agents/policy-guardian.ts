@@ -1,16 +1,7 @@
-import OpenAI from "openai";
 import { searchPolicies, PolicySearchResult } from "../rag/policy-search";
 import type { AgentContext, PolicyDecision, SafetyDecision } from "./types";
 import { runtimeGuard, type RuntimeGuardContext, type RuntimeGuardResult } from "../runtime-guard";
-
-const OPENAI_TIMEOUT_MS = 30000;
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  timeout: OPENAI_TIMEOUT_MS,
-  maxRetries: 2,
-});
+import { openai } from "./openai-client";
 
 export type { PolicyDecision };
 

@@ -1,7 +1,6 @@
-import OpenAI from "openai";
-import type { 
-  AgentMemory, 
-  AgentResult, 
+import type {
+  AgentMemory,
+  AgentResult,
   MultiVectorFindings,
   CloudFinding,
   IAMFinding,
@@ -11,15 +10,7 @@ import type {
 } from "./types";
 import type { MultiVectorFinding, CloudVectorType } from "@shared/schema";
 import { cloudVectorTypes } from "@shared/schema";
-
-const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  timeout: OPENAI_TIMEOUT_MS,
-  maxRetries: 2,
-});
+import { openai } from "./openai-client";
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
 

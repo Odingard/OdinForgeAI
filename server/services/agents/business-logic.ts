@@ -1,7 +1,6 @@
-import OpenAI from "openai";
-import type { 
-  AgentMemory, 
-  AgentResult, 
+import type {
+  AgentMemory,
+  AgentResult,
   BusinessLogicFindings,
   EnhancedBusinessLogicFindings,
   PaymentFlowVulnerability,
@@ -12,15 +11,8 @@ import type { BusinessLogicFinding, WorkflowStateMachine, BusinessLogicCategory 
 import { businessLogicCategories } from "@shared/schema";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
+import { openai } from "./openai-client";
 
-const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  timeout: OPENAI_TIMEOUT_MS,
-  maxRetries: 2,
-});
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
 

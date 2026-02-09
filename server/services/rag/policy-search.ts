@@ -4,8 +4,8 @@ import { securityPolicies } from "@shared/schema";
 import { sql, desc, and, eq } from "drizzle-orm";
 
 const openaiForChat = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY,
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined,
 });
 
 const openaiForEmbeddings = new OpenAI({

@@ -1,17 +1,8 @@
-import OpenAI from "openai";
 import type { AgentMemory, AgentContext, OrchestratorResult, ProgressCallback } from "./types";
 import { runDefenderAgent, DefenderFindings } from "./defender";
 import { runAgentOrchestrator, OrchestratorOptions } from "./orchestrator";
 import { getAgentPolicyContext } from "./policy-context";
-
-const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  timeout: OPENAI_TIMEOUT_MS,
-  maxRetries: 2,
-});
+import { openai } from "./openai-client";
 
 export interface SimulationRound {
   roundNumber: number;
