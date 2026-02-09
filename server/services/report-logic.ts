@@ -165,10 +165,10 @@ function computeRiskLevel(
 
 function computeRiskDescription(level: "critical" | "high" | "medium" | "low"): string {
   const descriptions = {
-    critical: "The organization faces CRITICAL security risk requiring immediate executive attention. Active exploitation paths exist that could result in significant data breach, financial loss, or operational disruption. Emergency remediation resources should be allocated immediately.",
-    high: "The organization faces HIGH security risk. Exploitable vulnerabilities have been identified that present material risk to business operations. A prioritized remediation plan should be executed within the next 30 days.",
-    medium: "The organization faces MODERATE security risk. While no immediately critical vulnerabilities were identified, the findings present risk that should be addressed through scheduled remediation activities.",
-    low: "The organization maintains a LOW security risk posture. Continue current security practices and maintain regular assessment schedules to preserve this favorable position."
+    critical: "The assessment team determined the organization's security posture to be CRITICAL. Confirmed exploitable attack paths present immediate risk to business continuity, data confidentiality, and regulatory compliance. The assessment team recommends immediate deployment of compensating controls and activation of emergency remediation procedures. Executive sponsorship is required to ensure adequate resource allocation for remediation within the next 48 hours.",
+    high: "The assessment team determined the organization's security posture to be HIGH risk. Exploitable vulnerabilities were confirmed that present material risk to business operations, including potential unauthorized access, data exfiltration, and lateral movement across the environment. A prioritized remediation plan should be executed within 30 days, with compensating controls deployed immediately for confirmed exploitable findings. Enhanced monitoring should be enabled for all affected assets during the remediation window.",
+    medium: "The assessment team determined the organization's security posture to be MODERATE. While no immediately critical exploitation paths were confirmed, the identified findings represent defense-in-depth gaps that, if unaddressed, could be chained by a motivated adversary to achieve meaningful compromise. The assessment team recommends addressing findings through scheduled remediation activities within 60 days, prioritized by exploitability and business impact. This represents an opportunity to strengthen the organization's security posture proactively.",
+    low: "The assessment team determined the organization's security posture to be LOW risk. Security controls are operating effectively, and no confirmed exploitable attack paths were identified during the assessment period. The organization should maintain current security practices, continue regular assessment cycles, and invest in continuous security validation to sustain this favorable posture. Periodic reassessment is recommended to account for emerging threats and infrastructure changes."
   };
   return descriptions[level];
 }
@@ -217,104 +217,126 @@ export function computeExecutiveSummary(
   );
   
   const keyFindings: string[] = [];
-  
+
   if (evaluations.length > 0) {
-    keyFindings.push(`${evaluations.length} security evaluations were conducted across ${affectedAssets.size} unique assets.`);
+    keyFindings.push(`The assessment team evaluated ${evaluations.length} security exposure${evaluations.length !== 1 ? "s" : ""} across ${affectedAssets.size} unique asset${affectedAssets.size !== 1 ? "s" : ""}, employing automated multi-agent AI analysis including reconnaissance, exploit validation, lateral movement analysis, business logic testing, and impact assessment.`);
   }
-  
+
   if (exploitableCount > 0) {
     const exploitablePercent = Math.round((exploitableCount / evaluations.length) * 100);
-    keyFindings.push(`${exploitableCount} (${exploitablePercent}%) of evaluated exposures were confirmed exploitable.`);
+    keyFindings.push(`${exploitableCount} of ${evaluations.length} evaluated exposures (${exploitablePercent}%) were confirmed exploitable through validated attack paths, indicating ${exploitablePercent > 50 ? "systemic security control deficiencies requiring comprehensive remediation" : exploitablePercent > 25 ? "material security gaps that present actionable risk to business operations" : "targeted security gaps that should be addressed through prioritized remediation"}.`);
   } else {
-    keyFindings.push("No exploitable vulnerabilities were confirmed during this assessment period.");
+    keyFindings.push("The assessment did not confirm exploitable attack paths during this evaluation period. Security controls appear to be operating effectively against the tested attack vectors.");
   }
-  
+
   if (riskDistribution.critical > 0) {
-    keyFindings.push(`${riskDistribution.critical} CRITICAL severity finding(s) require immediate remediation.`);
+    keyFindings.push(`${riskDistribution.critical} CRITICAL severity finding${riskDistribution.critical !== 1 ? "s" : ""} present${riskDistribution.critical === 1 ? "s" : ""} immediate risk to business operations and require${riskDistribution.critical === 1 ? "s" : ""} emergency remediation within 48 hours.`);
   }
-  
+
   if (riskDistribution.high > 0) {
-    keyFindings.push(`${riskDistribution.high} HIGH severity finding(s) should be addressed within 30 days.`);
+    keyFindings.push(`${riskDistribution.high} HIGH severity finding${riskDistribution.high !== 1 ? "s" : ""} require${riskDistribution.high === 1 ? "s" : ""} prioritized remediation within 30 days to reduce material business risk.`);
   }
-  
+
   const topVulnTypes = Array.from(vulnerabilityTypes.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([type]) => formatVulnerabilityName(type));
-  
+
   if (topVulnTypes.length > 0) {
-    keyFindings.push(`Primary vulnerability categories: ${topVulnTypes.join(", ")}.`);
+    keyFindings.push(`Primary vulnerability categories identified: ${topVulnTypes.join(", ")}. These categories should be prioritized in the organization's vulnerability management program.`);
   }
   
   let exploitabilityAnalysis = "";
+  const allMitreTechniques = new Set<string>();
+  evaluations.forEach(eval_ => {
+    const vulnInfo = getVulnerabilityInfo(eval_.exposureType as ExposureType);
+    vulnInfo.mitreTechniques.forEach(t => allMitreTechniques.add(t.split(".")[0]));
+  });
+  const techniqueCount = allMitreTechniques.size;
+  const mitreCoverage = techniqueCount > 0 ? ` Validated techniques span ${techniqueCount} MITRE ATT&CK technique categor${techniqueCount !== 1 ? "ies" : "y"}, providing coverage across the attack lifecycle.` : "";
+
   if (exploitableCount === 0) {
-    exploitabilityAnalysis = "No confirmed exploitable paths were identified during this assessment. Security controls appear effective at preventing unauthorized access and exploitation attempts.";
+    exploitabilityAnalysis = `No confirmed exploitable attack paths were identified during this assessment period. Security controls are operating effectively against the tested attack vectors.${mitreCoverage} The organization should continue regular assessment cycles to maintain this posture against evolving threats.`;
   } else if (exploitableCount < evaluations.length * 0.25) {
-    exploitabilityAnalysis = `A limited number of exploitable vulnerabilities (${exploitableCount}) were identified, indicating generally effective security controls with specific gaps requiring attention.`;
+    exploitabilityAnalysis = `${exploitableCount} exploitable vulnerability path${exploitableCount !== 1 ? "s were" : " was"} confirmed, representing a limited attack surface. While the overall control environment is effective, the confirmed paths provide an adversary with viable entry points that should be addressed promptly.${mitreCoverage} Targeted remediation of these specific gaps will materially reduce the organization's exposure.`;
   } else if (exploitableCount < evaluations.length * 0.5) {
-    exploitabilityAnalysis = `A moderate number of exploitable vulnerabilities (${exploitableCount}) were confirmed. This indicates security control gaps that should be prioritized for remediation.`;
+    exploitabilityAnalysis = `${exploitableCount} exploitable vulnerability paths were confirmed, indicating material security control gaps across the evaluated attack surface. These gaps provide multiple viable attack vectors that a motivated adversary could leverage for unauthorized access, lateral movement, or data exfiltration.${mitreCoverage} Prioritized remediation based on business impact and exploitability is recommended.`;
   } else {
-    exploitabilityAnalysis = `A significant number of exploitable vulnerabilities (${exploitableCount}) were confirmed. This indicates systemic security control weaknesses requiring comprehensive remediation efforts.`;
+    exploitabilityAnalysis = `${exploitableCount} of ${evaluations.length} evaluated exposures (${Math.round((exploitableCount / evaluations.length) * 100)}%) were confirmed exploitable, indicating systemic security control deficiencies. The breadth of exploitable paths suggests fundamental gaps in the security architecture that require comprehensive remediation beyond point fixes.${mitreCoverage} The assessment team recommends a holistic security posture review in addition to targeted remediation.`;
   }
   
   let businessImpactSummary = "";
   if (estimatedFinancialExposure.max > 0) {
-    businessImpactSummary = `Estimated potential financial exposure ranges from $${estimatedFinancialExposure.min.toLocaleString()} to $${estimatedFinancialExposure.max.toLocaleString()}. `;
+    businessImpactSummary = `The assessment team estimates potential financial exposure in the range of $${estimatedFinancialExposure.min.toLocaleString()} to $${estimatedFinancialExposure.max.toLocaleString()}, accounting for direct losses, incident response costs, and regulatory penalties. `;
   }
-  
+
   if (exploitableCount > 0) {
-    businessImpactSummary += "Exploitable vulnerabilities could lead to data breach, operational disruption, regulatory penalties, and reputational damage. ";
+    const impactAreas: string[] = [];
+    const exposureTypesSet = new Set(evaluations.map(e => e.exposureType));
+    if (exposureTypesSet.has("data_exposure" as ExposureType) || exposureTypesSet.has("credential_exposure" as ExposureType)) {
+      impactAreas.push("unauthorized data access and potential regulatory notification obligations");
+    }
+    if (exposureTypesSet.has("network_vulnerability" as ExposureType) || exposureTypesSet.has("misconfiguration" as ExposureType)) {
+      impactAreas.push("infrastructure compromise enabling lateral movement across the environment");
+    }
+    if (exposureTypesSet.has("app_logic" as ExposureType) || exposureTypesSet.has("api_vulnerability" as ExposureType)) {
+      impactAreas.push("application-layer exploitation affecting business logic and data integrity");
+    }
+    if (impactAreas.length === 0) {
+      impactAreas.push("unauthorized access, data compromise, and operational disruption");
+    }
+    businessImpactSummary += `Confirmed exploitable findings present material business risk including ${impactAreas.join("; ")}. `;
   }
-  
+
   if (riskDistribution.critical > 0) {
-    businessImpactSummary += "Critical findings pose immediate risk to business continuity and should be treated as emergency remediation priorities.";
+    businessImpactSummary += "Critical findings present immediate risk to business continuity and require emergency remediation. The assessment team recommends treating these as P1 incidents with dedicated remediation resources and executive visibility.";
   } else if (riskDistribution.high > 0) {
-    businessImpactSummary += "High-severity findings present material business risk and should be addressed through accelerated remediation timelines.";
+    businessImpactSummary += "High-severity findings present material business risk that should be addressed through accelerated remediation timelines (30-day target). Compensating controls should be deployed immediately to reduce exposure while permanent fixes are implemented.";
   } else {
-    businessImpactSummary += "Current findings present manageable business risk when addressed through standard remediation processes.";
+    businessImpactSummary += "Current findings present manageable business risk that can be addressed through standard remediation processes. The assessment team recommends maintaining current security investment levels and continuing regular assessment cycles.";
   }
   
   const prioritizedActions: ComputedExecutiveSummary["prioritizedActions"] = [];
-  
+
   if (riskDistribution.critical > 0) {
     prioritizedActions.push({
       priority: 1,
-      action: "Immediately remediate critical vulnerabilities",
-      rationale: `${riskDistribution.critical} critical finding(s) present immediate exploitation risk`,
-      estimatedEffort: "24-48 hours emergency response"
+      action: "Emergency remediation of critical findings (0-48 hours)",
+      rationale: `${riskDistribution.critical} critical finding${riskDistribution.critical !== 1 ? "s" : ""} with confirmed exploitation paths present${riskDistribution.critical === 1 ? "s" : ""} immediate risk to business operations. Treating these as P1 incidents reduces the window of exposure.`,
+      estimatedEffort: "24-48 hours with dedicated remediation resources"
     });
   }
-  
+
   if (exploitableCount > 0) {
     prioritizedActions.push({
       priority: prioritizedActions.length + 1,
-      action: "Deploy compensating controls for exploitable vulnerabilities",
-      rationale: `${exploitableCount} confirmed exploitable path(s) require immediate mitigation`,
-      estimatedEffort: "1-3 days"
+      action: "Deploy compensating controls for all exploitable findings (0-7 days)",
+      rationale: `${exploitableCount} confirmed exploitable path${exploitableCount !== 1 ? "s" : ""} require${exploitableCount === 1 ? "s" : ""} immediate risk reduction. Compensating controls (WAF rules, network ACLs, access restrictions) constrain the blast radius while permanent fixes are developed.`,
+      estimatedEffort: "1-3 days for initial deployment, ongoing tuning"
     });
   }
-  
+
   if (riskDistribution.high > 0) {
     prioritizedActions.push({
       priority: prioritizedActions.length + 1,
-      action: "Execute prioritized remediation plan for high-severity findings",
-      rationale: `${riskDistribution.high} high-severity finding(s) should be addressed within 30 days`,
-      estimatedEffort: "2-4 weeks"
+      action: "Prioritized remediation of high-severity findings (0-30 days)",
+      rationale: `${riskDistribution.high} high-severity finding${riskDistribution.high !== 1 ? "s" : ""} present${riskDistribution.high === 1 ? "s" : ""} material risk that compounds over time. Investing in timely remediation prevents escalation and reduces aggregate exposure.`,
+      estimatedEffort: "2-4 weeks with structured remediation sprints"
     });
   }
-  
+
   prioritizedActions.push({
     priority: prioritizedActions.length + 1,
-    action: "Enhance security monitoring for affected assets",
-    rationale: "Increase detection capabilities while remediation is in progress",
-    estimatedEffort: "1-2 days"
+    action: "Deploy enhanced monitoring and detection for affected assets (0-7 days)",
+    rationale: "Increasing detection capabilities during the remediation window provides early warning of exploitation attempts and supports incident response readiness.",
+    estimatedEffort: "1-3 days for SIEM rule deployment and alert configuration"
   });
-  
+
   prioritizedActions.push({
     priority: prioritizedActions.length + 1,
-    action: "Schedule follow-up assessment to verify remediation effectiveness",
-    rationale: "Confirm vulnerabilities are properly addressed and no new issues introduced",
-    estimatedEffort: "1-2 weeks post-remediation"
+    action: "Conduct validation assessment to verify remediation effectiveness (30-45 days post-remediation)",
+    rationale: "Re-assessment confirms vulnerabilities are properly addressed, validates compensating controls are effective, and ensures no regression or new exposures were introduced during remediation.",
+    estimatedEffort: "1-2 weeks for targeted re-assessment"
   });
   
   return {
@@ -399,17 +421,33 @@ export function computeTechnicalReport(
   
   const totalAssets = new Set(evaluations.map(e => e.assetId)).size;
   const exploitableEvals = evaluations.filter(e => results.get(e.id)?.exploitable);
-  
-  let attackSurfaceAnalysis = `The assessment covered ${totalAssets} unique asset(s) across ${vulnerabilityMap.size} vulnerability categories. `;
-  
+
+  // Collect MITRE ATT&CK technique coverage
+  const allTechniques = new Set<string>();
+  const allCWEs = new Set<string>();
+  vulnerabilityBreakdown.forEach(v => {
+    const info = getVulnerabilityInfo(v.type);
+    info.mitreTechniques.forEach(t => allTechniques.add(t));
+    info.cweIds.forEach(c => allCWEs.add(c));
+  });
+
+  let attackSurfaceAnalysis = `The assessment evaluated ${totalAssets} unique asset${totalAssets !== 1 ? "s" : ""} across ${vulnerabilityMap.size} vulnerability categor${vulnerabilityMap.size !== 1 ? "ies" : "y"} using a six-agent analysis pipeline (Reconnaissance, Exploit Validation, Lateral Movement, Business Logic, Multi-Vector, and Impact Assessment). `;
+
   if (exploitableEvals.length > 0) {
     const exploitableAssets = new Set(exploitableEvals.map(e => e.assetId)).size;
-    attackSurfaceAnalysis += `${exploitableAssets} asset(s) have confirmed exploitable paths. `;
+    attackSurfaceAnalysis += `${exploitableAssets} asset${exploitableAssets !== 1 ? "s" : ""} ha${exploitableAssets !== 1 ? "ve" : "s"} confirmed exploitable attack paths with validated exploitation chains. `;
   }
-  
+
   const primaryVulnTypes = vulnerabilityBreakdown.slice(0, 3).map(v => v.name);
   if (primaryVulnTypes.length > 0) {
-    attackSurfaceAnalysis += `Primary attack vectors identified: ${primaryVulnTypes.join(", ")}.`;
+    attackSurfaceAnalysis += `Primary attack vectors: ${primaryVulnTypes.join(", ")}. `;
+  }
+
+  if (allTechniques.size > 0) {
+    attackSurfaceAnalysis += `MITRE ATT&CK coverage: ${allTechniques.size} technique${allTechniques.size !== 1 ? "s" : ""} validated (${Array.from(allTechniques).slice(0, 5).join(", ")}${allTechniques.size > 5 ? `, +${allTechniques.size - 5} more` : ""}). `;
+  }
+  if (allCWEs.size > 0) {
+    attackSurfaceAnalysis += `CWE coverage: ${Array.from(allCWEs).slice(0, 5).join(", ")}${allCWEs.size > 5 ? `, +${allCWEs.size - 5} more` : ""}.`;
   }
   
   let killChainSection: KillChainReportSection | null = null;
@@ -457,6 +495,14 @@ export function computeTechnicalReport(
       httpResponse: artifact.httpResponse,
     }));
     
+    // Build enriched technical description with CWE/MITRE references
+    const baseDescription = result?.impact || eval_.description;
+    const cweRef = vulnInfo.cweIds.length > 0 ? `Vulnerability Class: ${vulnInfo.cweIds.join(", ")}. ` : "";
+    const mitreRef = vulnInfo.mitreTechniques.length > 0 ? `MITRE ATT&CK: ${vulnInfo.mitreTechniques.join(", ")}. ` : "";
+    const exploitStatus = result?.exploitable ? "Exploitation Status: CONFIRMED EXPLOITABLE. " : "Exploitation Status: Not confirmed. ";
+    const confidenceNote = result?.score ? `Assessment Confidence: ${result.score}/100. ` : "";
+    const enrichedDescription = `${baseDescription}\n\n${cweRef}${mitreRef}${exploitStatus}${confidenceNote}Business Impact: ${vulnInfo.businessImpact || "Refer to remediation guidance for impact assessment."}`;
+
     return {
       evaluationId: eval_.id,
       assetId: eval_.assetId,
@@ -465,7 +511,7 @@ export function computeTechnicalReport(
       severity: eval_.priority.toUpperCase(),
       exploitable: result?.exploitable || false,
       score: result?.score || 0,
-      technicalDescription: result?.impact || eval_.description,
+      technicalDescription: enrichedDescription,
       attackPathSummary,
       mitreTechniques: vulnInfo.mitreTechniques,
       cweIds: vulnInfo.cweIds,

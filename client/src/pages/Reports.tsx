@@ -402,16 +402,50 @@ export default function Reports() {
         ],
       },
       footer: (currentPage: number, pageCount: number) => ({
-        columns: [
-          { text: `Generated: ${formatDTGWithLocal(report.createdAt || new Date())}`, style: "footerText", margin: [40, 0, 0, 0] },
-          { text: `Page ${currentPage} of ${pageCount}`, style: "footerText", alignment: "right", margin: [0, 0, 40, 0] },
+        stack: [
+          {
+            columns: [
+              { text: `CONFIDENTIAL — ${formatDTGWithLocal(report.createdAt || new Date())}`, style: "footerText", margin: [40, 0, 0, 0] },
+              { text: `Page ${currentPage} of ${pageCount}`, style: "footerText", alignment: "right", margin: [0, 0, 40, 0] },
+            ],
+          },
+          { text: "OdinForge AI Security Assessment Platform", style: "footerText", alignment: "center", margin: [0, 2, 0, 0] },
         ],
       }),
       content: [
-        { text: report.title, style: "title" },
-        { text: `Date Range: ${formatDTG(report.dateRangeFrom)} — ${formatDTG(report.dateRangeTo)}`, style: "subtitle" },
-        report.framework && { text: `Compliance Framework: ${report.framework.toUpperCase()}`, style: "subtitle" },
-        { text: "", margin: [0, 10, 0, 10] },
+        // Professional Cover Page
+        { text: "CONFIDENTIAL", style: "classification", alignment: "center" },
+        { text: "", margin: [0, 40, 0, 0] },
+        { text: report.title, style: "coverTitle", alignment: "center" },
+        { text: "", margin: [0, 10, 0, 0] },
+        {
+          canvas: [{ type: "line", x1: 140, y1: 0, x2: 375, y2: 0, lineWidth: 2, lineColor: "#0ea5e9" }],
+        },
+        { text: "", margin: [0, 15, 0, 0] },
+        { text: `Assessment Period: ${formatDTG(report.dateRangeFrom)} — ${formatDTG(report.dateRangeTo)}`, style: "coverMeta", alignment: "center" },
+        { text: `Report Date: ${formatDTGWithLocal(report.createdAt || new Date())}`, style: "coverMeta", alignment: "center" },
+        report.framework && { text: `Compliance Framework: ${report.framework.toUpperCase()}`, style: "coverMeta", alignment: "center" },
+        { text: `Document Version: 1.0`, style: "coverMeta", alignment: "center" },
+        { text: "", margin: [0, 30, 0, 0] },
+        {
+          table: {
+            widths: ["*", "*"],
+            body: [
+              [
+                { text: "Prepared By", style: "coverLabel", alignment: "center", border: [false, false, false, false] },
+                { text: "Prepared For", style: "coverLabel", alignment: "center", border: [false, false, false, false] },
+              ],
+              [
+                { text: "OdinForge AI Security Assessment Platform", style: "coverValue", alignment: "center", border: [false, false, false, false] },
+                { text: content.clientName || content.organizationId || "Client Organization", style: "coverValue", alignment: "center", border: [false, false, false, false] },
+              ],
+            ],
+          },
+          layout: "noBorders",
+          margin: [0, 0, 0, 20],
+        },
+        { text: "", pageBreak: "after" },
+        // End Cover Page — Begin Report Body
         ...buildPdfContent(content, report.reportType),
       ].filter(Boolean),
       styles: {
@@ -429,6 +463,16 @@ export default function Reports() {
         headerText: { fontSize: 9, color: "#64748b" },
         footerText: { fontSize: 8, color: "#94a3b8" },
         listItem: { fontSize: 10, margin: [0, 2, 0, 2] },
+        // Professional cover page styles
+        classification: { fontSize: 12, bold: true, color: "#dc2626", margin: [0, 10, 0, 0] },
+        coverTitle: { fontSize: 26, bold: true, color: "#0f172a", margin: [0, 0, 0, 10] },
+        coverMeta: { fontSize: 11, color: "#475569", margin: [0, 3, 0, 3] },
+        coverLabel: { fontSize: 9, color: "#94a3b8", margin: [0, 5, 0, 2] },
+        coverValue: { fontSize: 11, bold: true, color: "#1e293b", margin: [0, 0, 0, 5] },
+        // Methodology and disclaimer styles
+        methodologyText: { fontSize: 9, margin: [0, 0, 0, 4], lineHeight: 1.3, color: "#334155" },
+        disclaimerText: { fontSize: 8, margin: [0, 0, 0, 3], lineHeight: 1.3, color: "#64748b", italics: true },
+        listLabel: { fontSize: 10, bold: true, margin: [0, 5, 0, 2], color: "#334155" },
       },
       defaultStyle: { font: "Roboto" },
     };
@@ -464,18 +508,22 @@ export default function Reports() {
     }
 
     if (data.executiveSummary || reportType === "executive_summary") {
-      content.push({ text: "Executive Summary", style: "sectionHeader" });
+      content.push({ text: "1. Executive Summary", style: "sectionHeader" });
       if (data.executiveSummary) {
         // Handle both string and object executiveSummary
         if (typeof data.executiveSummary === "string") {
-          content.push({ text: data.executiveSummary, style: "bodyText" });
+          // Split by double newlines to create proper paragraphs
+          const paragraphs = data.executiveSummary.split(/\n\n+/).filter((p: string) => p.trim());
+          paragraphs.forEach((p: string) => {
+            content.push({ text: p.trim(), style: "bodyText", margin: [0, 0, 0, 8] });
+          });
         } else if (typeof data.executiveSummary === "object") {
           if (data.executiveSummary.overview) {
             content.push({ text: data.executiveSummary.overview, style: "bodyText" });
           }
         }
       }
-      
+
       if (data.keyMetrics) {
         content.push({ text: "Key Metrics", style: "subHeader" });
         const metricsTable = {
@@ -497,8 +545,35 @@ export default function Reports() {
       }
     }
 
+    // Methodology Section
+    content.push({ text: "2. Assessment Methodology", style: "sectionHeader" });
+    content.push({
+      text: "This assessment was conducted using OdinForge's automated multi-agent AI security analysis platform. The platform employs a pipeline of six specialized AI agents that systematically evaluate the target attack surface:",
+      style: "methodologyText",
+    });
+    content.push({
+      ol: [
+        "Reconnaissance Agent — Maps the attack surface, identifies exposed services, and catalogs potential entry points.",
+        "Exploit Validation Agent — Validates identified vulnerabilities through safe exploitation techniques and confirms exploitability.",
+        "Lateral Movement Agent — Analyzes pivot paths and identifies opportunities for post-exploitation movement across the environment.",
+        "Business Logic Agent — Evaluates application-layer vulnerabilities including authentication bypasses, authorization flaws, and workflow manipulation.",
+        "Multi-Vector Agent — Identifies chained attack paths that combine multiple individual findings into compound exploitation scenarios.",
+        "Impact Assessment Agent — Quantifies the business impact of confirmed findings including financial exposure, operational disruption, and regulatory implications.",
+      ],
+      style: "methodologyText",
+      margin: [10, 5, 0, 10],
+    });
+    content.push({
+      text: "Findings are mapped to the MITRE ATT&CK framework for technique identification and to the CWE (Common Weakness Enumeration) taxonomy for vulnerability classification. Risk scoring considers exploitability, business impact, and confidence level.",
+      style: "methodologyText",
+    });
+
     if (data.findings && Array.isArray(data.findings)) {
-      content.push({ text: "Security Findings", style: "sectionHeader" });
+      content.push({ text: "3. Security Findings", style: "sectionHeader" });
+      content.push({
+        text: `${data.findings.length} finding${data.findings.length !== 1 ? "s" : ""} identified during the assessment, sorted by severity and exploitability.`,
+        style: "bodyText",
+      });
       const findingsTable = {
         table: {
           headerRows: 1,
@@ -507,13 +582,23 @@ export default function Reports() {
             [
               { text: "Severity", style: "tableHeader" },
               { text: "Finding", style: "tableHeader" },
-              { text: "Status", style: "tableHeader" },
-              { text: "Risk Score", style: "tableHeader" },
+              { text: "Exploitable", style: "tableHeader" },
+              { text: "Score", style: "tableHeader" },
             ],
             ...data.findings.slice(0, 20).map((finding: any) => [
               { text: finding.severity?.toUpperCase() || "N/A", style: getSeverityStyle(finding.severity) },
-              { text: finding.title || finding.description || "N/A", style: "tableCell" },
-              { text: finding.status || "Open", style: "tableCell" },
+              {
+                stack: [
+                  { text: finding.title || finding.description || "N/A", style: "tableCell", bold: true },
+                  ...(finding.cweId || finding.mitreAttackId ? [{
+                    text: [finding.cweId, finding.mitreAttackId].filter(Boolean).join(" | "),
+                    style: "tableCell",
+                    color: "#64748b",
+                    fontSize: 8,
+                  }] : []),
+                ],
+              },
+              { text: finding.exploitable ? "CONFIRMED" : finding.status || "Open", style: "tableCell" },
               { text: String(finding.riskScore || finding.score || "N/A"), style: "tableCell" },
             ]),
           ],
@@ -525,7 +610,7 @@ export default function Reports() {
     }
 
     if (data.recommendations && Array.isArray(data.recommendations)) {
-      content.push({ text: "Recommendations", style: "sectionHeader" });
+      content.push({ text: "4. Recommendations", style: "sectionHeader" });
       const recList = {
         ul: data.recommendations.slice(0, 10).map((rec: any) => {
           if (typeof rec === "string") return rec;
@@ -735,9 +820,70 @@ export default function Reports() {
       }
     }
 
-    if (content.length === 0) {
-      content.push({ text: "Report Data", style: "sectionHeader" });
-      content.push({ text: JSON.stringify(data, null, 2), style: "bodyText", preserveLeadingSpaces: true });
+    // Risk Rating Methodology Section
+    content.push({ text: "Risk Rating Methodology", style: "sectionHeader" });
+    content.push({
+      text: "Findings are classified using the following severity rating scale, aligned with industry-standard vulnerability scoring frameworks:",
+      style: "methodologyText",
+    });
+    content.push({
+      table: {
+        headerRows: 1,
+        widths: ["auto", "*"],
+        body: [
+          [
+            { text: "Rating", style: "tableHeader" },
+            { text: "Definition", style: "tableHeader" },
+          ],
+          [
+            { text: "CRITICAL", style: "criticalBadge" },
+            { text: "Findings that present immediate risk of exploitation with severe business impact. Active exploitation paths exist that could result in complete system compromise, large-scale data breach, or significant operational disruption. Requires emergency remediation within 48 hours.", style: "tableCell" },
+          ],
+          [
+            { text: "HIGH", style: "highBadge" },
+            { text: "Findings that present material risk and could be exploited by a motivated attacker with moderate effort. Successful exploitation could result in unauthorized access, data exposure, or service disruption. Requires prioritized remediation within 30 days.", style: "tableCell" },
+          ],
+          [
+            { text: "MEDIUM", style: "mediumBadge" },
+            { text: "Findings that represent defense-in-depth gaps. While not immediately exploitable in isolation, these findings could be combined with other vulnerabilities or exploited under specific conditions. Requires scheduled remediation within 60 days.", style: "tableCell" },
+          ],
+          [
+            { text: "LOW", style: "lowBadge" },
+            { text: "Findings that represent minor security improvements or informational observations. Limited direct business impact but contribute to overall security hygiene. Address during standard maintenance cycles.", style: "tableCell" },
+          ],
+        ],
+      },
+      layout: "lightHorizontalLines",
+      margin: [0, 5, 0, 15],
+    });
+    content.push({
+      text: "Risk scores (0-100) are calculated by the assessment platform considering: vulnerability severity, confirmed exploitability, attack complexity, potential business impact, and confidence level of the assessment.",
+      style: "methodologyText",
+    });
+
+    // Disclaimer / Limitations Section
+    content.push({ text: "", margin: [0, 15, 0, 0] });
+    content.push({
+      canvas: [{ type: "line", x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: "#cbd5e1" }],
+    });
+    content.push({ text: "Assessment Limitations and Disclaimer", style: "subHeader", margin: [0, 10, 0, 5] });
+    content.push({
+      text: "This report represents a point-in-time assessment of the organization's security posture based on the scope, methodology, and data available at the time of testing. The findings and recommendations contained herein are based on the conditions observed during the assessment period and may not reflect the current state of the environment if changes have been made subsequent to the assessment.",
+      style: "disclaimerText",
+    });
+    content.push({
+      text: "This automated assessment employs AI-driven analysis techniques that, while comprehensive, may not identify all potential vulnerabilities. The absence of a finding does not guarantee the absence of a vulnerability. Organizations are encouraged to conduct regular assessments and maintain a layered security approach.",
+      style: "disclaimerText",
+    });
+    content.push({
+      text: "This document is classified as CONFIDENTIAL and is intended solely for the use of the organization to which it was issued. Unauthorized distribution, reproduction, or disclosure of this report or its contents is prohibited. The information contained herein should be handled in accordance with the organization's information classification and handling policies.",
+      style: "disclaimerText",
+    });
+
+    if (content.length <= 3) {
+      // Only methodology + disclaimer, no actual data sections
+      content.splice(content.length - 8, 0, { text: "Report Data", style: "sectionHeader" });
+      content.splice(content.length - 8, 0, { text: JSON.stringify(data, null, 2), style: "bodyText", preserveLeadingSpaces: true });
     }
 
     return content;
