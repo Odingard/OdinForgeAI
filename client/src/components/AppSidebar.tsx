@@ -23,6 +23,7 @@ import {
   UserCheck,
   Radar,
   Calendar,
+  Link2,
 } from "lucide-react";
 import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
@@ -55,6 +56,7 @@ const mainNavItems = [
 
 const analysisItems = [
   { title: "Full Assessment", href: "/full-assessment", icon: ScanSearch },
+  { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
   { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
 ];

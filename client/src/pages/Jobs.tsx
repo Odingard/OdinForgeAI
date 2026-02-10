@@ -100,6 +100,7 @@ export default function Jobs() {
       options: [
         { label: "All Types", value: "all" },
         { label: "Evaluation", value: "evaluation" },
+        { label: "Breach Chain", value: "breach_chain" },
         { label: "Network Scan", value: "network_scan" },
         { label: "External Recon", value: "external_recon" },
         { label: "Report", value: "report" },

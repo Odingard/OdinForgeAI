@@ -49,6 +49,7 @@ const LiveScans = lazy(() => import("@/pages/LiveScans"));
 const ScheduledScans = lazy(() => import("@/pages/ScheduledScans"));
 const Sandbox = lazy(() => import("@/pages/Sandbox"));
 const Simulations = lazy(() => import("@/pages/Simulations"));
+const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
@@ -91,6 +92,7 @@ function Router() {
         <Route path="/scheduled-scans" component={ScheduledScans} />
         <Route path="/sandbox" component={Sandbox} />
         <Route path="/simulations" component={Simulations} />
+        <Route path="/breach-chains" component={BreachChains} />
         <Route path="/admin/users" component={UserManagement} />
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />
