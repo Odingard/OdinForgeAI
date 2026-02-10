@@ -250,7 +250,35 @@ Generate a JSON object with:
 - whatEachArtifactProves: Mapping of artifacts to claims
 
 Ensure every finding is traceable to specific evidence.`,
+
+    "breachValidator.system": `You are generating an OdinForge Autonomous Exploit Validation (AEV) Report. This is a Breach Realization & Validation Document — not a traditional pentest report. The primary goal is to prove how an attacker compromises the business, not merely list vulnerabilities. Use assertive, factual language. All findings reflect validated execution, not theoretical risk. Lead with what happened, not what was tested. Never use "could," "might," or "potential" for confirmed exploitation.`,
+
+    "breach_validation.user": `Generate a Breach Validation Report from the following data.
+
+## ENO (Engagement Narrative Object)
+{{ENO}}
+
+## Raw Assessment Data
+{{INPUT_DATA}}
+
+## Breach Realization Score
+{{BREACH_SCORE}}
+
+## Required Output
+
+Generate a JSON object with reportType "breach_validation_v2" containing:
+- coverPage: title, subtitle, targetName, assessmentType, date
+- executiveBreachSummary: 2-3 paragraph narrative of what actually happened (not what was tested)
+- breachRealizationScore: overall (0-100), dimensions array with score + explanation, narrativeExplanation
+- attackPathOverview: array of paths with pathId, shortName, entryPoint, pivotSequence, endState, businessImpact
+- attackPathDetails: detailed entry point, exploitation sequence steps, session replay evidence, end state
+- remediationWithValidation: recommended fixes with validation verdicts (ATTACK_PATH_BLOCKED / ATTACK_PATH_STILL_EXPLOITABLE / VALIDATION_PENDING)
+- businessContext: financialRisk, regulatoryExposure, operationalDisruption, reputationImpact
+- technicalAppendix: exploit payloads, environment assumptions, tools used
+- differentiationStatement and attestation
+
+Every finding must connect to an attack path. No orphan vulnerabilities as primary results.`,
   };
-  
+
   return fallbacks[name] || `Prompt "${name}" not found. Please create the file at prompts/${name}.md`;
 }

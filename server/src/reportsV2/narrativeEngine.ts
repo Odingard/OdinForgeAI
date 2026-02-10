@@ -10,15 +10,17 @@ import OpenAI from "openai";
 import { createHash } from "crypto";
 import { ENO, enoSchema, validateENO, type ENOValidationResult } from "./eno.schema";
 import { type ReportInputPayload } from "./reportInputBuilder";
-import { 
-  ExecutiveReportV2, 
-  TechnicalReportV2, 
-  ComplianceReportV2, 
+import {
+  ExecutiveReportV2,
+  TechnicalReportV2,
+  ComplianceReportV2,
   EvidencePackageV2,
+  BreachValidationReportV2,
   executiveReportV2Schema,
   technicalReportV2Schema,
   complianceReportV2Schema,
-  evidencePackageV2Schema
+  evidencePackageV2Schema,
+  breachValidationReportV2Schema,
 } from "./reportV2.schema";
 import { loadPrompt, getAntiTemplateRules } from "./promptLoader";
 import { antiTemplateLint, type LintResult } from "./antiTemplateLint";
@@ -68,6 +70,7 @@ export interface FullReportV2 {
   technical?: TechnicalReportV2;
   compliance?: ComplianceReportV2;
   evidence?: EvidencePackageV2;
+  breach_validation?: BreachValidationReportV2;
 }
 
 const DEFAULT_CONFIG: Required<NarrativeEngineConfig> = {
@@ -500,13 +503,98 @@ export async function generateEvidencePackage(
 }
 
 /**
+ * Generate Breach Validation Report from ENO
+ *
+ * This is the OdinForge differentiator report — breach-first storytelling with
+ * Breach Realization Score, validated attack paths, session replay evidence,
+ * and remediation validation results. Replaces traditional vuln-list reports.
+ */
+export async function generateBreachValidationReport(
+  eno: ENO,
+  input: ReportInputPayload,
+  breachScoreJson: string,
+  config: NarrativeEngineConfig = {}
+): Promise<GenerationResult<BreachValidationReportV2>> {
+  const cfg = { ...DEFAULT_CONFIG, ...config };
+  const startTime = Date.now();
+
+  try {
+    const systemPrompt = loadPrompt("breachValidator.system");
+    const userPrompt = loadPrompt("breach_validation.user");
+    const antiTemplateRules = getAntiTemplateRules();
+
+    const fullSystemPrompt = `${systemPrompt}\n\n${antiTemplateRules}`;
+    const fullUserPrompt = userPrompt
+      .replace("{{ENO}}", JSON.stringify(eno, null, 2))
+      .replace("{{INPUT_DATA}}", JSON.stringify(input, null, 2))
+      .replace("{{BREACH_SCORE}}", breachScoreJson);
+
+    const promptHash = hashPrompt(fullSystemPrompt + fullUserPrompt);
+
+    const response = await getOpenAIClient().chat.completions.create({
+      model: cfg.modelName,
+      temperature: cfg.temperature,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: fullSystemPrompt },
+        { role: "user", content: fullUserPrompt },
+      ],
+    });
+
+    const generationTimeMs = Date.now() - startTime;
+    const content = response.choices[0]?.message?.content;
+
+    if (!content) {
+      return {
+        success: false,
+        error: "No content returned from AI model",
+        warnings: [],
+        modelMeta: { modelName: cfg.modelName, promptHash, temperature: cfg.temperature, generationTimeMs },
+      };
+    }
+
+    const parsed = JSON.parse(content);
+    const validation = breachValidationReportV2Schema.safeParse(parsed);
+
+    if (!validation.success) {
+      return {
+        success: false,
+        error: `Breach validation report validation failed: ${validation.error.errors.map(e => `${e.path.join(".")}: ${e.message}`).join("; ")}`,
+        warnings: [],
+        modelMeta: { modelName: cfg.modelName, promptHash, temperature: cfg.temperature, generationTimeMs },
+      };
+    }
+
+    return {
+      success: true,
+      data: validation.data,
+      warnings: [],
+      modelMeta: { modelName: cfg.modelName, promptHash, temperature: cfg.temperature, generationTimeMs },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      warnings: [],
+      modelMeta: {
+        modelName: cfg.modelName,
+        promptHash: "",
+        temperature: cfg.temperature,
+        generationTimeMs: Date.now() - startTime,
+      },
+    };
+  }
+}
+
+/**
  * Full report generation pipeline
  * Generates ENO first, then all requested report sections
  */
 export async function generateFullReport(
   input: ReportInputPayload,
-  reportTypes: Array<"executive" | "technical" | "compliance" | "evidence">,
-  config: NarrativeEngineConfig = {}
+  reportTypes: Array<"executive" | "technical" | "compliance" | "evidence" | "breach_validation">,
+  config: NarrativeEngineConfig = {},
+  breachScoreJson?: string
 ): Promise<{
   success: boolean;
   report?: FullReportV2;
@@ -515,10 +603,10 @@ export async function generateFullReport(
 }> {
   const errors: string[] = [];
   const warnings: string[] = [];
-  
+
   // Step 1: Generate ENO
   const enoResult = await generateENO(input, config);
-  
+
   if (!enoResult.success || !enoResult.data) {
     return {
       success: false,
@@ -526,14 +614,14 @@ export async function generateFullReport(
       warnings: enoResult.warnings,
     };
   }
-  
+
   warnings.push(...enoResult.warnings);
-  
+
   const report: FullReportV2 = { eno: enoResult.data };
-  
+
   // Step 2: Generate requested report sections in parallel
   const sectionPromises: Promise<void>[] = [];
-  
+
   if (reportTypes.includes("executive")) {
     sectionPromises.push(
       generateExecutiveReport(enoResult.data, input, config).then(result => {
@@ -546,7 +634,7 @@ export async function generateFullReport(
       })
     );
   }
-  
+
   if (reportTypes.includes("technical")) {
     sectionPromises.push(
       generateTechnicalReport(enoResult.data, input, config).then(result => {
@@ -559,7 +647,7 @@ export async function generateFullReport(
       })
     );
   }
-  
+
   if (reportTypes.includes("compliance")) {
     sectionPromises.push(
       generateComplianceReport(enoResult.data, input, config).then(result => {
@@ -572,7 +660,7 @@ export async function generateFullReport(
       })
     );
   }
-  
+
   if (reportTypes.includes("evidence")) {
     sectionPromises.push(
       generateEvidencePackage(enoResult.data, input, config).then(result => {
@@ -585,12 +673,26 @@ export async function generateFullReport(
       })
     );
   }
-  
+
+  if (reportTypes.includes("breach_validation")) {
+    const scoreJson = breachScoreJson || JSON.stringify({ overall: 0, dimensions: [], summary: "No breach chain data provided." });
+    sectionPromises.push(
+      generateBreachValidationReport(enoResult.data, input, scoreJson, config).then(result => {
+        if (result.success && result.data) {
+          report.breach_validation = result.data;
+        } else {
+          errors.push(`Breach validation report: ${result.error}`);
+        }
+        warnings.push(...result.warnings);
+      })
+    );
+  }
+
   await Promise.all(sectionPromises);
-  
+
   // If we have at least the ENO and one section, consider it a partial success
-  const hasAnySections = !!(report.executive || report.technical || report.compliance || report.evidence);
-  
+  const hasAnySections = !!(report.executive || report.technical || report.compliance || report.evidence || report.breach_validation);
+
   return {
     success: errors.length === 0 || hasAnySections,
     report: hasAnySections ? report : undefined,
