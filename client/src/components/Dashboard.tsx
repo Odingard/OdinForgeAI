@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { 
-  Zap, 
-  Target, 
-  ShieldCheck, 
-  AlertTriangle, 
-  Activity, 
+import {
+  Zap,
+  Target,
+  ShieldCheck,
+  AlertTriangle,
+  Activity,
   RefreshCw,
   ScanSearch,
   Loader2,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "./StatCard";
@@ -76,6 +77,10 @@ export function Dashboard() {
 
   const { data: evaluations = [], isLoading, error, refetch } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],
+  });
+
+  const { data: breachChains = [] } = useQuery<any[]>({
+    queryKey: ["/api/breach-chains"],
   });
 
   // Show onboarding for new users (no evaluations)
@@ -258,7 +263,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 relative">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 relative">
         <StatCard
           label="Total Evaluations"
           value={stats.total}
@@ -283,6 +288,13 @@ export function Dashboard() {
           value={stats.safe}
           icon={ShieldCheck}
           colorClass="text-emerald-400"
+        />
+        <StatCard
+          label="Breach Chains"
+          value={breachChains.length}
+          icon={Link2}
+          colorClass="text-purple-400"
+          critical={breachChains.some((c: any) => c.status === "running")}
         />
         <StatCard
           label="Avg Confidence"

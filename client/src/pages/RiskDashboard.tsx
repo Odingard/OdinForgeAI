@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3, Target, Crosshair, AlertCircle } from "lucide-react";
+import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3, Target, Crosshair, AlertCircle, Link2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +62,10 @@ export default function RiskDashboard() {
 
   const { data: coverage } = useCoverageMetrics();
   const { data: gaps } = useCoverageGaps();
+
+  const { data: breachChains = [] } = useQuery<any[]>({
+    queryKey: ["/api/breach-chains"],
+  });
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -215,7 +219,7 @@ export default function RiskDashboard() {
       {/* Consolidated Metrics Strip */}
       <Card>
         <CardContent className="pt-5 pb-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 divide-x-0 lg:divide-x divide-border">
+          <div className={`grid grid-cols-2 sm:grid-cols-3 ${breachChains.length > 0 ? "lg:grid-cols-7" : "lg:grid-cols-6"} gap-4 divide-x-0 lg:divide-x divide-border`}>
             {/* Risk Metrics */}
             <div className="text-center lg:text-left">
               <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Critical</div>
@@ -265,6 +269,19 @@ export default function RiskDashboard() {
                   </div>
                 </div>
               </>
+            )}
+            {breachChains.length > 0 && (
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                  <Link2 className="h-3 w-3" /> Breach Chains
+                </div>
+                <div className={`text-2xl font-bold tabular-nums ${breachChains.some((c: any) => c.overallRiskScore >= 70) ? "text-red-400" : "text-foreground"}`} data-testid="stat-breach-chains">
+                  {breachChains.filter((c: any) => c.status === "completed").length}/{breachChains.length}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-0.5">
+                  {breachChains.some((c: any) => c.status === "running") ? "chain running" : "completed"}
+                </div>
+              </div>
             )}
           </div>
         </CardContent>

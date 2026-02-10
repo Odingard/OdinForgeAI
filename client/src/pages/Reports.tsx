@@ -16,15 +16,15 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { 
-  FileText, 
-  Download, 
-  Trash2, 
-  Calendar, 
-  FileSpreadsheet, 
-  FileJson, 
-  BarChart3, 
-  Shield, 
+import {
+  FileText,
+  Download,
+  Trash2,
+  Calendar,
+  FileSpreadsheet,
+  FileJson,
+  BarChart3,
+  Shield,
   Briefcase,
   Loader2,
   Plus,
@@ -35,6 +35,7 @@ import {
   Lock,
   Sparkles,
   FileCode,
+  Link2,
 } from "lucide-react";
 import pdfMake from "pdfmake/build/pdfmake";
 import pdfFonts from "pdfmake/build/vfs_fonts";
@@ -50,6 +51,7 @@ const reportTypes = [
   { value: "executive_summary", label: "Executive Summary", icon: Briefcase, description: "High-level overview for leadership" },
   { value: "technical_deep_dive", label: "Technical Deep-Dive", icon: FileText, description: "Detailed findings for engineers" },
   { value: "compliance_mapping", label: "Compliance Report", icon: Shield, description: "Framework-specific compliance status" },
+  { value: "breach_chain_analysis", label: "Breach Chain Analysis", icon: Link2, description: "Cross-domain breach chain progression and impact" },
 ];
 
 const complianceFrameworks = [
