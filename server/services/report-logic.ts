@@ -608,6 +608,235 @@ export function computeComplianceReport(
   };
 }
 
+// ============================================================================
+// BREACH REALIZATION SCORE
+// ============================================================================
+
+export interface BreachRealizationScoreDimension {
+  dimension: string;
+  score: number;       // 0-100
+  weight: number;      // 0-1 (sum to 1.0)
+  rationale: string;
+}
+
+export interface BreachRealizationScore {
+  overall: number;     // 0-100 weighted composite
+  dimensions: BreachRealizationScoreDimension[];
+  summary: string;     // Plain-language explanation
+}
+
+/**
+ * Compute Breach Realization Score (BRS) — replaces CVSS as primary severity indicator.
+ *
+ * Measures how completely an attacker realized a breach across 6 dimensions:
+ * - Time to Impact: How fast was first meaningful compromise achieved?
+ * - Privilege Escalation Level: What was the highest privilege achieved?
+ * - Lateral Movement Capability: How far could the attacker move across domains?
+ * - Blast Radius: How many assets/systems were affected?
+ * - Detection Difficulty: How hard is this attack to detect with current controls?
+ * - Persistence Potential: Can the attacker maintain access long-term?
+ */
+export function computeBreachRealizationScore(
+  evaluations: EvaluationData[],
+  results: Map<string, ResultData>,
+  breachChainData?: {
+    domainsBreached?: number;
+    totalDomains?: number;
+    maxPrivilegeAchieved?: string;
+    totalAssetsCompromised?: number;
+    totalCredentialsHarvested?: number;
+    durationMs?: number;
+    phaseResults?: Array<{
+      phaseName: string;
+      status: string;
+      findingsCount?: number;
+    }>;
+  }
+): BreachRealizationScore {
+  const exploitableResults = evaluations
+    .map(e => ({ eval_: e, result: results.get(e.id) }))
+    .filter(er => er.result?.exploitable);
+
+  const totalEvals = evaluations.length;
+  const exploitableCount = exploitableResults.length;
+
+  // --- 1. Time to Impact (weight: 0.15) ---
+  let timeToImpactScore = 0;
+  let timeToImpactRationale = "";
+  if (breachChainData?.durationMs) {
+    const minutes = breachChainData.durationMs / 60000;
+    if (minutes <= 5) { timeToImpactScore = 100; timeToImpactRationale = `First impact achieved in ${Math.round(minutes)} minutes — faster than most SOC response times.`; }
+    else if (minutes <= 15) { timeToImpactScore = 85; timeToImpactRationale = `First impact in ${Math.round(minutes)} minutes — within typical dwell-time detection gap.`; }
+    else if (minutes <= 60) { timeToImpactScore = 65; timeToImpactRationale = `First impact in ${Math.round(minutes)} minutes — moderate exploitation timeline.`; }
+    else if (minutes <= 240) { timeToImpactScore = 40; timeToImpactRationale = `First impact in ${Math.round(minutes / 60)} hours — extended but achievable timeline.`; }
+    else { timeToImpactScore = 20; timeToImpactRationale = `Exploitation required ${Math.round(minutes / 60)} hours — significant effort but still achievable.`; }
+  } else if (exploitableCount > 0) {
+    // Estimate from attack path complexity
+    const avgSteps = exploitableResults.reduce((sum, er) => sum + (er.result?.attackPath?.length || 1), 0) / exploitableCount;
+    if (avgSteps <= 2) { timeToImpactScore = 80; timeToImpactRationale = `Simple ${Math.round(avgSteps)}-step attack chains indicate rapid exploitation.`; }
+    else if (avgSteps <= 4) { timeToImpactScore = 60; timeToImpactRationale = `${Math.round(avgSteps)}-step attack chains require moderate effort.`; }
+    else { timeToImpactScore = 35; timeToImpactRationale = `Complex ${Math.round(avgSteps)}-step chains require sustained attacker effort.`; }
+  } else {
+    timeToImpactRationale = "No exploitable paths confirmed — time to impact not measurable.";
+  }
+
+  // --- 2. Privilege Escalation Level (weight: 0.20) ---
+  let privEscScore = 0;
+  let privEscRationale = "";
+  const maxPriv = breachChainData?.maxPrivilegeAchieved?.toLowerCase() || "";
+  if (maxPriv.includes("root") || maxPriv.includes("admin") || maxPriv.includes("system")) {
+    privEscScore = 100;
+    privEscRationale = `Attacker achieved ${breachChainData?.maxPrivilegeAchieved} — full administrative control.`;
+  } else if (maxPriv.includes("elevated") || maxPriv.includes("privileged") || maxPriv.includes("write")) {
+    privEscScore = 70;
+    privEscRationale = `Attacker achieved elevated privileges (${breachChainData?.maxPrivilegeAchieved}) — significant access beyond initial foothold.`;
+  } else if (maxPriv.includes("user") || maxPriv.includes("read")) {
+    privEscScore = 40;
+    privEscRationale = `Attacker achieved user-level access (${breachChainData?.maxPrivilegeAchieved}) — limited but actionable.`;
+  } else if (exploitableCount > 0) {
+    // Infer from findings
+    const hasCritical = evaluations.some(e => e.priority === "critical");
+    const hasHigh = evaluations.some(e => e.priority === "high");
+    if (hasCritical) { privEscScore = 80; privEscRationale = "Critical findings suggest high-privilege access is achievable."; }
+    else if (hasHigh) { privEscScore = 55; privEscRationale = "High-severity findings suggest meaningful privilege escalation."; }
+    else { privEscScore = 30; privEscRationale = "Exploitable findings exist but privilege escalation is limited."; }
+  } else {
+    privEscRationale = "No privilege escalation paths confirmed.";
+  }
+
+  // --- 3. Lateral Movement Capability (weight: 0.20) ---
+  let lateralScore = 0;
+  let lateralRationale = "";
+  const domainsBreached = breachChainData?.domainsBreached || 0;
+  const totalDomains = breachChainData?.totalDomains || 6;
+  if (domainsBreached >= 4) {
+    lateralScore = 100;
+    lateralRationale = `Attacker traversed ${domainsBreached}/${totalDomains} security domains — comprehensive cross-domain breach.`;
+  } else if (domainsBreached >= 2) {
+    lateralScore = 70;
+    lateralRationale = `Attacker traversed ${domainsBreached}/${totalDomains} security domains — multi-domain breach confirmed.`;
+  } else if (domainsBreached === 1) {
+    lateralScore = 35;
+    lateralRationale = "Breach contained to single domain — lateral movement limited.";
+  } else if (exploitableCount > 1) {
+    const distinctAssets = new Set(exploitableResults.map(er => er.eval_.assetId)).size;
+    if (distinctAssets > 1) {
+      lateralScore = 45;
+      lateralRationale = `Exploitable paths across ${distinctAssets} assets suggest lateral movement capability.`;
+    } else {
+      lateralScore = 20;
+      lateralRationale = "Exploitation confirmed on single asset — lateral movement not demonstrated.";
+    }
+  } else {
+    lateralRationale = "No lateral movement capability confirmed.";
+  }
+
+  // --- 4. Blast Radius (weight: 0.20) ---
+  let blastScore = 0;
+  let blastRationale = "";
+  const assetsCompromised = breachChainData?.totalAssetsCompromised || 0;
+  const credsHarvested = breachChainData?.totalCredentialsHarvested || 0;
+  if (assetsCompromised >= 10 || credsHarvested >= 10) {
+    blastScore = 100;
+    blastRationale = `${assetsCompromised} assets compromised, ${credsHarvested} credentials harvested — catastrophic blast radius.`;
+  } else if (assetsCompromised >= 5 || credsHarvested >= 5) {
+    blastScore = 75;
+    blastRationale = `${assetsCompromised} assets compromised, ${credsHarvested} credentials harvested — significant blast radius.`;
+  } else if (assetsCompromised >= 2 || credsHarvested >= 2) {
+    blastScore = 50;
+    blastRationale = `${assetsCompromised} assets compromised, ${credsHarvested} credentials harvested — moderate blast radius.`;
+  } else if (exploitableCount > 0) {
+    const criticalCount = evaluations.filter(e => e.priority === "critical").length;
+    blastScore = criticalCount > 0 ? 45 : 25;
+    blastRationale = exploitableCount === 1
+      ? "Single exploitable finding — contained blast radius."
+      : `${exploitableCount} exploitable findings — blast radius depends on exploitation sequence.`;
+  } else {
+    blastRationale = "No confirmed exploitation — blast radius not measurable.";
+  }
+
+  // --- 5. Detection Difficulty (weight: 0.15) ---
+  let detectionScore = 0;
+  let detectionRationale = "";
+  // Higher score = harder to detect = worse for defender
+  const hasAppLogic = evaluations.some(e => ["app_logic", "business_logic", "idor"].includes(e.exposureType));
+  const hasInjection = evaluations.some(e => ["sqli", "xss", "command_injection", "ssti"].includes(e.exposureType));
+  const hasAuthBypass = evaluations.some(e => ["auth_bypass", "broken_auth", "credential_exposure"].includes(e.exposureType));
+  const hasNetworkLevel = evaluations.some(e => ["network_vulnerability", "misconfiguration"].includes(e.exposureType));
+
+  if (hasAppLogic && hasAuthBypass) {
+    detectionScore = 90;
+    detectionRationale = "Business logic and auth bypass attacks generate minimal signatures — extremely difficult to detect with standard controls.";
+  } else if (hasAppLogic) {
+    detectionScore = 75;
+    detectionRationale = "Business logic attacks operate within normal application behavior — hard to distinguish from legitimate traffic.";
+  } else if (hasAuthBypass) {
+    detectionScore = 65;
+    detectionRationale = "Authentication bypass may avoid audit trails — detection requires specialized monitoring.";
+  } else if (hasInjection) {
+    detectionScore = 45;
+    detectionRationale = "Injection attacks produce detectable patterns but may evade basic WAF rules through encoding/evasion.";
+  } else if (hasNetworkLevel) {
+    detectionScore = 30;
+    detectionRationale = "Network-level vulnerabilities produce observable traffic patterns — detectable with proper network monitoring.";
+  } else if (exploitableCount > 0) {
+    detectionScore = 50;
+    detectionRationale = "Mixed attack types present moderate detection challenge.";
+  } else {
+    detectionRationale = "No active exploitation to detect.";
+  }
+
+  // --- 6. Persistence Potential (weight: 0.10) ---
+  let persistenceScore = 0;
+  let persistenceRationale = "";
+  if (credsHarvested >= 5) {
+    persistenceScore = 95;
+    persistenceRationale = `${credsHarvested} harvested credentials enable persistent re-entry even after initial vector is patched.`;
+  } else if (credsHarvested >= 1) {
+    persistenceScore = 65;
+    persistenceRationale = `${credsHarvested} harvested credential(s) provide re-entry capability — persistence requires credential rotation.`;
+  } else if (maxPriv.includes("admin") || maxPriv.includes("root")) {
+    persistenceScore = 80;
+    persistenceRationale = "Administrative access enables backdoor installation and persistence mechanisms.";
+  } else if (exploitableCount > 0 && evaluations.some(e => e.priority === "critical")) {
+    persistenceScore = 45;
+    persistenceRationale = "Critical exploitable paths could be revisited — persistence depends on remediation speed.";
+  } else if (exploitableCount > 0) {
+    persistenceScore = 25;
+    persistenceRationale = "Exploitable paths exist but persistence requires re-exploitation of original vector.";
+  } else {
+    persistenceRationale = "No confirmed persistence capability.";
+  }
+
+  // --- Composite Score ---
+  const dimensions: BreachRealizationScoreDimension[] = [
+    { dimension: "Time to Impact", score: timeToImpactScore, weight: 0.15, rationale: timeToImpactRationale },
+    { dimension: "Privilege Escalation Level", score: privEscScore, weight: 0.20, rationale: privEscRationale },
+    { dimension: "Lateral Movement Capability", score: lateralScore, weight: 0.20, rationale: lateralRationale },
+    { dimension: "Blast Radius", score: blastScore, weight: 0.20, rationale: blastRationale },
+    { dimension: "Detection Difficulty", score: detectionScore, weight: 0.15, rationale: detectionRationale },
+    { dimension: "Persistence Potential", score: persistenceScore, weight: 0.10, rationale: persistenceRationale },
+  ];
+
+  const overall = Math.round(dimensions.reduce((sum, d) => sum + d.score * d.weight, 0));
+
+  // Generate summary
+  let summary = "";
+  if (overall >= 80) {
+    summary = `Breach Realization Score: ${overall}/100 (CRITICAL). The attacker demonstrated comprehensive breach capability across multiple dimensions. Immediate incident-level response is warranted — this is not a theoretical risk.`;
+  } else if (overall >= 60) {
+    summary = `Breach Realization Score: ${overall}/100 (HIGH). The attacker achieved meaningful breach progression with confirmed exploitation and cross-boundary movement. Accelerated remediation within 7 days is required.`;
+  } else if (overall >= 40) {
+    summary = `Breach Realization Score: ${overall}/100 (MODERATE). Exploitable paths exist but breach progression was limited. Prioritized remediation within 30 days will materially reduce exposure.`;
+  } else if (overall >= 20) {
+    summary = `Breach Realization Score: ${overall}/100 (LOW). Limited exploitation was confirmed but breach realization was minimal. Standard remediation timelines are appropriate.`;
+  } else {
+    summary = `Breach Realization Score: ${overall}/100 (MINIMAL). No significant breach progression was confirmed. Maintain current security posture and continue regular assessment cycles.`;
+  }
+
+  return { overall, dimensions, summary };
+}
+
 export function formatRemediationSection(plan: ComputedTechnicalReport["remediationPlan"][0]): string {
   const lines: string[] = [];
   

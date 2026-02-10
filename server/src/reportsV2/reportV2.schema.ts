@@ -276,6 +276,121 @@ export const evidencePackageV2Schema = z.object({
 export type EvidencePackageV2 = z.infer<typeof evidencePackageV2Schema>;
 
 // ============================================================================
+// BREACH VALIDATION REPORT V2
+// ============================================================================
+
+export const breachValidationCoverPageSchema = z.object({
+  title: z.string(),
+  subtitle: z.string(),
+  targetName: z.string(),
+  assessmentType: z.string(),
+  date: z.string(),
+});
+
+export const breachRealizationDimensionSchema = z.object({
+  dimension: z.string(),
+  score: z.number().min(0).max(100),
+  explanation: z.string(),
+});
+
+export const attackPathOverviewEntrySchema = z.object({
+  pathId: z.string(),
+  shortName: z.string(),
+  entryPoint: z.string(),
+  pivotSequence: z.string(),
+  endState: z.string(),
+  businessImpact: z.string(),
+});
+
+export const exploitStepSchema = z.object({
+  step: z.number(),
+  action: z.string(),
+  technique: z.string().optional(),
+  outcome: z.string(),
+  evidenceRef: z.string().optional(),
+});
+
+export const breachAttackPathDetailSchema = z.object({
+  pathId: z.string(),
+  title: z.string(),
+  entryPoint: z.object({
+    description: z.string(),
+    preconditions: z.string(),
+    whyExploitable: z.string(),
+  }),
+  exploitationSequence: z.array(exploitStepSchema),
+  sessionReplayEvidence: z.object({
+    timestamps: z.array(z.string()),
+    stateChanges: z.array(z.string()),
+    attestation: z.string(),
+  }),
+  endState: z.object({
+    accessAchieved: z.string(),
+    dataAccessible: z.string(),
+    businessSignificance: z.string(),
+  }),
+});
+
+export const remediationValidationSchema = z.object({
+  attackPathId: z.string(),
+  recommendedFix: z.object({
+    description: z.string(),
+    implementation: z.string(),
+    effort: z.enum(["low", "medium", "high"]),
+    timeline: z.string(),
+  }),
+  validationResult: z.object({
+    replayAttempted: z.boolean(),
+    blocked: z.boolean().nullable(),
+    blockedAtStep: z.string().nullable(),
+    verdict: z.enum(["ATTACK_PATH_BLOCKED", "ATTACK_PATH_STILL_EXPLOITABLE", "VALIDATION_PENDING"]),
+    explanation: z.string(),
+  }),
+});
+
+export const breachValidationReportV2Schema = z.object({
+  reportType: z.literal("breach_validation_v2"),
+  generatedAt: z.string(),
+
+  coverPage: breachValidationCoverPageSchema,
+  executiveBreachSummary: z.string().min(200),
+
+  breachRealizationScore: z.object({
+    overall: z.number().min(0).max(100),
+    dimensions: z.array(breachRealizationDimensionSchema),
+    narrativeExplanation: z.string().min(50),
+  }),
+
+  attackPathOverview: z.array(attackPathOverviewEntrySchema).min(1),
+  attackPathDetails: z.array(breachAttackPathDetailSchema),
+
+  remediationWithValidation: z.array(remediationValidationSchema),
+
+  businessContext: z.object({
+    financialRisk: z.string(),
+    regulatoryExposure: z.string(),
+    operationalDisruption: z.string(),
+    reputationImpact: z.string(),
+  }),
+
+  technicalAppendix: z.object({
+    exploitPayloads: z.array(z.object({
+      attackPathId: z.string(),
+      step: z.number(),
+      payload: z.string(),
+      requestResponse: z.string().optional(),
+    })),
+    environmentAssumptions: z.array(z.string()),
+    toolsUsed: z.array(z.string()),
+  }),
+
+  differentiationStatement: z.string(),
+  attestation: z.string(),
+});
+
+export type BreachValidationReportV2 = z.infer<typeof breachValidationReportV2Schema>;
+
+// ============================================================================
 // COMBINED REPORT V2
 // ============================================================================
 
@@ -283,13 +398,14 @@ export const fullReportV2Schema = z.object({
   id: z.string(),
   version: z.literal("2.0"),
   generatedAt: z.string(),
-  
+
   // Report sections
   executive: executiveReportV2Schema.optional(),
   technical: technicalReportV2Schema.optional(),
   compliance: complianceReportV2Schema.optional(),
   evidence: evidencePackageV2Schema.optional(),
-  
+  breach_validation: breachValidationReportV2Schema.optional(),
+
   // Metadata
   metadata: z.object({
     evaluationIds: z.array(z.string()),

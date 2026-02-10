@@ -41,7 +41,7 @@ const generateReportV2Schema = z.object({
     from: z.string(),
     to: z.string(),
   }).optional(),
-  reportTypes: z.array(z.enum(["executive", "technical", "compliance", "evidence"])).min(1),
+  reportTypes: z.array(z.enum(["executive", "technical", "compliance", "evidence", "breach_validation"])).min(1),
   reportVersion: z.literal("v2_narrative"),
   organizationId: z.string().optional(),
   customerContext: z.object({
@@ -51,6 +51,8 @@ const generateReportV2Schema = z.object({
     riskTolerance: z.enum(["low", "medium", "high"]).optional(),
   }).optional(),
   engagementMetadata: engagementMetadataRequestSchema,
+  // Breach chain ID for breach_validation report type
+  breachChainId: z.string().optional(),
 });
 
 const regenerateReportV2Schema = z.object({
@@ -61,7 +63,7 @@ const regenerateReportV2Schema = z.object({
     riskTolerance: z.enum(["low", "medium", "high"]).optional(),
   }).optional(),
   focusAreas: z.array(z.string()).optional(),
-  reportTypes: z.array(z.enum(["executive", "technical", "compliance", "evidence"])).optional(),
+  reportTypes: z.array(z.enum(["executive", "technical", "compliance", "evidence", "breach_validation"])).optional(),
 });
 
 /**
@@ -106,7 +108,7 @@ export function registerReportV2Routes(app: Express): void {
         });
       }
       
-      const { evaluationId, evaluationIds, dateRange, reportTypes, customerContext } = parsed.data;
+      const { evaluationId, evaluationIds, dateRange, reportTypes, customerContext, breachChainId } = parsed.data;
       
       // Determine scope and get evaluations
       let evaluationsWithResults: Array<{ evaluation: any; result: any }> = [];
@@ -162,8 +164,47 @@ export function registerReportV2Routes(app: Express): void {
             dateRange ? { from: new Date(dateRange.from), to: new Date(dateRange.to) } : undefined
           );
       
+      // Compute Breach Realization Score if breach_validation report requested
+      let breachScoreJson: string | undefined;
+      if (reportTypes.includes("breach_validation")) {
+        const { computeBreachRealizationScore } = await import("../../services/report-logic");
+
+        // Build evaluation/result maps for BRS computation
+        const evalDataForBRS = evaluationsWithResults.map(er => ({
+          id: er.evaluation.id,
+          assetId: er.evaluation.assetId,
+          exposureType: er.evaluation.exposureType,
+          priority: er.evaluation.priority,
+          description: er.evaluation.description || "",
+        }));
+        const resultMapForBRS = new Map<string, any>();
+        evaluationsWithResults.forEach(er => {
+          if (er.result) resultMapForBRS.set(er.evaluation.id, er.result);
+        });
+
+        // Load breach chain data if provided
+        let breachChainData: any;
+        if (breachChainId) {
+          const chain = await storage.getBreachChain(breachChainId);
+          if (chain) {
+            breachChainData = {
+              domainsBreached: Array.isArray(chain.domainsBreached) ? chain.domainsBreached.length : 0,
+              totalDomains: 6,
+              maxPrivilegeAchieved: chain.maxPrivilegeAchieved || "",
+              totalAssetsCompromised: chain.totalAssetsCompromised || 0,
+              totalCredentialsHarvested: chain.totalCredentialsHarvested || 0,
+              durationMs: chain.durationMs || undefined,
+              phaseResults: Array.isArray(chain.phaseResults) ? chain.phaseResults : [],
+            };
+          }
+        }
+
+        const brs = computeBreachRealizationScore(evalDataForBRS, resultMapForBRS, breachChainData);
+        breachScoreJson = JSON.stringify(brs, null, 2);
+      }
+
       // Generate report
-      const reportResult = await generateFullReport(inputPayload, reportTypes);
+      const reportResult = await generateFullReport(inputPayload, reportTypes, {}, breachScoreJson);
       
       if (!reportResult.success || !reportResult.report) {
         // Fallback to V1 if V2 generation fails
@@ -214,7 +255,8 @@ export function registerReportV2Routes(app: Express): void {
       if (reportResult.report.technical) sectionsGenerated.push("technical");
       if (reportResult.report.compliance) sectionsGenerated.push("compliance");
       if (reportResult.report.evidence) sectionsGenerated.push("evidence");
-      
+      if (reportResult.report.breach_validation) sectionsGenerated.push("breach_validation");
+
       await storage.createReport({
         id: reportId,
         organizationId,
@@ -374,7 +416,8 @@ export function registerReportV2Routes(app: Express): void {
       if (reportResult.report.technical) sectionsGenerated.push("technical");
       if (reportResult.report.compliance) sectionsGenerated.push("compliance");
       if (reportResult.report.evidence) sectionsGenerated.push("evidence");
-      
+      if (reportResult.report.breach_validation) sectionsGenerated.push("breach_validation");
+
       await storage.createReport({
         id: newReportId,
         organizationId: originalReport.organizationId,
