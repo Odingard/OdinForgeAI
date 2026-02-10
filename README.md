@@ -8,11 +8,12 @@ OdinForge AI is an enterprise-grade security platform for autonomous exploit val
 
 ### Core Platform
 - **AI-Powered Exploit Validation** — Multi-agent AI pipeline (recon, exploit, policy guardian, lateral movement, debate, impact) autonomously validates security exposures
+- **Active Exploit Engine** — Real HTTP payload validation that sends actual exploit payloads against targets (SQLi, XSS, SSRF, path traversal, auth bypass, command injection, IDOR) and analyzes real responses — not just AI simulation
 - **Attack Path Visualization** — MITRE ATT&CK mapped attack graphs with interactive kill chain analysis across 14 tactics
-- **Purple Team Simulations** — AI vs AI attack/defense exercises with iterative adversarial learning
+- **Purple Team Simulations** — AI vs AI attack/defense exercises with iterative adversarial learning, real-time MTTD/MTTR metrics, and SIEM-observed detection data
 - **Endpoint Agents** — Cross-platform Go agents for real-time telemetry, vulnerability scanning, and auto-evaluation triggers
 - **Full Assessment Mode** — Multi-phase penetration testing with web app recon, API scanning, auth testing, exploit validation, and remediation verification
-- **Executive Reporting** — Professional pentest-quality PDF/CSV reports with business impact analysis, compliance mapping, and remediation guidance
+- **Executive Reporting** — Professional pentest-quality PDF/CSV reports with business impact analysis, compliance mapping, and remediation guidance including breach chain analysis reports
 
 ### Cross-Domain Breach Orchestrator
 The competitive differentiator. Chains evaluations across security domains with context propagation between phases:
@@ -29,6 +30,21 @@ The competitive differentiator. Chains evaluations across security domains with 
 Each phase passes a `BreachPhaseContext` (credentials, compromised assets, privilege level, attack path steps) to the next. Phase gates ensure logical progression — no cloud escalation without credentials, no K8s breakout without cloud access.
 
 Features: pause/resume/abort, real-time WebSocket progress, unified cross-domain attack graph, per-phase timeout controls, crash recovery via DB persistence.
+
+### Breach Chains UI
+Full-featured monitoring interface for cross-domain breach chains:
+- **Chain Creation** — Create breach chains with target URL, asset selection, per-phase toggles, execution mode (sequential/opportunistic), and pause-on-critical configuration
+- **Real-Time Monitoring** — Live WebSocket-driven progress updates with phase timeline visualization and auto-refreshing status cards
+- **Detail View** — 4-tab interface: Overview (metrics + phase timeline), Phase Results (expandable per-phase findings with severity badges), Breach Context (harvested credentials, compromised assets, attack path steps), and Executive Summary
+- **Platform Integration** — Breach chain metrics surface across the Dashboard (stat card with active chain glow), Risk Dashboard (consolidated risk strip), Jobs queue (breach_chain job type filter), and Reports (breach chain analysis report type)
+
+### Active Exploit Engine
+Real HTTP-based exploit validation that goes beyond AI simulation:
+- **Payload Categories** — SQL injection (error-based, union, blind), XSS (reflected, stored, DOM), SSRF (internal network probing), path traversal, authentication bypass, command injection, IDOR
+- **Response Analysis** — Analyzes actual HTTP responses for exploit indicators (error patterns, reflection detection, timing analysis, status code anomalies)
+- **Confidence Scoring** — Multi-signal confidence scoring based on response characteristics, not just AI judgment
+- **Safety Controls** — Respects scope boundaries, rate limits exploit attempts, integrates with Policy Guardian for out-of-scope blocking
+- **Evidence Collection** — Captures full request/response pairs as evidence artifacts for audit and reporting
 
 ### Cloud & Infrastructure Security
 - **AWS IAM Privilege Escalation** — 10 real escalation path analyses (CreatePolicyVersion, AssumeRole, PassRole, etc.)
@@ -100,9 +116,10 @@ Agents auto-register, begin telemetry collection, and trigger evaluations based 
 │  ├─ Dashboard & Risk Analytics       │  ├─ REST API (200+ endpoints) │
 │  ├─ Evaluation Wizard                │  ├─ WebSocket Real-time Events│
 │  ├─ Attack Graph Visualization       │  ├─ AI Agent Pipeline (8 agents)
-│  ├─ Breach Chain Monitor             │  ├─ Breach Orchestrator       │
+│  ├─ Breach Chain Monitor (Live WS)   │  ├─ Breach Orchestrator       │
+│  ├─ Purple Team Simulations          │  ├─ Active Exploit Engine     │
 │  ├─ Cloud/K8s Security Views         │  ├─ Report Generator (PDF/CSV)│
-│  └─ Executive Reports & Exports      │  └─ Job Queue (13 job types)  │
+│  └─ Executive Reports & Exports      │  └─ Job Queue (14 job types)  │
 ├──────────────────────────────────────────────────────────────────────┤
 │  PostgreSQL + pgvector               │  OpenAI Integration           │
 │  ├─ 50+ tables with RLS             │  ├─ GPT-4 Multi-Agent Analysis│
@@ -119,8 +136,9 @@ Agents auto-register, begin telemetry collection, and trigger evaluations based 
 │                     Security Services                                │
 │  ├─ AWS IAM Privilege Escalation     ├─ Kubernetes RBAC Analysis     │
 │  ├─ Lateral Movement Engine          ├─ Cloud Asset Discovery        │
-│  ├─ Policy Guardian (RAG)            ├─ Safety Framework (HITL)      │
-│  └─ Breach Chain Orchestrator        └─ Multi-Tenant RLS             │
+│  ├─ Active Exploit Engine (HTTP)     ├─ Safety Framework (HITL)      │
+│  ├─ Policy Guardian (RAG)            ├─ Multi-Tenant RLS             │
+│  └─ Breach Chain Orchestrator        └─ MTTD/MTTR Metrics Engine     │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -156,6 +174,13 @@ Agents auto-register, begin telemetry collection, and trigger evaluations based 
 | GET | `/api/aev/evaluations` | List evaluations |
 | POST | `/api/full-assessments` | Launch multi-phase assessment |
 | GET | `/api/full-assessments/:id` | Get assessment with attack graph |
+
+### Purple Team Simulations
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/simulations` | Launch AI vs AI purple team simulation |
+| GET | `/api/simulations` | List simulations with MTTD/MTTR metrics |
+| GET | `/api/simulations/:id` | Get simulation with round-by-round results |
 
 ### Agents & Telemetry
 | Method | Endpoint | Description |
