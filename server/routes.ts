@@ -47,6 +47,7 @@ import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases
 import { fullRecon, reconToExposures, type ReconResult } from "./services/external-recon";
 import { runFullAssessment } from "./services/full-assessment";
 import { runBreachChain, resumeBreachChain, abortBreachChain } from "./services/breach-orchestrator";
+import { runActiveExploitEngine, type ActiveExploitTarget } from "./services/active-exploit-engine";
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
@@ -6703,6 +6704,76 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Delete breach chain error:", error);
       res.status(500).json({ error: "Failed to delete breach chain" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Active Exploit Engine (standalone endpoint)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  app.post("/api/active-exploit", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { baseUrl, assetId, scope, authentication, timeout, maxRequests, crawlDepth } = req.body;
+
+      if (!baseUrl || !assetId) {
+        return res.status(400).json({ error: "baseUrl and assetId are required" });
+      }
+
+      const target: ActiveExploitTarget = {
+        baseUrl,
+        assetId,
+        scope: {
+          exposureTypes: scope?.exposureTypes || ["sqli", "xss", "ssrf", "auth_bypass", "idor", "path_traversal", "command_injection", "jwt_abuse", "api_abuse", "business_logic"],
+          excludePaths: scope?.excludePaths,
+          maxEndpoints: scope?.maxEndpoints || 200,
+        },
+        authentication,
+        timeout: timeout || 10000,
+        maxRequests: maxRequests || 500,
+        crawlDepth: crawlDepth || 3,
+      };
+
+      // Stream progress via WebSocket
+      const orgId = req.uiUser?.organizationId || "default";
+
+      const result = await runActiveExploitEngine(target, (phase, progress, detail) => {
+        wsService.broadcastToChannel(`active_exploit:${assetId}`, {
+          type: "active_exploit_progress",
+          assetId,
+          phase,
+          progress,
+          detail,
+          timestamp: new Date().toISOString(),
+        });
+      });
+
+      res.json({
+        success: true,
+        summary: result.summary,
+        validated: result.validated.length,
+        credentials: result.credentials.length,
+        attackPaths: result.attackPaths.length,
+        duration: result.durationMs,
+        crawl: {
+          endpoints: result.crawl.totalDiscovered,
+          technologies: result.crawl.technologies,
+          apiSpecFound: result.crawl.apiSpecFound,
+        },
+        // Include validated findings detail
+        findings: result.validated.map(v => ({
+          type: v.payload.type,
+          name: v.payload.name,
+          severity: v.payload.severity,
+          endpoint: v.endpoint.url,
+          parameter: v.payload.parameter,
+          confidence: v.confidence,
+          evidence: v.evidence.description,
+          curlCommand: v.evidence.curlCommand,
+        })),
+      });
+    } catch (error: any) {
+      console.error("Active exploit engine error:", error);
+      res.status(500).json({ error: error.message || "Active exploitation failed" });
     }
   });
 

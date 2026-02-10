@@ -24,6 +24,13 @@ import type {
 } from "@shared/schema";
 import { runAgentOrchestrator } from "./agents/orchestrator";
 import type { OrchestratorResult } from "./agents/types";
+import {
+  runActiveExploitEngine,
+  mapToBreachPhaseContext,
+  type ActiveExploitTarget,
+  type ActiveExploitResult,
+  type ExposureType,
+} from "./active-exploit-engine";
 import { awsPentestService } from "./cloud-pentest/aws-pentest-service";
 import { kubernetesPentestService } from "./container-security/kubernetes-pentest-service";
 import { lateralMovementService } from "./lateral-movement";
@@ -329,18 +336,127 @@ async function executeApplicationCompromise(
   const evaluationIds: string[] = [];
   const newCredentials: BreachCredential[] = [];
   const newAssets: CompromisedAsset[] = [];
-  const exposureTypes = ["app_logic", "cve", "api_sequence_abuse"];
 
   for (const assetId of chain.assetIds as string[]) {
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 1A: Run Active Exploit Engine against the live target
+    // ─────────────────────────────────────────────────────────────────
+    let activeExploitResult: ActiveExploitResult | null = null;
+
+    try {
+      const targetUrl = await resolveAssetUrl(assetId);
+
+      if (targetUrl) {
+        onProgress(chain.id, "application_compromise", 5,
+          `Running active exploitation against ${targetUrl}`);
+
+        const exploitTarget: ActiveExploitTarget = {
+          baseUrl: targetUrl,
+          assetId,
+          scope: {
+            exposureTypes: [
+              "sqli", "xss", "ssrf", "auth_bypass", "idor",
+              "path_traversal", "command_injection", "jwt_abuse",
+              "api_abuse", "business_logic",
+            ] as ExposureType[],
+            excludePaths: ["\\.pdf$", "\\.png$", "\\.jpg$", "\\.css$", "\\.js$"],
+            maxEndpoints: 200,
+          },
+          timeout: 10000,
+          maxRequests: 500,
+          crawlDepth: 3,
+        };
+
+        activeExploitResult = await runActiveExploitEngine(
+          exploitTarget,
+          (phase, progress, detail) => {
+            onProgress(chain.id, "application_compromise",
+              5 + Math.round(Math.max(0, progress) * 0.4), // scale to 5-45% of phase
+              `[Active Exploit] ${detail}`);
+          }
+        );
+
+        // Map active results into breach phase format
+        const mapped = mapToBreachPhaseContext(activeExploitResult);
+
+        // Merge validated credentials (REAL, not heuristic)
+        for (const cred of mapped.credentials) {
+          newCredentials.push({
+            id: `bc-${randomUUID().slice(0, 8)}`,
+            type: cred.type as BreachCredential["type"],
+            valueHash: cred.hash,
+            source: "active_exploit_engine",
+            accessLevel: cred.accessLevel === "admin" ? "admin" : "user",
+            validatedTargets: [targetUrl],
+            discoveredAt: new Date().toISOString(),
+          });
+        }
+
+        // Merge compromised assets
+        for (const asset of mapped.compromisedAssets) {
+          // Dedup by assetId
+          if (!newAssets.find(a => a.assetId === asset.assetId)) {
+            newAssets.push({
+              id: `ca-${randomUUID().slice(0, 8)}`,
+              assetId: asset.assetId,
+              assetType: "application",
+              name: asset.assetId,
+              accessLevel: asset.accessLevel === "admin" ? "admin" : "user",
+              compromisedBy: "application_compromise",
+              accessMethod: asset.exploitUsed,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+
+        // Store validated findings with [VALIDATED] prefix
+        for (const finding of mapped.findings) {
+          findings.push({
+            id: `bf-${randomUUID().slice(0, 8)}`,
+            severity: finding.severity as "critical" | "high" | "medium" | "low",
+            title: finding.title,
+            description: finding.description,
+            technique: finding.exploitChain,
+          });
+        }
+
+        console.log(`[BreachOrchestrator] Active Exploit Results for ${assetId}:`, {
+          endpoints: activeExploitResult.summary.totalEndpoints,
+          attempts: activeExploitResult.summary.totalAttempts,
+          validated: activeExploitResult.summary.totalValidated,
+          credentials: activeExploitResult.summary.totalCredentials,
+          attackPaths: activeExploitResult.summary.attackPathsFound,
+          duration: `${activeExploitResult.durationMs}ms`,
+        });
+      }
+    } catch (err: any) {
+      console.warn(`[BreachOrchestrator] Active exploit engine error for ${assetId}:`, err.message);
+      // Fall through to AI pipeline — active exploits are additive, not blocking
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 1B: Run AI Agent Pipeline (existing, now enhanced with
+    //           active exploit evidence for context)
+    // ─────────────────────────────────────────────────────────────────
+    onProgress(chain.id, "application_compromise", 50,
+      `Running AI analysis pipeline for ${assetId}`);
+
+    const exposureTypes = ["app_logic", "cve", "api_sequence_abuse"];
+
     for (const exposureType of exposureTypes) {
       const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
+
+      // Build description with active exploit context if available
+      const activeContext = activeExploitResult
+        ? ` Active exploitation found ${activeExploitResult.summary.totalValidated} confirmed vulnerabilities and ${activeExploitResult.summary.totalCredentials} credentials.`
+        : "";
 
       try {
         await storage.createEvaluation({
           assetId,
           exposureType,
           priority: "high",
-          description: `Breach chain ${chain.id}: Application Compromise (${exposureType})`,
+          description: `Breach chain ${chain.id}: Application Compromise (${exposureType}).${activeContext}`,
           organizationId: chain.organizationId,
           executionMode: config.executionMode,
           status: "pending",
@@ -350,10 +466,12 @@ async function executeApplicationCompromise(
           assetId,
           exposureType,
           "high",
-          `Breach chain ${chain.id}: Application Compromise phase targeting ${assetId}`,
+          `Breach chain ${chain.id}: Application Compromise phase targeting ${assetId}.${activeContext}`,
           evaluationId,
           (agentName, stage, progress, message) => {
-            onProgress(chain.id, "application_compromise", progress, `[${agentName}] ${message}`);
+            onProgress(chain.id, "application_compromise",
+              50 + Math.round(progress * 0.4), // scale to 50-90% of phase
+              `[AI Pipeline] [${agentName}] ${message}`);
           },
           {
             adversaryProfile: config.adversaryProfile as any,
@@ -388,20 +506,29 @@ async function executeApplicationCompromise(
             });
           }
 
-          newAssets.push({
-            id: `ca-${randomUUID().slice(0, 8)}`,
-            assetId,
-            assetType: "application",
-            name: assetId,
-            accessLevel: result.score >= 80 ? "admin" : result.score >= 50 ? "user" : "limited",
-            compromisedBy: "application_compromise",
-            accessMethod: exposureType,
-            timestamp: new Date().toISOString(),
-          });
+          // Only add asset if not already found by active engine
+          if (!newAssets.find(a => a.assetId === assetId)) {
+            newAssets.push({
+              id: `ca-${randomUUID().slice(0, 8)}`,
+              assetId,
+              assetType: "application",
+              name: assetId,
+              accessLevel: result.score >= 80 ? "admin" : result.score >= 50 ? "user" : "limited",
+              compromisedBy: "application_compromise",
+              accessMethod: exposureType,
+              timestamp: new Date().toISOString(),
+            });
+          }
         }
 
-        // Extract credential hints from findings
-        newCredentials.push(...extractCredentialsFromFindings(result, "application_compromise"));
+        // Extract credential hints from AI findings (heuristic)
+        // Only add if not already found by active engine (dedup by hash)
+        const aiCredentials = extractCredentialsFromFindings(result, "application_compromise");
+        for (const cred of aiCredentials) {
+          if (!newCredentials.find(c => c.valueHash === cred.valueHash)) {
+            newCredentials.push(cred);
+          }
+        }
       } catch (error) {
         console.error(`[BreachOrchestrator] App compromise failed for ${assetId}/${exposureType}:`, error);
       }
@@ -415,6 +542,53 @@ async function executeApplicationCompromise(
     evaluationIds,
     domain: "application",
   });
+}
+
+/**
+ * Resolve an asset ID to a target URL for active exploitation.
+ * Looks up the asset from the discovered_assets table and constructs
+ * a URL from hostname/fqdn/ipAddresses + open ports.
+ */
+async function resolveAssetUrl(assetId: string): Promise<string | null> {
+  try {
+    // Try discovered asset lookup
+    const asset = await storage.getDiscoveredAsset(assetId);
+    if (asset) {
+      const host = asset.fqdn || asset.hostname || (asset.ipAddresses as string[])?.[0];
+      if (!host) return null;
+
+      // Find the best port — prefer 443 (HTTPS), then 8443, then 80, then first open port
+      const ports = (asset.openPorts as Array<{ port: number; protocol: string; service?: string }>) || [];
+      const httpsPort = ports.find(p => p.port === 443 || p.service?.includes("https"));
+      const httpPort = ports.find(p => p.port === 80 || p.port === 8080 || p.service?.includes("http"));
+      const webPort = httpsPort || httpPort || ports[0];
+
+      if (webPort) {
+        const scheme = webPort.port === 443 || webPort.service?.includes("https") ? "https" : "http";
+        const portSuffix = (scheme === "https" && webPort.port === 443) || (scheme === "http" && webPort.port === 80)
+          ? "" : `:${webPort.port}`;
+        return `${scheme}://${host}${portSuffix}`;
+      }
+
+      // No port info — try HTTPS then HTTP
+      return `https://${host}`;
+    }
+
+    // If assetId looks like a URL already, use it directly
+    if (assetId.startsWith("http://") || assetId.startsWith("https://")) {
+      return assetId;
+    }
+
+    // If assetId looks like a hostname/FQDN, wrap it
+    if (assetId.includes(".") && !assetId.includes(" ")) {
+      return `https://${assetId}`;
+    }
+
+    return null;
+  } catch (error) {
+    console.warn(`[BreachOrchestrator] Failed to resolve asset URL for ${assetId}:`, error);
+    return null;
+  }
 }
 
 // ============================================================================
@@ -431,6 +605,16 @@ async function executeCredentialExtraction(
   const findings: BreachPhaseResult["findings"] = [];
   const evaluationIds: string[] = [];
   const newCredentials: BreachCredential[] = [];
+
+  // Check if active exploitation already provided real credentials
+  const activeCredentials = context.credentials.filter(c =>
+    c.source === "active_exploit_engine" || c.source?.includes("active_exploit")
+  );
+
+  if (activeCredentials.length > 0) {
+    onProgress(chain.id, "credential_extraction", 25,
+      `${activeCredentials.length} credentials already extracted via active exploitation`);
+  }
 
   // For each compromised app, run data_exfiltration to find credentials
   const compromisedAppAssets = context.compromisedAssets.filter(
@@ -1109,6 +1293,8 @@ function extractCredentialsFromFindings(
   phaseName: string
 ): BreachCredential[] {
   const creds: BreachCredential[] = [];
+  // Source tagged as "heuristic" to distinguish from active exploit engine credentials
+  const sourceTag = `heuristic:${phaseName}`;
 
   // Scan exploit chains for credential indicators
   const exploitChains = result.agentFindings?.exploit?.exploitChains || [];
@@ -1121,7 +1307,7 @@ function extractCredentialsFromFindings(
         type: "api_key",
         username: "aws-extracted",
         valueHash: hashValue(`aws-key-${chain.name}`),
-        source: phaseName,
+        source: sourceTag,
         accessLevel: "user",
         validatedTargets: ["aws-api"],
         discoveredAt: new Date().toISOString(),
@@ -1133,7 +1319,7 @@ function extractCredentialsFromFindings(
         id: `bc-${randomUUID().slice(0, 8)}`,
         type: "token",
         valueHash: hashValue(`token-${chain.name}`),
-        source: phaseName,
+        source: sourceTag,
         accessLevel: "user",
         validatedTargets: [],
         discoveredAt: new Date().toISOString(),
@@ -1145,7 +1331,7 @@ function extractCredentialsFromFindings(
         id: `bc-${randomUUID().slice(0, 8)}`,
         type: "password",
         valueHash: hashValue(`password-${chain.name}`),
-        source: phaseName,
+        source: sourceTag,
         accessLevel: "user",
         validatedTargets: [],
         discoveredAt: new Date().toISOString(),
@@ -1157,7 +1343,7 @@ function extractCredentialsFromFindings(
         id: `bc-${randomUUID().slice(0, 8)}`,
         type: "service_account",
         valueHash: hashValue(`sa-${chain.name}`),
-        source: phaseName,
+        source: sourceTag,
         accessLevel: "user",
         validatedTargets: [],
         discoveredAt: new Date().toISOString(),
@@ -1172,7 +1358,7 @@ function extractCredentialsFromFindings(
       id: `bc-${randomUUID().slice(0, 8)}`,
       type: "token",
       valueHash: hashValue(`reuse-${token}`),
-      source: phaseName,
+      source: sourceTag,
       accessLevel: "user",
       validatedTargets: [],
       discoveredAt: new Date().toISOString(),
