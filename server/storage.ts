@@ -173,6 +173,10 @@ import {
   type InsertDefensiveValidation,
   type MetricsHistory,
   type InsertMetricsHistory,
+  // Cross-Domain Breach Chains
+  breachChains,
+  type BreachChain,
+  type InsertBreachChain,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -228,7 +232,14 @@ export interface IStorage {
   getFullAssessments(organizationId?: string): Promise<FullAssessment[]>;
   updateFullAssessment(id: string, updates: Partial<FullAssessment>): Promise<void>;
   deleteFullAssessment(id: string): Promise<void>;
-  
+
+  // Breach Chain operations
+  createBreachChain(data: InsertBreachChain): Promise<BreachChain>;
+  getBreachChain(id: string): Promise<BreachChain | undefined>;
+  getBreachChains(organizationId?: string): Promise<BreachChain[]>;
+  updateBreachChain(id: string, updates: Partial<BreachChain>): Promise<void>;
+  deleteBreachChain(id: string): Promise<void>;
+
   // Live Scan Result operations
   createLiveScanResult(data: InsertLiveScanResult): Promise<LiveScanResult>;
   getLiveScanResult(id: string): Promise<LiveScanResult | undefined>;
@@ -1810,6 +1821,59 @@ export class DatabaseStorage implements IStorage {
 
   async deleteFullAssessment(id: string): Promise<void> {
     await db.delete(fullAssessments).where(eq(fullAssessments.id, id));
+  }
+
+  // Breach Chain operations
+  async createBreachChain(data: InsertBreachChain): Promise<BreachChain> {
+    const id = `bc-${randomUUID().slice(0, 8)}`;
+    const [chain] = await db
+      .insert(breachChains)
+      .values({
+        id,
+        name: data.name,
+        organizationId: data.organizationId ?? "default",
+        description: data.description,
+        assetIds: data.assetIds as string[],
+        targetDomains: (data.targetDomains as string[] | null) ?? null,
+        config: data.config,
+        status: data.status ?? "pending",
+        progress: 0,
+        currentPhase: data.currentPhase ?? null,
+        phaseResults: [],
+        startedAt: new Date(),
+      } as typeof breachChains.$inferInsert)
+      .returning();
+    return chain;
+  }
+
+  async getBreachChain(id: string): Promise<BreachChain | undefined> {
+    const [chain] = await db
+      .select()
+      .from(breachChains)
+      .where(eq(breachChains.id, id));
+    return chain;
+  }
+
+  async getBreachChains(organizationId?: string): Promise<BreachChain[]> {
+    if (organizationId) {
+      return db
+        .select()
+        .from(breachChains)
+        .where(eq(breachChains.organizationId, organizationId))
+        .orderBy(desc(breachChains.createdAt));
+    }
+    return db.select().from(breachChains).orderBy(desc(breachChains.createdAt));
+  }
+
+  async updateBreachChain(id: string, updates: Partial<BreachChain>): Promise<void> {
+    await db
+      .update(breachChains)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(breachChains.id, id));
+  }
+
+  async deleteBreachChain(id: string): Promise<void> {
+    await db.delete(breachChains).where(eq(breachChains.id, id));
   }
 
   async createLiveScanResult(data: InsertLiveScanResult): Promise<LiveScanResult> {
