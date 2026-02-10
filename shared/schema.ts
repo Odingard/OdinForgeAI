@@ -5050,3 +5050,181 @@ export const insertMetricsHistorySchema = createInsertSchema(metricsHistory).omi
 
 export type InsertMetricsHistory = z.infer<typeof insertMetricsHistorySchema>;
 export type MetricsHistory = typeof metricsHistory.$inferSelect;
+
+// ============================================================================
+// CROSS-DOMAIN BREACH CHAINS
+// ============================================================================
+
+export const breachChainStatuses = [
+  "pending",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "aborted",
+] as const;
+export type BreachChainStatus = typeof breachChainStatuses[number];
+
+export const breachPhaseNames = [
+  "application_compromise",
+  "credential_extraction",
+  "cloud_iam_escalation",
+  "container_k8s_breakout",
+  "lateral_movement",
+  "impact_assessment",
+] as const;
+export type BreachPhaseName = typeof breachPhaseNames[number];
+
+export const breachPhaseStatuses = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "skipped",
+  "blocked",
+] as const;
+export type BreachPhaseStatus = typeof breachPhaseStatuses[number];
+
+export interface BreachCredential {
+  id: string;
+  type: "password" | "hash" | "ticket" | "token" | "key" | "api_key" | "iam_role" | "service_account";
+  username?: string;
+  domain?: string;
+  valueHash: string;
+  source: string;
+  accessLevel: "none" | "user" | "admin" | "system" | "cloud_admin";
+  validatedTargets: string[];
+  discoveredAt: string;
+}
+
+export interface CompromisedAsset {
+  id: string;
+  assetId: string;
+  assetType: "application" | "server" | "container" | "cloud_resource" | "iam_principal" | "k8s_pod" | "network_segment";
+  name: string;
+  accessLevel: "none" | "limited" | "user" | "admin" | "system";
+  compromisedBy: string;
+  accessMethod: string;
+  timestamp: string;
+}
+
+export interface BreachPhaseContext {
+  credentials: BreachCredential[];
+  compromisedAssets: CompromisedAsset[];
+  attackPathSteps: Array<{
+    phaseIndex: number;
+    phaseName: string;
+    stepId: string;
+    technique: string;
+    target: string;
+    outcome: string;
+    evidence: string;
+  }>;
+  evidenceArtifacts: Array<{
+    type: string;
+    description: string;
+    hash: string;
+    capturedAt: string;
+    phase: string;
+  }>;
+  currentPrivilegeLevel: "none" | "user" | "admin" | "system" | "cloud_admin" | "domain_admin";
+  domainsCompromised: string[];
+}
+
+export interface BreachPhaseResult {
+  phaseName: BreachPhaseName;
+  status: BreachPhaseStatus;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  inputContext: {
+    credentialCount: number;
+    compromisedAssetCount: number;
+    privilegeLevel: string;
+  };
+  outputContext: BreachPhaseContext;
+  evaluationIds?: string[];
+  findings: Array<{
+    id: string;
+    severity: "critical" | "high" | "medium" | "low";
+    title: string;
+    description: string;
+    technique?: string;
+    mitreId?: string;
+  }>;
+  safetyDecisions?: Array<{
+    decision: "ALLOW" | "DENY" | "MODIFY";
+    action: string;
+    reasoning: string;
+  }>;
+  error?: string;
+}
+
+export interface BreachChainConfig {
+  enabledPhases: BreachPhaseName[];
+  executionMode: "safe" | "simulation" | "live";
+  requireMinConfidence: number;
+  requireCredentialForCloud: boolean;
+  requireCloudAccessForK8s: boolean;
+  adversaryProfile?: string;
+  phaseTimeoutMs: number;
+  totalTimeoutMs: number;
+  pauseOnCritical: boolean;
+}
+
+// Cross-Domain Breach Chain table
+export const breachChains = pgTable("breach_chains", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+
+  // Metadata
+  name: varchar("name").notNull(),
+  description: text("description"),
+
+  // Target scope
+  assetIds: jsonb("asset_ids").$type<string[]>().notNull(),
+  targetDomains: jsonb("target_domains").$type<string[]>(),
+
+  // Configuration
+  config: jsonb("config").$type<BreachChainConfig>().notNull(),
+
+  // Status tracking
+  status: varchar("status").notNull().default("pending"),
+  currentPhase: varchar("current_phase"),
+  progress: integer("progress").notNull().default(0),
+
+  // Phase results (populated incrementally)
+  phaseResults: jsonb("phase_results").$type<BreachPhaseResult[]>().default([]),
+
+  // Cross-domain context (updated after each phase)
+  currentContext: jsonb("current_context").$type<BreachPhaseContext>(),
+
+  // Unified cross-domain attack graph
+  unifiedAttackGraph: jsonb("unified_attack_graph").$type<AttackGraph>(),
+
+  // Summary metrics
+  overallRiskScore: integer("overall_risk_score"),
+  totalCredentialsHarvested: integer("total_credentials_harvested"),
+  totalAssetsCompromised: integer("total_assets_compromised"),
+  domainsBreached: jsonb("domains_breached").$type<string[]>(),
+  maxPrivilegeAchieved: varchar("max_privilege_achieved"),
+  executiveSummary: text("executive_summary"),
+
+  // Timing
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  durationMs: integer("duration_ms"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBreachChainSchema = createInsertSchema(breachChains).omit({
+  id: true,
+  progress: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertBreachChain = z.infer<typeof insertBreachChainSchema>;
+export type BreachChain = typeof breachChains.$inferSelect;

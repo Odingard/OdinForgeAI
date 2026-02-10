@@ -46,6 +46,7 @@ import { calculateDefensivePosture, calculateAttackPredictions } from "./service
 import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases";
 import { fullRecon, reconToExposures, type ReconResult } from "./services/external-recon";
 import { runFullAssessment } from "./services/full-assessment";
+import { runBreachChain, resumeBreachChain, abortBreachChain } from "./services/breach-orchestrator";
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
@@ -6557,6 +6558,151 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Delete full assessment error:", error);
       res.status(500).json({ error: "Failed to delete assessment" });
+    }
+  });
+
+  // ============================================================================
+  // CROSS-DOMAIN BREACH CHAINS
+  // ============================================================================
+
+  app.post("/api/breach-chains", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { name, description, assetIds, targetDomains, config } = req.body;
+
+      if (!name || !assetIds || !Array.isArray(assetIds) || assetIds.length === 0) {
+        return res.status(400).json({ error: "Name and at least one asset ID required" });
+      }
+
+      const defaultConfig = {
+        enabledPhases: [
+          "application_compromise",
+          "credential_extraction",
+          "cloud_iam_escalation",
+          "container_k8s_breakout",
+          "lateral_movement",
+          "impact_assessment",
+        ],
+        executionMode: "safe" as const,
+        requireMinConfidence: 30,
+        requireCredentialForCloud: true,
+        requireCloudAccessForK8s: true,
+        phaseTimeoutMs: config?.timeouts?.perPhaseMs ?? config?.phaseTimeoutMs ?? 300000,
+        totalTimeoutMs: config?.timeouts?.totalMs ?? config?.totalTimeoutMs ?? 1800000,
+        pauseOnCritical: false,
+        ...config,
+      };
+
+      const orgId = req.uiUser?.organizationId || "default";
+
+      const chain = await storage.createBreachChain({
+        name,
+        description: description || null,
+        assetIds,
+        targetDomains: targetDomains || ["application", "cloud", "k8s", "network"],
+        config: defaultConfig,
+        organizationId: orgId,
+        status: "pending",
+        currentPhase: null,
+        phaseResults: [],
+        currentContext: null,
+        unifiedAttackGraph: null,
+        overallRiskScore: null,
+        totalCredentialsHarvested: null,
+        totalAssetsCompromised: null,
+        domainsBreached: null,
+        maxPrivilegeAchieved: null,
+        executiveSummary: null,
+        startedAt: null,
+        completedAt: null,
+        durationMs: null,
+      });
+
+      // Fire and forget — breach chain runs in background
+      runBreachChain(chain.id).catch(error => {
+        console.error(`[BreachChain] Chain ${chain.id} failed:`, error);
+      });
+
+      res.json({
+        chainId: chain.id,
+        message: "Breach chain initiated",
+        phases: defaultConfig.enabledPhases,
+      });
+    } catch (error) {
+      console.error("Create breach chain error:", error);
+      res.status(500).json({ error: "Failed to create breach chain" });
+    }
+  });
+
+  app.get("/api/breach-chains", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const orgId = (req.query.organizationId as string) || req.uiUser?.organizationId;
+      const chains = await storage.getBreachChains(orgId);
+      res.json(chains);
+    } catch (error) {
+      console.error("Get breach chains error:", error);
+      res.status(500).json({ error: "Failed to fetch breach chains" });
+    }
+  });
+
+  app.get("/api/breach-chains/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      res.json(chain);
+    } catch (error) {
+      console.error("Get breach chain error:", error);
+      res.status(500).json({ error: "Failed to fetch breach chain" });
+    }
+  });
+
+  app.post("/api/breach-chains/:id/resume", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (chain.status !== "paused") {
+        return res.status(400).json({ error: `Cannot resume chain in ${chain.status} state` });
+      }
+
+      resumeBreachChain(chain.id).catch(error => {
+        console.error(`[BreachChain] Resume ${chain.id} failed:`, error);
+      });
+
+      res.json({ message: "Breach chain resumed", chainId: chain.id });
+    } catch (error) {
+      console.error("Resume breach chain error:", error);
+      res.status(500).json({ error: "Failed to resume breach chain" });
+    }
+  });
+
+  app.post("/api/breach-chains/:id/abort", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (chain.status !== "running" && chain.status !== "paused") {
+        return res.status(400).json({ error: `Cannot abort chain in ${chain.status} state` });
+      }
+
+      await abortBreachChain(chain.id);
+      res.json({ message: "Breach chain aborted", chainId: chain.id });
+    } catch (error) {
+      console.error("Abort breach chain error:", error);
+      res.status(500).json({ error: "Failed to abort breach chain" });
+    }
+  });
+
+  app.delete("/api/breach-chains/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (chain.status === "running") {
+        return res.status(400).json({ error: "Cannot delete a running breach chain — abort it first" });
+      }
+
+      await storage.deleteBreachChain(req.params.id);
+      res.json({ success: true, message: "Breach chain deleted" });
+    } catch (error) {
+      console.error("Delete breach chain error:", error);
+      res.status(500).json({ error: "Failed to delete breach chain" });
     }
   });
 
