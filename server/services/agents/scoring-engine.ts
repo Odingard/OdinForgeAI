@@ -238,7 +238,7 @@ export async function generateIntelligentScore(
   }
 }
 
-function generateFallbackScore(context: ScoringContext): IntelligentScore {
+export function generateFallbackScore(context: ScoringContext): IntelligentScore {
   const criticalCount = [
     ...(context.attackPath?.filter((s) => s.severity === "critical") || []),
     ...(context.businessLogicFindings?.filter((f) => f.severity === "critical") || []),

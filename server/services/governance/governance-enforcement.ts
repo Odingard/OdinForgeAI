@@ -159,6 +159,7 @@ export class GovernanceEnforcementService {
       "api_scan": "payloadInjection",
       "auth_scan": "credentialTesting",
       "full_assessment": "payloadInjection",
+      "breach_chain": "exploitExecution",
     };
     
     const executionOperation = operationMapping[request.operation] || "versionDetection";

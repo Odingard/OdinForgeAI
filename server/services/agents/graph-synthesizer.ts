@@ -338,7 +338,7 @@ function calculateTimeToCompromise(edges: AttackEdge[]): { minimum: number; expe
   }
 }
 
-function createFallbackGraph(memory: AgentMemory): AttackGraph {
+export function createFallbackGraph(memory: AgentMemory): AttackGraph {
   const entryNode: AttackNode = {
     id: "node-entry",
     label: "Initial Access Point",

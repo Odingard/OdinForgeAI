@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { endpointAgents, aevEvaluations } from "@shared/schema";
 import { sql, and, eq } from "drizzle-orm";
-import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks, getPermissionsForDbRole, exposureTypes } from "@shared/schema";
+import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks, getPermissionsForDbRole, exposureTypes, type BreachPhaseResult, type BreachPhaseContext } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
 import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
@@ -6574,6 +6574,24 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Name and at least one asset ID required" });
       }
 
+      const orgId = req.uiUser?.organizationId || "default";
+
+      // Governance check — enforce kill switch, scope rules, and execution mode
+      const { governanceEnforcement } = await import("./services/governance/governance-enforcement");
+      const primaryTarget = assetIds[0];
+      const governanceCheck = await governanceEnforcement.canStartOperation(orgId, "breach_chain", primaryTarget);
+      if (!governanceCheck.canStart) {
+        return res.status(403).json({
+          error: "Breach chain blocked by governance controls",
+          reason: governanceCheck.reason,
+        });
+      }
+
+      // Validate execution mode — only allow safe/simulation/live
+      const requestedMode = config?.executionMode || "safe";
+      const validModes = ["safe", "simulation", "live"];
+      const executionMode = validModes.includes(requestedMode) ? requestedMode : "safe";
+
       const defaultConfig = {
         enabledPhases: [
           "application_compromise",
@@ -6583,7 +6601,7 @@ export async function registerRoutes(
           "lateral_movement",
           "impact_assessment",
         ],
-        executionMode: "safe" as const,
+        executionMode: executionMode as "safe" | "simulation" | "live",
         requireMinConfidence: 30,
         requireCredentialForCloud: true,
         requireCloudAccessForK8s: true,
@@ -6591,9 +6609,8 @@ export async function registerRoutes(
         totalTimeoutMs: config?.timeouts?.totalMs ?? config?.totalTimeoutMs ?? 1800000,
         pauseOnCritical: false,
         ...config,
+        executionMode: executionMode as "safe" | "simulation" | "live",
       };
-
-      const orgId = req.uiUser?.organizationId || "default";
 
       const chain = await storage.createBreachChain({
         name,
@@ -7158,7 +7175,17 @@ async function runEvaluation(evaluationId: string, data: {
   }
 }
 
-// AI vs AI Simulation runner
+// Phase display name lookup for simulation results
+const PHASE_DISPLAY_NAMES: Record<string, string> = {
+  application_compromise: "Application Compromise",
+  credential_extraction: "Credential Extraction",
+  cloud_iam_escalation: "Cloud IAM Escalation",
+  container_k8s_breakout: "Container/K8s Breakout",
+  lateral_movement: "Lateral Movement",
+  impact_assessment: "Impact Assessment",
+};
+
+// AI vs AI Simulation runner — sources data from real breach chains
 async function runAiSimulation(simulationId: string) {
   try {
     const simulation = await storage.getAiSimulation(simulationId);
@@ -7167,72 +7194,158 @@ async function runAiSimulation(simulationId: string) {
       return;
     }
 
-    await storage.updateAiSimulation(simulationId, { 
+    await storage.updateAiSimulation(simulationId, {
       simulationStatus: "running",
       startedAt: new Date(),
     });
-    
-    // Simulate AI vs AI battle with realistic delays
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    // Generate simulation results
-    const attackPath = [
-      "T1190 - Exploit Public-Facing Application",
-      "T1059.001 - PowerShell Execution",
-      "T1003.001 - LSASS Memory Dump",
-      "T1021.002 - SMB/Windows Admin Shares",
-      "T1486 - Data Encrypted for Impact",
-    ];
-    
-    const results = {
-      attackerSuccesses: Math.floor(Math.random() * 5) + 1,
-      defenderBlocks: Math.floor(Math.random() * 8) + 3,
-      timeToDetection: Math.floor(Math.random() * 30) + 5,
-      timeToContainment: Math.floor(Math.random() * 60) + 15,
-      attackPath,
-      detectionPoints: [
-        "Network IDS flagged anomalous traffic",
-        "EDR detected credential dumping",
-        "SIEM correlated lateral movement",
-      ],
-      missedAttacks: [
-        "Initial exploitation went undetected",
-        "Persistence mechanism not flagged",
-      ],
-      recommendations: [
-        "Improve web application firewall rules",
-        "Enable enhanced PowerShell logging",
-        "Deploy deception technology",
-        "Implement network segmentation",
-      ],
+
+    const organizationId = simulation.organizationId || "org-default";
+
+    // Query real breach chain data instead of generating fake results
+    const allChains = await storage.getBreachChains(organizationId);
+    const completedChains = allChains
+      .filter(c => c.status === "completed")
+      .sort((a, b) => {
+        const aTime = a.completedAt ? new Date(a.completedAt as any).getTime() : 0;
+        const bTime = b.completedAt ? new Date(b.completedAt as any).getTime() : 0;
+        return bTime - aTime;
+      });
+    const latestChain = completedChains[0];
+
+    let results: {
+      attackerSuccesses: number;
+      defenderBlocks: number;
+      timeToDetection: number;
+      timeToContainment: number;
+      attackPath: string[];
+      detectionPoints: string[];
+      missedAttacks: string[];
+      recommendations: string[];
     };
-    
+
+    if (latestChain?.phaseResults) {
+      const phaseResults = latestChain.phaseResults as BreachPhaseResult[];
+      const context = latestChain.currentContext as BreachPhaseContext | null;
+
+      const succeededPhases = phaseResults.filter(p => p.status === "completed");
+      const blockedPhases = phaseResults.filter(p =>
+        p.status === "blocked" || p.status === "failed" || p.status === "skipped"
+      );
+
+      // Build attack path from real findings and attack path steps
+      const attackPath: string[] = [];
+      for (const pr of phaseResults) {
+        for (const f of pr.findings) {
+          const label = f.mitreId
+            ? `${f.mitreId} - ${f.title}`
+            : f.technique
+              ? `${f.technique} - ${f.title}`
+              : f.title;
+          if (!attackPath.includes(label)) attackPath.push(label);
+        }
+      }
+      if (context?.attackPathSteps) {
+        for (const step of context.attackPathSteps) {
+          const label = `${step.technique} - ${step.target}`;
+          if (!attackPath.includes(label)) attackPath.push(label);
+        }
+      }
+
+      // Time to detection: sum durations until first blocked phase
+      let timeToDetectionMs = 0;
+      for (const pr of phaseResults) {
+        timeToDetectionMs += pr.durationMs || 0;
+        if (pr.status === "blocked" || pr.status === "failed") break;
+      }
+      const timeToDetection = Math.max(1, Math.round(timeToDetectionMs / 60000));
+
+      // Time to containment: total chain duration
+      const totalDurationMs = latestChain.durationMs ||
+        phaseResults.reduce((sum, p) => sum + (p.durationMs || 0), 0);
+      const timeToContainment = Math.max(timeToDetection + 1, Math.round(totalDurationMs / 60000));
+
+      // Detection points from blocked/failed phases
+      const detectionPoints = blockedPhases.map(p => {
+        const name = PHASE_DISPLAY_NAMES[p.phaseName] || p.phaseName;
+        return `${name}: Attack ${p.status} (${p.findings.length} findings)`;
+      });
+
+      // Missed attacks from fully succeeded phases
+      const missedAttacks = succeededPhases.flatMap(p =>
+        p.findings.map(f => `${f.title} (${f.severity}) - ${f.technique || f.mitreId || "unknown"}`)
+      );
+
+      // Recommendations from chain findings
+      const recommendations: string[] = [];
+      if (latestChain.maxPrivilegeAchieved && latestChain.maxPrivilegeAchieved !== "none") {
+        recommendations.push(
+          `Privilege escalation to ${latestChain.maxPrivilegeAchieved} was achieved — review access controls`
+        );
+      }
+      for (const pr of succeededPhases) {
+        for (const f of pr.findings.filter(f => f.severity === "critical" || f.severity === "high")) {
+          recommendations.push(`Remediate: ${f.title}`);
+        }
+      }
+      if (recommendations.length === 0) {
+        recommendations.push("Review breach chain results for detailed remediation guidance");
+      }
+
+      results = {
+        attackerSuccesses: succeededPhases.length,
+        defenderBlocks: blockedPhases.length,
+        timeToDetection,
+        timeToContainment,
+        attackPath: attackPath.slice(0, 10),
+        detectionPoints: detectionPoints.slice(0, 5),
+        missedAttacks: missedAttacks.slice(0, 5),
+        recommendations: recommendations.slice(0, 6),
+      };
+
+      // Create purple team findings from real breach chain data
+      for (const pr of phaseResults) {
+        for (const f of pr.findings) {
+          const wasBlocked = pr.status === "blocked" || pr.status === "failed";
+          const effectivenessBase = wasBlocked ? 70 : 20;
+          const severityAdjust = f.severity === "critical" ? -10 : f.severity === "high" ? -5 : 0;
+
+          await storage.createPurpleTeamFinding({
+            organizationId,
+            findingType: wasBlocked ? "detection_success" : "detection_gap",
+            offensiveTechnique: f.mitreId || f.technique || pr.phaseName,
+            offensiveDescription: `[Breach Chain: ${latestChain.name || latestChain.id}] ${f.description}`,
+            detectionStatus: wasBlocked ? "detected" : "missed",
+            controlEffectiveness: Math.max(0, Math.min(100, effectivenessBase + severityAdjust)),
+            defensiveRecommendation: `${f.title}: ${f.description}`,
+            implementationPriority: f.severity === "critical" ? "critical"
+              : f.severity === "high" ? "high"
+              : f.severity === "medium" ? "medium" : "low",
+            feedbackStatus: "pending",
+          });
+        }
+      }
+    } else {
+      // No breach chain data — return clearly labeled empty results
+      results = {
+        attackerSuccesses: 0,
+        defenderBlocks: 0,
+        timeToDetection: 0,
+        timeToContainment: 0,
+        attackPath: [],
+        detectionPoints: [],
+        missedAttacks: [],
+        recommendations: [
+          "No breach chain data available. Run a breach chain first to get real simulation results.",
+          "Create a breach chain from the Breach Chains page to generate actionable data.",
+        ],
+      };
+    }
+
     await storage.updateAiSimulation(simulationId, {
       simulationStatus: "completed",
       completedAt: new Date(),
       simulationResults: results,
     });
-
-    // Create Purple Team Findings from simulation results
-    const organizationId = simulation.organizationId || "org-default";
-    
-    // Create findings for each attack technique
-    for (const technique of attackPath) {
-      const wasDetected = results.detectionPoints.length > 0 && Math.random() > 0.4;
-      const controlEffectiveness = wasDetected ? Math.floor(Math.random() * 40) + 50 : Math.floor(Math.random() * 30) + 10;
-      
-      await storage.createPurpleTeamFinding({
-        organizationId,
-        findingType: wasDetected ? "detection_success" : "detection_gap",
-        offensiveTechnique: technique,
-        offensiveDescription: `Attack technique from AI vs AI simulation`,
-        detectionStatus: wasDetected ? "detected" : "missed",
-        controlEffectiveness,
-        defensiveRecommendation: results.recommendations[Math.floor(Math.random() * results.recommendations.length)],
-        implementationPriority: controlEffectiveness < 40 ? "critical" : controlEffectiveness < 60 ? "high" : "medium",
-        feedbackStatus: "pending",
-      });
-    }
   } catch (error) {
     console.error("AI simulation failed:", error);
     await storage.updateAiSimulation(simulationId, {

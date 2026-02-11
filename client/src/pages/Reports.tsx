@@ -34,7 +34,6 @@ import {
   FileType,
   Lock,
   Sparkles,
-  FileCode,
   Link2,
 } from "lucide-react";
 import pdfMake from "pdfmake/build/pdfmake";
@@ -47,11 +46,11 @@ import { DTGRangeDisplay } from "@/components/ui/dtg-display";
 import { formatDTG, formatDTGWithLocal } from "@/lib/utils";
 import { TimeSeriesChart } from "@/components/shared/TimeSeriesChart";
 
-const reportTypes = [
-  { value: "executive_summary", label: "Executive Summary", icon: Briefcase, description: "High-level overview for leadership" },
-  { value: "technical_deep_dive", label: "Technical Deep-Dive", icon: FileText, description: "Detailed findings for engineers" },
-  { value: "compliance_mapping", label: "Compliance Report", icon: Shield, description: "Framework-specific compliance status" },
-  { value: "breach_chain_analysis", label: "Breach Chain Analysis", icon: Link2, description: "Cross-domain breach chain progression and impact" },
+const baseReportTypes = [
+  { value: "executive_summary", label: "Executive Summary", icon: Briefcase, description: "High-level overview for leadership", v2Only: false },
+  { value: "technical_deep_dive", label: "Technical Deep-Dive", icon: FileText, description: "Detailed findings for engineers", v2Only: false },
+  { value: "compliance_mapping", label: "Compliance Report", icon: Shield, description: "Framework-specific compliance status", v2Only: false },
+  { value: "breach_chain_analysis", label: "Breach Chain Analysis", icon: Link2, description: "Cross-domain breach chain progression and impact", v2Only: true },
 ];
 
 const complianceFrameworks = [
@@ -80,25 +79,6 @@ export default function Reports() {
   const canExportReport = hasPermission("reports:export");
   const isExecutiveView = needsSanitizedView();
   
-  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
-  const [selectedType, setSelectedType] = useState<string>("executive_summary");
-  const [selectedFormat, setSelectedFormat] = useState<string>("pdf");
-  const [selectedFramework, setSelectedFramework] = useState<string>("soc2");
-  const [reportVersion, setReportVersion] = useState<"v1_template" | "v2_narrative">("v1_template");
-  const [dateFrom, setDateFrom] = useState<string>(
-    format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd")
-  );
-  const [dateTo, setDateTo] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  const [previewData, setPreviewData] = useState<any>(null);
-  const [isV2Generating, setIsV2Generating] = useState(false);
-  
-  // Engagement metadata state
-  const [clientName, setClientName] = useState<string>("");
-  const [methodology, setMethodology] = useState<string>("OWASP");
-  const [testingApproach, setTestingApproach] = useState<string>("gray_box");
-  const [leadTester, setLeadTester] = useState<string>("");
-  const [showEngagementOptions, setShowEngagementOptions] = useState(false);
-
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["/api/reports"],
   });
@@ -108,6 +88,27 @@ export default function Reports() {
   });
 
   const isV2Enabled = v2FeatureStatus?.enabled ?? false;
+
+  const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [selectedType, setSelectedType] = useState<string>("executive_summary");
+  const [selectedFormat, setSelectedFormat] = useState<string>("pdf");
+  const [selectedFramework, setSelectedFramework] = useState<string>("soc2");
+  // Auto-detect report version: use V2 narrative when available, V1 otherwise
+  const reportVersion = isV2Enabled ? "v2_narrative" : "v1_template";
+  // Only show V2-exclusive report types when V2 is enabled
+  const reportTypes = baseReportTypes.filter(t => !t.v2Only || isV2Enabled);
+  const [dateFrom, setDateFrom] = useState<string>(
+    format(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), "yyyy-MM-dd")
+  );
+  const [dateTo, setDateTo] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [previewData, setPreviewData] = useState<any>(null);
+
+  // Engagement metadata state
+  const [clientName, setClientName] = useState<string>("");
+  const [methodology, setMethodology] = useState<string>("OWASP");
+  const [testingApproach, setTestingApproach] = useState<string>("gray_box");
+  const [leadTester, setLeadTester] = useState<string>("");
+  const [showEngagementOptions, setShowEngagementOptions] = useState(false);
 
   const generateMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -194,18 +195,11 @@ export default function Reports() {
     } : undefined;
     
     if (reportVersion === "v2_narrative") {
-      if (!isV2Enabled) {
-        toast({
-          title: "Feature not available",
-          description: "AI Narrative reports are not enabled for your organization",
-          variant: "destructive",
-        });
-        return;
-      }
       const reportTypesMap: Record<string, string[]> = {
         "executive_summary": ["executive"],
         "technical_deep_dive": ["technical", "evidence"],
         "compliance_mapping": ["compliance"],
+        "breach_chain_analysis": ["breach_validation", "executive"],
       };
       generateV2Mutation.mutate({
         dateRange: { from: dateFrom, to: dateTo },
@@ -217,12 +211,15 @@ export default function Reports() {
         engagementMetadata,
       });
     } else {
+      // V1 only supports these types — map anything else to technical_deep_dive
+      const v1ValidTypes = ["executive_summary", "technical_deep_dive", "compliance_mapping"];
+      const v1Type = v1ValidTypes.includes(selectedType) ? selectedType : "technical_deep_dive";
       generateMutation.mutate({
-        type: selectedType,
+        type: v1Type,
         format: selectedFormat,
         from: dateFrom,
         to: dateTo,
-        framework: selectedType === "compliance_mapping" ? selectedFramework : undefined,
+        framework: v1Type === "compliance_mapping" ? selectedFramework : undefined,
         engagementMetadata,
       });
     }
@@ -1299,56 +1296,17 @@ export default function Reports() {
                 )}
               </div>
 
-              <Separator />
-
-              <div className="space-y-2">
-                <Label>Report Generation Style</Label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Choose between structured templates or AI-generated narrative reports
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Card
-                    className={`cursor-pointer transition-colors hover-elevate ${
-                      reportVersion === "v1_template" ? "border-primary bg-primary/5" : ""
-                    }`}
-                    onClick={() => setReportVersion("v1_template")}
-                    data-testid="card-report-version-v1"
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex flex-col items-center text-center gap-2">
-                        <FileCode className="w-6 h-6 text-muted-foreground" />
-                        <span className="font-medium text-sm">Standard Template</span>
-                        <span className="text-xs text-muted-foreground">
-                          Logic-based structured reports with kill chain and remediation mapping
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card
-                    className={`cursor-pointer transition-colors hover-elevate ${
-                      reportVersion === "v2_narrative" ? "border-primary bg-primary/5" : ""
-                    } ${!isV2Enabled ? "opacity-50 pointer-events-none" : ""}`}
-                    onClick={() => isV2Enabled && setReportVersion("v2_narrative")}
-                    data-testid="card-report-version-v2"
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex flex-col items-center text-center gap-2">
-                        <Sparkles className={`w-6 h-6 ${isV2Enabled ? "text-cyan-400" : "text-muted-foreground"}`} />
-                        <span className="font-medium text-sm">AI Narrative</span>
-                        <div className="flex gap-1">
-                          <Badge variant="secondary" className="text-xs">Beta</Badge>
-                          {!isV2Enabled && <Badge variant="outline" className="text-xs">Disabled</Badge>}
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {isV2Enabled 
-                            ? "Human-grade pentest reports with evidence-anchored narratives"
-                            : "Contact admin to enable AI narrative reports"}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </div>
+              {isV2Enabled && (
+                <>
+                  <Separator />
+                  <div className="flex items-center gap-2 p-3 rounded-md bg-cyan-500/10 border border-cyan-500/20">
+                    <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="text-xs text-muted-foreground">
+                      AI Narrative Engine active — reports use evidence-anchored breach narratives
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsGenerateOpen(false)}>Cancel</Button>
@@ -1360,8 +1318,7 @@ export default function Reports() {
                 {(generateMutation.isPending || generateV2Mutation.isPending) && (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 )}
-                {reportVersion === "v2_narrative" && <Sparkles className="w-4 h-4 mr-2" />}
-                {reportVersion === "v2_narrative" ? "Generate AI Report" : "Generate Report"}
+                Generate Report
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   Activity,
   RefreshCw,
-  ScanSearch,
   Loader2,
   Link2,
 } from "lucide-react";
@@ -254,11 +253,11 @@ export function Dashboard() {
           <Button
             size="sm"
             className="bg-gradient-to-r from-cyan-600 to-blue-600 glow-cyan-sm hover:glow-cyan transition-all"
-            data-testid="button-full-assessment"
-            onClick={() => navigate("/full-assessment")}
+            data-testid="button-start-assessment"
+            onClick={() => navigate("/assess")}
           >
-            <ScanSearch className="h-3.5 w-3.5 mr-2" />
-            Full Assessment
+            <Zap className="h-3.5 w-3.5 mr-2" />
+            New Assessment
           </Button>
         </div>
       </div>

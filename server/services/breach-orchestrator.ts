@@ -23,6 +23,7 @@ import type {
   AttackEdge,
 } from "@shared/schema";
 import { runAgentOrchestrator } from "./agents/orchestrator";
+import { isCircuitOpen } from "./agents/circuit-breaker";
 import type { OrchestratorResult } from "./agents/types";
 import {
   runActiveExploitEngine,
@@ -271,6 +272,11 @@ export async function runBreachChain(
     });
 
     broadcastBreachProgress(chainId, "completed", 100, "Breach chain complete");
+
+    // Auto-generate Purple Team findings from completed breach chain
+    createPurpleTeamFindingsFromChain(chainId, chain.organizationId, phaseResults).catch(err => {
+      console.error(`[BreachOrchestrator] Failed to create purple team findings for chain ${chainId}:`, err);
+    });
   } catch (error) {
     console.error(`[BreachOrchestrator] Chain ${chainId} failed:`, error);
     await storage.updateBreachChain(chainId, {
@@ -298,6 +304,55 @@ export async function resumeBreachChain(chainId: string): Promise<void> {
 export async function abortBreachChain(chainId: string): Promise<void> {
   await storage.updateBreachChain(chainId, { status: "aborted" });
   broadcastBreachProgress(chainId, "aborted", 0, "Breach chain aborted by user");
+}
+
+// ============================================================================
+// PURPLE TEAM AUTO-GENERATION FROM BREACH CHAIN
+// ============================================================================
+
+async function createPurpleTeamFindingsFromChain(
+  chainId: string,
+  organizationId: string,
+  phaseResults: BreachPhaseResult[]
+): Promise<void> {
+  let count = 0;
+
+  for (const pr of phaseResults) {
+    if (pr.status === "pending" || pr.status === "running") continue;
+
+    const detectionStatus: "detected" | "partially_detected" | "missed" =
+      pr.status === "completed" ? "missed"
+      : pr.status === "blocked" || pr.status === "failed" ? "detected"
+      : "partially_detected";
+
+    const effectivenessBase = detectionStatus === "missed" ? 15 : detectionStatus === "detected" ? 75 : 50;
+
+    for (const f of pr.findings) {
+      const severityAdjust = f.severity === "critical" ? -10 : f.severity === "high" ? -5 : 0;
+      const phaseName = PHASE_DEFINITIONS[pr.phaseName]?.displayName || pr.phaseName;
+
+      try {
+        await storage.createPurpleTeamFinding({
+          organizationId,
+          findingType: detectionStatus === "missed" ? "detection_gap" : "detection_success",
+          offensiveTechnique: f.mitreId || f.technique || pr.phaseName,
+          offensiveDescription: `[${phaseName}] ${f.description}`,
+          detectionStatus,
+          controlEffectiveness: Math.max(0, Math.min(100, effectivenessBase + severityAdjust)),
+          implementationPriority: f.severity,
+          defensiveRecommendation: `${f.title}: ${f.description}`,
+          feedbackStatus: "pending",
+        });
+        count++;
+      } catch (err) {
+        console.error(`[BreachOrchestrator] Failed to create purple team finding from chain ${chainId}:`, err);
+      }
+    }
+  }
+
+  if (count > 0) {
+    console.log(`[BreachOrchestrator] Created ${count} purple team findings from chain ${chainId}`);
+  }
 }
 
 // ============================================================================
@@ -450,6 +505,12 @@ async function executeApplicationCompromise(
       const activeContext = activeExploitResult
         ? ` Active exploitation found ${activeExploitResult.summary.totalValidated} confirmed vulnerabilities and ${activeExploitResult.summary.totalCredentials} credentials.`
         : "";
+
+      // Skip AI pipeline if OpenAI circuit is open (provider is down/slow)
+      if (isCircuitOpen("openai")) {
+        console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping AI pipeline for ${assetId}/${exposureType}`);
+        continue;
+      }
 
       try {
         await storage.createEvaluation({
@@ -631,6 +692,12 @@ async function executeCredentialExtraction(
       `Search environment variables, config files, database tables with credential columns.`,
     ].join(" ");
 
+    // Skip AI pipeline if OpenAI circuit is open
+    if (isCircuitOpen("openai")) {
+      console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping credential extraction for ${asset.assetId}`);
+      continue;
+    }
+
     try {
       await storage.createEvaluation({
         assetId: asset.assetId,
@@ -790,6 +857,12 @@ async function executeCloudIAMEscalation(
         `Harvested ${context.credentials.length} credentials from prior phases.`,
         `Compromised assets: ${context.compromisedAssets.map(a => a.name).join(", ")}.`,
       ].join(" ");
+
+      // Skip AI pipeline if OpenAI circuit is open
+      if (isCircuitOpen("openai")) {
+        console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping cloud IAM analysis for ${assetId}/${exposureType}`);
+        continue;
+      }
 
       try {
         await storage.createEvaluation({

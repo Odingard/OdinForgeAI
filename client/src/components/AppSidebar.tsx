@@ -24,6 +24,7 @@ import {
   Radar,
   Calendar,
   Link2,
+  Zap,
 } from "lucide-react";
 import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
@@ -54,8 +55,9 @@ const mainNavItems = [
   { title: "Risk Dashboard", href: "/risk", icon: BarChart3 },
 ];
 
-const analysisItems = [
-  { title: "Full Assessment", href: "/full-assessment", icon: ScanSearch },
+const assessItems = [
+  { title: "New Assessment", href: "/assess", icon: Zap },
+  { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
   { title: "Live Recon", href: "/recon", icon: Globe },
   { title: "Reports", href: "/reports", icon: FileText },
@@ -148,14 +150,14 @@ export function AppSidebar() {
           <SidebarGroup>
             <CollapsibleTrigger asChild>
               <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
-                Analysis
+                Assess
                 <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
               </SidebarGroupLabel>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {analysisItems.map((item) => (
+                  {assessItems.map((item) => (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton asChild isActive={isActive(item.href)}>
                         <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
