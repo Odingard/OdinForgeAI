@@ -34,8 +34,8 @@ import {
   Play,
   Loader2,
 } from "lucide-react";
-import { format } from "date-fns";
 import type { OrganizationGovernance, ScopeRule, AuthorizationLog } from "@shared/schema";
+import { formatDTG } from "@/lib/utils";
 
 const ORG_ID = "default";
 
@@ -363,7 +363,7 @@ export default function Governance() {
                     </div>
                     {governance?.killSwitchActive && governance.killSwitchActivatedBy && (
                       <div className="text-xs text-muted-foreground">
-                        Activated by {governance.killSwitchActivatedBy} at {governance.killSwitchActivatedAt ? format(new Date(governance.killSwitchActivatedAt), "PPpp") : "Unknown"}
+                        Activated by {governance.killSwitchActivatedBy} at {governance.killSwitchActivatedAt ? formatDTG(governance.killSwitchActivatedAt) : "Unknown"}
                       </div>
                     )}
                   </div>
@@ -695,7 +695,7 @@ export default function Governance() {
                     {displayedLogs.map((log) => (
                       <TableRow key={log.id} data-testid={`row-log-${log.id}`}>
                         <TableCell className="font-mono text-xs whitespace-nowrap">
-                          {log.createdAt ? format(new Date(log.createdAt), "MMM d, HH:mm:ss") : "N/A"}
+                          {log.createdAt ? formatDTG(log.createdAt) : "N/A"}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">

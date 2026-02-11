@@ -16,5 +16,8 @@ data/
 *.log
 .local/
 
+# Supabase CLI temp files
+supabase/
+
 # Build artifacts
 *.tsbuildinfo

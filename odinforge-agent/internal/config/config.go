@@ -19,6 +19,8 @@ type Config struct {
         Buffer     BufferCfg    `yaml:"buffer"`
         Transport  TransCfg     `yaml:"transport"`
         Safety     SafetyCfg    `yaml:"safety"`
+        Update     UpdateCfg    `yaml:"update"`
+        Health     HealthCfg    `yaml:"health"`
 }
 
 type ServerConfig struct {
@@ -55,11 +57,23 @@ type TransCfg struct {
         Timeout   time.Duration `yaml:"timeout"`
         BatchSize int           `yaml:"batch_size"`
         Compress  bool          `yaml:"compress"`
+        ProxyURL  string        `yaml:"proxy_url"` // HTTP/HTTPS/SOCKS5 proxy
 }
 
 type SafetyCfg struct {
         RequireHTTPS bool `yaml:"require_https"`
 }
+
+type UpdateCfg struct {
+        Enabled       bool          `yaml:"enabled"`
+        CheckInterval time.Duration `yaml:"check_interval"`
+}
+
+type HealthCfg struct {
+        Enabled bool   `yaml:"enabled"`
+        Port    string `yaml:"port"`
+}
+
 
 func Default() Config {
         return Config{
@@ -86,6 +100,14 @@ func Default() Config {
                 },
                 Safety: SafetyCfg{
                         RequireHTTPS: true,
+                },
+                Update: UpdateCfg{
+                        Enabled:       true,
+                        CheckInterval: 1 * time.Hour,
+                },
+                Health: HealthCfg{
+                        Enabled: true,
+                        Port:    "9090",
                 },
         }
 }
@@ -225,6 +247,27 @@ func applyEnv(cfg *Config) {
         }
         if v := getEnvAny("ODINFORGE_REQUIRE_HTTPS", "REQUIRE_HTTPS"); v != "" {
                 cfg.Safety.RequireHTTPS = (v == "1" || strings.EqualFold(v, "true"))
+        }
+
+        // Proxy
+        if v := getEnvAny("ODINFORGE_PROXY_URL", "PROXY_URL", "HTTPS_PROXY"); v != "" {
+                cfg.Transport.ProxyURL = v
+        }
+
+        // Auto-update
+        if v := getEnvAny("ODINFORGE_UPDATE_ENABLED", "UPDATE_ENABLED"); v != "" {
+                cfg.Update.Enabled = (v == "1" || strings.EqualFold(v, "true"))
+        }
+        if v := getEnvAny("ODINFORGE_UPDATE_INTERVAL", "UPDATE_INTERVAL"); v != "" {
+                cfg.Update.CheckInterval = parseDurationOrSeconds(v, cfg.Update.CheckInterval)
+        }
+
+        // Health endpoint
+        if v := getEnvAny("ODINFORGE_HEALTH_ENABLED", "HEALTH_ENABLED"); v != "" {
+                cfg.Health.Enabled = (v == "1" || strings.EqualFold(v, "true"))
+        }
+        if v := getEnvAny("ODINFORGE_HEALTH_PORT", "HEALTH_PORT"); v != "" {
+                cfg.Health.Port = v
         }
 
         // Container-friendly: disable persistent queue if running stateless

@@ -1,67 +1,75 @@
 package main
 
 import (
-        "context"
-        "flag"
-        "fmt"
-        "log"
-        "os"
-        "os/signal"
-        "syscall"
-        "time"
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-        "odinforge-agent/internal/collector"
-        "odinforge-agent/internal/config"
-        "odinforge-agent/internal/installer"
-        "odinforge-agent/internal/prober"
-        "odinforge-agent/internal/queue"
-        "odinforge-agent/internal/registrar"
-        "odinforge-agent/internal/sender"
-        "odinforge-agent/internal/service"
+	"odinforge-agent/internal/collector"
+	"odinforge-agent/internal/config"
+	"odinforge-agent/internal/healthz"
+	"odinforge-agent/internal/installer"
+	"odinforge-agent/internal/logger"
+	"odinforge-agent/internal/prober"
+	"odinforge-agent/internal/queue"
+	"odinforge-agent/internal/registrar"
+	"odinforge-agent/internal/sender"
+	"odinforge-agent/internal/service"
+	"odinforge-agent/internal/updater"
+	"odinforge-agent/internal/watchdog"
 )
 
-const version = "1.0.3"
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "1.0.4-dev"
+
+var log = logger.WithComponent("main")
 
 func main() {
-        // Check if running as Windows service
-        if service.IsWindowsService() {
-                log.Printf("Detected Windows service mode")
-                if err := service.RunAsService("odinforge-agent", runAgentWithContext); err != nil {
-                        log.Fatalf("Failed to run as Windows service: %v", err)
-                }
-                return
-        }
+	logger.Init(logger.INFO)
 
-        if len(os.Args) < 2 {
-                runAgent()
-                return
-        }
+	// Check if running as Windows service
+	if service.IsWindowsService() {
+		log.Info("detected Windows service mode")
+		if err := service.RunAsService("odinforge-agent", runAgentWithContext); err != nil {
+			log.Error("failed to run as Windows service", "error", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 
-        switch os.Args[1] {
-        case "install":
-                runInstallCommand()
-        case "uninstall":
-                runUninstallCommand()
-        case "status":
-                runStatusCommand()
-        case "version", "--version", "-v":
-                fmt.Printf("odinforge-agent version %s\n", version)
-        case "help", "--help", "-h":
-                printHelp()
-        default:
-                // Check if it starts with a dash (flag), then run agent
-                if len(os.Args[1]) > 0 && os.Args[1][0] == '-' {
-                        runAgent()
-                } else {
-                        fmt.Printf("Unknown command: %s\n", os.Args[1])
-                        printHelp()
-                        os.Exit(1)
-                }
-        }
+	if len(os.Args) < 2 {
+		runAgent()
+		return
+	}
+
+	switch os.Args[1] {
+	case "install":
+		runInstallCommand()
+	case "uninstall":
+		runUninstallCommand()
+	case "status":
+		runStatusCommand()
+	case "version", "--version", "-v":
+		fmt.Printf("odinforge-agent version %s\n", version)
+	case "help", "--help", "-h":
+		printHelp()
+	default:
+		if len(os.Args[1]) > 0 && os.Args[1][0] == '-' {
+			runAgent()
+		} else {
+			fmt.Printf("Unknown command: %s\n", os.Args[1])
+			printHelp()
+			os.Exit(1)
+		}
+	}
 }
 
 func printHelp() {
-        fmt.Println(`OdinForge Security Agent
+	fmt.Println(`OdinForge Security Agent
 
 Usage:
   odinforge-agent [command] [options]
@@ -106,509 +114,571 @@ Examples:
 }
 
 func runInstallCommand() {
-        fs := flag.NewFlagSet("install", flag.ExitOnError)
-        serverURL := fs.String("server-url", "", "OdinForge server URL")
-        apiKey := fs.String("api-key", "", "API key from OdinForge Agents page")
-        registrationToken := fs.String("registration-token", "", "Token for auto-registration")
-        tenantID := fs.String("tenant-id", "default", "Tenant/Organization ID")
-        force := fs.Bool("force", false, "Skip confirmation prompts")
-        dryRun := fs.Bool("dry-run", false, "Show what would be done")
-        fs.Parse(os.Args[2:])
+	fs := flag.NewFlagSet("install", flag.ExitOnError)
+	serverURL := fs.String("server-url", "", "OdinForge server URL")
+	apiKey := fs.String("api-key", "", "API key from OdinForge Agents page")
+	registrationToken := fs.String("registration-token", "", "Token for auto-registration")
+	tenantID := fs.String("tenant-id", "default", "Tenant/Organization ID")
+	force := fs.Bool("force", false, "Skip confirmation prompts")
+	dryRun := fs.Bool("dry-run", false, "Show what would be done")
+	fs.Parse(os.Args[2:])
 
-        opts := installer.CLIOptions{
-                ServerURL:         *serverURL,
-                APIKey:            *apiKey,
-                RegistrationToken: *registrationToken,
-                TenantID:          *tenantID,
-                Force:             *force,
-                DryRun:            *dryRun,
-                Interactive:       *serverURL == "" || (*apiKey == "" && *registrationToken == ""),
-        }
+	opts := installer.CLIOptions{
+		ServerURL:         *serverURL,
+		APIKey:            *apiKey,
+		RegistrationToken: *registrationToken,
+		TenantID:          *tenantID,
+		Force:             *force,
+		DryRun:            *dryRun,
+		Interactive:       *serverURL == "" || (*apiKey == "" && *registrationToken == ""),
+	}
 
-        if err := installer.RunInstall(opts); err != nil {
-                fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-                os.Exit(1)
-        }
+	if err := installer.RunInstall(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runUninstallCommand() {
-        fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-        force := fs.Bool("force", false, "Skip confirmation prompts")
-        fs.Parse(os.Args[2:])
+	fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
+	force := fs.Bool("force", false, "Skip confirmation prompts")
+	fs.Parse(os.Args[2:])
 
-        opts := installer.CLIOptions{
-                Force: *force,
-        }
+	opts := installer.CLIOptions{
+		Force: *force,
+	}
 
-        if err := installer.RunUninstall(opts); err != nil {
-                fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-                os.Exit(1)
-        }
+	if err := installer.RunUninstall(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runStatusCommand() {
-        fs := flag.NewFlagSet("status", flag.ExitOnError)
-        fs.Parse(os.Args[2:])
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	fs.Parse(os.Args[2:])
 
-        opts := installer.CLIOptions{}
+	opts := installer.CLIOptions{}
 
-        if err := installer.RunStatus(opts); err != nil {
-                fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-                os.Exit(1)
-        }
+	if err := installer.RunStatus(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runAgent() {
-        var (
-                cfgPath = flag.String("config", "", "Path to agent YAML config (optional)")
-                once    = flag.Bool("once", false, "Run once (collect + send) then exit")
-        )
-        flag.Parse()
+	var (
+		cfgPath = flag.String("config", "", "Path to agent YAML config (optional)")
+		once    = flag.Bool("once", false, "Run once (collect + send) then exit")
+	)
+	flag.Parse()
 
-        cfg, err := config.Load(*cfgPath)
-        if err != nil {
-                log.Fatalf("config load failed: %v", err)
-        }
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		log.Error("config load failed", "error", err.Error())
+		os.Exit(1)
+	}
 
-        // Basic safety guard: require HTTPS unless explicitly allowed.
-        if cfg.Safety.RequireHTTPS && !config.IsHTTPS(cfg.Server.URL) && !config.IsLocalhost(cfg.Server.URL) {
-                log.Fatalf("refusing to run: server url must be https (got %s)", cfg.Server.URL)
-        }
+	if cfg.Safety.RequireHTTPS && !config.IsHTTPS(cfg.Server.URL) && !config.IsLocalhost(cfg.Server.URL) {
+		log.Error("refusing to run: server url must be https", "url", cfg.Server.URL)
+		os.Exit(1)
+	}
 
-        // Create queue early so we can start the service loop
-        q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
-        if err != nil {
-                log.Fatalf("queue init failed: %v", err)
-        }
-        defer q.Close()
+	q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
+	if err != nil {
+		log.Error("queue init failed", "error", err.Error())
+		os.Exit(1)
+	}
+	defer q.Close()
 
-        ctx, cancel := context.WithCancel(context.Background())
-        defer cancel()
+	stats := watchdog.NewStats()
 
-        // Graceful shutdown
-        sigCh := make(chan os.Signal, 2)
-        signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-        go func() {
-                <-sigCh
-                log.Printf("shutdown signal received")
-                cancel()
-        }()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-        log.Printf("odinforge-agent starting | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+	// Graceful shutdown with timeout
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		log.Info("shutdown signal received, draining...")
+		cancel()
+		// Force exit after 30s if graceful shutdown stalls
+		time.AfterFunc(30*time.Second, func() {
+			log.Error("graceful shutdown timed out, forcing exit")
+			os.Exit(1)
+		})
+	}()
 
-        // Channel to signal when authentication is ready
-        authReady := make(chan bool, 1)
-        var authError error
+	// Start health endpoint
+	if cfg.Health.Enabled {
+		hz := healthz.New(stats, cfg.Health.Port)
+		go hz.Run(ctx)
+	}
 
-        // Run authentication in background to avoid Windows service timeout (error 1053)
-        go func() {
-                if err := registrar.EnsureAPIKey(&cfg); err != nil {
-                        authError = err
-                        log.Printf("authentication setup failed (will retry): %v", err)
-                        authReady <- false
-                        return
-                }
-                log.Printf("authentication setup complete")
-                authReady <- true
-        }()
+	// Start watchdog monitoring
+	go watchdog.Run(ctx, stats)
 
-        // If once, wait for auth then do a single run
-        if *once {
-                <-authReady
-                if authError != nil {
-                        log.Fatalf("authentication setup failed: %v", authError)
-                }
-                c := collector.New(cfg)
-                s, err := sender.New(cfg)
-                if err != nil {
-                        log.Fatalf("sender init failed: %v", err)
-                }
-                if err := runOnce(ctx, c, q, s); err != nil {
-                        log.Fatalf("run-once failed: %v", err)
-                }
-                return
-        }
+	// Start auto-updater
+	if cfg.Update.Enabled {
+		u := updater.New(cfg, version)
+		go u.Run(ctx)
+	}
 
-        // For service mode, continue immediately (don't block on auth)
-        // This prevents Windows error 1053 (service timeout)
+	log.Info("odinforge-agent starting",
+		"version", version,
+		"server", cfg.Server.URL,
+		"tenant", cfg.Auth.TenantID,
+	)
 
-        // Schedulers (with jitter)
-        telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
-        heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
-        commandPollTicker := time.NewTicker(30 * time.Second)
-        flushTicker := time.NewTicker(5 * time.Second)
-        authRetryTicker := time.NewTicker(10 * time.Second)
-        defer telemetryTicker.Stop()
-        defer heartbeatTicker.Stop()
-        defer commandPollTicker.Stop()
-        defer flushTicker.Stop()
-        defer authRetryTicker.Stop()
+	// Channel to signal when authentication is ready
+	authReady := make(chan bool, 1)
+	var authError error
 
-        var c *collector.Collector
-        var s *sender.Sender
-        authenticated := false
+	// Run authentication in background to avoid Windows service timeout (error 1053)
+	go func() {
+		if err := registrar.EnsureAPIKey(&cfg); err != nil {
+			authError = err
+			log.Warn("authentication setup failed (will retry)", "error", err.Error())
+			authReady <- false
+			return
+		}
+		log.Info("authentication setup complete")
+		authReady <- true
+	}()
 
-        for {
-                select {
-                case <-ctx.Done():
-                        log.Printf("exiting main loop")
-                        return
+	// If once, wait for auth then do a single run
+	if *once {
+		<-authReady
+		if authError != nil {
+			log.Error("authentication setup failed", "error", authError.Error())
+			os.Exit(1)
+		}
+		c := collector.New(cfg)
+		s, err := sender.New(cfg)
+		if err != nil {
+			log.Error("sender init failed", "error", err.Error())
+			os.Exit(1)
+		}
+		if err := runOnce(ctx, c, q, s, stats); err != nil {
+			log.Error("run-once failed", "error", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
 
-                case ready := <-authReady:
-                        if ready && !authenticated {
-                                authenticated = true
-                                c = collector.New(cfg)
-                                s, err = sender.New(cfg)
-                                if err != nil {
-                                        log.Printf("sender init failed: %v", err)
-                                        authenticated = false
-                                        continue
-                                }
-                                log.Printf("odinforge-agent fully started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
-                                enqueueTelemetry(ctx, c, q)
-                        }
+	// For service mode, continue immediately (don't block on auth)
+	// This prevents Windows error 1053 (service timeout)
 
-                case <-authRetryTicker.C:
-                        if !authenticated && authError != nil {
-                                log.Printf("retrying authentication...")
-                                authError = nil
-                                go func() {
-                                        if err := registrar.EnsureAPIKey(&cfg); err != nil {
-                                                authError = err
-                                                log.Printf("authentication retry failed: %v", err)
-                                                authReady <- false
-                                                return
-                                        }
-                                        authReady <- true
-                                }()
-                        }
+	// Schedulers
+	telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
+	heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
+	commandPollTicker := time.NewTicker(30 * time.Second)
+	flushTicker := time.NewTicker(5 * time.Second)
+	authRetryTicker := time.NewTicker(10 * time.Second)
+	defer telemetryTicker.Stop()
+	defer heartbeatTicker.Stop()
+	defer commandPollTicker.Stop()
+	defer flushTicker.Stop()
+	defer authRetryTicker.Stop()
 
-                case <-heartbeatTicker.C:
-                        if authenticated && c != nil {
-                                enqueueHeartbeat(c, q)
-                        }
+	var c *collector.Collector
+	var s *sender.Sender
+	authenticated := false
 
-                case <-telemetryTicker.C:
-                        if authenticated && c != nil {
-                                enqueueTelemetry(ctx, c, q)
-                        }
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("exiting main loop")
+			return
 
-                case <-commandPollTicker.C:
-                        if authenticated && s != nil {
-                                pollAndExecuteCommands(ctx, cfg, c, q, s)
-                        }
+		case ready := <-authReady:
+			if ready && !authenticated {
+				authenticated = true
+				c = collector.New(cfg)
+				s, err = sender.New(cfg)
+				if err != nil {
+					log.Error("sender init failed", "error", err.Error())
+					authenticated = false
+					continue
+				}
+				log.Info("odinforge-agent fully started",
+					"server", cfg.Server.URL,
+					"tenant", cfg.Auth.TenantID,
+				)
+				enqueueTelemetry(ctx, c, q, stats)
+			}
 
-                case <-flushTicker.C:
-                        if authenticated && s != nil {
-                                if err := s.Flush(ctx, q); err != nil {
-                                        log.Printf("flush error: %v", err)
-                                }
-                        }
-                }
-        }
+		case <-authRetryTicker.C:
+			if !authenticated && authError != nil {
+				log.Info("retrying authentication")
+				authError = nil
+				go func() {
+					if err := registrar.EnsureAPIKey(&cfg); err != nil {
+						authError = err
+						log.Warn("authentication retry failed", "error", err.Error())
+						authReady <- false
+						return
+					}
+					authReady <- true
+				}()
+			}
+
+		case <-heartbeatTicker.C:
+			if authenticated && c != nil {
+				enqueueHeartbeat(c, q, stats)
+			}
+
+		case <-telemetryTicker.C:
+			if authenticated && c != nil {
+				enqueueTelemetry(ctx, c, q, stats)
+			}
+
+		case <-commandPollTicker.C:
+			if authenticated && s != nil {
+				pollAndExecuteCommands(ctx, cfg, c, q, s, stats)
+			}
+
+		case <-flushTicker.C:
+			if authenticated && s != nil {
+				if err := s.Flush(ctx, q); err != nil {
+					stats.FlushErrors.Add(1)
+					log.Error("flush error", "error", err.Error())
+				} else {
+					stats.LastFlushAt.Store(time.Now().Unix())
+					if d, err := q.Depth(); err == nil {
+						stats.QueueDepth.Store(int64(d))
+					}
+				}
+			}
+		}
+	}
 }
 
 // runAgentWithContext is called when running as a Windows service
 // The context is managed by the Windows service handler
 func runAgentWithContext(ctx context.Context) {
-        cfg, err := config.Load("")
-        if err != nil {
-                log.Printf("config load failed: %v", err)
-                return
-        }
+	cfg, err := config.Load("")
+	if err != nil {
+		log.Error("config load failed", "error", err.Error())
+		return
+	}
 
-        // Basic safety guard: require HTTPS unless explicitly allowed.
-        if cfg.Safety.RequireHTTPS && !config.IsHTTPS(cfg.Server.URL) && !config.IsLocalhost(cfg.Server.URL) {
-                log.Printf("refusing to run: server url must be https (got %s)", cfg.Server.URL)
-                return
-        }
+	if cfg.Safety.RequireHTTPS && !config.IsHTTPS(cfg.Server.URL) && !config.IsLocalhost(cfg.Server.URL) {
+		log.Error("refusing to run: server url must be https", "url", cfg.Server.URL)
+		return
+	}
 
-        // Create queue early so we can start the service loop
-        q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
-        if err != nil {
-                log.Printf("queue init failed: %v", err)
-                return
-        }
-        defer q.Close()
+	q, err := queue.NewBoltQueue(cfg.Buffer.Path, cfg.Buffer.MaxEvents)
+	if err != nil {
+		log.Error("queue init failed", "error", err.Error())
+		return
+	}
+	defer q.Close()
 
-        log.Printf("odinforge-agent starting (Windows service) | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
+	stats := watchdog.NewStats()
 
-        // Channel to signal when authentication is ready
-        authReady := make(chan bool, 1)
-        var authError error
+	// Start health endpoint
+	if cfg.Health.Enabled {
+		hz := healthz.New(stats, cfg.Health.Port)
+		go hz.Run(ctx)
+	}
 
-        // Run authentication in background
-        go func() {
-                if err := registrar.EnsureAPIKey(&cfg); err != nil {
-                        authError = err
-                        log.Printf("authentication setup failed (will retry): %v", err)
-                        authReady <- false
-                        return
-                }
-                log.Printf("authentication setup complete")
-                authReady <- true
-        }()
+	// Start watchdog monitoring
+	go watchdog.Run(ctx, stats)
 
-        // Schedulers
-        telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
-        heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
-        commandPollTicker := time.NewTicker(30 * time.Second)
-        flushTicker := time.NewTicker(5 * time.Second)
-        authRetryTicker := time.NewTicker(10 * time.Second)
-        defer telemetryTicker.Stop()
-        defer heartbeatTicker.Stop()
-        defer commandPollTicker.Stop()
-        defer flushTicker.Stop()
-        defer authRetryTicker.Stop()
+	// Start auto-updater
+	if cfg.Update.Enabled {
+		u := updater.New(cfg, version)
+		go u.Run(ctx)
+	}
 
-        var c *collector.Collector
-        var s *sender.Sender
-        authenticated := false
+	log.Info("odinforge-agent starting (Windows service)",
+		"version", version,
+		"server", cfg.Server.URL,
+		"tenant", cfg.Auth.TenantID,
+	)
 
-        for {
-                select {
-                case <-ctx.Done():
-                        log.Printf("exiting main loop (Windows service stop)")
-                        return
+	// Channel to signal when authentication is ready
+	authReady := make(chan bool, 1)
+	var authError error
 
-                case ready := <-authReady:
-                        if ready && !authenticated {
-                                authenticated = true
-                                c = collector.New(cfg)
-                                s, err = sender.New(cfg)
-                                if err != nil {
-                                        log.Printf("sender init failed: %v", err)
-                                        authenticated = false
-                                        continue
-                                }
-                                log.Printf("odinforge-agent fully started | server=%s | tenant=%s", cfg.Server.URL, cfg.Auth.TenantID)
-                                enqueueTelemetry(ctx, c, q)
-                        }
+	// Run authentication in background
+	go func() {
+		if err := registrar.EnsureAPIKey(&cfg); err != nil {
+			authError = err
+			log.Warn("authentication setup failed (will retry)", "error", err.Error())
+			authReady <- false
+			return
+		}
+		log.Info("authentication setup complete")
+		authReady <- true
+	}()
 
-                case <-authRetryTicker.C:
-                        if !authenticated && authError != nil {
-                                log.Printf("retrying authentication...")
-                                authError = nil
-                                go func() {
-                                        if err := registrar.EnsureAPIKey(&cfg); err != nil {
-                                                authError = err
-                                                log.Printf("authentication retry failed: %v", err)
-                                                authReady <- false
-                                                return
-                                        }
-                                        authReady <- true
-                                }()
-                        }
+	// Schedulers
+	telemetryTicker := time.NewTicker(cfg.Collection.TelemetryInterval)
+	heartbeatTicker := time.NewTicker(cfg.Collection.HeartbeatInterval)
+	commandPollTicker := time.NewTicker(30 * time.Second)
+	flushTicker := time.NewTicker(5 * time.Second)
+	authRetryTicker := time.NewTicker(10 * time.Second)
+	defer telemetryTicker.Stop()
+	defer heartbeatTicker.Stop()
+	defer commandPollTicker.Stop()
+	defer flushTicker.Stop()
+	defer authRetryTicker.Stop()
 
-                case <-heartbeatTicker.C:
-                        if authenticated && c != nil {
-                                enqueueHeartbeat(c, q)
-                        }
+	var c *collector.Collector
+	var s *sender.Sender
+	authenticated := false
 
-                case <-telemetryTicker.C:
-                        if authenticated && c != nil {
-                                enqueueTelemetry(ctx, c, q)
-                        }
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("exiting main loop (Windows service stop)")
+			return
 
-                case <-commandPollTicker.C:
-                        if authenticated && s != nil {
-                                pollAndExecuteCommands(ctx, cfg, c, q, s)
-                        }
+		case ready := <-authReady:
+			if ready && !authenticated {
+				authenticated = true
+				c = collector.New(cfg)
+				s, err = sender.New(cfg)
+				if err != nil {
+					log.Error("sender init failed", "error", err.Error())
+					authenticated = false
+					continue
+				}
+				log.Info("odinforge-agent fully started",
+					"server", cfg.Server.URL,
+					"tenant", cfg.Auth.TenantID,
+				)
+				enqueueTelemetry(ctx, c, q, stats)
+			}
 
-                case <-flushTicker.C:
-                        if authenticated && s != nil {
-                                if err := s.Flush(ctx, q); err != nil {
-                                        log.Printf("flush error: %v", err)
-                                }
-                        }
-                }
-        }
+		case <-authRetryTicker.C:
+			if !authenticated && authError != nil {
+				log.Info("retrying authentication")
+				authError = nil
+				go func() {
+					if err := registrar.EnsureAPIKey(&cfg); err != nil {
+						authError = err
+						log.Warn("authentication retry failed", "error", err.Error())
+						authReady <- false
+						return
+					}
+					authReady <- true
+				}()
+			}
+
+		case <-heartbeatTicker.C:
+			if authenticated && c != nil {
+				enqueueHeartbeat(c, q, stats)
+			}
+
+		case <-telemetryTicker.C:
+			if authenticated && c != nil {
+				enqueueTelemetry(ctx, c, q, stats)
+			}
+
+		case <-commandPollTicker.C:
+			if authenticated && s != nil {
+				pollAndExecuteCommands(ctx, cfg, c, q, s, stats)
+			}
+
+		case <-flushTicker.C:
+			if authenticated && s != nil {
+				if err := s.Flush(ctx, q); err != nil {
+					stats.FlushErrors.Add(1)
+					log.Error("flush error", "error", err.Error())
+				} else {
+					stats.LastFlushAt.Store(time.Now().Unix())
+					if d, err := q.Depth(); err == nil {
+						stats.QueueDepth.Store(int64(d))
+					}
+				}
+			}
+		}
+	}
 }
 
-func runOnce(ctx context.Context, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender) error {
-        enqueueTelemetry(ctx, c, q)
-        enqueueHeartbeat(c, q)
-        if err := s.Flush(ctx, q); err != nil {
-                return err
-        }
-        log.Printf("run-once completed successfully")
-        return nil
+func runOnce(ctx context.Context, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, stats *watchdog.Stats) error {
+	enqueueTelemetry(ctx, c, q, stats)
+	enqueueHeartbeat(c, q, stats)
+	if err := s.Flush(ctx, q); err != nil {
+		return err
+	}
+	log.Info("run-once completed successfully")
+	return nil
 }
 
-func enqueueTelemetry(ctx context.Context, c *collector.Collector, q *queue.BoltQueue) {
-        ev, err := c.CollectTelemetry(ctx)
-        if err != nil {
-                log.Printf("telemetry collection failed: %v", err)
-                return
-        }
-        if err := q.Enqueue(ev); err != nil {
-                log.Printf("queue enqueue failed: %v", err)
-        }
+func enqueueTelemetry(ctx context.Context, c *collector.Collector, q *queue.BoltQueue, stats *watchdog.Stats) {
+	ev, err := c.CollectTelemetry(ctx)
+	if err != nil {
+		log.Error("telemetry collection failed", "error", err.Error())
+		return
+	}
+	if err := q.Enqueue(ev); err != nil {
+		log.Error("queue enqueue failed", "error", err.Error())
+		return
+	}
+	stats.TelemetrySent.Add(1)
+	stats.LastTelemetryAt.Store(time.Now().Unix())
 }
 
-func enqueueHeartbeat(c *collector.Collector, q *queue.BoltQueue) {
-        ev := c.HeartbeatEvent()
-        if err := q.Enqueue(ev); err != nil {
-                log.Printf("heartbeat enqueue failed: %v", err)
-        }
+func enqueueHeartbeat(c *collector.Collector, q *queue.BoltQueue, stats *watchdog.Stats) {
+	ev := c.HeartbeatEvent()
+	if err := q.Enqueue(ev); err != nil {
+		log.Error("heartbeat enqueue failed", "error", err.Error())
+		return
+	}
+	stats.HeartbeatsSent.Add(1)
+	stats.LastHeartbeatAt.Store(time.Now().Unix())
 }
 
-func pollAndExecuteCommands(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender) {
-        // Get agent ID from config (derived from API key or stored during registration)
-        agentID := cfg.Auth.TenantID // Use tenant ID as fallback
-        if cfg.Auth.APIKey != "" {
-                // Agent ID is typically stored alongside the API key during registration
-                // For now, we use the API key prefix as agent identifier
-                if len(cfg.Auth.APIKey) >= 8 {
-                        agentID = "agent-" + cfg.Auth.APIKey[:8]
-                }
-        }
+func pollAndExecuteCommands(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, stats *watchdog.Stats) {
+	agentID := cfg.Auth.TenantID
+	if cfg.Auth.APIKey != "" {
+		if len(cfg.Auth.APIKey) >= 8 {
+			agentID = "agent-" + cfg.Auth.APIKey[:8]
+		}
+	}
 
-        // Poll for pending commands
-        commands, err := s.PollCommands(ctx, agentID)
-        if err != nil {
-                log.Printf("command poll error: %v", err)
-                return
-        }
+	commands, err := s.PollCommands(ctx, agentID)
+	if err != nil {
+		log.Error("command poll error", "error", err.Error())
+		return
+	}
 
-        if len(commands) == 0 {
-                return
-        }
+	if len(commands) == 0 {
+		return
+	}
 
-        log.Printf("received %d commands from server", len(commands))
+	log.Info("received commands from server", "count", len(commands))
 
-        // Execute each command
-        for _, cmd := range commands {
-                executeCommand(ctx, cfg, c, q, s, agentID, cmd)
-        }
+	for _, cmd := range commands {
+		executeCommand(ctx, cfg, c, q, s, agentID, cmd, stats)
+	}
 }
 
-func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, agentID string, cmd sender.Command) {
-        log.Printf("executing command: %s (type: %s)", cmd.ID, cmd.CommandType)
+func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, agentID string, cmd sender.Command, stats *watchdog.Stats) {
+	log.Info("executing command", "id", cmd.ID, "type", cmd.CommandType)
 
-        var result map[string]interface{}
-        var errorMsg string
+	var result map[string]interface{}
+	var errorMsg string
 
-        switch cmd.CommandType {
-        case "force_checkin":
-                // Immediately collect and queue telemetry
-                enqueueTelemetry(ctx, c, q)
-                enqueueHeartbeat(c, q)
-                // Flush immediately to send data
-                if err := s.Flush(ctx, q); err != nil {
-                        errorMsg = err.Error()
-                } else {
-                        result = map[string]interface{}{
-                                "status":        "completed",
-                                "executedAt":    time.Now().Format(time.RFC3339),
-                                "telemetrySent": true,
-                        }
-                }
+	switch cmd.CommandType {
+	case "force_checkin":
+		enqueueTelemetry(ctx, c, q, stats)
+		enqueueHeartbeat(c, q, stats)
+		if err := s.Flush(ctx, q); err != nil {
+			errorMsg = err.Error()
+		} else {
+			result = map[string]interface{}{
+				"status":        "completed",
+				"executedAt":    time.Now().Format(time.RFC3339),
+				"telemetrySent": true,
+			}
+		}
 
-        case "run_scan":
-                // Trigger a full scan
-                enqueueTelemetry(ctx, c, q)
-                result = map[string]interface{}{
-                        "status":     "completed",
-                        "executedAt": time.Now().Format(time.RFC3339),
-                        "scanType":   "full",
-                }
+	case "run_scan":
+		enqueueTelemetry(ctx, c, q, stats)
+		result = map[string]interface{}{
+			"status":     "completed",
+			"executedAt": time.Now().Format(time.RFC3339),
+			"scanType":   "full",
+		}
 
-        case "validation_probe":
-                result = executeValidationProbe(ctx, cmd.Payload)
+	case "validation_probe":
+		result = executeValidationProbe(ctx, cmd.Payload)
 
-        default:
-                errorMsg = "unknown command type: " + cmd.CommandType
-        }
+	default:
+		errorMsg = "unknown command type: " + cmd.CommandType
+	}
 
-        // Report completion to server
-        if err := s.CompleteCommand(ctx, agentID, cmd.ID, result, errorMsg); err != nil {
-                log.Printf("failed to report command completion: %v", err)
-        } else {
-                log.Printf("command %s completed successfully", cmd.ID)
-        }
+	if err := s.CompleteCommand(ctx, agentID, cmd.ID, result, errorMsg); err != nil {
+		log.Error("failed to report command completion", "id", cmd.ID, "error", err.Error())
+	} else {
+		stats.CommandsExec.Add(1)
+		log.Info("command completed", "id", cmd.ID)
+	}
 }
 
 func executeValidationProbe(ctx context.Context, payload map[string]interface{}) map[string]interface{} {
-        start := time.Now()
+	start := time.Now()
 
-        host, _ := payload["host"].(string)
-        if host == "" {
-                return map[string]interface{}{
-                        "status": "error",
-                        "error":  "missing required 'host' parameter",
-                }
-        }
+	host, _ := payload["host"].(string)
+	if host == "" {
+		return map[string]interface{}{
+			"status": "error",
+			"error":  "missing required 'host' parameter",
+		}
+	}
 
-        probeTypes, _ := payload["probes"].([]interface{})
-        var probes []string
-        for _, p := range probeTypes {
-                if pStr, ok := p.(string); ok {
-                        probes = append(probes, pStr)
-                }
-        }
+	probeTypes, _ := payload["probes"].([]interface{})
+	var probes []string
+	for _, p := range probeTypes {
+		if pStr, ok := p.(string); ok {
+			probes = append(probes, pStr)
+		}
+	}
 
-        port := 0
-        if portFloat, ok := payload["port"].(float64); ok {
-                port = int(portFloat)
-        }
+	port := 0
+	if portFloat, ok := payload["port"].(float64); ok {
+		port = int(portFloat)
+	}
 
-        timeout := 5000
-        if timeoutFloat, ok := payload["timeout"].(float64); ok {
-                timeout = int(timeoutFloat)
-        }
+	timeout := 5000
+	if timeoutFloat, ok := payload["timeout"].(float64); ok {
+		timeout = int(timeoutFloat)
+	}
 
-        log.Printf("running validation probes on %s: %v", host, probes)
+	log.Info("running validation probes", "host", host, "probes", probes)
 
-        var allResults []prober.ProbeResult
+	var allResults []prober.ProbeResult
 
-        // Run protocol probes
-        if len(probes) > 0 {
-                cfg := prober.ProbeConfig{
-                        Host:    host,
-                        Port:    port,
-                        Timeout: timeout,
-                        Probes:  probes,
-                }
-                p := prober.New(cfg)
-                results := p.RunProbes(ctx)
-                allResults = append(allResults, results...)
-        }
+	if len(probes) > 0 {
+		cfg := prober.ProbeConfig{
+			Host:    host,
+			Port:    port,
+			Timeout: timeout,
+			Probes:  probes,
+		}
+		p := prober.New(cfg)
+		results := p.RunProbes(ctx)
+		allResults = append(allResults, results...)
+	}
 
-        // Run credential probes if requested
-        credServices, _ := payload["credentialServices"].([]interface{})
-        if len(credServices) > 0 {
-                credProber := prober.NewCredentialProber(host, timeout)
-                for _, svc := range credServices {
-                        svcStr, ok := svc.(string)
-                        if !ok {
-                                continue
-                        }
-                        result := credProber.ProbeService(ctx, prober.ServiceType(svcStr), port)
-                        allResults = append(allResults, result)
-                }
-        }
+	credServices, _ := payload["credentialServices"].([]interface{})
+	if len(credServices) > 0 {
+		credProber := prober.NewCredentialProber(host, timeout)
+		for _, svc := range credServices {
+			svcStr, ok := svc.(string)
+			if !ok {
+				continue
+			}
+			result := credProber.ProbeService(ctx, prober.ServiceType(svcStr), port)
+			allResults = append(allResults, result)
+		}
+	}
 
-        // Aggregate findings
-        var vulnerableCount int
-        var criticalFindings []string
-        for _, r := range allResults {
-                if r.Vulnerable {
-                        vulnerableCount++
-                        if r.Confidence >= 90 {
-                                criticalFindings = append(criticalFindings, r.Evidence)
-                        }
-                }
-        }
+	var vulnerableCount int
+	var criticalFindings []string
+	for _, r := range allResults {
+		if r.Vulnerable {
+			vulnerableCount++
+			if r.Confidence >= 90 {
+				criticalFindings = append(criticalFindings, r.Evidence)
+			}
+		}
+	}
 
-        return map[string]interface{}{
-                "status":           "completed",
-                "executedAt":       time.Now().Format(time.RFC3339),
-                "host":             host,
-                "probeCount":       len(allResults),
-                "vulnerableCount":  vulnerableCount,
-                "criticalFindings": criticalFindings,
-                "results":          allResults,
-                "executionMs":      time.Since(start).Milliseconds(),
-        }
+	return map[string]interface{}{
+		"status":           "completed",
+		"executedAt":       time.Now().Format(time.RFC3339),
+		"host":             host,
+		"probeCount":       len(allResults),
+		"vulnerableCount":  vulnerableCount,
+		"criticalFindings": criticalFindings,
+		"results":          allResults,
+		"executionMs":      time.Since(start).Milliseconds(),
+	}
 }

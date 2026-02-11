@@ -21,8 +21,8 @@ import {
   User,
   FileText,
 } from "lucide-react";
-import { format } from "date-fns";
 import type { HitlApprovalRequest } from "@shared/schema";
+import { formatDTG } from "@/lib/utils";
 
 type ApprovalHistoryItem = HitlApprovalRequest;
 
@@ -170,9 +170,9 @@ export default function ApprovalHistory() {
         item.target || "",
         item.riskLevel,
         item.status,
-        format(new Date(item.requestedAt), "yyyy-MM-dd HH:mm:ss"),
+        formatDTG(item.requestedAt),
         item.respondedBy || "",
-        item.respondedAt ? format(new Date(item.respondedAt), "yyyy-MM-dd HH:mm:ss") : "",
+        item.respondedAt ? formatDTG(item.respondedAt) : "",
         item.rejectionReason ? `"${item.rejectionReason.replace(/"/g, '""')}"` : "",
       ].join(","))
     ].join("\n");
@@ -181,7 +181,7 @@ export default function ApprovalHistory() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `approval-history-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.download = `approval-history-${formatDTG(new Date())}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -391,8 +391,8 @@ export default function ApprovalHistory() {
                   <TableCell className="font-mono text-sm">
                     {item.target || "—"}
                   </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {format(new Date(item.requestedAt), "MMM d, HH:mm")}
+                  <TableCell className="text-sm text-muted-foreground font-mono">
+                    {formatDTG(item.requestedAt)}
                   </TableCell>
                   <TableCell className="text-sm">
                     {item.respondedBy ? (
@@ -473,15 +473,15 @@ export default function ApprovalHistory() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="text-sm font-medium text-muted-foreground">Requested At</div>
-                  <div className="mt-1 text-sm">
-                    {format(new Date(selectedApproval.requestedAt), "PPp")}
+                  <div className="mt-1 text-sm font-mono">
+                    {formatDTG(selectedApproval.requestedAt)}
                   </div>
                 </div>
                 {selectedApproval.respondedAt && (
                   <div>
                     <div className="text-sm font-medium text-muted-foreground">Responded At</div>
-                    <div className="mt-1 text-sm">
-                      {format(new Date(selectedApproval.respondedAt), "PPp")}
+                    <div className="mt-1 text-sm font-mono">
+                      {formatDTG(selectedApproval.respondedAt)}
                     </div>
                   </div>
                 )}

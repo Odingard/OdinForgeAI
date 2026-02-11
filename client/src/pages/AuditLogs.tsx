@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { formatDistanceToNow } from "date-fns";
 import { useAuditLogs, useAuditLogStats, AuditLog } from "@/hooks/useAuditLogs";
+import { formatDTG } from "@/lib/utils";
 import { DataTable, DataTableColumn, DataTableAction } from "@/components/shared/DataTable";
 import { MetricsGrid, Metric } from "@/components/shared/MetricsGrid";
 import { FilterBar, Filter } from "@/components/shared/FilterBar";
@@ -143,8 +143,8 @@ export default function AuditLogs() {
       key: "timestamp",
       header: "Timestamp",
       cell: (log) => (
-        <span className="text-sm text-muted-foreground">
-          {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
+        <span className="text-sm text-muted-foreground font-mono">
+          {formatDTG(log.timestamp)}
         </span>
       ),
       sortable: true,
@@ -309,7 +309,7 @@ export default function AuditLogs() {
                 </div>
                 <div>
                   <span className="text-muted-foreground">Timestamp:</span>{" "}
-                  <span>{new Date(selectedLog.timestamp).toLocaleString()}</span>
+                  <span className="font-mono">{formatDTG(selectedLog.timestamp)}</span>
                 </div>
                 {selectedLog.actorId && (
                   <div>

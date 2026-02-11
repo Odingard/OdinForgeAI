@@ -6,8 +6,10 @@ import (
         "context"
         "encoding/json"
         "errors"
+        "fmt"
         "io"
         "net/http"
+        "net/url"
         "strings"
         "time"
 
@@ -34,6 +36,15 @@ func New(cfg config.Config) (*Sender, error) {
 
         tr := &http.Transport{
                 TLSClientConfig: tlsCfg,
+        }
+
+        // Proxy support
+        if cfg.Transport.ProxyURL != "" {
+                proxyURL, err := url.Parse(cfg.Transport.ProxyURL)
+                if err != nil {
+                        return nil, fmt.Errorf("invalid proxy URL: %w", err)
+                }
+                tr.Proxy = http.ProxyURL(proxyURL)
         }
 
         return &Sender{
