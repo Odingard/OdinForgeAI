@@ -23,8 +23,8 @@ import {
   Filter,
   RefreshCw,
 } from "lucide-react";
-import { format } from "date-fns";
 import type { HitlApprovalRequest } from "@shared/schema";
+import { formatDTG } from "@/lib/utils";
 
 interface ApprovalDetailDialogProps {
   approval: HitlApprovalRequest | null;
@@ -174,13 +174,13 @@ function ApprovalDetailDialog({
                 <div>
                   <div className="text-muted-foreground">Requested At</div>
                   <div className="font-medium">
-                    {format(new Date(approval.requestedAt), "PPp")}
+                    {formatDTG(approval.requestedAt)}
                   </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Expires At</div>
                   <div className="font-medium text-orange-500">
-                    {format(new Date(approval.expiresAt), "PPp")}
+                    {formatDTG(approval.expiresAt)}
                   </div>
                 </div>
               </div>
@@ -466,11 +466,11 @@ export default function Approvals() {
                     <TableCell className="font-mono text-sm">
                       {approval.target || "—"}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {format(new Date(approval.requestedAt), "MMM d, HH:mm")}
+                    <TableCell className="text-sm text-muted-foreground font-mono">
+                      {formatDTG(approval.requestedAt)}
                     </TableCell>
-                    <TableCell className="text-sm text-orange-500">
-                      {format(new Date(approval.expiresAt), "MMM d, HH:mm")}
+                    <TableCell className="text-sm text-orange-500 font-mono">
+                      {formatDTG(approval.expiresAt)}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button
