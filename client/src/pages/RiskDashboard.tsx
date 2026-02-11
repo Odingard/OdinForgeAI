@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3, Target, Crosshair, AlertCircle, Link2 } from "lucide-react";
+import { useLocation } from "wouter";
+import { AlertTriangle, Clock, TrendingUp, Shield, Filter, ArrowUpRight, Building2, Trash2, Grid3x3, Target, Crosshair, AlertCircle, Link2, Zap } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +53,7 @@ interface EvaluationWithScore {
 }
 
 export default function RiskDashboard() {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const [riskFilter, setRiskFilter] = useState<string>("all");
   const [timeframeFilter, setTimeframeFilter] = useState<string>("all");
@@ -157,6 +159,17 @@ export default function RiskDashboard() {
       : 0,
   };
 
+  // Basic stats from all evaluations (even without intelligent scores)
+  const basicStats = {
+    total: evaluations.length,
+    completed: evaluations.filter(e => e.status === "completed").length,
+    exploitable: evaluations.filter(e => e.exploitable).length,
+    safe: evaluations.filter(e => e.exploitable === false).length,
+    pending: evaluations.filter(e => e.status === "pending" || e.status === "in_progress").length,
+    critical: evaluations.filter(e => e.priority === "critical").length,
+    high: evaluations.filter(e => e.priority === "high").length,
+  };
+
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -186,104 +199,163 @@ export default function RiskDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          <Filter className="h-4 w-4 text-muted-foreground" />
-          <Select value={riskFilter} onValueChange={setRiskFilter}>
-            <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-risk-filter">
-              <SelectValue placeholder="Risk Level" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Levels</SelectItem>
-              <SelectItem value="emergency">Emergency</SelectItem>
-              <SelectItem value="critical">Critical</SelectItem>
-              <SelectItem value="high">High</SelectItem>
-              <SelectItem value="medium">Medium</SelectItem>
-              <SelectItem value="low">Low</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={timeframeFilter} onValueChange={setTimeframeFilter}>
-            <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-timeframe-filter">
-              <SelectValue placeholder="Timeframe" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Timeframes</SelectItem>
-              <SelectItem value="immediate">Immediate</SelectItem>
-              <SelectItem value="24_hours">24 Hours</SelectItem>
-              <SelectItem value="7_days">7 Days</SelectItem>
-              <SelectItem value="30_days">30 Days</SelectItem>
-              <SelectItem value="90_days">90 Days</SelectItem>
-            </SelectContent>
-          </Select>
+          {evaluationsWithScores.length > 0 && (
+            <>
+              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Select value={riskFilter} onValueChange={setRiskFilter}>
+                <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-risk-filter">
+                  <SelectValue placeholder="Risk Level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Levels</SelectItem>
+                  <SelectItem value="emergency">Emergency</SelectItem>
+                  <SelectItem value="critical">Critical</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={timeframeFilter} onValueChange={setTimeframeFilter}>
+                <SelectTrigger className="w-[130px] h-8 text-xs" data-testid="select-timeframe-filter">
+                  <SelectValue placeholder="Timeframe" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Timeframes</SelectItem>
+                  <SelectItem value="immediate">Immediate</SelectItem>
+                  <SelectItem value="24_hours">24 Hours</SelectItem>
+                  <SelectItem value="7_days">7 Days</SelectItem>
+                  <SelectItem value="30_days">30 Days</SelectItem>
+                  <SelectItem value="90_days">90 Days</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
         </div>
       </div>
 
       {/* Consolidated Metrics Strip */}
       <Card>
         <CardContent className="pt-5 pb-4">
-          <div className={`grid grid-cols-2 sm:grid-cols-3 ${breachChains.length > 0 ? "lg:grid-cols-7" : "lg:grid-cols-6"} gap-4 divide-x-0 lg:divide-x divide-border`}>
-            {/* Risk Metrics */}
-            <div className="text-center lg:text-left">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Critical</div>
-              <div className={`text-2xl font-bold tabular-nums ${stats.critical > 0 ? 'text-red-400' : 'text-foreground'}`} data-testid="stat-critical">
-                {stats.critical}
+          {evaluationsWithScores.length > 0 ? (
+            <div className={`grid grid-cols-2 sm:grid-cols-3 ${breachChains.length > 0 ? "lg:grid-cols-7" : "lg:grid-cols-6"} gap-4 divide-x-0 lg:divide-x divide-border`}>
+              {/* Intelligent Risk Metrics */}
+              <div className="text-center lg:text-left">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Critical</div>
+                <div className={`text-2xl font-bold tabular-nums ${stats.critical > 0 ? 'text-red-400' : 'text-foreground'}`} data-testid="stat-critical">
+                  {stats.critical}
+                </div>
+                {stats.critical > 0 && <div className="text-[10px] text-red-400/80 mt-0.5">Immediate action</div>}
               </div>
-              {stats.critical > 0 && <div className="text-[10px] text-red-400/80 mt-0.5">Immediate action</div>}
-            </div>
-            <div className="text-center lg:text-left lg:pl-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">High</div>
-              <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-high">{stats.high}</div>
-            </div>
-            <div className="text-center lg:text-left lg:pl-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Exposure</div>
-              <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-exposure">{formatCurrency(stats.totalExposure)}</div>
-            </div>
-            <div className="text-center lg:text-left lg:pl-4">
-              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Avg Score</div>
-              <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-avg-score">{stats.avgRiskScore}</div>
-              <Progress value={stats.avgRiskScore} className="mt-1 h-1" />
-            </div>
-
-            {/* Coverage Metrics */}
-            {coverage && (
-              <>
-                <div className="text-center lg:text-left lg:pl-4">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
-                    <Target className="h-3 w-3" /> Assets
-                  </div>
-                  <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-asset-coverage">
-                    {coverage.assetCoverage.coveragePercent}%
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
-                    {coverage.assetCoverage.assetsEvaluatedLast30d}/{coverage.assetCoverage.totalActiveAssets} tested
-                  </div>
-                </div>
-                <div className="text-center lg:text-left lg:pl-4">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
-                    <Crosshair className="h-3 w-3" /> Tactics
-                  </div>
-                  <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-technique-coverage">
-                    {coverage.techniqueCoverage.tacticsExercised}/{coverage.techniqueCoverage.totalTactics}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">
-                    {coverage.techniqueCoverage.uniqueTechniqueIds > 0 && `${coverage.techniqueCoverage.uniqueTechniqueIds} techniques`}
-                    {coverage.techniqueCoverage.uniqueTechniqueIds === 0 && "ATT\u0026CK coverage"}
-                  </div>
-                </div>
-              </>
-            )}
-            {breachChains.length > 0 && (
               <div className="text-center lg:text-left lg:pl-4">
-                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
-                  <Link2 className="h-3 w-3" /> Breach Chains
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">High</div>
+                <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-high">{stats.high}</div>
+              </div>
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Exposure</div>
+                <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-exposure">{formatCurrency(stats.totalExposure)}</div>
+              </div>
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Avg Score</div>
+                <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-avg-score">{stats.avgRiskScore}</div>
+                <Progress value={stats.avgRiskScore} className="mt-1 h-1" />
+              </div>
+
+              {/* Coverage Metrics */}
+              {coverage && (
+                <>
+                  <div className="text-center lg:text-left lg:pl-4">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                      <Target className="h-3 w-3" /> Assets
+                    </div>
+                    <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-asset-coverage">
+                      {coverage.assetCoverage.coveragePercent}%
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {coverage.assetCoverage.assetsEvaluatedLast30d}/{coverage.assetCoverage.totalActiveAssets} tested
+                    </div>
+                  </div>
+                  <div className="text-center lg:text-left lg:pl-4">
+                    <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                      <Crosshair className="h-3 w-3" /> Tactics
+                    </div>
+                    <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-technique-coverage">
+                      {coverage.techniqueCoverage.tacticsExercised}/{coverage.techniqueCoverage.totalTactics}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      {coverage.techniqueCoverage.uniqueTechniqueIds > 0 && `${coverage.techniqueCoverage.uniqueTechniqueIds} techniques`}
+                      {coverage.techniqueCoverage.uniqueTechniqueIds === 0 && "ATT\u0026CK coverage"}
+                    </div>
+                  </div>
+                </>
+              )}
+              {breachChains.length > 0 && (
+                <div className="text-center lg:text-left lg:pl-4">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                    <Link2 className="h-3 w-3" /> Breach Chains
+                  </div>
+                  <div className={`text-2xl font-bold tabular-nums ${breachChains.some((c: any) => c.overallRiskScore >= 70) ? "text-red-400" : "text-foreground"}`} data-testid="stat-breach-chains">
+                    {breachChains.filter((c: any) => c.status === "completed").length}/{breachChains.length}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {breachChains.some((c: any) => c.status === "running") ? "chain running" : "completed"}
+                  </div>
                 </div>
-                <div className={`text-2xl font-bold tabular-nums ${breachChains.some((c: any) => c.overallRiskScore >= 70) ? "text-red-400" : "text-foreground"}`} data-testid="stat-breach-chains">
-                  {breachChains.filter((c: any) => c.status === "completed").length}/{breachChains.length}
+              )}
+            </div>
+          ) : (
+            /* Basic metrics from raw evaluation data when no intelligent scores exist */
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 divide-x-0 lg:divide-x divide-border">
+              <div className="text-center lg:text-left">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Evaluations</div>
+                <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-total">
+                  {basicStats.total}
                 </div>
-                <div className="text-[10px] text-muted-foreground mt-0.5">
-                  {breachChains.some((c: any) => c.status === "running") ? "chain running" : "completed"}
+                <div className="text-[10px] text-muted-foreground mt-0.5">{basicStats.completed} completed</div>
+              </div>
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Exploitable</div>
+                <div className={`text-2xl font-bold tabular-nums ${basicStats.exploitable > 0 ? 'text-red-400' : 'text-foreground'}`} data-testid="stat-exploitable">
+                  {basicStats.exploitable}
+                </div>
+                {basicStats.exploitable > 0 && <div className="text-[10px] text-red-400/80 mt-0.5">Confirmed vulnerable</div>}
+              </div>
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Safe</div>
+                <div className="text-2xl font-bold tabular-nums text-emerald-400" data-testid="stat-safe">
+                  {basicStats.safe}
                 </div>
               </div>
-            )}
-          </div>
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Critical Priority</div>
+                <div className={`text-2xl font-bold tabular-nums ${basicStats.critical > 0 ? 'text-red-400' : 'text-foreground'}`}>
+                  {basicStats.critical}
+                </div>
+              </div>
+              <div className="text-center lg:text-left lg:pl-4">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">High Priority</div>
+                <div className="text-2xl font-bold tabular-nums text-foreground">
+                  {basicStats.high}
+                </div>
+              </div>
+              {breachChains.length > 0 ? (
+                <div className="text-center lg:text-left lg:pl-4">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1 justify-center lg:justify-start">
+                    <Link2 className="h-3 w-3" /> Breach Chains
+                  </div>
+                  <div className="text-2xl font-bold tabular-nums text-foreground" data-testid="stat-breach-chains">
+                    {breachChains.filter((c: any) => c.status === "completed").length}/{breachChains.length}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center lg:text-left lg:pl-4">
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">Pending</div>
+                  <div className="text-2xl font-bold tabular-nums text-amber-400">
+                    {basicStats.pending}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -360,15 +432,87 @@ export default function RiskDashboard() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <Clock className="h-4 w-4 text-cyan-400" />
-              Fix Priority Queue
+              {evaluationsWithScores.length > 0 ? "Fix Priority Queue" : "Evaluation Results"}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {filteredEvaluations.length === 0 ? (
+            {filteredEvaluations.length === 0 && evaluations.length === 0 ? (
               <div className="text-center py-10 text-muted-foreground">
                 <Shield className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No evaluations with intelligent scores yet</p>
-                <p className="text-xs mt-1">Run an evaluation to see risk prioritization</p>
+                <p className="text-sm">No evaluations yet</p>
+                <p className="text-xs mt-1 mb-4">Run an assessment to populate risk data</p>
+                <Button size="sm" onClick={() => navigate("/assess")}>
+                  <Zap className="h-3.5 w-3.5 mr-2" />
+                  New Assessment
+                </Button>
+              </div>
+            ) : filteredEvaluations.length === 0 && evaluations.length > 0 ? (
+              /* Show basic evaluation list when no intelligent scores exist */
+              <div className="space-y-2">
+                {evaluations
+                  .sort((a, b) => {
+                    const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+                    return (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4);
+                  })
+                  .map((evaluation, index) => {
+                    const priorityColors: Record<string, string> = {
+                      critical: "bg-red-500/10 text-red-400 border-red-500/30",
+                      high: "bg-orange-500/10 text-orange-400 border-orange-500/30",
+                      medium: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+                      low: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+                    };
+                    return (
+                      <div
+                        key={evaluation.id}
+                        className="flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:border-border hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-muted text-xs font-mono font-bold shrink-0">
+                          {index + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-medium text-foreground truncate">{evaluation.assetId}</span>
+                            <Badge className={`text-[10px] py-0 ${priorityColors[evaluation.priority] || priorityColors.medium}`}>
+                              {evaluation.priority?.toUpperCase()}
+                            </Badge>
+                            {evaluation.exploitable === true && (
+                              <Badge className="text-[10px] py-0 bg-red-500/10 text-red-400 border-red-500/30">
+                                EXPLOITABLE
+                              </Badge>
+                            )}
+                            {evaluation.exploitable === false && (
+                              <Badge className="text-[10px] py-0 bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                                SAFE
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            {evaluation.exposureType?.replace(/_/g, " ")} — {evaluation.status}
+                          </p>
+                        </div>
+                        {evaluation.score != null && (
+                          <div className="text-right hidden sm:block shrink-0">
+                            <div className="font-mono text-sm font-bold text-foreground">
+                              {Math.round(evaluation.score * 100) / 100}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">score</div>
+                          </div>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" asChild>
+                          <a href={`/?evaluation=${evaluation.id}`}>
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          </a>
+                        </Button>
+                      </div>
+                    );
+                  })}
+                {evaluationsWithScores.length === 0 && evaluations.length > 0 && (
+                  <div className="text-center pt-3 pb-1">
+                    <p className="text-xs text-muted-foreground">
+                      Intelligent risk scores are generated after completed evaluations. Run an assessment to see full risk prioritization.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-2">

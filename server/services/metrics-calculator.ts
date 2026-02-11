@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import type { Evaluation, Result, DefensiveValidation } from "@shared/schema";
+import type { Evaluation, Result, DefensiveValidation, BreachPhaseResult } from "@shared/schema";
 
 interface CategoryScore {
   networkSecurity: number;
@@ -133,9 +133,40 @@ export async function calculateDefensivePosture(
 
   const vulnerabilityExposure = countBySeverity(completedEvaluations, results);
   const categoryScores = calculateCategoryScores(completedEvaluations, results);
-  const overallScore = calculateOverallScore(categoryScores, vulnerabilityExposure);
-  const breachLikelihood = calculateBreachLikelihood(results, vulnerabilityExposure);
+  let overallScore = calculateOverallScore(categoryScores, vulnerabilityExposure);
+  let breachLikelihood = calculateBreachLikelihood(results, vulnerabilityExposure);
   const trendDirection = calculateTrend(completedEvaluations, results);
+
+  // Enrich with breach chain data if available
+  const breachMetrics = await getBreachChainMetrics(organizationId);
+  if (breachMetrics.hasData) {
+    // Blend breach chain risk score into breach likelihood (60% real data, 40% eval-based)
+    breachLikelihood = Math.round(breachLikelihood * 0.4 + breachMetrics.avgRiskScore * 0.6);
+    breachLikelihood = Math.max(5, Math.min(95, breachLikelihood));
+
+    // Penalize overall score based on max privilege achieved in breach chains
+    const privPenalty: Record<string, number> = {
+      domain_admin: 25, cloud_admin: 20, system: 15, admin: 10, user: 3, none: 0,
+    };
+    const maxPenalty = Math.max(
+      ...breachMetrics.maxPrivilegeLevels.map(p => privPenalty[p] || 0), 0
+    );
+    overallScore = Math.max(10, overallScore - maxPenalty);
+
+    // Bonus from blocked phases (good defense signal)
+    overallScore = Math.min(100, overallScore + Math.round(breachMetrics.phaseBlockRate * 10));
+
+    // Penalize category scores for MITRE techniques that were actually exploited
+    for (const mitreId of breachMetrics.mitreIdsObserved) {
+      const exposureType = Object.entries(EXPOSURE_TO_MITRE).find(([, id]) => id === mitreId)?.[0];
+      if (exposureType) {
+        const category = EXPOSURE_TO_CATEGORY[exposureType];
+        if (category && categoryScores[category] !== undefined) {
+          categoryScores[category] = Math.max(20, categoryScores[category] - 5);
+        }
+      }
+    }
+  }
 
   const benchmarkPercentile = calculateBenchmarkPercentile(overallScore, vulnerabilityExposure);
 
@@ -144,6 +175,13 @@ export async function calculateDefensivePosture(
 
   const useSiemMttd = siemMetrics.mttdSampleSize >= 3;
   const useSiemMttr = siemMetrics.mttrSampleSize >= 3;
+
+  const recommendations = generateRecommendations(categoryScores, vulnerabilityExposure);
+  if (breachMetrics.hasData) {
+    recommendations.unshift(
+      `Based on ${breachMetrics.chainCount} breach chain(s): ${breachMetrics.totalFindings} findings, ${breachMetrics.criticalFindings} critical`
+    );
+  }
 
   return {
     id: `posture-${organizationId}-${Date.now()}`,
@@ -160,10 +198,10 @@ export async function calculateDefensivePosture(
     vulnerabilityExposure,
     trendDirection,
     benchmarkPercentile,
-    recommendations: generateRecommendations(categoryScores, vulnerabilityExposure),
+    recommendations: recommendations.slice(0, 5),
     dataSource: "computed",
     evaluationsAnalyzed: completedEvaluations.length,
-    modelVersion: "v3.0.0-siem-enhanced",
+    modelVersion: "v4.0.0-breach-enhanced",
     calculatedAt: new Date().toISOString(),
   };
 }
@@ -183,9 +221,65 @@ export async function calculateAttackPredictions(
   const results = await storage.getResultsByEvaluationIds(evaluationIds);
 
   const exposureFrequency = countExposureTypes(completedEvaluations);
-  const predictedVectors = generatePredictedVectors(exposureFrequency, results, completedEvaluations);
-  const riskFactors = identifyRiskFactors(completedEvaluations, results);
-  const overallBreachLikelihood = calculateOverallBreachLikelihood(results);
+  let predictedVectors = generatePredictedVectors(exposureFrequency, results, completedEvaluations);
+  let riskFactors = identifyRiskFactors(completedEvaluations, results);
+  let overallBreachLikelihood = calculateOverallBreachLikelihood(results);
+
+  // Enrich with breach chain data if available
+  const breachMetrics = await getBreachChainMetrics(organizationId);
+  if (breachMetrics.hasData) {
+    // Boost confidence for vectors matching real breach chain MITRE techniques
+    predictedVectors = predictedVectors.map(v => {
+      if (breachMetrics.mitreIdsObserved.includes(v.mitreAttackId)) {
+        return {
+          ...v,
+          confidence: Math.min(95, v.confidence + 20),
+          likelihood: Math.min(95, v.likelihood + 10),
+        };
+      }
+      return v;
+    });
+
+    // Add vectors from breach chains not already in predictions
+    for (const mitreId of breachMetrics.mitreIdsObserved) {
+      if (!predictedVectors.some(v => v.mitreAttackId === mitreId)) {
+        const exposureType = Object.entries(EXPOSURE_TO_MITRE).find(([, id]) => id === mitreId)?.[0];
+        predictedVectors.push({
+          vector: exposureType ? (EXPOSURE_DESCRIPTIONS[exposureType] || exposureType) : `MITRE ${mitreId}`,
+          likelihood: Math.round(breachMetrics.phaseSuccessRate * 80),
+          confidence: 75,
+          adversaryProfile: "organized_crime",
+          estimatedImpact: breachMetrics.criticalFindings > 0
+            ? "Critical - Confirmed by breach chain"
+            : "High - Observed in breach chain",
+          mitreAttackId: mitreId,
+          occurrences: 1,
+        });
+      }
+    }
+    predictedVectors.sort((a, b) => b.likelihood - a.likelihood);
+    predictedVectors = predictedVectors.slice(0, 8);
+
+    // Add breach chain risk factors
+    riskFactors.push({
+      factor: `Breach chain success rate (${Math.round(breachMetrics.phaseSuccessRate * 100)}% of phases succeeded)`,
+      contribution: Math.round(breachMetrics.phaseSuccessRate * 40),
+      trend: "stable",
+    });
+    if (breachMetrics.criticalFindings > 0) {
+      riskFactors.push({
+        factor: `${breachMetrics.criticalFindings} critical findings from breach chains`,
+        contribution: Math.min(40, breachMetrics.criticalFindings * 15),
+        trend: "increasing",
+      });
+    }
+    riskFactors.sort((a, b) => b.contribution - a.contribution);
+    riskFactors = riskFactors.slice(0, 6);
+
+    // Blend breach likelihood
+    overallBreachLikelihood = Math.round(overallBreachLikelihood * 0.4 + breachMetrics.avgRiskScore * 0.6);
+    overallBreachLikelihood = Math.max(10, Math.min(90, overallBreachLikelihood));
+  }
 
   return {
     id: `pred-${organizationId}-${Date.now()}`,
@@ -197,7 +291,7 @@ export async function calculateAttackPredictions(
     dataSource: "computed",
     evaluationsAnalyzed: completedEvaluations.length,
     timeHorizon,
-    modelVersion: "v2.0.0-computed",
+    modelVersion: "v3.0.0-breach-enhanced",
     calculatedAt: new Date().toISOString(),
   };
 }
@@ -650,6 +744,75 @@ function calculateBenchmarkPercentile(overallScore: number, vuln: VulnerabilityE
   const basePercentile = overallScore;
   const vulnPenalty = (vuln.critical * 5) + (vuln.high * 2) + (vuln.medium * 0.5);
   return Math.round(Math.min(100, Math.max(0, basePercentile - vulnPenalty)));
+}
+
+interface BreachChainMetrics {
+  hasData: boolean;
+  avgRiskScore: number;
+  maxPrivilegeLevels: string[];
+  phaseSuccessRate: number;
+  phaseBlockRate: number;
+  totalFindings: number;
+  criticalFindings: number;
+  highFindings: number;
+  mitreIdsObserved: string[];
+  chainCount: number;
+}
+
+async function getBreachChainMetrics(organizationId: string): Promise<BreachChainMetrics> {
+  const noData: BreachChainMetrics = {
+    hasData: false, avgRiskScore: 0, maxPrivilegeLevels: [], phaseSuccessRate: 0,
+    phaseBlockRate: 0, totalFindings: 0, criticalFindings: 0, highFindings: 0,
+    mitreIdsObserved: [], chainCount: 0,
+  };
+
+  try {
+    const chains = await storage.getBreachChains(organizationId);
+    const completedChains = chains.filter(c => c.status === "completed");
+    if (completedChains.length === 0) return noData;
+
+    let totalRisk = 0;
+    let totalPhases = 0;
+    let completedPhases = 0;
+    let blockedPhases = 0;
+    let totalFindings = 0;
+    let criticalFindings = 0;
+    let highFindings = 0;
+    const maxPrivLevels: string[] = [];
+    const mitreIds = new Set<string>();
+
+    for (const chain of completedChains) {
+      totalRisk += chain.overallRiskScore || 0;
+      if (chain.maxPrivilegeAchieved) maxPrivLevels.push(chain.maxPrivilegeAchieved);
+
+      const phaseResults = (chain.phaseResults as BreachPhaseResult[]) || [];
+      for (const pr of phaseResults) {
+        totalPhases++;
+        if (pr.status === "completed") completedPhases++;
+        if (pr.status === "blocked" || pr.status === "failed") blockedPhases++;
+        for (const f of pr.findings) {
+          totalFindings++;
+          if (f.severity === "critical") criticalFindings++;
+          if (f.severity === "high") highFindings++;
+          if (f.mitreId) mitreIds.add(f.mitreId);
+        }
+      }
+    }
+
+    return {
+      hasData: true,
+      avgRiskScore: Math.round(totalRisk / completedChains.length),
+      maxPrivilegeLevels: maxPrivLevels,
+      phaseSuccessRate: totalPhases > 0 ? completedPhases / totalPhases : 0,
+      phaseBlockRate: totalPhases > 0 ? blockedPhases / totalPhases : 0,
+      totalFindings, criticalFindings, highFindings,
+      mitreIdsObserved: Array.from(mitreIds),
+      chainCount: completedChains.length,
+    };
+  } catch (err) {
+    console.error("[MetricsCalculator] Failed to get breach chain metrics:", err);
+    return noData;
+  }
 }
 
 function createInsufficientDataPosture(organizationId: string, evaluationCount: number): DefensivePostureMetrics {

@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout to prevent hanging
+const OPENAI_TIMEOUT_MS = 30000; // 30 second timeout to prevent hanging
 
 function getOpenAIApiKey(): string | undefined {
   return process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
