@@ -1031,7 +1031,6 @@ function ExternalReconContent() {
       
       ws.onerror = () => {
         // WebSocket error - silently handle, polling will take over
-        console.log('[WebSocket] Connection error, falling back to polling');
       };
       
       ws.onclose = () => {
@@ -1061,7 +1060,6 @@ function ExternalReconContent() {
       };
     } catch {
       // WebSocket creation failed - polling will handle updates
-      console.log('[WebSocket] Failed to create connection, falling back to polling');
     }
     
     // Always return cleanup function

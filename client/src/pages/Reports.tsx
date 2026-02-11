@@ -36,10 +36,7 @@ import {
   Sparkles,
   Link2,
 } from "lucide-react";
-import pdfMake from "pdfmake/build/pdfmake";
-import pdfFonts from "pdfmake/build/vfs_fonts";
-
-pdfMake.vfs = pdfFonts.vfs;
+// pdfmake loaded dynamically in downloadPdf() to avoid 830KB in initial chunk
 import { format, startOfDay, subDays } from "date-fns";
 import type { Report } from "@shared/schema";
 import { DTGRangeDisplay } from "@/components/ui/dtg-display";
@@ -382,7 +379,7 @@ export default function Reports() {
     return sections.join("\n");
   };
 
-  const generatePdf = (report: Report) => {
+  const generatePdf = async (report: Report) => {
     const content = report.content as any;
     const reportTypeLabel = reportTypes.find(t => t.value === report.reportType)?.label || report.reportType;
     
@@ -477,6 +474,11 @@ export default function Reports() {
     };
 
     try {
+      const [{ default: pdfMake }, { default: pdfFonts }] = await Promise.all([
+        import("pdfmake/build/pdfmake"),
+        import("pdfmake/build/vfs_fonts"),
+      ]);
+      pdfMake.vfs = pdfFonts.vfs;
       const pdfDoc = pdfMake.createPdf(docDefinition);
       pdfDoc.download(`${report.title.replace(/\s+/g, "_")}.pdf`);
       toast({
@@ -1180,25 +1182,33 @@ export default function Reports() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Date From</Label>
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    data-testid="input-date-from"
-                  />
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Date From</Label>
+                    <Input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      data-testid="input-date-from"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Date To</Label>
+                    <Input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      data-testid="input-date-to"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Date To</Label>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    data-testid="input-date-to"
-                  />
-                </div>
+                {dateFrom && dateTo && (
+                  <div className="text-xs text-muted-foreground font-mono flex justify-between px-1">
+                    <span>From: {formatDTG(new Date(dateFrom + "T00:00:00Z"))}</span>
+                    <span>To: {formatDTG(new Date(dateTo + "T23:59:59Z"))}</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

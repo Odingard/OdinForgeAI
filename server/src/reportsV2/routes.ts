@@ -112,7 +112,17 @@ export function registerReportV2Routes(app: Express): void {
       
       // Determine scope and get evaluations
       let evaluationsWithResults: Array<{ evaluation: any; result: any }> = [];
-      
+
+      // Parse date range once (if provided) for consistent UTC handling
+      let parsedFrom: Date | null = null;
+      let parsedTo: Date | null = null;
+      if (dateRange) {
+        parsedFrom = new Date(dateRange.from);
+        parsedFrom.setUTCHours(0, 0, 0, 0);
+        parsedTo = new Date(dateRange.to);
+        parsedTo.setUTCHours(23, 59, 59, 999);
+      }
+
       if (evaluationId) {
         // Single evaluation
         const evaluation = await storage.getEvaluation(evaluationId);
@@ -121,6 +131,12 @@ export function registerReportV2Routes(app: Express): void {
         }
         const result = await storage.getResultByEvaluationId(evaluationId);
         evaluationsWithResults = [{ evaluation, result }];
+        // Use evaluation date for single-eval reports
+        if (!parsedFrom) {
+          const evalDate = evaluation.createdAt ? new Date(evaluation.createdAt) : new Date();
+          parsedFrom = evalDate;
+          parsedTo = evalDate;
+        }
       } else if (evaluationIds && evaluationIds.length > 0) {
         // Multiple evaluations
         for (const id of evaluationIds) {
@@ -130,20 +146,16 @@ export function registerReportV2Routes(app: Express): void {
             evaluationsWithResults.push({ evaluation, result });
           }
         }
-      } else if (dateRange) {
+      } else if (parsedFrom && parsedTo) {
         // Date range
-        const from = new Date(dateRange.from);
-        const to = new Date(dateRange.to);
-        to.setHours(23, 59, 59, 999);
-        
-        const evaluations = await storage.getEvaluationsByDateRange(from, to, organizationId);
+        const evaluations = await storage.getEvaluationsByDateRange(parsedFrom, parsedTo, organizationId);
         for (const evaluation of evaluations) {
           const result = await storage.getResultByEvaluationId(evaluation.id);
           evaluationsWithResults.push({ evaluation, result });
         }
       } else {
-        return res.status(400).json({ 
-          error: "Must provide evaluationId, evaluationIds, or dateRange" 
+        return res.status(400).json({
+          error: "Must provide evaluationId, evaluationIds, or dateRange"
         });
       }
       
@@ -161,7 +173,7 @@ export function registerReportV2Routes(app: Express): void {
         : buildReportInputFromEvaluations(
             evaluationsWithResults,
             customerContext,
-            dateRange ? { from: new Date(dateRange.from), to: new Date(dateRange.to) } : undefined
+            parsedFrom && parsedTo ? { from: parsedFrom, to: parsedTo } : undefined
           );
       
       // Compute Breach Realization Score if breach_validation report requested
@@ -263,8 +275,8 @@ export function registerReportV2Routes(app: Express): void {
         reportType: sectionsGenerated.join(","),
         reportVersion: "v2_narrative",
         title: `V2 Narrative Report - ${new Date().toISOString().split("T")[0]}`,
-        dateRangeFrom: dateRange ? new Date(dateRange.from) : new Date(),
-        dateRangeTo: dateRange ? new Date(dateRange.to) : new Date(),
+        dateRangeFrom: parsedFrom || new Date(),
+        dateRangeTo: parsedTo || new Date(),
         status: "completed",
         content: reportResult.report,
         evaluationIds: evaluationsWithResults.map(e => e.evaluation.id),

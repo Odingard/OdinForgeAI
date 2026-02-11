@@ -1386,7 +1386,17 @@ export async function registerRoutes(
   });
 
   // ========== REPORTING ENDPOINTS ==========
-  
+
+  function formatServerDTG(d: Date): string {
+    const DTG_MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+    const month = DTG_MONTHS[d.getUTCMonth()];
+    const year = String(d.getUTCFullYear()).slice(-2);
+    return `${day}${hours}${minutes}Z${month}${year}`;
+  }
+
   app.post("/api/reports/generate", reportRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
     try {
       const { type, format, from, to, framework, organizationId = "default", evaluationId, engagementMetadata } = req.body;
@@ -1396,7 +1406,11 @@ export async function registerRoutes(
         if (!type || !format) {
           return res.status(400).json({ error: "Missing required fields: type, format" });
         }
-        
+
+        // Fetch evaluation to get its createdAt for the report date range
+        const evaluation = await storage.getEvaluation(evaluationId);
+        const evalDate = evaluation?.createdAt ? new Date(evaluation.createdAt) : new Date();
+
         let reportData: any;
         let title = "";
         
@@ -1448,42 +1462,42 @@ export async function registerRoutes(
           organizationId: reportData.organizationId || organizationId,
           status: "completed",
           content: reportData,
-          dateRangeFrom: new Date(),
-          dateRangeTo: new Date(),
+          dateRangeFrom: evalDate,
+          dateRangeTo: evalDate,
           framework,
           engagementMetadata,
         });
-        
-        return res.json({ 
-          reportId: report.id, 
+
+        return res.json({
+          reportId: report.id,
           title,
           data: reportData,
           content,
           contentType,
         });
       }
-      
+
       // Date range based reports
       if (!type || !format || !from || !to) {
         return res.status(400).json({ error: "Missing required fields: type, format, from, to (or evaluationId for single evaluation reports)" });
       }
       
       const fromDate = new Date(from);
-      // Set toDate to end of day (23:59:59.999) to include entire end date
+      fromDate.setUTCHours(0, 0, 0, 0);
       const toDate = new Date(to);
-      toDate.setHours(23, 59, 59, 999);
-      
+      toDate.setUTCHours(23, 59, 59, 999);
+
       let reportData: any;
       let title = "";
-      
+
       switch (type) {
         case "executive_summary":
           reportData = await reportGenerator.generateExecutiveSummary(fromDate, toDate, organizationId);
-          title = `Executive Summary - ${fromDate.toLocaleDateString()} to ${toDate.toLocaleDateString()}`;
+          title = `Executive Summary - ${formatServerDTG(fromDate)} to ${formatServerDTG(toDate)}`;
           break;
         case "technical_deep_dive":
           reportData = await reportGenerator.generateTechnicalReport(fromDate, toDate, organizationId);
-          title = `Technical Report - ${fromDate.toLocaleDateString()} to ${toDate.toLocaleDateString()}`;
+          title = `Technical Report - ${formatServerDTG(fromDate)} to ${formatServerDTG(toDate)}`;
           break;
         case "compliance_mapping":
           if (!framework) {
@@ -1493,7 +1507,7 @@ export async function registerRoutes(
             return res.status(400).json({ error: `Invalid framework. Valid options: ${complianceFrameworks.join(", ")}` });
           }
           reportData = await reportGenerator.generateComplianceReport(framework, fromDate, toDate, organizationId);
-          title = `Compliance Report (${framework.toUpperCase()}) - ${fromDate.toLocaleDateString()} to ${toDate.toLocaleDateString()}`;
+          title = `Compliance Report (${framework.toUpperCase()}) - ${formatServerDTG(fromDate)} to ${formatServerDTG(toDate)}`;
           break;
         default:
           return res.status(400).json({ error: "Invalid report type" });
@@ -2776,7 +2790,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/assets/:id", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.delete("/api/assets/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:delete"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const assetId = req.params.id;
       if (assetId.startsWith("casset-")) {
@@ -3211,7 +3225,7 @@ export async function registerRoutes(
   });
   
   // Scan IAM for a cloud connection
-  app.post("/api/cloud-connections/:id/scan-iam", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/cloud-connections/:id/scan-iam", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const connection = await storage.getCloudConnection(req.params.id);
       if (!connection) {
@@ -3515,7 +3529,7 @@ export async function registerRoutes(
   });
   
   // List SSH credentials for organization
-  app.get("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.get("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const credentials = await storage.getSshCredentials(organizationId);
@@ -3531,7 +3545,6 @@ export async function registerRoutes(
         username: cred.username,
         authMethod: cred.authMethod,
         useSudo: cred.useSudo,
-        sudoPassword: cred.sudoPassword,
         status: cred.status,
         lastUsedAt: cred.lastUsedAt,
         lastValidatedAt: cred.lastValidatedAt,
@@ -3549,7 +3562,7 @@ export async function registerRoutes(
   });
   
   // Create SSH credential
-  app.post("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/ssh-credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const parsed = sshCredentialSchema.safeParse(req.body);
@@ -3628,7 +3641,7 @@ export async function registerRoutes(
   });
   
   // Test SSH connection
-  app.post("/api/ssh-credentials/:id/test", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/ssh-credentials/:id/test", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const { sshDeploymentService } = await import("./services/ssh-deployment");
       
@@ -3664,7 +3677,7 @@ export async function registerRoutes(
   });
   
   // Delete SSH credential
-  app.delete("/api/ssh-credentials/:id", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.delete("/api/ssh-credentials/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       await storage.deleteSshCredential(req.params.id);
       res.json({ success: true });
@@ -3675,7 +3688,7 @@ export async function registerRoutes(
   });
   
   // Deploy agent via SSH to a specific asset
-  app.post("/api/ssh-credentials/:id/deploy/:assetId", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
+  app.post("/api/ssh-credentials/:id/deploy/:assetId", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req: UIAuthenticatedRequest, res) => {
     try {
       const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const serverUrl = process.env.PUBLIC_ODINFORGE_URL || `https://${req.headers.host}`;
@@ -4210,8 +4223,7 @@ export async function registerRoutes(
   }
 
   // Get registration token for display in UI
-  // Note: The Agents page requires login to access, so this is effectively protected
-  app.get("/api/agents/registration-token", apiRateLimiter, async (req, res) => {
+  app.get("/api/agents/registration-token", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
     const token = process.env.AGENT_REGISTRATION_TOKEN;
     if (!token) {
       return res.json({ 
@@ -6601,7 +6613,6 @@ export async function registerRoutes(
           "lateral_movement",
           "impact_assessment",
         ],
-        executionMode: executionMode as "safe" | "simulation" | "live",
         requireMinConfidence: 30,
         requireCredentialForCloud: true,
         requireCloudAccessForK8s: true,
