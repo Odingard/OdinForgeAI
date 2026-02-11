@@ -10,7 +10,6 @@ import { ViewModeProvider } from "./contexts/ViewModeContext";
 import { CyberToastProvider } from "@/components/ui/cyber-toast";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./components/AppSidebar";
-import { Dashboard } from "./components/Dashboard";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
 import { NotificationsPopover } from "./components/NotificationsPopover";
@@ -51,6 +50,7 @@ const Sandbox = lazy(() => import("@/pages/Sandbox"));
 const Simulations = lazy(() => import("@/pages/Simulations"));
 const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
+const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component

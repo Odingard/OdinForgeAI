@@ -7,6 +7,9 @@ import type { UIUser, InsertUIRole, Permission } from "@shared/schema";
 import { getPermissionsForDbRole } from "@shared/schema";
 import { setTenantContext, clearTenantContext } from "./rls-setup";
 
+if (!process.env.SESSION_SECRET && process.env.NODE_ENV === "production") {
+  throw new Error("SESSION_SECRET environment variable is required in production");
+}
 const UI_JWT_SECRET = new TextEncoder().encode(
   process.env.SESSION_SECRET || "odinforge-ui-jwt-secret-dev"
 );

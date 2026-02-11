@@ -1911,9 +1911,8 @@ export default function Infrastructure() {
                     },
                   ];
                 })()}
-                onNodeClick={(node) => {
+                onNodeClick={(_node) => {
                   // Handle node click - could show details dialog
-                  console.log("Asset clicked:", node);
                 }}
               />
             </CardContent>
