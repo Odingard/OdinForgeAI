@@ -4052,7 +4052,7 @@ export async function registerRoutes(
       ) || [];
       const recommendations = (result.recommendations || []).map(r => r?.description || "");
 
-      // Update simulation with results
+      // Update simulation with results (include full round data for visualization)
       await storage.updateAiSimulation(simulationId, {
         simulationStatus: "completed",
         completedAt: new Date(),
@@ -4065,6 +4065,32 @@ export async function registerRoutes(
           detectionPoints,
           missedAttacks,
           recommendations,
+          winner: result.winner,
+          executiveSummary: result.executiveSummary,
+          totalProcessingTime: result.totalProcessingTime,
+          totalRounds: result.totalRounds,
+          purpleTeamFeedback: result.purpleTeamFeedback,
+          fullRecommendations: result.recommendations,
+          rounds: (result.rounds || []).map(r => ({
+            roundNumber: r.roundNumber,
+            attackSuccess: r.attackSuccess,
+            defenseSuccess: r.defenseSuccess,
+            roundSummary: r.roundSummary,
+            attackerFindings: {
+              exploitable: r.attackerFindings?.exploitable,
+              confidence: r.attackerFindings?.confidence,
+              score: r.attackerFindings?.score,
+              impact: r.attackerFindings?.impact,
+            },
+            defenderFindings: {
+              defenseEffectiveness: r.defenderFindings?.defenseEffectiveness,
+              detectedAttacks: r.defenderFindings?.detectedAttacks || [],
+              blockedPaths: r.defenderFindings?.blockedPaths || [],
+              gapsIdentified: r.defenderFindings?.gapsIdentified || [],
+              alertsGenerated: r.defenderFindings?.alertsGenerated || [],
+              recommendedImprovements: r.defenderFindings?.recommendedImprovements || [],
+            },
+          })),
         } as any,
       });
 

@@ -47,6 +47,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   ShieldX,
+  Trophy,
+  Trash2,
+  Swords,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { format } from "date-fns";
@@ -254,6 +257,19 @@ export default function Advanced() {
         description: String(error),
         variant: "destructive",
       });
+    },
+  });
+
+  const deleteSimulationMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/simulations/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ai-simulations", ORG_ID] });
+      toast({ title: "Simulation Deleted" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Delete Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1042,120 +1058,178 @@ export default function Advanced() {
             <div className="space-y-4">
               {simulations.map((sim) => {
                 const results = sim.simulationResults as any;
+                const attackScore = results ? Math.round(results.attackerSuccesses || 0) : 0;
+                const defenseScore = results ? Math.round(results.defenderBlocks || 0) : 0;
+                const winner = results?.winner;
+                const winnerIsDefender = winner === "defender";
+                const winnerIsAttacker = winner === "attacker";
+                const detectionPoints = (results?.detectionPoints as string[]) || [];
+                const missedAttacks = (results?.missedAttacks as string[]) || [];
+                const detectionRate = detectionPoints.length + missedAttacks.length > 0
+                  ? Math.round((detectionPoints.length / (detectionPoints.length + missedAttacks.length)) * 100)
+                  : 0;
+
                 return (
-                  <div
+                  <Card
                     key={sim.id}
-                    className="p-4 rounded-lg bg-muted/50 space-y-3"
+                    className="overflow-hidden"
                     data-testid={`card-simulation-${sim.id}`}
                   >
-                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                      <div>
-                        <div className="font-medium">{sim.name}</div>
-                        {sim.description && (
-                          <div className="text-sm text-muted-foreground">{sim.description}</div>
-                        )}
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={
-                          sim.simulationStatus === "completed"
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                            : sim.simulationStatus === "running"
-                            ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                            : sim.simulationStatus === "failed"
-                            ? "bg-red-500/10 text-red-400 border-red-500/30"
-                            : "bg-gray-500/10 text-gray-400 border-gray-500/30"
-                        }
-                      >
-                        {sim.simulationStatus === "running" && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                        {sim.simulationStatus === "completed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
-                        {(sim.simulationStatus || "pending").charAt(0).toUpperCase() + (sim.simulationStatus || "pending").slice(1)}
-                      </Badge>
-                    </div>
-
-                    {sim.simulationStatus === "completed" && results && (
-                      <>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <div className="p-2 rounded bg-background text-center">
-                            <div className="text-lg font-bold text-red-400">{results.attackerSuccesses}</div>
-                            <div className="text-xs text-muted-foreground">Attacker Wins</div>
-                          </div>
-                          <div className="p-2 rounded bg-background text-center">
-                            <div className="text-lg font-bold text-emerald-400">{results.defenderBlocks}</div>
-                            <div className="text-xs text-muted-foreground">Defender Blocks</div>
-                          </div>
-                          <div className="p-2 rounded bg-background text-center">
-                            <div className="text-lg font-bold text-cyan-400">{results.timeToDetection}m</div>
-                            <div className="text-xs text-muted-foreground">Time to Detect</div>
-                          </div>
-                          <div className="p-2 rounded bg-background text-center">
-                            <div className="text-lg font-bold text-amber-400">{results.timeToContainment}m</div>
-                            <div className="text-xs text-muted-foreground">Time to Contain</div>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Attack Path</div>
-                            <ul className="space-y-1">
-                              {(results.attackPath as string[])?.slice(0, 3).map((step, i) => (
-                                <li key={i} className="flex items-start gap-2">
-                                  <span className="text-red-400 font-mono">{i + 1}.</span>
-                                  <span className="text-muted-foreground">{step}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div>
-                            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Detection Points</div>
-                            <ul className="space-y-1">
-                              {(results.detectionPoints as string[])?.map((point, i) => (
-                                <li key={i} className="flex items-start gap-2">
-                                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-                                  <span className="text-muted-foreground">{point}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-
-                        {(results.missedAttacks as string[])?.length > 0 && (
-                          <div>
-                            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Missed Attacks</div>
-                            <ul className="space-y-1">
-                              {(results.missedAttacks as string[])?.map((missed, i) => (
-                                <li key={i} className="flex items-start gap-2 text-sm">
-                                  <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
-                                  <span className="text-muted-foreground">{missed}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {(results.recommendations as string[])?.length > 0 && (
-                          <div>
-                            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Recommendations</div>
-                            <ul className="space-y-1">
-                              {(results.recommendations as string[])?.map((rec, i) => (
-                                <li key={i} className="flex items-start gap-2 text-sm">
-                                  <Zap className="h-4 w-4 text-cyan-400 shrink-0" />
-                                  <span>{rec}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </>
+                    {/* Status bar */}
+                    {sim.simulationStatus === "completed" && (
+                      <div className={`h-1 ${winnerIsDefender ? "bg-emerald-500" : winnerIsAttacker ? "bg-red-500" : "bg-amber-500"}`} />
                     )}
 
-                    {sim.simulationStatus === "running" && (
-                      <div className="flex items-center justify-center py-4">
-                        <Loader2 className="h-6 w-6 animate-spin text-amber-400 mr-2" />
-                        <span className="text-muted-foreground">Simulation in progress...</span>
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium flex items-center gap-2">
+                            {sim.name}
+                            {sim.simulationStatus === "completed" && winner && (
+                              <Badge variant="outline" className={`text-[10px] ${
+                                winnerIsDefender ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30" :
+                                winnerIsAttacker ? "bg-red-500/10 text-red-500 border-red-500/30" :
+                                "bg-amber-500/10 text-amber-500 border-amber-500/30"
+                              }`}>
+                                <Trophy className="h-2.5 w-2.5 mr-1" />
+                                {winnerIsDefender ? "Defender" : winnerIsAttacker ? "Attacker" : "Draw"}
+                              </Badge>
+                            )}
+                          </div>
+                          {sim.description && (
+                            <div className="text-sm text-muted-foreground line-clamp-1">{sim.description}</div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className={
+                              sim.simulationStatus === "completed"
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                : sim.simulationStatus === "running"
+                                ? "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                                : sim.simulationStatus === "failed"
+                                ? "bg-red-500/10 text-red-400 border-red-500/30"
+                                : "bg-gray-500/10 text-gray-400 border-gray-500/30"
+                            }
+                          >
+                            {sim.simulationStatus === "running" && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                            {sim.simulationStatus === "completed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                            {(sim.simulationStatus || "pending").charAt(0).toUpperCase() + (sim.simulationStatus || "pending").slice(1)}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => deleteSimulationMutation.mutate(sim.id)}
+                            data-testid={`btn-delete-sim-${sim.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
                       </div>
-                    )}
-                  </div>
+
+                      {sim.simulationStatus === "completed" && results && (
+                        <>
+                          {/* Score bars */}
+                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="flex items-center gap-1"><Skull className="h-3 w-3 text-red-500" />Attack</span>
+                                <span className="font-mono text-red-500">{attackScore}%</span>
+                              </div>
+                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-red-600 to-red-400 rounded-full" style={{ width: `${attackScore}%` }} />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="flex items-center gap-1"><Shield className="h-3 w-3 text-emerald-500" />Defense</span>
+                                <span className="font-mono text-emerald-500">{defenseScore}%</span>
+                              </div>
+                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full" style={{ width: `${defenseScore}%` }} />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Stats row */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="p-2 rounded bg-emerald-500/5 border border-emerald-500/10 text-center">
+                              <div className="text-sm font-bold text-emerald-500">{detectionPoints.length}</div>
+                              <div className="text-[10px] text-muted-foreground">Detected</div>
+                            </div>
+                            <div className="p-2 rounded bg-red-500/5 border border-red-500/10 text-center">
+                              <div className="text-sm font-bold text-red-500">{missedAttacks.length}</div>
+                              <div className="text-[10px] text-muted-foreground">Missed</div>
+                            </div>
+                            <div className="p-2 rounded bg-blue-500/5 border border-blue-500/10 text-center">
+                              <div className="text-sm font-bold text-blue-500">{detectionRate}%</div>
+                              <div className="text-[10px] text-muted-foreground">Detection Rate</div>
+                            </div>
+                          </div>
+
+                          {/* Attack path with detection overlay */}
+                          {(results.attackPath as string[])?.length > 0 && (
+                            <div>
+                              <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Attack Path</div>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {(results.attackPath as string[]).slice(0, 5).map((step, i) => {
+                                  const isDetected = detectionPoints.some((d: string) =>
+                                    step.toLowerCase().includes(d.toLowerCase()) || d.toLowerCase().includes(step.toLowerCase())
+                                  );
+                                  return (
+                                    <div key={i} className="flex items-center gap-1">
+                                      <div className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] border ${
+                                        isDetected
+                                          ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                                          : "bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400"
+                                      }`}>
+                                        {isDetected ? <ShieldCheck className="h-2.5 w-2.5" /> : <ShieldAlert className="h-2.5 w-2.5" />}
+                                        {step}
+                                      </div>
+                                      {i < Math.min((results.attackPath as string[]).length, 5) - 1 && (
+                                        <ArrowRight className="h-2.5 w-2.5 text-muted-foreground flex-shrink-0" />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {(results.attackPath as string[]).length > 5 && (
+                                  <span className="text-[10px] text-muted-foreground">+{(results.attackPath as string[]).length - 5} more</span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Executive summary */}
+                          {results.executiveSummary && (
+                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{results.executiveSummary}</p>
+                          )}
+
+                          {/* View full results link */}
+                          <div className="pt-1">
+                            <a href="/simulations" className="text-xs text-primary hover:underline flex items-center gap-1">
+                              <Swords className="h-3 w-3" />
+                              View full results on Simulations page
+                            </a>
+                          </div>
+                        </>
+                      )}
+
+                      {sim.simulationStatus === "running" && (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="h-6 w-6 animate-spin text-amber-400 mr-2" />
+                          <span className="text-muted-foreground">Simulation in progress...</span>
+                        </div>
+                      )}
+
+                      {sim.simulationStatus === "failed" && results?.error && (
+                        <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-xs text-red-500">
+                          <span className="font-medium">Error: </span>{results.error}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 );
               })}
             </div>
@@ -1170,9 +1244,16 @@ export default function Advanced() {
 
       <Card data-testid="card-purple-team">
         <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-purple-400" />
-            <CardTitle className="text-lg">Purple Team Feedback Loop</CardTitle>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-purple-400" />
+              <CardTitle className="text-lg">Purple Team Feedback Loop</CardTitle>
+            </div>
+            {purpleTeamFindings.length > 0 && (
+              <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/30">
+                {purpleTeamFindings.length} Finding{purpleTeamFindings.length !== 1 ? "s" : ""}
+              </Badge>
+            )}
           </div>
           <CardDescription>Connect offensive findings to defensive improvements</CardDescription>
         </CardHeader>
@@ -1182,57 +1263,146 @@ export default function Advanced() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : purpleTeamFindings.length > 0 ? (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Technique</TableHead>
-                    <TableHead>Detection</TableHead>
-                    <TableHead>Control %</TableHead>
-                    <TableHead>Recommendation</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Assigned</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {purpleTeamFindings.map((finding) => (
-                    <TableRow key={finding.id} data-testid={`row-finding-${finding.id}`}>
-                      <TableCell className="font-mono text-sm">
-                        {finding.offensiveTechnique || "N/A"}
-                      </TableCell>
-                      <TableCell>
-                        {finding.detectionStatus && (
-                          <Badge
-                            variant="outline"
-                            className={`text-xs ${detectionStatusConfig[finding.detectionStatus]?.color}`}
-                          >
-                            {detectionStatusConfig[finding.detectionStatus]?.label || finding.detectionStatus}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Progress
-                            value={finding.controlEffectiveness || 0}
-                            className="w-16 h-2"
+            <div className="space-y-5">
+              {/* Summary metrics row */}
+              {(() => {
+                const totalFindings = purpleTeamFindings.length;
+                const implemented = purpleTeamFindings.filter(f => f.feedbackStatus === "implemented").length;
+                const inProgress = purpleTeamFindings.filter(f => f.feedbackStatus === "in_progress").length;
+                const pending = purpleTeamFindings.filter(f => f.feedbackStatus === "pending" || !f.feedbackStatus).length;
+                const wontFix = purpleTeamFindings.filter(f => f.feedbackStatus === "wont_fix").length;
+                const detected = purpleTeamFindings.filter(f => f.detectionStatus === "detected").length;
+                const partial = purpleTeamFindings.filter(f => f.detectionStatus === "partially_detected").length;
+                const missed = purpleTeamFindings.filter(f => f.detectionStatus === "missed").length;
+                const avgEffectiveness = Math.round(purpleTeamFindings.reduce((sum, f) => sum + (f.controlEffectiveness || 0), 0) / totalFindings);
+                const remediationRate = Math.round(((implemented + wontFix) / totalFindings) * 100);
+                const criticalCount = purpleTeamFindings.filter(f => f.implementationPriority === "critical").length;
+                const highCount = purpleTeamFindings.filter(f => f.implementationPriority === "high").length;
+
+                return (
+                  <>
+                    {/* Remediation progress */}
+                    <div className="p-4 rounded-lg border bg-card/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">Remediation Progress</span>
+                        <span className="text-sm font-mono font-bold">{remediationRate}%</span>
+                      </div>
+                      <div className="h-3 bg-muted rounded-full overflow-hidden flex">
+                        {implemented > 0 && (
+                          <div
+                            className="h-full bg-emerald-500 transition-all"
+                            style={{ width: `${(implemented / totalFindings) * 100}%` }}
+                            title={`Implemented: ${implemented}`}
                           />
-                          <span className="text-xs font-mono">{finding.controlEffectiveness || 0}%</span>
+                        )}
+                        {inProgress > 0 && (
+                          <div
+                            className="h-full bg-blue-500 transition-all"
+                            style={{ width: `${(inProgress / totalFindings) * 100}%` }}
+                            title={`In Progress: ${inProgress}`}
+                          />
+                        )}
+                        {wontFix > 0 && (
+                          <div
+                            className="h-full bg-orange-500 transition-all"
+                            style={{ width: `${(wontFix / totalFindings) * 100}%` }}
+                            title={`Won't Fix: ${wontFix}`}
+                          />
+                        )}
+                        {pending > 0 && (
+                          <div
+                            className="h-full bg-gray-600 transition-all"
+                            style={{ width: `${(pending / totalFindings) * 100}%` }}
+                            title={`Pending: ${pending}`}
+                          />
+                        )}
+                      </div>
+                      <div className="flex gap-4 mt-2 text-[11px] text-muted-foreground">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />Implemented ({implemented})</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />In Progress ({inProgress})</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-500" />Won't Fix ({wontFix})</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-600" />Pending ({pending})</span>
+                      </div>
+                    </div>
+
+                    {/* Stats grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="p-3 rounded-lg border bg-card/50 text-center">
+                        <div className="text-2xl font-bold" style={{ color: avgEffectiveness >= 70 ? '#10b981' : avgEffectiveness >= 40 ? '#f59e0b' : '#ef4444' }}>{avgEffectiveness}%</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">Avg Control Effectiveness</div>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-card/50 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span className="text-lg font-bold text-emerald-500">{detected}</span>
+                          <span className="text-muted-foreground">/</span>
+                          <span className="text-lg font-bold text-amber-500">{partial}</span>
+                          <span className="text-muted-foreground">/</span>
+                          <span className="text-lg font-bold text-red-500">{missed}</span>
                         </div>
-                      </TableCell>
-                      <TableCell className="max-w-xs">
-                        <span className="text-sm text-muted-foreground line-clamp-2">
-                          {finding.defensiveRecommendation || "-"}
-                        </span>
-                      </TableCell>
-                      <TableCell>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">Detected / Partial / Missed</div>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-card/50 text-center">
+                        <div className="text-2xl font-bold text-red-500">{criticalCount + highCount}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">Critical + High Priority</div>
+                      </div>
+                      <div className="p-3 rounded-lg border bg-card/50 text-center">
+                        <div className="text-2xl font-bold text-purple-400">{totalFindings}</div>
+                        <div className="text-[11px] text-muted-foreground mt-0.5">Total Findings</div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Finding cards */}
+              <div className="space-y-3">
+                {purpleTeamFindings.map((finding) => {
+                  const effectiveness = finding.controlEffectiveness || 0;
+                  const effectivenessColor = effectiveness >= 70 ? "text-emerald-500" : effectiveness >= 40 ? "text-amber-500" : "text-red-500";
+                  const effectivenessBg = effectiveness >= 70 ? "from-emerald-600 to-emerald-400" : effectiveness >= 40 ? "from-amber-600 to-amber-400" : "from-red-600 to-red-400";
+                  const detStatus = finding.detectionStatus || "missed";
+                  const DetIcon = detStatus === "detected" ? ShieldCheck : detStatus === "partially_detected" ? ShieldAlert : ShieldX;
+
+                  return (
+                    <div
+                      key={finding.id}
+                      data-testid={`row-finding-${finding.id}`}
+                      className="p-4 rounded-lg border bg-card/50 space-y-3"
+                    >
+                      {/* Header row: technique + priority + status */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <DetIcon className={`h-4 w-4 flex-shrink-0 ${detectionStatusConfig[detStatus]?.color?.split(" ")[1] || "text-muted-foreground"}`} />
+                          <span className="font-mono text-sm font-medium">{finding.offensiveTechnique || "Unknown Technique"}</span>
+                          {finding.detectionStatus && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${detectionStatusConfig[finding.detectionStatus]?.color}`}
+                            >
+                              {detectionStatusConfig[finding.detectionStatus]?.label}
+                            </Badge>
+                          )}
+                          {finding.implementationPriority && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] ${priorityConfig[finding.implementationPriority]?.color}`}
+                            >
+                              {priorityConfig[finding.implementationPriority]?.label}
+                            </Badge>
+                          )}
+                          {finding.findingType && (
+                            <Badge variant="outline" className="text-[10px] bg-purple-500/10 text-purple-400 border-purple-500/30">
+                              {finding.findingType.replace(/_/g, " ")}
+                            </Badge>
+                          )}
+                        </div>
                         <Select
                           value={finding.feedbackStatus || "pending"}
                           onValueChange={(value) =>
                             updateFindingMutation.mutate({ id: finding.id, updates: { feedbackStatus: value } })
                           }
                         >
-                          <SelectTrigger className="h-8 w-28" data-testid={`select-status-${finding.id}`}>
+                          <SelectTrigger className="h-7 w-32 text-xs" data-testid={`select-status-${finding.id}`}>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1243,31 +1413,97 @@ export default function Advanced() {
                             ))}
                           </SelectContent>
                         </Select>
-                      </TableCell>
-                      <TableCell>
-                        {finding.implementationPriority && (
-                          <Badge
-                            variant="outline"
-                            className={`text-xs ${priorityConfig[finding.implementationPriority]?.color}`}
-                          >
-                            {priorityConfig[finding.implementationPriority]?.label}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-muted-foreground">
-                          {finding.assignedTo || "-"}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                      </div>
+
+                      {/* Offense → Defense flow */}
+                      <div className="grid grid-cols-1 md:grid-cols-[1fr,auto,1fr] gap-3 items-stretch">
+                        {/* Offensive side */}
+                        <div className="p-3 rounded bg-red-500/5 border border-red-500/10">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Skull className="h-3.5 w-3.5 text-red-500" />
+                            <span className="text-[11px] font-medium text-red-500 uppercase tracking-wider">Offensive Finding</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            {finding.offensiveDescription || "No description available"}
+                          </p>
+                        </div>
+
+                        {/* Arrow connector */}
+                        <div className="hidden md:flex items-center justify-center">
+                          <ArrowRight className="h-5 w-5 text-purple-400" />
+                        </div>
+                        <div className="flex md:hidden items-center justify-center py-1">
+                          <div className="w-px h-4 bg-purple-400/50" />
+                        </div>
+
+                        {/* Defensive side */}
+                        <div className="p-3 rounded bg-emerald-500/5 border border-emerald-500/10">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Shield className="h-3.5 w-3.5 text-emerald-500" />
+                            <span className="text-[11px] font-medium text-emerald-500 uppercase tracking-wider">Defensive Response</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            {finding.defensiveRecommendation || "No recommendation yet"}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Bottom row: control effectiveness + existing control + metadata */}
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div className="flex items-center gap-4">
+                          {/* Control effectiveness gauge */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-muted-foreground">Control:</span>
+                            <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
+                              <div className={`h-full bg-gradient-to-r ${effectivenessBg} rounded-full transition-all`} style={{ width: `${effectiveness}%` }} />
+                            </div>
+                            <span className={`text-xs font-mono font-bold ${effectivenessColor}`}>{effectiveness}%</span>
+                          </div>
+
+                          {/* Existing control */}
+                          {finding.existingControl && (
+                            <span className="text-[11px] text-muted-foreground">
+                              <span className="font-medium">Control:</span> {finding.existingControl}
+                            </span>
+                          )}
+
+                          {/* Effort estimate */}
+                          {finding.estimatedEffort && (
+                            <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {finding.estimatedEffort}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Assigned + timestamps */}
+                        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                          {finding.assignedTo && (
+                            <span className="flex items-center gap-1">
+                              <Users className="h-3 w-3" />
+                              {finding.assignedTo}
+                            </span>
+                          )}
+                          {finding.createdAt && (
+                            <span>{formatTimeAgo(String(finding.createdAt))}</span>
+                          )}
+                          {finding.resolvedAt && (
+                            <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                              Resolved {formatTimeAgo(String(finding.resolvedAt))}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Activity className="h-12 w-12 mx-auto mb-3 opacity-50" />
-              <p>No purple team findings yet</p>
+              <p>No purple team findings yet.</p>
+              <p className="text-sm mt-1">Run an AI vs AI simulation to generate offensive-defensive findings.</p>
             </div>
           )}
         </CardContent>

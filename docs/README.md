@@ -26,6 +26,7 @@ Welcome to the OdinForge AI documentation. This guide covers installation, confi
 ### Architecture & Design
 - [Design System](DESIGN_SYSTEM.md) - Afterglow UI design system and patterns
 - [Testing Guide](TESTING_GUIDE.md) - Vitest integration testing
+- [Adversary Simulation Enhancement](ADVERSARY_SIMULATION_ENHANCEMENT.md) - Future release: ATT&CK technique execution engine
 
 ### Additional Resources
 - [Getting Started Guide](../wiki/Getting-Started.md) - Quick start walkthrough
@@ -142,6 +143,7 @@ docs/
 ├── DESIGN_SYSTEM.md               # Afterglow UI design system
 ├── ENTERPRISE_AGENT_DEPLOYMENT.md # Enterprise agent provisioning
 ├── TESTING_GUIDE.md               # Integration testing guide
+├── ADVERSARY_SIMULATION_ENHANCEMENT.md  # Future: ATT&CK execution engine
 ├── server/
 │   ├── installation.md            # Server setup guide
 │   ├── configuration.md           # Environment and settings
