@@ -3,7 +3,7 @@ import { secretsService } from "../secrets";
 import { awsAdapter } from "./aws-adapter";
 import { azureAdapter } from "./azure-adapter";
 import { gcpAdapter } from "./gcp-adapter";
-import type { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, CloudProvider } from "./types";
+import type { ProviderAdapter, CloudCredentials, CloudAssetInfo, DiscoveryProgress, CloudProvider, DeploymentResult } from "./types";
 import { randomUUID } from "crypto";
 
 const adapters: Record<CloudProvider, ProviderAdapter> = {
@@ -568,17 +568,74 @@ export class CloudIntegrationService {
 
     console.log(`[CloudDeploy] Using server URL: ${serverUrl}`);
 
-    const result = await adapter.deployAgent(
-      credentials,
-      asset,
-      {
-        serverUrl,
-        apiKey,
-        agentId,
-        organizationId: asset.organizationId,
-        installCommand,
+    const deployOptions = {
+      serverUrl,
+      apiKey,
+      agentId,
+      organizationId: asset.organizationId,
+      installCommand,
+    };
+
+    let result: DeploymentResult;
+
+    // For AWS: SSM pre-check + SSH fallback chain
+    if (connection.provider === "aws" && credentials?.aws) {
+      const ssmCheck = await awsAdapter.checkSSMAvailability(
+        credentials.aws,
+        asset.providerResourceId,
+        asset.region || "us-east-1"
+      );
+      console.log(`[CloudDeploy] SSM pre-check for ${asset.providerResourceId}: available=${ssmCheck.available}, status=${ssmCheck.pingStatus || "unknown"}`);
+
+      if (ssmCheck.available) {
+        // SSM is available, try it first
+        result = await adapter.deployAgent(credentials, asset, deployOptions);
+      } else {
+        console.log(`[CloudDeploy] SSM unavailable: ${ssmCheck.error}. Skipping SSM, trying SSH fallback.`);
+        result = { success: false, errorMessage: `SSM unavailable: ${ssmCheck.error}` };
       }
-    );
+
+      // If SSM failed or was skipped, try SSH fallback
+      if (!result.success) {
+        console.log(`[CloudDeploy] SSM failed for ${asset.providerResourceId}. Attempting SSH fallback...`);
+        try {
+          const sshCred = await storage.getSshCredentialForAsset(asset.id, asset.organizationId);
+          if (sshCred) {
+            console.log(`[CloudDeploy] Found SSH credential ${sshCred.id} for asset, attempting SSH deployment`);
+            const { sshDeploymentService } = await import("../ssh-deployment");
+            const sshConfig = await sshDeploymentService.getDecryptedCredentials(sshCred.id);
+            if (sshConfig && sshConfig.host) {
+              const sshResult = await sshDeploymentService.deployAgent(
+                sshConfig,
+                {
+                  serverUrl,
+                  apiKey,
+                  agentId,
+                  organizationId: asset.organizationId,
+                  platform: platform,
+                }
+              );
+              if (sshResult.success) {
+                result = { success: true, agentId };
+                console.log(`[CloudDeploy] SSH fallback succeeded for ${asset.providerResourceId}`);
+              } else {
+                console.log(`[CloudDeploy] SSH fallback also failed: ${sshResult.errorMessage}`);
+                result = { success: false, errorMessage: `SSM failed, SSH fallback failed: ${sshResult.errorMessage}` };
+              }
+            } else {
+              console.log(`[CloudDeploy] SSH credential decryption failed or missing host`);
+            }
+          } else {
+            console.log(`[CloudDeploy] No SSH credentials found for asset ${asset.id}, SSH fallback unavailable`);
+          }
+        } catch (sshErr: any) {
+          console.log(`[CloudDeploy] SSH fallback error: ${sshErr.message}`);
+        }
+      }
+    } else {
+      // Non-AWS providers: deploy directly
+      result = await adapter.deployAgent(credentials, asset, deployOptions);
+    }
 
     if (result.success) {
       // Only update job if not cancelled
