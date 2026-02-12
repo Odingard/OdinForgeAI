@@ -157,6 +157,7 @@ interface CloudAsset {
   platform: string | null;
   agentDeployable: boolean;
   agentDeploymentStatus: string | null;
+  agentDeploymentError: string | null;
   agentId: string | null;
   metadata: Record<string, unknown> | null;
   lastSeenAt: string;
@@ -661,15 +662,22 @@ function CloudConnectionCard({
                       </TableCell>
                       <TableCell>
                         {asset.agentDeployable ? (
-                          <Badge className={
-                            asset.agentDeploymentStatus === "success" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                            asset.agentDeploymentStatus === "deploying" || asset.agentDeploymentStatus === "pending" 
-                              ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
-                            asset.agentDeploymentStatus === "failed" ? "bg-red-500/10 text-red-400 border-red-500/30" :
-                            "bg-gray-500/10 text-gray-400 border-gray-500/30"
-                          }>
-                            {asset.agentDeploymentStatus === "success" ? "Installed" : asset.agentDeploymentStatus || "Not Deployed"}
-                          </Badge>
+                          <div className="space-y-0.5">
+                            <Badge className={
+                              asset.agentDeploymentStatus === "success" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
+                              asset.agentDeploymentStatus === "deploying" || asset.agentDeploymentStatus === "pending"
+                                ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
+                              asset.agentDeploymentStatus === "failed" ? "bg-red-500/10 text-red-400 border-red-500/30" :
+                              "bg-gray-500/10 text-gray-400 border-gray-500/30"
+                            }>
+                              {asset.agentDeploymentStatus === "success" ? "Installed" : asset.agentDeploymentStatus || "Not Deployed"}
+                            </Badge>
+                            {asset.agentDeploymentStatus === "failed" && asset.agentDeploymentError && (
+                              <span className="text-[10px] text-red-400 max-w-[200px] truncate block" title={asset.agentDeploymentError}>
+                                {asset.agentDeploymentError}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">N/A</span>
                         )}
