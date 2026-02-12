@@ -1371,6 +1371,12 @@ export class DatabaseStorage implements IStorage {
     await db.delete(agentCommands).where(eq(agentCommands.agentId, id));
     await db.delete(agentFindings).where(eq(agentFindings.agentId, id));
     await db.delete(agentTelemetry).where(eq(agentTelemetry.agentId, id));
+    // Clear any cloud asset references to this agent so they don't show stale data
+    await db.update(cloudAssets).set({
+      agentId: null,
+      agentInstalled: false,
+      agentDeploymentStatus: null,
+    }).where(eq(cloudAssets.agentId, id));
     await db.delete(endpointAgents).where(eq(endpointAgents.id, id));
   }
 

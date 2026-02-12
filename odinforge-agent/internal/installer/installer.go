@@ -113,9 +113,13 @@ func (s *SystemdInstaller) Install(cfg InstallConfig) error {
                 fmt.Printf("Note: Could not create service user: %v\n", err)
         }
 
-        // Set ownership
+        // Set ownership of data directory and config directory
         if err := exec.Command("chown", "-R", "odinforge:odinforge", cfg.DataPath).Run(); err != nil {
                 fmt.Printf("Note: Could not set data directory ownership: %v\n", err)
+        }
+        configDir := filepath.Dir(cfg.ConfigPath)
+        if err := exec.Command("chown", "-R", "odinforge:odinforge", configDir).Run(); err != nil {
+                fmt.Printf("Note: Could not set config directory ownership: %v\n", err)
         }
 
         // Reload systemd
@@ -506,22 +510,11 @@ StateDirectory=odinforge-agent
 RuntimeDirectory=odinforge-agent
 ConfigurationDirectory=odinforge
 
-ProtectSystem=strict
+ProtectSystem=full
 ProtectHome=yes
 PrivateTmp=yes
-PrivateDevices=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
 NoNewPrivileges=yes
-ReadWritePaths={{.DataPath}}
-
-CapabilityBoundingSet=
-AmbientCapabilities=
-
-SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources
-SystemCallArchitectures=native
+ReadWritePaths={{.DataPath}} /etc/odinforge
 
 MemoryMax=256M
 CPUQuota=50%

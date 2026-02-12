@@ -127,6 +127,8 @@ func autoRegister(cfg *config.Config) (string, error) {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "OdinForge-Agent/1.0")
+	httpReq.Header.Set("ngrok-skip-browser-warning", "true")
 
 	resp, err := client.Do(httpReq)
 	if err != nil {

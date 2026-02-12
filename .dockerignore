@@ -1,0 +1,17 @@
+node_modules
+dist
+.git
+.github
+.env
+.env.*
+*.md
+!README.md
+.vscode
+.idea
+.DS_Store
+coverage
+tmp
+*.log
+supabase/.temp
+odinforge-agent/.git
+odinforge-agent/odinforge-agent

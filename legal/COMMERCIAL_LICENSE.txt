@@ -1,0 +1,55 @@
+OdinForge Commercial Use Addendum
+
+This Commercial License Addendum ("Addendum") is entered into between
+OdinForge ("Licensor") and the purchasing entity ("Licensee").
+
+
+1. Grant of Commercial Rights
+
+Licensor grants Licensee a non-exclusive, non-transferable, non-sublicensable
+license to use OdinForge-AI v1.0.0 in production environments for internal
+business purposes only.
+
+
+2. Scope
+
+Permitted use includes:
+  - Production deployment
+  - Internal security testing
+  - Authorized penetration testing
+  - Corporate infrastructure scanning
+
+Not permitted:
+  - Resale
+  - Redistribution
+  - SaaS hosting for third parties
+  - Reverse engineering for competing products
+
+
+3. Term
+
+License remains valid only while:
+  - Subscription is active, OR
+  - Perpetual license is paid and maintained
+
+
+4. Ownership
+
+OdinForge retains all intellectual property rights. This agreement transfers
+no ownership.
+
+
+5. Termination
+
+License terminates immediately if:
+  - Payment lapses
+  - Terms violated
+  - Unauthorized distribution occurs
+
+
+6. Remedies
+
+Licensor reserves right to:
+  - Revoke license
+  - Disable activation keys
+  - Pursue legal remedies

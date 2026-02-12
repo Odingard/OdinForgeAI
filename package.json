@@ -2,7 +2,7 @@
   "name": "rest-express",
   "version": "1.0.0",
   "type": "module",
-  "license": "MIT",
+  "license": "BSL-1.1",
   "scripts": {
     "aev:ci": "node ./scripts/aev-ci.js",
     "smoke": "node ./scripts/aev-smoke.js",

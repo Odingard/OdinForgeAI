@@ -194,67 +194,98 @@ class SSHDeploymentService {
       if (parts[1]?.includes("arm") || parts[1]?.includes("aarch")) arch = "arm64";
     }
 
-    const binaryName = `odinforge-agent-${platform}-${arch}`;
-    const installDir = "/opt/odinforge";
+    const platformSlug = `${platform}-${arch}`; // e.g. "linux-amd64" — matches /api/agents/download/:platform
     const serverUrl = agentConfig.serverUrl;
     const apiKey = agentConfig.apiKey;
     const agentId = agentConfig.agentId;
+    const sudo = config.useSudo ? "sudo " : "";
 
+    // Use the agent's own install command — identical to SSM deployment.
+    // The Go binary creates proper YAML config, systemd service, user, and permissions.
     const installScript = `
-set -e
-echo "[OdinForge] Starting agent installation..."
-
-# Create installation directory
-${config.useSudo ? "sudo " : ""}mkdir -p ${installDir}
+set -eo pipefail
+echo "[OdinForge] Starting agent installation via SSH..."
+echo "[OdinForge] Server URL: ${serverUrl}"
+echo "[OdinForge] Platform slug: ${platformSlug}"
+echo "[OdinForge] Platform: $(uname -s -m)"
 
 # Download the agent binary
 echo "[OdinForge] Downloading agent binary..."
-cd /tmp
-curl -fsSL "${serverUrl}/api/agents/download/${binaryName}" -o ${binaryName} || wget -q "${serverUrl}/api/agents/download/${binaryName}" -O ${binaryName}
+DOWNLOAD_URL="${serverUrl}/api/agents/download/${platformSlug}"
+echo "[OdinForge] Download URL: $DOWNLOAD_URL"
 
-# Make executable and move to install directory
-chmod +x ${binaryName}
-${config.useSudo ? "sudo " : ""}mv ${binaryName} ${installDir}/odinforge-agent
+# Download with retry logic (ngrok tunnels can be flaky)
+DOWNLOAD_OK=0
+for ATTEMPT in 1 2 3; do
+  echo "[OdinForge] Download attempt $ATTEMPT..."
+  HTTP_CODE=$(curl -sL -H "ngrok-skip-browser-warning: true" -H "User-Agent: OdinForge-Agent/1.0" -w "%{http_code}" -o /tmp/odinforge-agent "$DOWNLOAD_URL" 2>/dev/null) || true
+  echo "[OdinForge] HTTP response code: $HTTP_CODE"
 
-# Create configuration
-echo "[OdinForge] Creating configuration..."
-${config.useSudo ? "sudo " : ""}tee ${installDir}/agent.conf > /dev/null << 'EOF'
-SERVER_URL=${serverUrl}
-API_KEY=${apiKey}
-AGENT_ID=${agentId}
-ORGANIZATION_ID=${agentConfig.organizationId}
-EOF
+  if [ "$HTTP_CODE" = "200" ]; then
+    FILE_SIZE=$(stat -c%s /tmp/odinforge-agent 2>/dev/null || stat -f%z /tmp/odinforge-agent 2>/dev/null || echo "0")
+    echo "[OdinForge] Downloaded file size: $FILE_SIZE bytes"
+    if [ "$FILE_SIZE" -gt 1000000 ]; then
+      DOWNLOAD_OK=1
+      break
+    fi
+    echo "[OdinForge] File too small, likely error page. Content:"
+    head -c 200 /tmp/odinforge-agent 2>/dev/null || true
+    echo ""
+  else
+    echo "[OdinForge] Download failed with HTTP $HTTP_CODE"
+    if [ -f /tmp/odinforge-agent ]; then
+      echo "[OdinForge] Response body:"
+      head -c 300 /tmp/odinforge-agent 2>/dev/null || true
+      echo ""
+    fi
+  fi
 
-# Create systemd service if available
-if command -v systemctl &> /dev/null; then
-  echo "[OdinForge] Creating systemd service..."
-  ${config.useSudo ? "sudo " : ""}tee /etc/systemd/system/odinforge-agent.service > /dev/null << 'EOF'
-[Unit]
-Description=OdinForge Security Agent
-After=network.target
+  if [ "$ATTEMPT" -lt 3 ]; then
+    echo "[OdinForge] Retrying in 5 seconds..."
+    sleep 5
+  fi
+done
 
-[Service]
-Type=simple
-EnvironmentFile=${installDir}/agent.conf
-ExecStart=${installDir}/odinforge-agent
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  ${config.useSudo ? "sudo " : ""}systemctl daemon-reload
-  ${config.useSudo ? "sudo " : ""}systemctl enable odinforge-agent
-  ${config.useSudo ? "sudo " : ""}systemctl start odinforge-agent
-  echo "[OdinForge] Agent installed and started as systemd service"
-else
-  # Fallback: Start agent directly in background
-  echo "[OdinForge] Starting agent in background..."
-  cd ${installDir}
-  nohup ./odinforge-agent > /var/log/odinforge-agent.log 2>&1 &
-  echo "[OdinForge] Agent started in background"
+if [ "$DOWNLOAD_OK" -ne 1 ]; then
+  echo "[OdinForge] ERROR: Failed to download agent binary after 3 attempts"
+  exit 1
 fi
+
+FILE_TYPE=$(file /tmp/odinforge-agent 2>/dev/null || echo "unknown")
+echo "[OdinForge] File type: $FILE_TYPE"
+chmod +x /tmp/odinforge-agent
+
+# Stop existing service before installing (prevents file-in-use issues)
+${sudo}systemctl stop odinforge-agent 2>/dev/null || true
+
+# Use the agent's own installer (creates YAML config, systemd service, user, permissions)
+echo "[OdinForge] Running agent installer..."
+${sudo}/tmp/odinforge-agent install --server-url "${serverUrl}" --api-key "${apiKey}" --tenant-id "${agentConfig.organizationId}" --force
+
+# Fix config permissions so the agent service can read it
+${sudo}chmod 644 /etc/odinforge/agent.yaml 2>/dev/null || true
+${sudo}chmod 755 /etc/odinforge 2>/dev/null || true
+${sudo}chown -R odinforge:odinforge /etc/odinforge 2>/dev/null || true
+${sudo}chown -R odinforge:odinforge /var/lib/odinforge-agent 2>/dev/null || true
+
+# Reload systemd and restart to pick up new binary + config
+${sudo}systemctl daemon-reload 2>/dev/null || true
+${sudo}systemctl restart odinforge-agent 2>/dev/null || true
+sleep 3
+
+echo "[OdinForge] Config file:"
+ls -la /etc/odinforge/agent.yaml 2>/dev/null || echo "[OdinForge] WARNING: Config file not found"
+
+if command -v systemctl &>/dev/null; then
+  echo "[OdinForge] Service status:"
+  ${sudo}systemctl is-active odinforge-agent && echo "[OdinForge] Service is ACTIVE" || {
+    echo "[OdinForge] WARNING: Service not active. Checking logs..."
+    ${sudo}journalctl -u odinforge-agent -n 30 --no-pager 2>/dev/null || true
+  }
+fi
+
+# Clean up
+rm -f /tmp/odinforge-agent
 
 echo "[OdinForge] Installation complete - Agent ID: ${agentId}"
 `;
@@ -272,9 +303,13 @@ echo "[OdinForge] Installation complete - Agent ID: ${agentId}"
       };
     } else {
       console.log(`[SSH] Agent deployment failed on ${config.host}: exit code ${result.exitCode}`);
+      console.log(`[SSH] Full output:\n${result.output}`);
+      // Extract the last meaningful error line for the UI error message
+      const outputLines = result.output.trim().split("\n").filter((l: string) => l.trim());
+      const lastLines = outputLines.slice(-5).join(" | ");
       return {
         success: false,
-        errorMessage: `Installation failed with exit code ${result.exitCode}`,
+        errorMessage: `Installation failed (exit ${result.exitCode}): ${lastLines}`,
         output: result.output,
         exitCode: result.exitCode,
       };

@@ -8,6 +8,7 @@ import (
         "errors"
         "fmt"
         "io"
+        "log/slog"
         "net/http"
         "net/url"
         "strings"
@@ -112,6 +113,8 @@ func (s *Sender) PollCommands(ctx context.Context, agentID string) ([]Command, e
 
         req.Header.Set("X-API-Key", s.cfg.Auth.APIKey)
         req.Header.Set("Content-Type", "application/json")
+        req.Header.Set("User-Agent", "OdinForge-Agent/1.0")
+        req.Header.Set("ngrok-skip-browser-warning", "true")
 
         resp, err := s.client.Do(req)
         if err != nil {
@@ -152,6 +155,8 @@ func (s *Sender) CompleteCommand(ctx context.Context, agentID, commandID string,
 
         req.Header.Set("X-API-Key", s.cfg.Auth.APIKey)
         req.Header.Set("Content-Type", "application/json")
+        req.Header.Set("User-Agent", "OdinForge-Agent/1.0")
+        req.Header.Set("ngrok-skip-browser-warning", "true")
 
         resp, err := s.client.Do(req)
         if err != nil {
@@ -205,6 +210,8 @@ func (s *Sender) postBatch(ctx context.Context, events []json.RawMessage) error 
                         req.Header.Set("Content-Encoding", contentEncoding)
                 }
                 req.Header.Set("Content-Type", "application/json")
+                req.Header.Set("User-Agent", "OdinForge-Agent/1.0")
+                req.Header.Set("ngrok-skip-browser-warning", "true")
 
                 // Auth: API key (fallback) or mTLS-only (recommended)
                 if strings.EqualFold(s.cfg.Auth.Mode, "api_key") && s.cfg.Auth.APIKey != "" {
@@ -213,12 +220,22 @@ func (s *Sender) postBatch(ctx context.Context, events []json.RawMessage) error 
 
                 resp, err := s.client.Do(req)
                 if err == nil && resp != nil {
-                        _, _ = io.Copy(io.Discard, resp.Body)
+                        body, _ := io.ReadAll(resp.Body)
                         _ = resp.Body.Close()
                         if resp.StatusCode >= 200 && resp.StatusCode < 300 {
                                 return nil
                         }
+                        slog.Warn("server rejected event batch",
+                                "status", resp.StatusCode,
+                                "body", string(body[:min(len(body), 200)]),
+                                "attempt", attempt+1,
+                        )
                         err = errors.New("server returned " + resp.Status)
+                } else if err != nil {
+                        slog.Warn("failed to send event batch",
+                                "error", err.Error(),
+                                "attempt", attempt+1,
+                        )
                 }
 
                 select {

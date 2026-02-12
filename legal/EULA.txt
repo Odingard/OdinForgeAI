@@ -1,0 +1,78 @@
+ODINFORGE END USER LICENSE AGREEMENT
+
+Last Updated: February 2026
+
+By installing or using OdinForge-AI, you agree to this EULA.
+
+
+1. License Grant
+
+You are granted a limited license to use OdinForge solely for lawful security
+testing and authorized environments.
+
+
+2. Authorized Use Only
+
+You may use OdinForge only on:
+  - Systems you own
+  - Systems you have written authorization to test
+
+Unauthorized testing is strictly prohibited.
+
+
+3. Prohibited Uses
+
+You may NOT:
+  - Conduct illegal intrusion attempts
+  - Test systems without permission
+  - Resell or redistribute software
+  - Remove license validation
+  - Modify licensing controls
+  - Build competing products from source
+
+
+4. Security Tool Responsibility
+
+OdinForge is a professional cybersecurity tool.
+
+You accept full responsibility for:
+  - Legal compliance
+  - Authorization
+  - Regulatory adherence
+
+Licensor is not liable for misuse.
+
+
+5. License Enforcement Technology
+
+OdinForge may include:
+  - License verification
+  - Usage telemetry
+  - Anti-tamper protection
+  - Activation validation
+
+Tampering voids license.
+
+
+6. Termination
+
+Violation of terms results in immediate termination of rights.
+
+
+7. Warranty Disclaimer
+
+Software provided AS IS without warranties.
+
+
+8. Limitation of Liability
+
+Licensor shall not be liable for:
+  - Damages
+  - Data loss
+  - Business interruption
+  - Security incidents
+
+
+9. Governing Law
+
+This agreement is governed by the laws of the Licensor's jurisdiction.

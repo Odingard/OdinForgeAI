@@ -1,0 +1,39 @@
+Subject: Unauthorized Use of OdinForge Software
+
+To Whom It May Concern,
+
+It has come to our attention that you or your organization are using
+OdinForge-AI in violation of the Business Source License 1.1 and
+associated licensing terms.
+
+Specifically:
+  - Production use without commercial license
+  - Unauthorized distribution
+  - License circumvention
+
+This letter serves as formal notice that your current use is not authorized.
+
+
+Required Action
+
+Within 5 business days you must:
+  - Cease all unauthorized use
+  OR
+  - Purchase a valid commercial license
+
+
+Failure to Comply
+
+Failure to comply may result in:
+  - License revocation
+  - Access termination
+  - Legal action
+  - Damages claims
+
+
+We prefer to resolve this amicably. Please contact:
+
+licensing@odingard.com
+
+Sincerely,
+OdinForge Licensing Team
