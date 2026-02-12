@@ -17,18 +17,17 @@ Welcome to the OdinForge AI documentation. This guide covers installation, confi
 ### Agent Deployment
 - [Agent Overview](agent/README.md) - Endpoint agent architecture
 - [Agent Installation](agent/INSTALL.md) - Detailed installation for all platforms
+- [Enterprise Agent Deployment](ENTERPRISE_AGENT_DEPLOYMENT.md) - Cloud-based provisioning and automation
 
 ### API Reference
-- [REST API](api/reference.md) - Core API endpoints and authentication
-- [Advanced Features API](API_DOCUMENTATION.md) - Cloud pentest, compliance, container security, and advanced features
+- [API Reference](API_REFERENCE.md) - Complete API endpoint documentation
+- [API Naming Conventions](API_NAMING_CONVENTIONS.md) - REST API style guide
 
 ### Architecture & Design
-- [System Architecture](../wiki/Architecture.md) - Platform architecture and components
-- [Design Guidelines](design-guidelines.md) - UI/UX design system and patterns
-- [Features Overview](../wiki/Features.md) - Platform capabilities and features
+- [Design System](DESIGN_SYSTEM.md) - Afterglow UI design system and patterns
+- [Testing Guide](TESTING_GUIDE.md) - Vitest integration testing
 
 ### Additional Resources
-- [Implementation Status](implementation-gaps.md) - Feature implementation tracking
 - [Getting Started Guide](../wiki/Getting-Started.md) - Quick start walkthrough
 - [Security Policies](../policies/rules_of_engagement.md) - Rules of engagement
 
@@ -137,16 +136,19 @@ irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 
 ```
 docs/
-├── README.md              # This file
+├── README.md                      # This file
+├── API_REFERENCE.md               # Complete API documentation
+├── API_NAMING_CONVENTIONS.md      # REST API style guide
+├── DESIGN_SYSTEM.md               # Afterglow UI design system
+├── ENTERPRISE_AGENT_DEPLOYMENT.md # Enterprise agent provisioning
+├── TESTING_GUIDE.md               # Integration testing guide
 ├── server/
-│   ├── installation.md    # Server setup guide
-│   ├── configuration.md   # Environment and settings
-│   └── production.md      # Production deployment
-├── agent/
-│   ├── README.md          # Agent architecture
-│   └── INSTALL.md         # Agent installation
-└── api/
-    └── reference.md       # API documentation
+│   ├── installation.md            # Server setup guide
+│   ├── configuration.md           # Environment and settings
+│   └── production.md              # Production deployment
+└── agent/
+    ├── README.md                  # Agent architecture
+    └── INSTALL.md                 # Agent installation
 ```
 
 ---

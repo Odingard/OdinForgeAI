@@ -351,6 +351,32 @@ See implemented examples in:
 - `client/src/pages/RiskDashboard.tsx` - Holographic cards with particles
 - `client/src/components/OdinForgeLogo.tsx` - Animated branding
 
+## Typography System
+
+| Level | Size | Weight | Usage |
+|-------|------|--------|-------|
+| Page Titles | 2xl (24px) | Bold | Main page headings |
+| Section Headers | lg (18px) | Semibold | Card/section headers |
+| Card Titles | base (16px) | Semibold | Subheadings |
+| Body Text | sm (14px) | Regular | General content |
+| Metadata/Labels | xs (12px) | Medium, uppercase | Tags, labels |
+| Technical Data | sm (14px) | Mono font (JetBrains Mono) | IDs, code, hashes |
+
+**Font Stack:** Inter (UI), JetBrains Mono (code/technical data)
+
+## Layout System
+
+**Spacing Scale:** Tailwind units — 4, 6, 8, 12, 16, 20, 24
+- Component padding: `p-6` (cards), `p-8` (major sections)
+- Dense data areas: `p-4`, `gap-4`
+- Page margins: `p-6` to `p-8`
+
+**Grid Patterns:**
+- Dashboard stats: `grid-cols-5 gap-4`
+- Evaluation cards: `grid-cols-1 md:grid-cols-2 lg:grid-cols-3`
+- Detail pages: 2-column (main 2/3, sidebar 1/3)
+- Always single column on mobile
+
 ---
 
 **Built for OdinForge AI** - Next-generation cybersecurity automation platform
