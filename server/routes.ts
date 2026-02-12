@@ -336,6 +336,10 @@ export async function registerRoutes(
         return res.status(409).json({ error: "An account with this email already exists" });
       }
 
+      // First user in the org becomes org_owner, subsequent users get security_analyst
+      const existingUsers = await storage.getUIUsers(tenantId);
+      const isFirstUser = !existingUsers || existingUsers.length === 0;
+
       const passwordHash = await hashPassword(password);
       const user = await storage.createUIUser({
         email,
@@ -343,7 +347,7 @@ export async function registerRoutes(
         displayName: displayName || email.split("@")[0],
         tenantId,
         organizationId,
-        roleId: "security_analyst", // Default role for new signups
+        roleId: isFirstUser ? "org_owner" : "security_analyst",
         status: "active",
       });
 
