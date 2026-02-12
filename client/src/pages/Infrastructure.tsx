@@ -159,6 +159,9 @@ interface CloudAsset {
   agentDeploymentStatus: string | null;
   agentDeploymentError: string | null;
   agentId: string | null;
+  publicIpAddresses: string[] | null;
+  privateIpAddresses: string[] | null;
+  rawMetadata: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
   lastSeenAt: string;
   createdAt: string;
@@ -215,8 +218,17 @@ function CloudConnectionCard({
   const [sshUsername, setSSHUsername] = useState("");
   const [sshPassword, setSSHPassword] = useState("");
   const [sshPrivateKey, setSSHPrivateKey] = useState("");
-  const [sshAuthType, setSSHAuthType] = useState<"password" | "key">("password");
+  const [sshAuthType, setSSHAuthType] = useState<"password" | "key">("key");
   const [useSudo, setUseSudo] = useState(true);
+  const [saveKeyForConnection, setSaveKeyForConnection] = useState(true);
+
+  // Check for stored SSH credentials for this connection
+  const { data: storedSshCreds = [] } = useQuery<Array<{
+    id: string; connectionId: string | null; host: string; username: string; authMethod: string; status: string;
+  }>>({
+    queryKey: ["/api/ssh-credentials"],
+  });
+  const connectionSshCred = storedSshCreds.find(c => c.connectionId === connection.id && c.status === "active");
 
   const { data: cloudAssets = [], isLoading: assetsLoading } = useQuery<CloudAsset[]>({
     queryKey: ["/api/cloud-connections", connection.id, "assets"],
@@ -312,20 +324,65 @@ function CloudConnectionCard({
     setSelectedAssetId(null);
   };
   
+  const inferSSHUsername = (asset: CloudAsset): string => {
+    const platform = (asset.rawMetadata?.platform as string || asset.platform || "").toLowerCase();
+    const name = (asset.name || "").toLowerCase();
+    const provId = (asset.providerResourceId || "").toLowerCase();
+    // AWS AMI conventions
+    if (platform.includes("ubuntu") || name.includes("ubuntu")) return "ubuntu";
+    if (platform.includes("debian") || name.includes("debian")) return "admin";
+    if (platform.includes("centos") || name.includes("centos")) return "centos";
+    if (platform.includes("rhel") || platform.includes("red hat") || name.includes("rhel")) return "ec2-user";
+    if (platform.includes("amazon") || name.includes("amazon")) return "ec2-user";
+    if (platform.includes("suse") || name.includes("suse")) return "ec2-user";
+    if (platform.includes("fedora") || name.includes("fedora")) return "fedora";
+    // Provider-level defaults
+    if (connection.provider === "aws") return "ec2-user";
+    if (connection.provider === "azure") return "azureuser";
+    if (connection.provider === "gcp") return "admin";
+    return "ubuntu";
+  };
+
   const handleDeployClick = (asset: CloudAsset) => {
     setSelectedAssetId(asset.id);
-    // Pre-fill SSH host from asset's IP addresses if available
-    const metadata = asset.metadata as any;
-    const publicIp = metadata?.publicIpAddresses?.[0] || metadata?.publicIpAddress;
-    const privateIp = metadata?.privateIpAddresses?.[0] || metadata?.privateIpAddress;
+    // Pre-fill SSH host from asset's top-level IP fields
+    const publicIp = asset.publicIpAddresses?.[0];
+    const privateIp = asset.privateIpAddresses?.[0];
     setSSHHost(publicIp || privateIp || "");
+    // Auto-detect SSH username from platform/provider
+    setSSHUsername(inferSSHUsername(asset));
+    // Default to private key auth for cloud instances
+    setSSHAuthType("key");
     setDeployDialogOpen(true);
   };
   
-  const handleDeploySubmit = () => {
+  // Deploy via stored SSH credential (server-side credential ID)
+  const deployWithStoredCredMutation = useMutation({
+    mutationFn: async ({ credentialId, assetId }: { credentialId: string; assetId: string }) => {
+      const res = await apiRequest("POST", `/api/ssh-credentials/${credentialId}/deploy/${assetId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cloud-connections", connection.id, "assets"] });
+      toast({ title: "Agent deployment started" });
+      resetDeployForm();
+      setDeployDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Deployment failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleDeploySubmit = async () => {
     if (!selectedAssetId) return;
-    
+
     if (deploymentMethod === "ssh") {
+      // If stored credentials exist for this connection, use them (server-side deploy)
+      if (connectionSshCred) {
+        deployWithStoredCredMutation.mutate({ credentialId: connectionSshCred.id, assetId: selectedAssetId });
+        return;
+      }
+
       if (!sshHost || !sshUsername) {
         toast({ title: "SSH host and username are required", variant: "destructive" });
         return;
@@ -338,7 +395,26 @@ function CloudConnectionCard({
         toast({ title: "SSH private key is required", variant: "destructive" });
         return;
       }
-      
+
+      // Save SSH key for this connection if requested (so future deploys are automatic)
+      if (saveKeyForConnection && sshAuthType === "key" && sshPrivateKey) {
+        try {
+          await apiRequest("POST", "/api/ssh-credentials", {
+            connectionId: connection.id,
+            host: "auto",
+            port: parseInt(sshPort) || 22,
+            username: sshUsername,
+            authMethod: "key",
+            privateKey: sshPrivateKey,
+            useSudo,
+          });
+          queryClient.invalidateQueries({ queryKey: ["/api/ssh-credentials"] });
+          toast({ title: "SSH key saved for this connection" });
+        } catch {
+          // Non-fatal - continue with deployment
+        }
+      }
+
       deployAgentMutation.mutate({
         assetId: selectedAssetId,
         method: "ssh",
@@ -759,45 +835,71 @@ function CloudConnectionCard({
                 <div className="p-3 rounded-md bg-green-500/10 border border-green-500/30">
                   <p className="text-sm font-medium text-green-600 dark:text-green-400 flex items-center gap-2">
                     <CheckCircle className="h-4 w-4" />
-                    Using Your Cloud Credentials
+                    Using Cloud API{connectionSshCred ? " + SSH Fallback" : ""}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    This method uses your configured {connection.provider.toUpperCase()} service account credentials to deploy via{" "}
-                    {connection.provider === "aws" ? "SSM Run Command" : 
-                     connection.provider === "azure" ? "VM Run Command" : 
-                     "compute metadata"}. No additional credentials needed.
+                    Deploys via {connection.provider === "aws" ? "SSM Run Command" :
+                     connection.provider === "azure" ? "VM Run Command" :
+                     "compute metadata"}.
+                    {connectionSshCred
+                      ? " If SSM is unavailable, falls back to SSH automatically using your saved key."
+                      : " If SSM fails, switch to SSH method."}
+                  </p>
+                </div>
+              ) : connectionSshCred ? (
+                <div className="p-3 rounded-md bg-green-500/10 border border-green-500/30">
+                  <p className="text-sm font-medium text-green-600 dark:text-green-400 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    Saved SSH Key Available
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Using saved SSH key (user: {connectionSshCred.username}). Host auto-detected from cloud metadata.
                   </p>
                 </div>
               ) : (
                 <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30">
                   <p className="text-sm font-medium text-amber-600 dark:text-amber-400 flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
-                    Manual SSH Credentials Required
+                    SSH Key Required
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Use this if cloud APIs are unavailable or for on-premise servers.
-                    You must provide SSH login credentials below.
+                    Paste your SSH private key below. It will be saved (encrypted) for deploying to all instances in this connection.
                   </p>
                 </div>
               )}
             </div>
             
-            {deploymentMethod === "ssh" && (
+            {deploymentMethod === "ssh" && connectionSshCred ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Host (auto-detected)</Label>
+                    <p className="text-sm font-mono">{sshHost || "—"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Username</Label>
+                    <p className="text-sm font-mono">{connectionSshCred.username}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">Using saved SSH key for this connection. Click Deploy to proceed.</p>
+              </div>
+            ) : deploymentMethod === "ssh" && (
               <>
                 <div className="space-y-2">
                   <Label htmlFor="ssh-host">SSH Host</Label>
-                  <Input 
+                  <Input
                     id="ssh-host"
                     value={sshHost}
                     onChange={(e) => setSSHHost(e.target.value)}
                     placeholder="IP address or hostname"
                     data-testid="input-ssh-host"
                   />
+                  {sshHost && <p className="text-[10px] text-muted-foreground">Auto-detected from cloud metadata</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="ssh-port">Port</Label>
-                    <Input 
+                    <Input
                       id="ssh-port"
                       value={sshPort}
                       onChange={(e) => setSSHPort(e.target.value)}
@@ -807,13 +909,14 @@ function CloudConnectionCard({
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="ssh-username">Username</Label>
-                    <Input 
+                    <Input
                       id="ssh-username"
                       value={sshUsername}
                       onChange={(e) => setSSHUsername(e.target.value)}
                       placeholder="e.g., ubuntu, ec2-user"
                       data-testid="input-ssh-username"
                     />
+                    {sshUsername && <p className="text-[10px] text-muted-foreground">Auto-detected from platform</p>}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -823,15 +926,15 @@ function CloudConnectionCard({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="password">Password</SelectItem>
                       <SelectItem value="key">Private Key</SelectItem>
+                      <SelectItem value="password">Password</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 {sshAuthType === "password" ? (
                   <div className="space-y-2">
                     <Label htmlFor="ssh-password">Password</Label>
-                    <Input 
+                    <Input
                       id="ssh-password"
                       type="password"
                       value={sshPassword}
@@ -843,24 +946,36 @@ function CloudConnectionCard({
                 ) : (
                   <div className="space-y-2">
                     <Label htmlFor="ssh-key">Private Key</Label>
-                    <textarea 
+                    <textarea
                       id="ssh-key"
                       className="w-full min-h-[100px] p-2 text-sm font-mono border rounded-md bg-background"
                       value={sshPrivateKey}
                       onChange={(e) => setSSHPrivateKey(e.target.value)}
-                      placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                      placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;Paste your .pem key here"
                       data-testid="input-ssh-private-key"
                     />
                   </div>
                 )}
-                <div className="flex items-center gap-2">
-                  <Switch 
-                    id="use-sudo"
-                    checked={useSudo}
-                    onCheckedChange={setUseSudo}
-                    data-testid="switch-use-sudo"
-                  />
-                  <Label htmlFor="use-sudo" className="text-sm">Use sudo for installation</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="use-sudo"
+                      checked={useSudo}
+                      onCheckedChange={setUseSudo}
+                      data-testid="switch-use-sudo"
+                    />
+                    <Label htmlFor="use-sudo" className="text-sm">Use sudo for installation</Label>
+                  </div>
+                  {sshAuthType === "key" && (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="save-key"
+                        checked={saveKeyForConnection}
+                        onCheckedChange={setSaveKeyForConnection}
+                      />
+                      <Label htmlFor="save-key" className="text-sm">Save key for all instances in this connection</Label>
+                    </div>
+                  )}
                 </div>
               </>
             )}

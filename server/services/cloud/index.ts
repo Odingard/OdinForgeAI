@@ -615,34 +615,47 @@ export class CloudIntegrationService {
         if (!result.success) {
           console.log(`[CloudDeploy] SSM failed for ${asset.providerResourceId}. Attempting SSH fallback...`);
           try {
-            const sshCred = await storage.getSshCredentialForAsset(asset.id, asset.organizationId);
+            // Pass connectionId so it finds connection-level SSH keys too
+            const sshCred = await storage.getSshCredentialForAsset(asset.id, asset.organizationId, asset.connectionId);
             if (sshCred) {
               console.log(`[CloudDeploy] Found SSH credential ${sshCred.id} for asset, attempting SSH deployment`);
               const { sshDeploymentService } = await import("../ssh-deployment");
               const sshConfig = await sshDeploymentService.getDecryptedCredentials(sshCred.id);
-              if (sshConfig && sshConfig.host) {
-                const sshResult = await sshDeploymentService.deployAgent(
-                  sshConfig,
-                  {
-                    serverUrl,
-                    apiKey,
-                    agentId,
-                    organizationId: asset.organizationId,
-                    platform: platform,
+              if (sshConfig) {
+                // Resolve host from asset metadata if credential has placeholder or no host
+                if (!sshConfig.host || sshConfig.host === "auto") {
+                  const publicIp = Array.isArray(asset.publicIpAddresses) ? asset.publicIpAddresses[0] : null;
+                  const privateIp = Array.isArray(asset.privateIpAddresses) ? asset.privateIpAddresses[0] : null;
+                  sshConfig.host = publicIp || privateIp || "";
+                  console.log(`[CloudDeploy] Resolved SSH host from asset metadata: ${sshConfig.host}`);
+                }
+                if (sshConfig.host) {
+                  const sshResult = await sshDeploymentService.deployAgent(
+                    sshConfig,
+                    {
+                      serverUrl,
+                      apiKey,
+                      agentId,
+                      organizationId: asset.organizationId,
+                      platform: platform,
+                    }
+                  );
+                  if (sshResult.success) {
+                    result = { success: true, agentId };
+                    console.log(`[CloudDeploy] SSH fallback succeeded for ${asset.providerResourceId}`);
+                  } else {
+                    console.log(`[CloudDeploy] SSH fallback also failed: ${sshResult.errorMessage}`);
+                    result = { success: false, errorMessage: `SSM failed, SSH fallback failed: ${sshResult.errorMessage}` };
                   }
-                );
-                if (sshResult.success) {
-                  result = { success: true, agentId };
-                  console.log(`[CloudDeploy] SSH fallback succeeded for ${asset.providerResourceId}`);
                 } else {
-                  console.log(`[CloudDeploy] SSH fallback also failed: ${sshResult.errorMessage}`);
-                  result = { success: false, errorMessage: `SSM failed, SSH fallback failed: ${sshResult.errorMessage}` };
+                  console.log(`[CloudDeploy] No host IP available for SSH fallback`);
+                  result = { success: false, errorMessage: `SSM unavailable and no IP address for SSH fallback` };
                 }
               } else {
-                console.log(`[CloudDeploy] SSH credential decryption failed or missing host`);
+                console.log(`[CloudDeploy] SSH credential decryption failed`);
               }
             } else {
-              console.log(`[CloudDeploy] No SSH credentials found for asset ${asset.id}, SSH fallback unavailable`);
+              console.log(`[CloudDeploy] No SSH credentials found for asset ${asset.id} or connection ${asset.connectionId}, SSH fallback unavailable`);
             }
           } catch (sshErr: any) {
             console.log(`[CloudDeploy] SSH fallback error: ${sshErr.message}`);

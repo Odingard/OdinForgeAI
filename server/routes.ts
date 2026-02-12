@@ -3696,15 +3696,49 @@ export async function registerRoutes(
     try {
       const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
       const serverUrl = process.env.PUBLIC_ODINFORGE_URL || `https://${req.headers.host}`;
-      
+
+      // Try cloud asset first (most common for cloud deployments)
+      const cloudAsset = await storage.getCloudAsset(req.params.assetId);
+      if (cloudAsset) {
+        // Deploy via cloud integration service using SSH method
+        const { cloudIntegrationService } = await import("./services/cloud/index");
+
+        // Get the SSH credential and decrypt it
+        const { sshDeploymentService } = await import("./services/ssh-deployment");
+        const sshConfig = await sshDeploymentService.getDecryptedCredentials(req.params.id);
+        if (!sshConfig) {
+          return res.status(404).json({ error: "SSH credential not found or decryption failed" });
+        }
+
+        // Resolve host from cloud asset if credential uses placeholder
+        if (!sshConfig.host || sshConfig.host === "auto") {
+          const publicIp = Array.isArray(cloudAsset.publicIpAddresses) ? (cloudAsset.publicIpAddresses as string[])[0] : null;
+          const privateIp = Array.isArray(cloudAsset.privateIpAddresses) ? (cloudAsset.privateIpAddresses as string[])[0] : null;
+          sshConfig.host = publicIp || privateIp || "";
+        }
+        if (!sshConfig.host) {
+          return res.status(400).json({ error: "No IP address available for this asset" });
+        }
+
+        const result = await cloudIntegrationService.deployAgentToAsset(
+          req.params.assetId,
+          {
+            initiatedBy: req.uiUser?.userId,
+            deploymentMethod: "ssh",
+            sshCredentials: sshConfig,
+          }
+        );
+        return res.json(result);
+      }
+
+      // Fall back to discovered assets table
       const { sshDeploymentService } = await import("./services/ssh-deployment");
-      
       const result = await sshDeploymentService.deployToAsset(
         req.params.assetId,
         organizationId,
         serverUrl
       );
-      
+
       res.json(result);
     } catch (error) {
       console.error("Error deploying via SSH:", error);

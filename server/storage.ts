@@ -313,7 +313,7 @@ export interface IStorage {
   // SSH Credential operations
   createSshCredential(data: InsertSshCredential): Promise<SshCredential>;
   getSshCredential(id: string): Promise<SshCredential | undefined>;
-  getSshCredentialForAsset(assetId: string, organizationId: string): Promise<SshCredential | undefined>;
+  getSshCredentialForAsset(assetId: string, organizationId: string, connectionId?: string): Promise<SshCredential | undefined>;
   getSshCredentialsByConnection(connectionId: string): Promise<SshCredential[]>;
   getSshCredentials(organizationId: string): Promise<SshCredential[]>;
   updateSshCredential(id: string, updates: Partial<SshCredential>): Promise<void>;
@@ -2538,8 +2538,8 @@ export class DatabaseStorage implements IStorage {
     return credential;
   }
   
-  async getSshCredentialForAsset(assetId: string, organizationId: string): Promise<SshCredential | undefined> {
-    // First try to find asset-specific credential
+  async getSshCredentialForAsset(assetId: string, organizationId: string, connectionId?: string): Promise<SshCredential | undefined> {
+    // 1. Asset-specific credential
     const [assetCred] = await db
       .select()
       .from(sshCredentials)
@@ -2549,8 +2549,22 @@ export class DatabaseStorage implements IStorage {
         eq(sshCredentials.status, "active")
       ));
     if (assetCred) return assetCred;
-    
-    // Fall back to organization-wide default (no asset, no connection)
+
+    // 2. Connection-level credential (shared key for all instances in a connection)
+    if (connectionId) {
+      const [connCred] = await db
+        .select()
+        .from(sshCredentials)
+        .where(and(
+          eq(sshCredentials.connectionId, connectionId),
+          sql`${sshCredentials.assetId} IS NULL`,
+          eq(sshCredentials.organizationId, organizationId),
+          eq(sshCredentials.status, "active")
+        ));
+      if (connCred) return connCred;
+    }
+
+    // 3. Organization-wide default (no asset, no connection)
     const [orgDefault] = await db
       .select()
       .from(sshCredentials)

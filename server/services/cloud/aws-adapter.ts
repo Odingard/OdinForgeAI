@@ -171,6 +171,8 @@ export class AWSAdapter implements ProviderAdapter {
               subnetId: instance.SubnetId,
               platform: instance.Platform || "linux",
               launchTime: instance.LaunchTime?.toISOString(),
+              keyName: instance.KeyName,
+              imageId: instance.ImageId,
             },
             agentDeployable: instance.State?.Name === "running",
             agentDeploymentMethod: "ssm",
