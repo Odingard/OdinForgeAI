@@ -1,4 +1,5 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, lazy, Suspense, Component } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -54,6 +55,45 @@ const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ defau
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("[AppErrorBoundary]", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background p-8">
+          <div className="max-w-lg w-full space-y-4">
+            <h1 className="text-2xl font-bold text-destructive">Something went wrong</h1>
+            <pre className="text-sm bg-muted p-4 rounded-lg overflow-auto max-h-64 text-foreground">
+              {this.state.error?.message}
+              {"\n\n"}
+              {this.state.error?.stack}
+            </pre>
+            <button
+              onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -67,6 +107,7 @@ function PageLoader() {
 
 function Router() {
   return (
+    <AppErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/" component={Dashboard} />
@@ -100,6 +141,7 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
     </Suspense>
+    </AppErrorBoundary>
   );
 }
 

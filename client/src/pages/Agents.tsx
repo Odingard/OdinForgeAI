@@ -208,10 +208,11 @@ export default function Agents() {
   const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
 
-  const { data: enrollmentTokens = [], refetch: refetchEnrollmentTokens } = useQuery<EnrollmentTokenInfo[]>({
+  const { data: enrollmentTokensData, refetch: refetchEnrollmentTokens } = useQuery<{ tokens: EnrollmentTokenInfo[] }>({
     queryKey: ["/api/enrollment/tokens"],
     refetchInterval: 30000,
   });
+  const enrollmentTokens = enrollmentTokensData?.tokens ?? [];
 
   const createEnrollmentTokenMutation = useMutation({
     mutationFn: async (data: { expiresInHours: number }) => {

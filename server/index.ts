@@ -117,6 +117,7 @@ app.use(express.urlencoded({ extended: false }));
 // Serve agent binaries directly - must be before Vite middleware
 import path from "path";
 app.use("/agents", express.static(path.join(process.cwd(), "public", "agents"), {
+  redirect: false, // Don't redirect /agents → /agents/ (conflicts with SPA route)
   setHeaders: (res) => {
     res.setHeader("Content-Type", "application/octet-stream");
   }
