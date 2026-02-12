@@ -4285,7 +4285,7 @@ export async function registerRoutes(
       }
 
       // Track which token type was used and organization for the agent
-      let tokenType: "single-use" | "permanent" = "permanent";
+      let tokenType: "single-use" | "enrollment" | "permanent" = "permanent";
       let singleUseTokenRecord: Awaited<ReturnType<typeof storage.getAgentRegistrationTokenByHash>> = undefined;
       let organizationId = "default";
 
@@ -4310,26 +4310,51 @@ export async function registerRoutes(
         organizationId = singleUseTokenRecord.organizationId;
         console.log(`[Agent Registration] Valid single-use token ${singleUseTokenRecord.id} for org ${organizationId}`);
       } else {
-        // Fall back to permanent env var token
-        const permanentToken = process.env.AGENT_REGISTRATION_TOKEN;
-        
-        if (!permanentToken) {
-          return res.status(401).json({ 
-            error: "Invalid registration token",
-            message: "Token not recognized as single-use token and no permanent token configured"
-          });
+        // Try enrollment token (reusable, org-scoped — like CrowdStrike CID)
+        // Wrapped in try/catch so a missing enrollment_tokens table doesn't break existing registration
+        let enrollmentRecord: Awaited<ReturnType<typeof storage.getEnrollmentTokenByHash>> = undefined;
+        try {
+          enrollmentRecord = await storage.getEnrollmentTokenByHash(tokenHash);
+        } catch (enrollErr) {
+          console.log(`[Agent Registration] Enrollment token lookup failed (table may not exist): ${enrollErr}`);
         }
 
-        // Validate against permanent token (constant-time comparison)
-        const tokenBuffer = Buffer.from(token);
-        const expectedBuffer = Buffer.from(permanentToken);
-        
-        if (tokenBuffer.length !== expectedBuffer.length || !timingSafeEqual(tokenBuffer, expectedBuffer)) {
-          console.log(`[Agent Registration] Token mismatch - not a valid single-use or permanent token`);
-          return res.status(401).json({ error: "Invalid registration token" });
+        if (enrollmentRecord) {
+          if (enrollmentRecord.revoked) {
+            console.log(`[Agent Registration] Enrollment token ${enrollmentRecord.id} has been revoked`);
+            return res.status(401).json({ error: "Enrollment token has been revoked" });
+          }
+
+          if (new Date(enrollmentRecord.expiresAt) < new Date()) {
+            console.log(`[Agent Registration] Enrollment token ${enrollmentRecord.id} has expired`);
+            return res.status(401).json({ error: "Enrollment token has expired" });
+          }
+
+          tokenType = "enrollment";
+          organizationId = enrollmentRecord.organizationId;
+          console.log(`[Agent Registration] Valid enrollment token ${enrollmentRecord.id} for org ${organizationId}`);
+        } else {
+          // Fall back to permanent env var token
+          const permanentToken = process.env.AGENT_REGISTRATION_TOKEN;
+
+          if (!permanentToken) {
+            return res.status(401).json({
+              error: "Invalid registration token",
+              message: "Token not recognized as single-use, enrollment, or permanent token"
+            });
+          }
+
+          // Validate against permanent token (constant-time comparison)
+          const tokenBuffer = Buffer.from(token);
+          const expectedBuffer = Buffer.from(permanentToken);
+
+          if (tokenBuffer.length !== expectedBuffer.length || !timingSafeEqual(tokenBuffer, expectedBuffer)) {
+            console.log(`[Agent Registration] Token mismatch - not a valid token of any type`);
+            return res.status(401).json({ error: "Invalid registration token" });
+          }
+
+          console.log(`[Agent Registration] Valid permanent token used`);
         }
-        
-        console.log(`[Agent Registration] Valid permanent token used`);
       }
 
       // Check if agent with same hostname already exists (prevent duplicate registrations)
@@ -7929,21 +7954,23 @@ function registerJobQueueRoutes(app: Express) {
   // COVERAGE AUTOPILOT ENDPOINTS
   // ============================================================================
 
-  // POST /api/enrollment/token - Create a new enrollment token (60 min expiry)
+  // POST /api/enrollment/token - Create a new enrollment token (configurable expiry)
   app.post("/api/enrollment/token", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:register"), async (req, res) => {
     try {
       const organizationId = getOrganizationId(req) || "default";
-      
+      const { expiresInHours } = req.body || {};
+
       // Generate a cryptographically secure token
       const rawToken = randomBytes(32).toString("base64url");
       const tokenHash = createHash("sha256").update(rawToken).digest("hex");
       const tokenHint = rawToken.slice(-6);
-      
-      // Set expiration to 60 minutes from now
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-      
+
+      // Configurable expiry: 1 hour to 8760 hours (1 year), default 720 hours (30 days)
+      const hours = Math.min(Math.max(Number(expiresInHours) || 720, 1), 8760);
+      const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000);
+
       const tokenId = `enroll-${randomUUID().slice(0, 8)}`;
-      
+
       await storage.createEnrollmentToken({
         id: tokenId,
         organizationId,
@@ -7952,13 +7979,13 @@ function registerJobQueueRoutes(app: Express) {
         expiresAt,
         revoked: false,
       });
-      
+
       res.status(201).json({
         token: rawToken,
         tokenId,
         tokenHint,
         expiresAt: expiresAt.toISOString(),
-        expiresInMinutes: 60,
+        expiresInHours: hours,
         message: "Enrollment token created. This token will only be shown once.",
       });
     } catch (error) {

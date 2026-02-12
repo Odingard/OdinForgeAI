@@ -3,7 +3,7 @@ import { EC2Client, DescribeInstancesCommand, DescribeVpcsCommand, DescribeSecur
 import { RDSClient, DescribeDBInstancesCommand } from "@aws-sdk/client-rds";
 import { LambdaClient, ListFunctionsCommand } from "@aws-sdk/client-lambda";
 import { S3Client, ListBucketsCommand } from "@aws-sdk/client-s3";
-import { SSMClient, SendCommandCommand, GetCommandInvocationCommand } from "@aws-sdk/client-ssm";
+import { SSMClient, SendCommandCommand, GetCommandInvocationCommand, DescribeInstanceInformationCommand } from "@aws-sdk/client-ssm";
 import { 
   IAMClient, 
   ListUsersCommand, 
@@ -515,6 +515,45 @@ export class AWSAdapter implements ProviderAdapter {
         status: "error",
         error: error.message,
       };
+    }
+  }
+
+  async checkSSMAvailability(
+    creds: NonNullable<CloudCredentials["aws"]>,
+    instanceId: string,
+    region: string
+  ): Promise<{ available: boolean; pingStatus?: string; error?: string }> {
+    try {
+      const ssmClient = new SSMClient({
+        region,
+        credentials: this.getCredentialsConfig(creds),
+      });
+
+      const response = await ssmClient.send(new DescribeInstanceInformationCommand({
+        Filters: [{
+          Key: "InstanceIds",
+          Values: [instanceId],
+        }],
+      }));
+
+      const info = response.InstanceInformationList?.[0];
+      if (!info) {
+        return { available: false, error: "Instance not registered with SSM" };
+      }
+
+      const pingStatus = info.PingStatus; // "Online", "ConnectionLost", "Inactive"
+      return {
+        available: pingStatus === "Online",
+        pingStatus,
+        error: pingStatus !== "Online" ? `SSM Agent status: ${pingStatus}` : undefined,
+      };
+    } catch (error: any) {
+      // AccessDeniedException means we don't have ssm:DescribeInstanceInformation permission
+      // Fall through to try SSM anyway (the SendCommand might still work)
+      if (error.name === "AccessDeniedException") {
+        return { available: true, pingStatus: "unknown", error: "Cannot pre-check SSM (missing ssm:DescribeInstanceInformation permission)" };
+      }
+      return { available: false, error: `SSM check failed: ${error.message}` };
     }
   }
 

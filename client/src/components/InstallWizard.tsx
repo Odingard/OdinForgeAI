@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { Copy, Check, Server, Monitor, Terminal, Loader2, RefreshCw } from "lucide-react";
+import { Copy, Check, Server, Monitor, Terminal, Loader2, RefreshCw, Key } from "lucide-react";
 import { FaLinux, FaWindows, FaDocker } from "react-icons/fa";
 import { SiKubernetes } from "react-icons/si";
 
@@ -33,6 +33,8 @@ export function InstallWizard({ serverUrl }: InstallWizardProps) {
   const [hostPlatform, setHostPlatform] = useState<"linux" | "windows">("linux");
   const [containerMethod, setContainerMethod] = useState<"docker" | "kubernetes">("docker");
   const [generatedCommand, setGeneratedCommand] = useState<InstallCommandResponse | null>(null);
+  const [enrollmentToken, setEnrollmentToken] = useState<string | null>(null);
+  const [enrollmentPlatform, setEnrollmentPlatform] = useState<"linux" | "windows">("linux");
 
   const generateCommandMutation = useMutation({
     mutationFn: async (platform: string) => {
@@ -73,6 +75,33 @@ export function InstallWizard({ serverUrl }: InstallWizardProps) {
     }
   };
 
+  const generateEnrollmentTokenMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/enrollment/token", {
+        expiresInHours: 720, // 30 days default
+      });
+      return response.json() as Promise<{ token: string; expiresAt: string; expiresInHours: number }>;
+    },
+    onSuccess: (data) => {
+      setEnrollmentToken(data.token);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to create enrollment token",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const getEnrollmentCommand = (platform: "linux" | "windows", token: string) => {
+    const base = serverUrl || window.location.origin;
+    if (platform === "windows") {
+      return `Invoke-WebRequest -Uri "${base}/api/agents/download/windows-amd64" -OutFile odinforge-agent.exe; .\\odinforge-agent.exe install --server-url "${base}" --registration-token "${token}"`;
+    }
+    return `curl -fsSL ${base}/api/agents/download/linux-amd64 -o odinforge-agent && chmod +x odinforge-agent && sudo ./odinforge-agent install --server-url "${base}" --registration-token "${token}"`;
+  };
+
   const baseUrl = serverUrl || window.location.origin;
 
   const getDockerCommand = () => {
@@ -108,17 +137,122 @@ helm install odinforge-agent ./odinforge-agent/deploy/helm \\
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue="host" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
+        <Tabs defaultValue="enrollment" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="enrollment" className="flex items-center gap-2" data-testid="tab-enrollment-install">
+              <Key className="h-4 w-4" />
+              Enrollment Token
+            </TabsTrigger>
             <TabsTrigger value="host" className="flex items-center gap-2" data-testid="tab-host-install">
               <Monitor className="h-4 w-4" />
-              Host Install
+              Single-Use Token
             </TabsTrigger>
             <TabsTrigger value="container" className="flex items-center gap-2" data-testid="tab-container-install">
               <FaDocker className="h-4 w-4" />
               Container Install
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="enrollment" className="space-y-4">
+            <div className="flex flex-col gap-4">
+              <Alert>
+                <AlertDescription className="text-sm">
+                  Enrollment tokens are reusable — deploy the same command on multiple machines. Recommended for bulk deployments.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium text-muted-foreground">Platform:</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant={enrollmentPlatform === "linux" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setEnrollmentPlatform("linux")}
+                    className="flex items-center gap-2"
+                  >
+                    <FaLinux className="h-4 w-4" />
+                    Linux
+                  </Button>
+                  <Button
+                    variant={enrollmentPlatform === "windows" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setEnrollmentPlatform("windows")}
+                    className="flex items-center gap-2"
+                  >
+                    <FaWindows className="h-4 w-4" />
+                    Windows
+                  </Button>
+                </div>
+              </div>
+
+              {!enrollmentToken ? (
+                <Button
+                  onClick={() => generateEnrollmentTokenMutation.mutate()}
+                  disabled={generateEnrollmentTokenMutation.isPending}
+                  className="flex items-center gap-2"
+                  data-testid="btn-generate-enrollment"
+                >
+                  {generateEnrollmentTokenMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Key className="h-4 w-4" />
+                  )}
+                  Generate Enrollment Token
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm font-mono whitespace-pre-wrap break-all">
+                      {getEnrollmentCommand(enrollmentPlatform, enrollmentToken)}
+                    </pre>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="absolute top-2 right-2"
+                      onClick={() => copyToClipboard(getEnrollmentCommand(enrollmentPlatform, enrollmentToken), "enroll-cmd")}
+                      data-testid="btn-copy-enrollment-command"
+                    >
+                      {copiedId === "enroll-cmd" ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setEnrollmentToken(null);
+                        generateEnrollmentTokenMutation.mutate();
+                      }}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Generate New Token
+                    </Button>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground">
+                    <p>This token expires in 30 days. Manage tokens in the Enrollment Tokens tab.</p>
+                  </div>
+                </div>
+              )}
+
+              {!enrollmentToken && (
+                <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground">
+                  <p className="font-medium mb-2">How enrollment tokens work:</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    <li>Generate a reusable enrollment token</li>
+                    <li>Run the same command on any number of machines</li>
+                    <li>Each machine auto-registers with your organization</li>
+                    <li>Revoke the token anytime from the Enrollment Tokens tab</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          </TabsContent>
 
           <TabsContent value="host" className="space-y-4">
             <div className="flex flex-col gap-4">

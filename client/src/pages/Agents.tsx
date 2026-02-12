@@ -15,14 +15,14 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
-import { 
-  Server, 
-  Activity, 
-  AlertTriangle, 
-  Trash2, 
-  Plus, 
-  Copy, 
-  CheckCircle2, 
+import {
+  Server,
+  Activity,
+  AlertTriangle,
+  Trash2,
+  Plus,
+  Copy,
+  CheckCircle2,
   XCircle,
   MonitorSmartphone,
   Wifi,
@@ -37,7 +37,8 @@ import {
   Download,
   Clock,
   Loader2,
-  RotateCcw
+  RotateCcw,
+  Key
 } from "lucide-react";
 import { InstallWizard } from "@/components/InstallWizard";
 import { CoverageAutopilot } from "@/components/CoverageAutopilot";
@@ -191,6 +192,53 @@ export default function Agents() {
   }
   const { data: autoCleanupConfig, refetch: refetchAutoCleanup } = useQuery<AutoCleanupConfig>({
     queryKey: ["/api/agents/auto-cleanup"],
+  });
+
+  // Enrollment token state
+  interface EnrollmentTokenInfo {
+    id: string;
+    organizationId: string;
+    tokenHint: string;
+    expiresAt: string;
+    revoked: boolean;
+    createdAt: string;
+  }
+  const [createTokenDialogOpen, setCreateTokenDialogOpen] = useState(false);
+  const [tokenExpiryHours, setTokenExpiryHours] = useState("720");
+  const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
+
+  const { data: enrollmentTokens = [], refetch: refetchEnrollmentTokens } = useQuery<EnrollmentTokenInfo[]>({
+    queryKey: ["/api/enrollment/tokens"],
+    refetchInterval: 30000,
+  });
+
+  const createEnrollmentTokenMutation = useMutation({
+    mutationFn: async (data: { expiresInHours: number }) => {
+      const response = await apiRequest("POST", "/api/enrollment/token", data);
+      return response.json();
+    },
+    onSuccess: (data: { token: string }) => {
+      setNewlyCreatedToken(data.token);
+      setTokenCopied(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/enrollment/tokens"] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create enrollment token", variant: "destructive" });
+    },
+  });
+
+  const revokeEnrollmentTokenMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/enrollment/tokens/${id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Token Revoked", description: "Enrollment token has been revoked" });
+      queryClient.invalidateQueries({ queryKey: ["/api/enrollment/tokens"] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to revoke token", variant: "destructive" });
+    },
   });
 
   // Query telemetry for a specific agent when selected, auto-refresh every 30s
@@ -582,6 +630,7 @@ export default function Agents() {
           <TabsTrigger value="findings" data-testid="tab-findings">Findings</TabsTrigger>
           <TabsTrigger value="system" data-testid="tab-system">System</TabsTrigger>
           <TabsTrigger value="settings" data-testid="tab-settings">Settings</TabsTrigger>
+          <TabsTrigger value="tokens" data-testid="tab-tokens">Enrollment Tokens</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agents" className="space-y-4">
@@ -1202,7 +1251,197 @@ export default function Agents() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Enrollment Tokens Tab */}
+        <TabsContent value="tokens" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Key className="h-5 w-5" />
+                  Enrollment Tokens
+                </CardTitle>
+                <CardDescription>
+                  Reusable tokens for agent self-registration. Share a token across multiple machines — like a CrowdStrike CID.
+                </CardDescription>
+              </div>
+              {canManageAgent && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setNewlyCreatedToken(null);
+                    setTokenCopied(false);
+                    setCreateTokenDialogOpen(true);
+                  }}
+                  data-testid="btn-create-enrollment-token"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Token
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {enrollmentTokens.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Key className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                  <p className="font-medium">No enrollment tokens</p>
+                  <p className="text-sm mt-1">Create a token to allow agents to self-register with your organization.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Token</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {enrollmentTokens.map((token) => {
+                      const isExpired = new Date(token.expiresAt) < new Date();
+                      return (
+                        <TableRow key={token.id}>
+                          <TableCell>
+                            <code className="text-sm bg-muted px-2 py-1 rounded">
+                              ...{token.tokenHint}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            {token.revoked ? (
+                              <Badge variant="destructive">Revoked</Badge>
+                            ) : isExpired ? (
+                              <Badge variant="secondary">Expired</Badge>
+                            ) : (
+                              <Badge variant="default">Active</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDistanceToNow(new Date(token.expiresAt), { addSuffix: true })}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDistanceToNow(new Date(token.createdAt), { addSuffix: true })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {canManageAgent && !token.revoked && !isExpired && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => revokeEnrollmentTokenMutation.mutate(token.id)}
+                                disabled={revokeEnrollmentTokenMutation.isPending}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Revoke
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+
+              <div className="mt-4 p-3 bg-muted/50 rounded-lg text-sm text-muted-foreground">
+                <p className="font-medium mb-1">How enrollment tokens work:</p>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>Create an enrollment token above</li>
+                  <li>Use it in the install command: <code className="bg-muted px-1 rounded">--registration-token YOUR_TOKEN</code></li>
+                  <li>Multiple agents can register with the same token</li>
+                  <li>Revoke the token anytime to stop new registrations</li>
+                </ol>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Create Enrollment Token Dialog */}
+      <Dialog open={createTokenDialogOpen} onOpenChange={(open) => {
+        if (!open) {
+          setCreateTokenDialogOpen(false);
+          setNewlyCreatedToken(null);
+          setTokenCopied(false);
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create Enrollment Token</DialogTitle>
+            <DialogDescription>
+              Create a reusable token that allows multiple agents to self-register with your organization.
+            </DialogDescription>
+          </DialogHeader>
+
+          {newlyCreatedToken ? (
+            <div className="space-y-4">
+              <Alert>
+                <CheckCircle2 className="h-4 w-4" />
+                <AlertDescription>
+                  Token created. Copy it now — it will not be shown again.
+                </AlertDescription>
+              </Alert>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={newlyCreatedToken}
+                  className="font-mono text-sm"
+                />
+                <Button
+                  size="sm"
+                  variant={tokenCopied ? "default" : "outline"}
+                  onClick={() => {
+                    navigator.clipboard.writeText(newlyCreatedToken);
+                    setTokenCopied(true);
+                    toast({ title: "Copied", description: "Token copied to clipboard" });
+                  }}
+                >
+                  {tokenCopied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </Button>
+              </div>
+              <div className="bg-muted p-3 rounded-lg">
+                <p className="text-xs text-muted-foreground mb-2">Install command:</p>
+                <code className="text-xs break-all">
+                  ./odinforge-agent install --server-url {window.location.origin} --registration-token {newlyCreatedToken}
+                </code>
+              </div>
+              <Button className="w-full" onClick={() => { setCreateTokenDialogOpen(false); setNewlyCreatedToken(null); }}>
+                Done
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Token Expiry</Label>
+                <Select value={tokenExpiryHours} onValueChange={setTokenExpiryHours}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24">24 hours</SelectItem>
+                    <SelectItem value="168">7 days</SelectItem>
+                    <SelectItem value="720">30 days</SelectItem>
+                    <SelectItem value="2160">90 days</SelectItem>
+                    <SelectItem value="8760">1 year</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="w-full"
+                onClick={() => createEnrollmentTokenMutation.mutate({ expiresInHours: Number(tokenExpiryHours) })}
+                disabled={createEnrollmentTokenMutation.isPending}
+              >
+                {createEnrollmentTokenMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Key className="h-4 w-4 mr-2" />
+                )}
+                Create Token
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Agent Details Dialog */}
       <Dialog open={selectedAgent !== null} onOpenChange={(open) => !open && setSelectedAgent(null)}>

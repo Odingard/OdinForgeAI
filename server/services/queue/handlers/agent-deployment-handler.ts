@@ -13,6 +13,7 @@ import { ComputeManagementClient } from "@azure/arm-compute";
 import { ClientSecretCredential } from "@azure/identity";
 import { InstancesClient, ZoneOperationsClient } from "@google-cloud/compute";
 import { cloudIntegrationService } from "../../cloud";
+import { awsAdapter } from "../../cloud/aws-adapter";
 
 interface AgentDeploymentJob {
   id?: string;
@@ -341,6 +342,157 @@ async function deployToAWS(
     console.error(`[AgentDeployment] AWS deployment error:`, error);
     return { success: false, error: error.message || "AWS deployment failed" };
   }
+}
+
+// Fallback chain tracking
+interface DeploymentAttempt {
+  method: "ssm" | "ssh" | "ec2-instance-connect";
+  success: boolean;
+  error?: string;
+  duration: number;
+}
+
+interface FallbackDeploymentResult {
+  success: boolean;
+  agentId?: string;
+  error?: string;
+  attempts: DeploymentAttempt[];
+  methodUsed?: string;
+}
+
+async function deployToAWSWithFallback(
+  instanceId: string,
+  organizationId: string,
+  serverUrl: string
+): Promise<FallbackDeploymentResult> {
+  const attempts: DeploymentAttempt[] = [];
+
+  console.log(`[AgentDeployment] ========== AWS DEPLOYMENT WITH FALLBACK ==========`);
+  console.log(`[AgentDeployment] Target: ${instanceId}, Org: ${organizationId}`);
+
+  // Step 1: Get AWS credentials (shared across all methods)
+  const connections = await storage.getCloudConnections(organizationId);
+  const awsConnection = connections.find(c => c.provider === "aws" && c.status === "active");
+
+  if (!awsConnection) {
+    return { success: false, error: "No active AWS cloud connection found", attempts };
+  }
+
+  const credentials = await cloudIntegrationService.getConnectionCredentials(awsConnection.id);
+  if (!credentials?.aws) {
+    return { success: false, error: "AWS credentials not configured", attempts };
+  }
+
+  const targetRegion = (awsConnection as any).awsRegions?.[0] || "us-east-1";
+
+  // Step 2: Check SSM availability
+  console.log(`[AgentDeployment] Step 1: Checking SSM availability for ${instanceId}...`);
+  const ssmCheck = await awsAdapter.checkSSMAvailability(credentials.aws, instanceId, targetRegion);
+
+  // Step 3: Try SSM if available
+  if (ssmCheck.available) {
+    console.log(`[AgentDeployment] SSM available (status: ${ssmCheck.pingStatus}), attempting SSM deployment`);
+    const ssmStart = Date.now();
+    const ssmResult = await deployToAWS(instanceId, organizationId, serverUrl);
+    attempts.push({
+      method: "ssm",
+      success: ssmResult.success,
+      error: ssmResult.error,
+      duration: Date.now() - ssmStart,
+    });
+
+    if (ssmResult.success) {
+      console.log(`[AgentDeployment] SSM deployment succeeded`);
+      return { ...ssmResult, attempts, methodUsed: "ssm" };
+    }
+    console.log(`[AgentDeployment] SSM deployment failed: ${ssmResult.error}, trying fallbacks...`);
+  } else {
+    console.log(`[AgentDeployment] SSM not available: ${ssmCheck.error}, skipping to fallback`);
+    attempts.push({
+      method: "ssm",
+      success: false,
+      error: `Skipped: ${ssmCheck.error}`,
+      duration: 0,
+    });
+  }
+
+  // Step 4: Try SSH fallback — find SSH credentials for this asset
+  // Wrapped in try/catch so SSH lookup failures don't crash the entire deployment
+  console.log(`[AgentDeployment] Step 2: Attempting SSH fallback...`);
+  try {
+    const allAssets = await storage.getCloudAssets(organizationId);
+    const asset = allAssets.find(a => a.providerResourceId === instanceId);
+
+    if (asset) {
+      const sshCred = await storage.getSshCredentialForAsset(asset.id, organizationId);
+      if (sshCred) {
+        console.log(`[AgentDeployment] Found SSH credential ${sshCred.id} for asset, attempting SSH deployment`);
+        const sshStart = Date.now();
+        const sshResult = await deployViaSSHWithCredential(
+          sshCred.id,
+          instanceId,
+          organizationId,
+          serverUrl
+        );
+        attempts.push({
+          method: "ssh",
+          success: sshResult.success,
+          error: sshResult.error,
+          duration: Date.now() - sshStart,
+        });
+
+        if (sshResult.success) {
+          console.log(`[AgentDeployment] SSH fallback succeeded`);
+          return { ...sshResult, attempts, methodUsed: "ssh" };
+        }
+        console.log(`[AgentDeployment] SSH fallback failed: ${sshResult.error}`);
+      } else {
+        console.log(`[AgentDeployment] No SSH credentials available for asset ${asset.id}`);
+        attempts.push({
+          method: "ssh",
+          success: false,
+          error: "No SSH credentials available for this asset or organization",
+          duration: 0,
+        });
+      }
+    } else {
+      console.log(`[AgentDeployment] Could not find cloud asset for instance ${instanceId}`);
+      attempts.push({
+        method: "ssh",
+        success: false,
+        error: "Cloud asset not found for SSH credential lookup",
+        duration: 0,
+      });
+    }
+  } catch (sshLookupErr: any) {
+    console.log(`[AgentDeployment] SSH fallback lookup error: ${sshLookupErr.message}`);
+    attempts.push({
+      method: "ssh",
+      success: false,
+      error: `SSH lookup failed: ${sshLookupErr.message}`,
+      duration: 0,
+    });
+  }
+
+  // Step 5: EC2 Instance Connect (P2 — not yet implemented)
+  attempts.push({
+    method: "ec2-instance-connect",
+    success: false,
+    error: "EC2 Instance Connect not yet implemented",
+    duration: 0,
+  });
+
+  // All methods failed
+  const errorSummary = attempts
+    .map(a => `${a.method}: ${a.error}`)
+    .join("; ");
+  console.log(`[AgentDeployment] All deployment methods failed: ${errorSummary}`);
+
+  return {
+    success: false,
+    error: `All deployment methods failed — ${errorSummary}`,
+    attempts,
+  };
 }
 
 async function deployToAzure(
@@ -808,11 +960,19 @@ export async function handleAgentDeploymentJob(
         console.log(`[AgentDeployment] Using SSH with provided credentials for ${provider}`);
         result = await deployViaSSHWithCredential(sshCredentialId, instanceId, organizationId, deployServerUrl);
       } else {
-        // Default to cloud API method
+        // Default to cloud API method (AWS uses fallback chain: SSM → SSH → EC2 Instance Connect)
         switch (provider) {
-          case "aws":
-            result = await deployToAWS(instanceId, organizationId, deployServerUrl);
+          case "aws": {
+            const awsResult = await deployToAWSWithFallback(instanceId, organizationId, deployServerUrl);
+            result = { success: awsResult.success, agentId: awsResult.agentId, error: awsResult.error };
+            if (awsResult.attempts.length > 0) {
+              console.log(`[AgentDeployment] AWS fallback chain: ${awsResult.attempts.map(a => `${a.method}=${a.success ? "OK" : "FAIL"}(${a.duration}ms)`).join(", ")}`);
+              if (awsResult.methodUsed) {
+                console.log(`[AgentDeployment] Successful method: ${awsResult.methodUsed}`);
+              }
+            }
             break;
+          }
           case "azure":
             result = await deployToAzure(instanceId, organizationId, deployServerUrl);
             break;
