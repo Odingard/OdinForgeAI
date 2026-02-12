@@ -166,7 +166,7 @@ New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
 
 # Download agent
 Write-Host "Downloading OdinForge agent..."
-Invoke-WebRequest -Uri "${downloadUrl}" -OutFile $agentPath
+Invoke-WebRequest -Uri "${downloadUrl}" -Headers @{"ngrok-skip-browser-warning"="true"} -OutFile $agentPath
 
 # Install as service
 Write-Host "Installing OdinForge agent service..."
@@ -190,7 +190,7 @@ mkdir -p $AGENT_DIR
 
 # Download agent
 echo "Downloading OdinForge agent..."
-curl -fsSL "${downloadUrl}" -o $AGENT_PATH
+curl -fsSL -H "ngrok-skip-browser-warning: true" "${downloadUrl}" -o $AGENT_PATH
 chmod +x $AGENT_PATH
 
 # Install and start as service

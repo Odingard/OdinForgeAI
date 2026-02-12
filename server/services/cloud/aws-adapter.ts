@@ -354,7 +354,7 @@ export class AWSAdapter implements ProviderAdapter {
         "if (-not (Test-Path $downloadDir)) { New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null }",
         "Write-Host 'Downloading OdinForge agent...'",
         "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
-        `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -OutFile $agentDownload -UseBasicParsing`,
+        `Invoke-WebRequest -Uri '${config.serverUrl}/api/agents/download/windows-amd64' -Headers @{"ngrok-skip-browser-warning"="true"} -OutFile $agentDownload -UseBasicParsing`,
         "Write-Host 'Installing OdinForge agent...'",
         `& $agentDownload install --server-url '${config.serverUrl}' --api-key '${config.apiKey}' --tenant-id '${config.organizationId}' --force`,
         "Write-Host 'Fixing config file permissions...'",
@@ -371,7 +371,7 @@ export class AWSAdapter implements ProviderAdapter {
       return [
         "#!/bin/bash",
         "set -e",
-        `curl -fsSL ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent`,
+        `curl -fsSL -H "ngrok-skip-browser-warning: true" ${config.serverUrl}/api/agents/download/linux-amd64 -o /tmp/odinforge-agent`,
         "chmod +x /tmp/odinforge-agent",
         `sudo /tmp/odinforge-agent install --server-url "${config.serverUrl}" --api-key "${config.apiKey}" --tenant-id "${config.organizationId}" --force`,
         // Fix config file permissions so the agent service can read it

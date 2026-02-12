@@ -230,9 +230,11 @@ export async function registerRoutes(
       // Inject the server URL - replace placeholder with actual URL
       const serverUrl = getServerUrl(req);
       script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
-      // Inject registration token if provided, otherwise remove placeholder for clarity
+      // Inject registration token if provided, otherwise clear placeholder
       const token = req.query.token as string | undefined;
       script = script.replace(/__REGISTRATION_TOKEN_PLACEHOLDER__/g, token || "");
+      // Clear API key placeholder (tokens are registration tokens, not API keys)
+      script = script.replace(/__API_KEY_PLACEHOLDER__/g, "");
       res.send(script);
     } else {
       res.status(404).json({ error: "Install script not found" });
@@ -252,9 +254,11 @@ export async function registerRoutes(
       // Inject the server URL - replace placeholder with actual URL
       const serverUrl = getServerUrl(req);
       script = script.replace(/__SERVER_URL_PLACEHOLDER__/g, serverUrl);
-      // Inject registration token if provided, otherwise remove placeholder for clarity
+      // Inject registration token if provided, otherwise clear placeholder
       const token = req.query.token as string | undefined;
       script = script.replace(/__REGISTRATION_TOKEN_PLACEHOLDER__/g, token || "");
+      // Clear API key placeholder
+      script = script.replace(/__API_KEY_PLACEHOLDER__/g, "");
       res.send(script);
     } else {
       res.status(404).json({ error: "Install script not found" });

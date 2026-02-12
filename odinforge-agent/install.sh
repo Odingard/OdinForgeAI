@@ -17,6 +17,7 @@ NC='\033[0m'
 # Default values - automatically embedded when downloaded from server
 DEFAULT_SERVER_URL="__SERVER_URL_PLACEHOLDER__"
 DEFAULT_API_KEY="__API_KEY_PLACEHOLDER__"
+DEFAULT_REGISTRATION_TOKEN="__REGISTRATION_TOKEN_PLACEHOLDER__"
 DEFAULT_TENANT_ID="default"
 
 # Runtime options
@@ -96,7 +97,7 @@ parse_args() {
                 shift 2
                 ;;
             --registration-token|--token)
-                CLI_API_KEY="$2"
+                CLI_REGISTRATION_TOKEN="$2"
                 shift 2
                 ;;
             --tenant-id)
@@ -158,18 +159,29 @@ resolve_config() {
     fi
     SERVER_URL="${SERVER_URL%/}"
 
-    # API Key: CLI > ENV > Embedded > Error
+    # API Key or Registration Token: CLI > ENV > Embedded > Error
+    # Registration tokens allow the agent to auto-register and obtain its own API key
     if [ -n "$CLI_API_KEY" ]; then
         API_KEY="$CLI_API_KEY"
+        AUTH_MODE="api_key"
+    elif [ -n "$CLI_REGISTRATION_TOKEN" ]; then
+        REGISTRATION_TOKEN="$CLI_REGISTRATION_TOKEN"
+        AUTH_MODE="registration_token"
     elif [ -n "$ODINFORGE_API_KEY" ]; then
         API_KEY="$ODINFORGE_API_KEY"
+        AUTH_MODE="api_key"
     elif [ -n "$ODINFORGE_TOKEN" ]; then
-        API_KEY="$ODINFORGE_TOKEN"
+        REGISTRATION_TOKEN="$ODINFORGE_TOKEN"
+        AUTH_MODE="registration_token"
+    elif ! is_placeholder "$DEFAULT_REGISTRATION_TOKEN"; then
+        REGISTRATION_TOKEN="$DEFAULT_REGISTRATION_TOKEN"
+        AUTH_MODE="registration_token"
     elif ! is_placeholder "$DEFAULT_API_KEY"; then
         API_KEY="$DEFAULT_API_KEY"
+        AUTH_MODE="api_key"
     else
-        echo -e "${RED}Error: API key is required.${NC}"
-        echo "Use --api-key or set ODINFORGE_API_KEY environment variable."
+        echo -e "${RED}Error: API key or registration token is required.${NC}"
+        echo "Use --api-key, --registration-token, or set ODINFORGE_API_KEY environment variable."
         exit 1
     fi
 
@@ -590,11 +602,20 @@ do_install() {
 
     # Write config file
     echo "Writing configuration..."
-    cat > ${CONFIG_DIR}/agent.env << EOF
+    if [ "$AUTH_MODE" = "registration_token" ]; then
+        cat > ${CONFIG_DIR}/agent.env << EOF
+ODINFORGE_SERVER_URL=${SERVER_URL}
+ODINFORGE_REGISTRATION_TOKEN=${REGISTRATION_TOKEN}
+ODINFORGE_API_KEY_STORE_PATH=${DATA_DIR}/api_key
+ODINFORGE_TENANT_ID=${TENANT_ID}
+EOF
+    else
+        cat > ${CONFIG_DIR}/agent.env << EOF
 ODINFORGE_SERVER_URL=${SERVER_URL}
 ODINFORGE_API_KEY=${API_KEY}
 ODINFORGE_TENANT_ID=${TENANT_ID}
 EOF
+    fi
     chmod 600 ${CONFIG_DIR}/agent.env
 
     # Detect and install appropriate service
