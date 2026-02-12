@@ -253,7 +253,7 @@ preflight_checks() {
 
     # Check network connectivity to server
     local health_url="${SERVER_URL}/healthz"
-    if curl -sSL -f --connect-timeout 10 -o /dev/null "$health_url" 2>/dev/null; then
+    if curl -sSL -f -H "ngrok-skip-browser-warning: true" --connect-timeout 10 -o /dev/null "$health_url" 2>/dev/null; then
         echo -e "  ${GREEN}[OK]${NC} Server reachable: ${SERVER_URL}"
     else
         echo -e "  ${RED}[FAIL]${NC} Cannot reach server: ${SERVER_URL}"
@@ -262,9 +262,9 @@ preflight_checks() {
     fi
 
     # Check if binary is available for download
-    local download_url="${SERVER_URL}/agents/${BINARY_NAME}"
+    local download_url="${SERVER_URL}/api/agents/download/linux-${ARCH}"
     local http_code
-    http_code=$(curl -sSL -o /dev/null -w "%{http_code}" --connect-timeout 10 "$download_url" 2>/dev/null || echo "000")
+    http_code=$(curl -sSL -H "ngrok-skip-browser-warning: true" -o /dev/null -w "%{http_code}" --connect-timeout 10 "$download_url" 2>/dev/null || echo "000")
     if [ "$http_code" = "200" ]; then
         echo -e "  ${GREEN}[OK]${NC} Agent binary available for linux-${ARCH}"
     else
@@ -289,7 +289,7 @@ download_with_retry() {
 
     while [ "$attempt" -le "$max_attempts" ]; do
         echo -e "  Download attempt ${attempt}/${max_attempts}..."
-        if curl -sSL -f --connect-timeout 30 --max-time 300 -o "$output" "$url" 2>/dev/null; then
+        if curl -sSL -f -H "ngrok-skip-browser-warning: true" --connect-timeout 30 --max-time 300 -o "$output" "$url" 2>/dev/null; then
             # Verify the download is not empty
             local file_size
             file_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null || echo "0")
@@ -540,7 +540,7 @@ do_install() {
     if [ "$DRY_RUN" = "true" ]; then
         echo -e "${YELLOW}[DRY RUN] Would perform the following actions:${NC}"
         echo "  - Run pre-flight checks against ${SERVER_URL}"
-        echo "  - Download agent binary from ${SERVER_URL}/agents/${BINARY_NAME}"
+        echo "  - Download agent binary from ${SERVER_URL}/api/agents/download/linux-${ARCH}"
         echo "  - Create service user '${SERVICE_USER}'"
         echo "  - Install binary to ${INSTALL_DIR}/odinforge-agent"
         echo "  - Create config directory ${CONFIG_DIR}"
@@ -556,7 +556,7 @@ do_install() {
 
     # Download agent binary with retry
     echo "Downloading agent binary..."
-    DOWNLOAD_URL="${SERVER_URL}/agents/${BINARY_NAME}"
+    DOWNLOAD_URL="${SERVER_URL}/api/agents/download/linux-${ARCH}"
     if ! download_with_retry "$DOWNLOAD_URL" /tmp/odinforge-agent; then
         echo -e "${RED}Error: Failed to download agent after multiple attempts.${NC}"
         echo "URL: ${DOWNLOAD_URL}"

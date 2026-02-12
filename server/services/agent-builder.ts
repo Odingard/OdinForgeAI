@@ -110,12 +110,22 @@ export function getAgentBinaryPath(platform: string): string | null {
   if (!VALID_PLATFORMS.has(platform)) {
     return null;
   }
-  
-  const binaryPath = path.join(OUTPUT_DIR, platform.startsWith("windows") 
-    ? `odinforge-agent-${platform}.exe` 
-    : `odinforge-agent-${platform}`);
-  
-  return existsSync(binaryPath) ? binaryPath : null;
+
+  const suffixedName = platform.startsWith("windows")
+    ? `odinforge-agent-${platform}.exe`
+    : `odinforge-agent-${platform}`;
+
+  // Check public/agents/ directory (built binaries with platform suffix)
+  const binaryPath = path.join(OUTPUT_DIR, suffixedName);
+  if (existsSync(binaryPath)) return binaryPath;
+
+  // Fallback: check odinforge-agent/ directory for unsuffixed binary (development)
+  const agentDir = path.join(process.cwd(), "odinforge-agent");
+  const unsuffixedName = platform.startsWith("windows") ? "odinforge-agent.exe" : "odinforge-agent";
+  const fallbackPath = path.join(agentDir, unsuffixedName);
+  if (existsSync(fallbackPath)) return fallbackPath;
+
+  return null;
 }
 
 export function getAgentBuildStatus(): { available: string[]; missing: string[] } {
