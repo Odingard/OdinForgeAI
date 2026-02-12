@@ -19,10 +19,10 @@ export interface PlatformRelease {
 }
 
 export const AGENT_RELEASE: AgentRelease = {
-  version: "1.0.2",
-  releaseDate: "2024-12-24",
-  releaseUrl: "https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.2",
-  releaseNotes: "Added auto-registration support, improved telemetry collection, and enhanced security features.",
+  version: "1.0.4",
+  releaseDate: "2026-02-11",
+  releaseUrl: "https://github.com/Odingard/OdinForgeAI/releases/tag/agent-v1.0.4",
+  releaseNotes: "Enterprise-grade upgrade: structured JSON logging, auto-update mechanism, watchdog health monitoring, K8s health/ready endpoints, proxy support (HTTP/HTTPS/SOCKS5), graceful shutdown timeout, and build-time version injection.",
   platforms: [
     {
       platform: "linux-amd64",
@@ -30,9 +30,9 @@ export const AGENT_RELEASE: AgentRelease = {
       os: "linux",
       arch: "amd64",
       filename: "odinforge-agent-linux-amd64",
-      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.2/odinforge-agent-linux-amd64",
-      fileSize: "8.2 MB",
-      sha256: "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.4/odinforge-agent-linux-amd64",
+      fileSize: "9.0 MB",
+      sha256: "bbdc0c1c5c86835792091c275fee628c5361e12c390f5fd30265580b67bbab9a",
       icon: "linux"
     },
     {
@@ -41,9 +41,9 @@ export const AGENT_RELEASE: AgentRelease = {
       os: "linux",
       arch: "arm64",
       filename: "odinforge-agent-linux-arm64",
-      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.2/odinforge-agent-linux-arm64",
-      fileSize: "7.9 MB",
-      sha256: "b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567a",
+      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.4/odinforge-agent-linux-arm64",
+      fileSize: "8.4 MB",
+      sha256: "c7e552ccf86d6aaa681ef28aa0ed2145774489c408b7822304673643b134cfe9",
       icon: "linux"
     },
     {
@@ -52,9 +52,9 @@ export const AGENT_RELEASE: AgentRelease = {
       os: "darwin",
       arch: "amd64",
       filename: "odinforge-agent-darwin-amd64",
-      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.2/odinforge-agent-darwin-amd64",
-      fileSize: "8.5 MB",
-      sha256: "c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567ab2",
+      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.4/odinforge-agent-darwin-amd64",
+      fileSize: "9.1 MB",
+      sha256: "c3a3b77f185e5f5d6ba86d944f13319d5f327c3eda48168be1c74d739f5713d6",
       icon: "apple"
     },
     {
@@ -63,9 +63,9 @@ export const AGENT_RELEASE: AgentRelease = {
       os: "darwin",
       arch: "arm64",
       filename: "odinforge-agent-darwin-arm64",
-      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.2/odinforge-agent-darwin-arm64",
-      fileSize: "8.1 MB",
-      sha256: "d4e5f6789012345678901234567890abcdef1234567890abcdef1234567ab2c3",
+      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.4/odinforge-agent-darwin-arm64",
+      fileSize: "8.5 MB",
+      sha256: "0d042d02382bf56ebdea50fe3b83baa58a29f2650ffd0085e61f46f77a0687ad",
       icon: "apple"
     },
     {
@@ -74,9 +74,9 @@ export const AGENT_RELEASE: AgentRelease = {
       os: "windows",
       arch: "amd64",
       filename: "odinforge-agent-windows-amd64.exe",
-      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.2/odinforge-agent-windows-amd64.exe",
-      fileSize: "8.8 MB",
-      sha256: "e5f6789012345678901234567890abcdef1234567890abcdef1234567ab2c3d4",
+      downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.0.4/odinforge-agent-windows-amd64.exe",
+      fileSize: "9.3 MB",
+      sha256: "8e3f47fa54bedceb94ac72f0e6139526479006cb21413c41085e1e7478677e12",
       icon: "windows"
     }
   ]
