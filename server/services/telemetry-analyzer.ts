@@ -129,8 +129,8 @@ const RISKY_SERVICES: Record<string, { severity: "high" | "medium"; reason: stri
   "MySQL": { severity: "medium", reason: "MySQL service is running", recommendation: "Ensure MySQL is bound to localhost only." },
 };
 
-const SECURITY_SERVICES = [
-  "WinDefend", "MsMpSvc", "SecurityHealthService", 
+const WINDOWS_SECURITY_SERVICES = [
+  "WinDefend", "MsMpSvc", "SecurityHealthService",
   "wscsvc",
   "MpsSvc",
   "EventLog",
@@ -138,6 +138,18 @@ const SECURITY_SERVICES = [
   "BITS",
   "wuauserv",
 ];
+
+const LINUX_SECURITY_SERVICES = [
+  "sshd",
+  "auditd",
+];
+
+function normalizePlatformForAnalyzer(platform: string): string {
+  const lower = platform.toLowerCase().trim();
+  if (lower.includes("windows") || lower === "win32" || lower === "win64") return "windows";
+  if (lower.includes("darwin") || lower.includes("macos")) return "macos";
+  return "linux"; // Default to linux for all other platforms (ubuntu, amzn, centos, etc.)
+}
 
 export function analyzeTelemetry(telemetry: TelemetryData): GeneratedFinding[] {
   const findings: GeneratedFinding[] = [];
@@ -148,7 +160,8 @@ export function analyzeTelemetry(telemetry: TelemetryData): GeneratedFinding[] {
   }
 
   if (telemetry.services && Array.isArray(telemetry.services)) {
-    findings.push(...analyzeServices(telemetry.services, hostname));
+    const platform = telemetry.systemInfo?.platform || telemetry.systemInfo?.os || "";
+    findings.push(...analyzeServices(telemetry.services, hostname, platform));
   }
 
   if (telemetry.resourceMetrics) {
@@ -217,9 +230,10 @@ function analyzeOpenPorts(ports: PortInfo[], hostname: string): GeneratedFinding
   return findings;
 }
 
-function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFinding[] {
+function analyzeServices(services: ServiceInfo[], hostname: string, platform: string): GeneratedFinding[] {
   const findings: GeneratedFinding[] = [];
   const runningServiceNames = new Set(services.filter(s => s.status === "running" || s.status === "Running").map(s => s.name.toLowerCase()));
+  const isWindows = normalizePlatformForAnalyzer(platform) === "windows";
 
   for (const service of services) {
     if (service.status !== "running" && service.status !== "Running") continue;
@@ -231,7 +245,7 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
         networkExposed: true,
         exploitComplexity: "medium",
       };
-      
+
       findings.push({
         findingType: "risky_service",
         severity: riskInfo.severity,
@@ -246,8 +260,10 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
     }
   }
 
+  // Only check platform-appropriate security services
+  const expectedServices = isWindows ? WINDOWS_SECURITY_SERVICES : LINUX_SECURITY_SERVICES;
   const missingSecurityServices: string[] = [];
-  for (const secService of SECURITY_SERVICES) {
+  for (const secService of expectedServices) {
     if (!runningServiceNames.has(secService.toLowerCase())) {
       missingSecurityServices.push(secService);
     }
@@ -260,46 +276,63 @@ function analyzeServices(services: ServiceInfo[], hostname: string): GeneratedFi
     exploitComplexity: "low",
   };
 
-  if (missingSecurityServices.includes("WinDefend") && missingSecurityServices.includes("MsMpSvc")) {
-    findings.push({
-      findingType: "missing_security",
-      severity: "high",
-      title: "Windows Defender Not Running",
-      description: `Windows Defender antivirus service is not running on ${hostname}. The system may be unprotected against malware.`,
-      affectedComponent: "Windows Defender",
-      affectedService: "WinDefend",
-      recommendation: "Enable Windows Defender or ensure another antivirus solution is active.",
-      confidenceScore: calculateConfidenceScore(missingSecurityFactors, "high"),
-      confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
-    });
-  }
+  if (isWindows) {
+    if (missingSecurityServices.includes("WinDefend") && missingSecurityServices.includes("MsMpSvc")) {
+      findings.push({
+        findingType: "missing_security",
+        severity: "high",
+        title: "Windows Defender Not Running",
+        description: `Windows Defender antivirus service is not running on ${hostname}. The system may be unprotected against malware.`,
+        affectedComponent: "Windows Defender",
+        affectedService: "WinDefend",
+        recommendation: "Enable Windows Defender or ensure another antivirus solution is active.",
+        confidenceScore: calculateConfidenceScore(missingSecurityFactors, "high"),
+        confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
+      });
+    }
 
-  if (missingSecurityServices.includes("MpsSvc")) {
-    findings.push({
-      findingType: "missing_security",
-      severity: "high",
-      title: "Windows Firewall Not Running",
-      description: `Windows Firewall service (MpsSvc) is not running on ${hostname}. Network protection is disabled.`,
-      affectedComponent: "Windows Firewall",
-      affectedService: "MpsSvc",
-      recommendation: "Enable Windows Firewall service immediately.",
-      confidenceScore: calculateConfidenceScore(missingSecurityFactors, "high"),
-      confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
-    });
-  }
+    if (missingSecurityServices.includes("MpsSvc")) {
+      findings.push({
+        findingType: "missing_security",
+        severity: "high",
+        title: "Windows Firewall Not Running",
+        description: `Windows Firewall service (MpsSvc) is not running on ${hostname}. Network protection is disabled.`,
+        affectedComponent: "Windows Firewall",
+        affectedService: "MpsSvc",
+        recommendation: "Enable Windows Firewall service immediately.",
+        confidenceScore: calculateConfidenceScore(missingSecurityFactors, "high"),
+        confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
+      });
+    }
 
-  if (missingSecurityServices.includes("wuauserv")) {
-    findings.push({
-      findingType: "missing_security",
-      severity: "medium",
-      title: "Windows Update Service Not Running",
-      description: `Windows Update service is not running on ${hostname}. System may not receive security patches.`,
-      affectedComponent: "Windows Update",
-      affectedService: "wuauserv",
-      recommendation: "Enable Windows Update service to ensure security patches are applied.",
-      confidenceScore: calculateConfidenceScore(missingSecurityFactors, "medium"),
-      confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
-    });
+    if (missingSecurityServices.includes("wuauserv")) {
+      findings.push({
+        findingType: "missing_security",
+        severity: "medium",
+        title: "Windows Update Service Not Running",
+        description: `Windows Update service is not running on ${hostname}. System may not receive security patches.`,
+        affectedComponent: "Windows Update",
+        affectedService: "wuauserv",
+        recommendation: "Enable Windows Update service to ensure security patches are applied.",
+        confidenceScore: calculateConfidenceScore(missingSecurityFactors, "medium"),
+        confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
+      });
+    }
+  } else {
+    // Linux-specific security service checks
+    if (missingSecurityServices.includes("auditd")) {
+      findings.push({
+        findingType: "missing_security",
+        severity: "medium",
+        title: "Linux Audit Daemon Not Running",
+        description: `The auditd service is not running on ${hostname}. System activity is not being audited for security events.`,
+        affectedComponent: "auditd",
+        affectedService: "auditd",
+        recommendation: "Install and enable auditd for security event logging: sudo yum install audit -y && sudo systemctl enable --now auditd",
+        confidenceScore: calculateConfidenceScore(missingSecurityFactors, "medium"),
+        confidenceFactors: buildConfidenceFactors(missingSecurityFactors),
+      });
+    }
   }
 
   return findings;

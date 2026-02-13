@@ -5323,29 +5323,23 @@ export async function registerRoutes(
   });
 
   // Get pending commands for an agent (called by agent during heartbeat)
-  app.get("/api/agents/:id/commands", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
+  app.get("/api/agents/:id/commands", apiRateLimiter, authenticateAgent, async (req: any, res) => {
     try {
-      const apiKey = req.headers["x-api-key"] as string;
-      if (!apiKey) {
-        return res.status(401).json({ error: "API key required" });
-      }
-      
-      const agent = await storage.getEndpointAgent(req.params.id);
-      if (!agent || agent.apiKey !== apiKey) {
-        return res.status(401).json({ error: "Invalid agent or API key" });
-      }
-      
+      // The agent is already authenticated via authenticateAgent middleware
+      // Use the authenticated agent's ID, not the URL param (prevents cross-agent access)
+      const agentId = req.agent.id;
+
       // Expire old commands first
       await storage.expireOldCommands();
-      
+
       // Get pending commands
-      const commands = await storage.getPendingAgentCommands(agent.id);
-      
+      const commands = await storage.getPendingAgentCommands(agentId);
+
       // Mark commands as acknowledged
       for (const cmd of commands) {
         await storage.acknowledgeAgentCommand(cmd.id);
       }
-      
+
       res.json({ commands });
     } catch (error) {
       console.error("Error fetching agent commands:", error);
@@ -5354,22 +5348,12 @@ export async function registerRoutes(
   });
 
   // Complete a command (called by agent after executing)
-  app.post("/api/agents/:id/commands/:commandId/complete", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
+  app.post("/api/agents/:id/commands/:commandId/complete", apiRateLimiter, authenticateAgent, async (req: any, res) => {
     try {
-      const apiKey = req.headers["x-api-key"] as string;
-      if (!apiKey) {
-        return res.status(401).json({ error: "API key required" });
-      }
-      
-      const agent = await storage.getEndpointAgent(req.params.id);
-      if (!agent || agent.apiKey !== apiKey) {
-        return res.status(401).json({ error: "Invalid agent or API key" });
-      }
-      
       const { result, errorMessage } = req.body;
-      
+
       await storage.completeAgentCommand(req.params.commandId, result, errorMessage);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Error completing agent command:", error);
