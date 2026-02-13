@@ -6858,7 +6858,7 @@ export async function registerRoutes(
       // Governance check — enforce kill switch, scope rules, and execution mode
       const { governanceEnforcement } = await import("./services/governance/governance-enforcement");
       const primaryTarget = assetIds[0];
-      const governanceCheck = await governanceEnforcement.canStartOperation(orgId, "breach_chain", primaryTarget);
+      const governanceCheck = await governanceEnforcement.canStartOperation(orgId, "breach_chain", primaryTarget, config?.executionMode || "safe");
       if (!governanceCheck.canStart) {
         return res.status(403).json({
           error: "Breach chain blocked by governance controls",
@@ -7641,9 +7641,25 @@ function registerJobQueueRoutes(app: Express) {
   // Get queue stats
   app.get("/api/jobs/stats", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
+      const orgId = req.uiUser?.organizationId || "default";
       const stats = await queueService.getQueueStats();
+
+      // Include breach chains in the stats
+      const chains = await storage.getBreachChains(orgId);
+      const chainCounts = { waiting: 0, active: 0, completed: 0, failed: 0 };
+      for (const c of chains) {
+        if (c.status === "pending") chainCounts.waiting++;
+        else if (c.status === "running" || c.status === "paused") chainCounts.active++;
+        else if (c.status === "completed") chainCounts.completed++;
+        else if (c.status === "failed" || c.status === "aborted") chainCounts.failed++;
+      }
+
       res.json({
-        ...stats,
+        waiting: stats.waiting + chainCounts.waiting,
+        active: stats.active + chainCounts.active,
+        completed: stats.completed + chainCounts.completed,
+        failed: stats.failed + chainCounts.failed,
+        delayed: stats.delayed,
         usingRedis: queueService.isUsingRedis(),
       });
     } catch (error) {
@@ -7656,19 +7672,57 @@ function registerJobQueueRoutes(app: Express) {
   app.get("/api/jobs", apiRateLimiter, uiAuthMiddleware, async (req: UIAuthenticatedRequest, res) => {
     try {
       const tenantId = req.uiUser?.tenantId || "default";
+      const orgId = req.uiUser?.organizationId || "default";
       const status = req.query.status as string | undefined;
       const type = req.query.type as JobType | undefined;
       const limit = parseInt(req.query.limit as string) || 50;
       const offset = parseInt(req.query.offset as string) || 0;
 
-      const jobs = await queueService.getJobsByTenant(tenantId, {
+      const queueJobs = await queueService.getJobsByTenant(tenantId, {
         status: status as any,
         type,
         limit,
         offset,
       });
 
-      res.json({ jobs, total: jobs.length });
+      // Merge breach chains into the jobs list so they appear in Operations => Jobs
+      const allJobs: any[] = [...queueJobs];
+
+      if (!type || type === ("breach_chain" as any)) {
+        const chains = await storage.getBreachChains(orgId);
+        const statusMap: Record<string, string> = {
+          pending: "pending",
+          running: "running",
+          paused: "running",
+          completed: "completed",
+          failed: "failed",
+          aborted: "cancelled",
+        };
+        const chainJobs = chains
+          .filter(c => !status || statusMap[c.status] === status)
+          .map(c => ({
+            id: c.id,
+            type: "breach_chain",
+            status: statusMap[c.status] || "pending",
+            tenantId,
+            organizationId: c.organizationId,
+            data: { name: c.name, description: c.description, assetIds: c.assetIds, config: c.config },
+            result: c.status === "completed" ? { riskScore: c.overallRiskScore, credentialsHarvested: c.totalCredentialsHarvested, assetsCompromised: c.totalAssetsCompromised } : undefined,
+            error: c.status === "failed" ? (c.executiveSummary || "Breach chain failed") : undefined,
+            createdAt: c.createdAt ? new Date(c.createdAt).toISOString() : new Date().toISOString(),
+            startedAt: c.startedAt ? new Date(c.startedAt).toISOString() : undefined,
+            completedAt: c.completedAt ? new Date(c.completedAt).toISOString() : undefined,
+          }));
+        allJobs.push(...chainJobs);
+        allJobs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
+
+      // Filter breach_chain-only if that type was requested
+      const finalJobs = type === ("breach_chain" as any)
+        ? allJobs.filter(j => j.type === "breach_chain")
+        : allJobs;
+
+      res.json({ jobs: finalJobs.slice(offset, offset + limit), total: finalJobs.length });
     } catch (error) {
       console.error("Failed to list jobs:", error);
       res.status(500).json({ error: "Failed to list jobs" });

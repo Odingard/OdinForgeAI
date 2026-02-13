@@ -24,7 +24,6 @@ import {
   Radar,
   Calendar,
   Link2,
-  Zap,
 } from "lucide-react";
 import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
@@ -56,7 +55,6 @@ const mainNavItems = [
 ];
 
 const assessItems = [
-  { title: "New Assessment", href: "/assess", icon: Zap },
   { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
   { title: "Live Recon", href: "/recon", icon: Globe },

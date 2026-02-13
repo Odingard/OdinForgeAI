@@ -19,7 +19,8 @@ export interface GovernanceCheckResult {
 export interface TargetValidationRequest {
   target: string;
   targetType: "ip" | "hostname" | "cidr" | "url";
-  operation: "evaluation" | "network_scan" | "cloud_discovery" | "external_recon" | "ai_simulation" | "exploit_validation" | "api_scan" | "auth_scan" | "full_assessment";
+  operation: "evaluation" | "network_scan" | "cloud_discovery" | "external_recon" | "ai_simulation" | "exploit_validation" | "api_scan" | "auth_scan" | "full_assessment" | "breach_chain" | "agent_deployment";
+  executionMode?: "safe" | "simulation" | "live";
   userId?: string;
   tenantId?: string;
 }
@@ -159,10 +160,25 @@ export class GovernanceEnforcementService {
       "api_scan": "payloadInjection",
       "auth_scan": "credentialTesting",
       "full_assessment": "payloadInjection",
-      "breach_chain": "exploitExecution",
+      "agent_deployment": "versionDetection",
     };
-    
-    const executionOperation = operationMapping[request.operation] || "versionDetection";
+
+    // Breach chains map to different governance levels based on their requested execution mode.
+    // Safe mode only does recon (portScanning), simulation adds credential testing,
+    // live mode requires full exploitExecution approval.
+    let executionOperation: keyof ExecutionModeConfig["allowedOperations"];
+    if (request.operation === "breach_chain") {
+      const requestedMode = request.executionMode || "safe";
+      if (requestedMode === "live") {
+        executionOperation = "exploitExecution";
+      } else if (requestedMode === "simulation") {
+        executionOperation = "credentialTesting";
+      } else {
+        executionOperation = "portScanning";
+      }
+    } else {
+      executionOperation = operationMapping[request.operation] || "versionDetection";
+    }
     const modeCheck = await this.checkExecutionMode(organizationId, executionOperation, normalizedTarget);
     if (!modeCheck.allowed) {
       await this.logBlockedOperation(organizationId, request, modeCheck);
@@ -175,12 +191,14 @@ export class GovernanceEnforcementService {
   async canStartOperation(
     organizationId: string,
     operationType: string,
-    target?: string
+    target?: string,
+    executionMode?: "safe" | "simulation" | "live"
   ): Promise<{ canStart: boolean; reason?: string }> {
     const request: TargetValidationRequest = {
       target: target || "unknown",
       targetType: this.inferTargetType(target || ""),
       operation: operationType as TargetValidationRequest["operation"],
+      executionMode,
       tenantId: organizationId,
     };
     

@@ -4,7 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 
 export interface Job {
   id: string;
-  type: "evaluation" | "network_scan" | "external_recon" | "report" | "ai_simulation";
+  type: "evaluation" | "network_scan" | "external_recon" | "report" | "ai_simulation" | "breach_chain" | "full_assessment" | "cloud_discovery" | "agent_deployment";
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   tenantId: string;
   organizationId: string;

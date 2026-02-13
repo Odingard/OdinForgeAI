@@ -1,21 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  Target, 
-  Play, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  Loader2, 
+import {
+  Target,
+  Play,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Loader2,
   AlertTriangle,
   Network,
   Shield,
@@ -26,10 +24,7 @@ import {
   TrendingUp,
   AlertCircle,
   Globe,
-  Server
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FullAssessment } from "@shared/schema";
@@ -793,62 +788,14 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
 
 export default function FullAssessmentPage() {
   const { toast } = useToast();
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [, navigate] = useLocation();
   const [selectedAssessment, setSelectedAssessment] = useState<FullAssessment | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  // Assessment mode: 'agent' (requires endpoint agents) or 'external' (serverless, no agents needed)
-  const [assessmentMode, setAssessmentMode] = useState<"agent" | "external">("agent");
-  // Enhanced assessment options
-  const [targetUrl, setTargetUrl] = useState("");
-  const [enableWebAppRecon, setEnableWebAppRecon] = useState(true);
-  const [enableParallelAgents, setEnableParallelAgents] = useState(true);
-  const [maxConcurrentAgents, setMaxConcurrentAgents] = useState(5);
-  const [enableLLMValidation, setEnableLLMValidation] = useState(true);
-  
+
   const { data: assessments = [], isLoading, refetch } = useQuery<FullAssessment[]>({
     queryKey: ["/api/full-assessments"],
     refetchInterval: 5000,
   });
-  
-  const createMutation = useMutation({
-    mutationFn: async (data: { 
-      name: string; 
-      description: string;
-      assessmentMode?: "agent" | "external";
-      targetUrl?: string;
-      enableWebAppRecon?: boolean;
-      enableParallelAgents?: boolean;
-      maxConcurrentAgents?: number;
-      enableLLMValidation?: boolean;
-    }) => {
-      return apiRequest("POST", "/api/full-assessments", data);
-    },
-    onSuccess: () => {
-      const isExternal = assessmentMode === "external";
-      const isEnhanced = !isExternal && targetUrl.trim().length > 0;
-      toast({ 
-        title: isExternal 
-          ? "External Assessment Started" 
-          : (isEnhanced ? "Enhanced Assessment Started" : "Assessment Started"), 
-        description: isExternal 
-          ? "Security assessment for serverless application is now running (no agents required)" 
-          : (isEnhanced 
-              ? "Full security assessment with web app reconnaissance is now running" 
-              : "Full security assessment is now running")
-      });
-      setIsCreateOpen(false);
-      setNewName("");
-      setNewDescription("");
-      setTargetUrl("");
-      setAssessmentMode("agent");
-      queryClient.invalidateQueries({ queryKey: ["/api/full-assessments"] });
-    },
-    onError: (error) => {
-      toast({ title: "Error", description: String(error), variant: "destructive" });
-    },
-  });
-  
+
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       return apiRequest("DELETE", `/api/full-assessments/${id}`);
@@ -859,27 +806,6 @@ export default function FullAssessmentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/full-assessments"] });
     },
   });
-
-  const handleCreate = () => {
-    if (!newName.trim()) {
-      toast({ title: "Name required", variant: "destructive" });
-      return;
-    }
-    if (assessmentMode === "external" && !targetUrl.trim()) {
-      toast({ title: "Target URL required for serverless assessment", variant: "destructive" });
-      return;
-    }
-    createMutation.mutate({ 
-      name: newName, 
-      description: newDescription,
-      assessmentMode,
-      targetUrl: targetUrl.trim() || undefined,
-      enableWebAppRecon: targetUrl.trim() ? enableWebAppRecon : undefined,
-      enableParallelAgents: targetUrl.trim() ? enableParallelAgents : undefined,
-      maxConcurrentAgents: targetUrl.trim() ? maxConcurrentAgents : undefined,
-      enableLLMValidation: targetUrl.trim() ? enableLLMValidation : undefined,
-    });
-  };
 
   return (
     <div className="p-6 space-y-6">
@@ -895,178 +821,10 @@ export default function FullAssessmentPage() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-          <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-start-full-assessment">
-                <Play className="w-4 h-4 mr-2" />
-                Start Full Assessment
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Start Full Security Assessment</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div>
-                  <label className="text-sm font-medium">Assessment Name</label>
-                  <Input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="Q4 2024 Security Assessment"
-                    data-testid="input-assessment-name"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium">Description (optional)</label>
-                  <Textarea
-                    value={newDescription}
-                    onChange={(e) => setNewDescription(e.target.value)}
-                    placeholder="Comprehensive assessment of all production systems..."
-                    data-testid="input-assessment-description"
-                  />
-                </div>
-                
-                {/* Assessment Mode Selector */}
-                <div className="border rounded-md p-3 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Server className="w-4 h-4 text-primary" />
-                    <label className="text-sm font-medium">Assessment Mode</label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant={assessmentMode === "agent" ? "default" : "outline"}
-                      className="h-auto py-3 flex flex-col items-start"
-                      onClick={() => setAssessmentMode("agent")}
-                      data-testid="button-mode-agent"
-                    >
-                      <span className="font-medium">Agent-Based</span>
-                      <span className="text-xs opacity-75 text-left">Requires endpoint agents for infrastructure testing</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={assessmentMode === "external" ? "default" : "outline"}
-                      className="h-auto py-3 flex flex-col items-start"
-                      onClick={() => setAssessmentMode("external")}
-                      data-testid="button-mode-external"
-                    >
-                      <span className="font-medium">External Only</span>
-                      <span className="text-xs opacity-75 text-left">For serverless apps - no agents needed</span>
-                    </Button>
-                  </div>
-                  {assessmentMode === "external" && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">
-                      External mode performs web scanning only. Ideal for serverless, API-only, or SaaS applications.
-                    </p>
-                  )}
-                </div>
-                
-                {/* Web Application Target Section */}
-                <div className="border rounded-md p-3 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-primary" />
-                    <label className="text-sm font-medium">
-                      Web Application Target {assessmentMode === "external" ? "(required)" : "(optional)"}
-                    </label>
-                  </div>
-                  <Input
-                    value={targetUrl}
-                    onChange={(e) => setTargetUrl(e.target.value)}
-                    placeholder="https://example.com"
-                    data-testid="input-target-url"
-                    required={assessmentMode === "external"}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {assessmentMode === "external" 
-                      ? "URL of the serverless application or API to scan" 
-                      : "Provide a URL to enable enhanced web app reconnaissance with parallel security agent testing"}
-                  </p>
-                  
-                  {targetUrl.trim() && (
-                    <div className="space-y-2 pt-2 border-t">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium">Web App Reconnaissance</label>
-                        <Switch
-                          checked={enableWebAppRecon}
-                          onCheckedChange={setEnableWebAppRecon}
-                          data-testid="switch-web-recon"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium">Parallel Security Agents</label>
-                        <Switch
-                          checked={enableParallelAgents}
-                          onCheckedChange={setEnableParallelAgents}
-                          data-testid="switch-parallel-agents"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium">LLM False Positive Filtering</label>
-                        <Switch
-                          checked={enableLLMValidation}
-                          onCheckedChange={setEnableLLMValidation}
-                          data-testid="switch-llm-validation"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium">Max Concurrent Agents</label>
-                        <Select
-                          value={String(maxConcurrentAgents)}
-                          onValueChange={(v) => setMaxConcurrentAgents(Number(v))}
-                        >
-                          <SelectTrigger className="w-20 h-7" data-testid="select-max-agents">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="3">3</SelectItem>
-                            <SelectItem value="5">5</SelectItem>
-                            <SelectItem value="10">10</SelectItem>
-                            <SelectItem value="15">15</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="bg-muted/50 p-3 rounded-md">
-                  <h4 className="text-sm font-medium flex items-center gap-2">
-                    <Target className="w-4 h-4" />
-                    What this assessment does:
-                  </h4>
-                  <ul className="text-sm text-muted-foreground mt-2 space-y-1">
-                    {targetUrl.trim() && (
-                      <>
-                        <li className="text-primary">Crawls target URL to discover endpoints</li>
-                        <li className="text-primary">Dispatches parallel security validation agents</li>
-                        <li className="text-primary">Tests for SQLi, XSS, Auth Bypass, Command Injection, Path Traversal, SSRF</li>
-                        <li className="text-primary">Filters false positives using AI validation</li>
-                      </>
-                    )}
-                    <li>Collects findings from all deployed agents</li>
-                    <li>Analyzes vulnerabilities across all systems</li>
-                    <li>Maps cross-system attack paths using MITRE ATT&CK</li>
-                    <li>Identifies lateral movement opportunities</li>
-                    <li>Assesses business impact of potential breaches</li>
-                    <li>Generates prioritized remediation recommendations</li>
-                  </ul>
-                </div>
-                <Button 
-                  onClick={handleCreate} 
-                  disabled={createMutation.isPending}
-                  className="w-full"
-                  data-testid="button-confirm-start-assessment"
-                >
-                  {createMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-2" />
-                  )}
-                  {targetUrl.trim() ? "Start Enhanced Assessment" : "Start Assessment"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={() => navigate("/assess")} data-testid="button-start-full-assessment">
+            <Play className="w-4 h-4 mr-2" />
+            New Assessment
+          </Button>
         </div>
       </div>
 
@@ -1112,9 +870,9 @@ export default function FullAssessmentPage() {
                 <p className="text-muted-foreground mt-1">
                   Start a full security assessment to analyze all your systems
                 </p>
-                <Button 
+                <Button
                   className="mt-4"
-                  onClick={() => setIsCreateOpen(true)}
+                  onClick={() => navigate("/assess")}
                   data-testid="button-start-first-assessment"
                 >
                   <Play className="w-4 h-4 mr-2" />
