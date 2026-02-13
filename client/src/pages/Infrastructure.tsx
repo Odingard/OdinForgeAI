@@ -695,15 +695,21 @@ function CloudConnectionCard({
           <DialogHeader>
             <DialogTitle>Cloud Assets - {connection.name}</DialogTitle>
             <DialogDescription>
-              {cloudAssets.length} assets discovered
+              {(() => {
+                const deployable = cloudAssets.filter(a => a.agentDeployable);
+                const other = cloudAssets.length - deployable.length;
+                return `${deployable.length} deployable instance${deployable.length !== 1 ? "s" : ""}${other > 0 ? ` (${other} other resources discovered)` : ""}`;
+              })()}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             {assetsLoading ? (
               <div className="text-center py-8 text-muted-foreground">Loading assets...</div>
-            ) : cloudAssets.length === 0 ? (
+            ) : cloudAssets.filter(a => a.agentDeployable).length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                No assets discovered yet. Run discovery to find assets.
+                {cloudAssets.length > 0
+                  ? `${cloudAssets.length} resources discovered (S3 buckets, Lambda functions, etc.) but no deployable compute instances found.`
+                  : "No assets discovered yet. Run discovery to find assets."}
               </div>
             ) : (
               <Table>
@@ -718,7 +724,7 @@ function CloudConnectionCard({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {cloudAssets.map((asset) => (
+                  {cloudAssets.filter(a => a.agentDeployable).map((asset) => (
                     <TableRow key={asset.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
