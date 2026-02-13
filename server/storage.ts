@@ -309,7 +309,8 @@ export interface IStorage {
   createAutoDeployConfig(data: InsertAutoDeployConfig): Promise<AutoDeployConfig>;
   updateAutoDeployConfig(organizationId: string, updates: Partial<InsertAutoDeployConfig>): Promise<AutoDeployConfig | undefined>;
   incrementAutoDeployStats(organizationId: string): Promise<void>;
-  
+  getDeploymentJobsByOrganization(organizationId: string, limit?: number): Promise<AgentDeploymentJob[]>;
+
   // SSH Credential operations
   createSshCredential(data: InsertSshCredential): Promise<SshCredential>;
   getSshCredential(id: string): Promise<SshCredential | undefined>;
@@ -1293,6 +1294,15 @@ export class DatabaseStorage implements IStorage {
 
   async updateAgentDeploymentJob(id: string, updates: Partial<AgentDeploymentJob>): Promise<void> {
     await db.update(agentDeploymentJobs).set({ ...updates, updatedAt: new Date() }).where(eq(agentDeploymentJobs.id, id));
+  }
+
+  async getDeploymentJobsByOrganization(organizationId: string, limit: number = 50): Promise<AgentDeploymentJob[]> {
+    return db
+      .select()
+      .from(agentDeploymentJobs)
+      .where(eq(agentDeploymentJobs.organizationId, organizationId))
+      .orderBy(desc(agentDeploymentJobs.createdAt))
+      .limit(limit);
   }
 
   // Get asset and vulnerability counts for dashboard
@@ -2314,6 +2324,7 @@ export class DatabaseStorage implements IStorage {
       assetTypes: data.assetTypes as string[] | undefined,
       targetPlatforms: data.targetPlatforms as string[] | undefined,
       deploymentOptions: data.deploymentOptions,
+      filterRules: data.filterRules,
       createdBy: data.createdBy,
     };
     const [config] = await db
@@ -2330,6 +2341,7 @@ export class DatabaseStorage implements IStorage {
     if (updates.assetTypes !== undefined) updateData.assetTypes = updates.assetTypes as string[];
     if (updates.targetPlatforms !== undefined) updateData.targetPlatforms = updates.targetPlatforms as string[];
     if (updates.deploymentOptions !== undefined) updateData.deploymentOptions = updates.deploymentOptions;
+    if (updates.filterRules !== undefined) updateData.filterRules = updates.filterRules;
     if (updates.createdBy !== undefined) updateData.createdBy = updates.createdBy;
     
     const [config] = await db

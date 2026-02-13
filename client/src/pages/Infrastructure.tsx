@@ -27,7 +27,10 @@ import {
   ShieldAlert,
   Loader2,
   Radio,
-  Plug
+  Plug,
+  Rocket,
+  History,
+  ChevronDown,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
@@ -69,6 +72,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { DataTable } from "@/components/shared/DataTable";
 import type { DataTableColumn } from "@/components/shared/DataTable";
 
@@ -132,6 +137,20 @@ interface AutoDeployConfig {
   lastDeploymentTriggeredAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+interface DeploymentJob {
+  id: string;
+  cloudAssetId: string;
+  connectionId: string;
+  organizationId: string;
+  deploymentMethod: string;
+  status: string | null;
+  errorMessage: string | null;
+  initiatedBy: string | null;
+  resultAgentId: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
 }
 
 interface InfraStats {
@@ -1158,6 +1177,36 @@ export default function Infrastructure() {
     queryKey: ["/api/auto-deploy/config"],
   });
 
+  const { data: deploymentHistory = [] } = useQuery<DeploymentJob[]>({
+    queryKey: ["/api/auto-deploy/history?limit=20"],
+    refetchInterval: 15000,
+  });
+
+  const [configDraft, setConfigDraft] = useState<{
+    providers: string[];
+    assetTypes: string[];
+    targetPlatforms: string[];
+    deploymentOptions: AutoDeployConfig["deploymentOptions"];
+  } | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  useEffect(() => {
+    if (autoDeployConfig && !configDraft) {
+      setConfigDraft({
+        providers: autoDeployConfig.providers || ["aws", "azure", "gcp"],
+        assetTypes: autoDeployConfig.assetTypes || ["ec2", "vm", "gce"],
+        targetPlatforms: autoDeployConfig.targetPlatforms || ["linux", "windows"],
+        deploymentOptions: autoDeployConfig.deploymentOptions || {
+          maxConcurrentDeployments: 10,
+          deploymentTimeoutSeconds: 300,
+          retryFailedDeployments: true,
+          maxRetries: 3,
+          skipOfflineAssets: true,
+        },
+      });
+    }
+  }, [autoDeployConfig]);
+
   // Threat Intel
   const { data: threatFeeds = [], isLoading: feedsLoading } = useQuery<any[]>({
     queryKey: ["/api/threat-intel/feeds"],
@@ -1293,6 +1342,47 @@ export default function Infrastructure() {
         description: "Could not update auto-deploy settings",
         variant: "destructive",
       });
+    },
+  });
+
+  const saveAutoDeployConfigMutation = useMutation({
+    mutationFn: async (config: typeof configDraft) => {
+      const res = await apiRequest("PUT", "/api/auto-deploy/config", config);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-deploy/config"] });
+      toast({ title: "Configuration Saved", description: "Auto-deploy settings have been updated" });
+    },
+    onError: () => {
+      toast({ title: "Save Failed", description: "Could not save auto-deploy configuration", variant: "destructive" });
+    },
+  });
+
+  const triggerDeployMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/auto-deploy/trigger", {});
+      return res.json();
+    },
+    onSuccess: (data: { deploymentsTriggered: number; skippedAssets: number; errors: string[] }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-deploy/history?limit=20"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auto-deploy/config"] });
+      if (data.deploymentsTriggered > 0) {
+        toast({
+          title: `Deployed to ${data.deploymentsTriggered} asset(s)`,
+          description: data.skippedAssets > 0 ? `${data.skippedAssets} assets skipped (filtered or already deployed)` : undefined,
+        });
+      } else {
+        toast({
+          title: "No deployments triggered",
+          description: data.skippedAssets > 0
+            ? `${data.skippedAssets} assets skipped (filtered by config or already deployed)`
+            : "No eligible assets found",
+        });
+      }
+    },
+    onError: () => {
+      toast({ title: "Deploy Failed", description: "Could not trigger auto-deploy", variant: "destructive" });
     },
   });
 
@@ -1878,6 +1968,20 @@ export default function Infrastructure() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => triggerDeployMutation.mutate()}
+                        disabled={triggerDeployMutation.isPending || !autoDeployConfig?.enabled}
+                        data-testid="button-deploy-now"
+                      >
+                        {triggerDeployMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                        ) : (
+                          <Rocket className="h-4 w-4 mr-1" />
+                        )}
+                        Deploy Now
+                      </Button>
                       <div className="flex items-center gap-2">
                         <Power className={`h-4 w-4 ${autoDeployConfig?.enabled ? 'text-green-500' : 'text-muted-foreground'}`} />
                         <Switch
@@ -1890,7 +1994,8 @@ export default function Infrastructure() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className="pt-0">
+                <CardContent className="pt-0 space-y-4">
+                  {/* Stats Row */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div className="p-3 bg-muted/30 rounded-md">
                       <p className="text-muted-foreground text-xs mb-1">Status</p>
@@ -1905,7 +2010,7 @@ export default function Infrastructure() {
                     <div className="p-3 bg-muted/30 rounded-md">
                       <p className="text-muted-foreground text-xs mb-1">Providers</p>
                       <div className="flex gap-1 flex-wrap">
-                        {(autoDeployConfig?.providers || ["aws", "azure", "gcp"]).map(provider => (
+                        {(configDraft?.providers || autoDeployConfig?.providers || []).map(provider => (
                           <Badge key={provider} variant="outline" className="text-xs">
                             {provider.toUpperCase()}
                           </Badge>
@@ -1915,18 +2020,259 @@ export default function Infrastructure() {
                     <div className="p-3 bg-muted/30 rounded-md">
                       <p className="text-muted-foreground text-xs mb-1">Last Triggered</p>
                       <p className="font-medium text-xs">
-                        {autoDeployConfig?.lastDeploymentTriggeredAt 
+                        {autoDeployConfig?.lastDeploymentTriggeredAt
                           ? new Date(autoDeployConfig.lastDeploymentTriggeredAt).toLocaleDateString()
                           : "Never"}
                       </p>
                     </div>
                   </div>
+
                   {autoDeployConfig?.enabled && (
-                    <div className="mt-3 p-2 bg-green-500/10 border border-green-500/20 rounded-md">
+                    <div className="p-2 bg-green-500/10 border border-green-500/20 rounded-md">
                       <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-2">
                         <CheckCircle className="h-3 w-3" />
-                        Auto-deploy is active. Agents will be deployed to new {(autoDeployConfig?.assetTypes || []).join(", ")} instances.
+                        Auto-deploy is active. Agents will be deployed to new {(configDraft?.assetTypes || autoDeployConfig?.assetTypes || []).join(", ")} instances.
                       </p>
+                    </div>
+                  )}
+
+                  {/* Configuration Section */}
+                  <div className="border-t pt-4">
+                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                      <Settings className="h-4 w-4" /> Configuration
+                    </h4>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Providers */}
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Cloud Providers</Label>
+                        <div className="space-y-2">
+                          {(["aws", "azure", "gcp"] as const).map(p => (
+                            <label key={p} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={configDraft?.providers?.includes(p) ?? false}
+                                onCheckedChange={(checked) => {
+                                  setConfigDraft(prev => {
+                                    if (!prev) return prev;
+                                    const current = prev.providers || [];
+                                    return {
+                                      ...prev,
+                                      providers: checked ? [...current, p] : current.filter(x => x !== p),
+                                    };
+                                  });
+                                }}
+                              />
+                              {p.toUpperCase()}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Asset Types */}
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Asset Types</Label>
+                        <div className="space-y-2">
+                          {([
+                            { value: "ec2", label: "EC2 (AWS)" },
+                            { value: "vm", label: "VM (Azure)" },
+                            { value: "gce", label: "GCE (GCP)" },
+                          ] as const).map(({ value, label }) => (
+                            <label key={value} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={configDraft?.assetTypes?.includes(value) ?? false}
+                                onCheckedChange={(checked) => {
+                                  setConfigDraft(prev => {
+                                    if (!prev) return prev;
+                                    const current = prev.assetTypes || [];
+                                    return {
+                                      ...prev,
+                                      assetTypes: checked ? [...current, value] : current.filter(x => x !== value),
+                                    };
+                                  });
+                                }}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Target Platforms */}
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Target Platforms</Label>
+                        <div className="space-y-2">
+                          {(["linux", "windows"] as const).map(p => (
+                            <label key={p} className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={configDraft?.targetPlatforms?.includes(p) ?? false}
+                                onCheckedChange={(checked) => {
+                                  setConfigDraft(prev => {
+                                    if (!prev) return prev;
+                                    const current = prev.targetPlatforms || [];
+                                    return {
+                                      ...prev,
+                                      targetPlatforms: checked ? [...current, p] : current.filter(x => x !== p),
+                                    };
+                                  });
+                                }}
+                              />
+                              {p.charAt(0).toUpperCase() + p.slice(1)}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Advanced Settings */}
+                    <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen} className="mt-4">
+                      <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                        <ChevronDown className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                        Advanced Deployment Settings
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-3 space-y-4 pl-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Max Concurrent Deployments</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              max={50}
+                              value={configDraft?.deploymentOptions?.maxConcurrentDeployments ?? 10}
+                              onChange={(e) => {
+                                const val = Math.min(50, Math.max(1, parseInt(e.target.value) || 1));
+                                setConfigDraft(prev => prev ? {
+                                  ...prev,
+                                  deploymentOptions: { ...prev.deploymentOptions, maxConcurrentDeployments: val },
+                                } : prev);
+                              }}
+                              className="h-8"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Deployment Timeout</Label>
+                            <Select
+                              value={String(configDraft?.deploymentOptions?.deploymentTimeoutSeconds ?? 300)}
+                              onValueChange={(val) => {
+                                setConfigDraft(prev => prev ? {
+                                  ...prev,
+                                  deploymentOptions: { ...prev.deploymentOptions, deploymentTimeoutSeconds: parseInt(val) },
+                                } : prev);
+                              }}
+                            >
+                              <SelectTrigger className="h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="300">5 minutes</SelectItem>
+                                <SelectItem value="600">10 minutes</SelectItem>
+                                <SelectItem value="900">15 minutes</SelectItem>
+                                <SelectItem value="1800">30 minutes</SelectItem>
+                                <SelectItem value="3600">60 minutes</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 text-sm cursor-pointer">
+                              <Checkbox
+                                checked={configDraft?.deploymentOptions?.retryFailedDeployments ?? true}
+                                onCheckedChange={(checked) => {
+                                  setConfigDraft(prev => prev ? {
+                                    ...prev,
+                                    deploymentOptions: { ...prev.deploymentOptions, retryFailedDeployments: !!checked },
+                                  } : prev);
+                                }}
+                              />
+                              <span className="text-xs text-muted-foreground">Retry failed deployments</span>
+                            </label>
+                            {configDraft?.deploymentOptions?.retryFailedDeployments && (
+                              <div className="space-y-1">
+                                <Label className="text-xs text-muted-foreground">Max Retries</Label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={10}
+                                  value={configDraft?.deploymentOptions?.maxRetries ?? 3}
+                                  onChange={(e) => {
+                                    const val = Math.min(10, Math.max(0, parseInt(e.target.value) || 0));
+                                    setConfigDraft(prev => prev ? {
+                                      ...prev,
+                                      deploymentOptions: { ...prev.deploymentOptions, maxRetries: val },
+                                    } : prev);
+                                  }}
+                                  className="h-8"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+
+                    {/* Save Button */}
+                    <div className="mt-4">
+                      <Button
+                        size="sm"
+                        onClick={() => configDraft && saveAutoDeployConfigMutation.mutate(configDraft)}
+                        disabled={saveAutoDeployConfigMutation.isPending || !configDraft}
+                        data-testid="button-save-auto-deploy"
+                      >
+                        {saveAutoDeployConfigMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                        Save Configuration
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Deployment History */}
+                  {deploymentHistory.length > 0 && (
+                    <div className="border-t pt-4">
+                      <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                        <History className="h-4 w-4" /> Recent Deployments
+                      </h4>
+                      <div className="border rounded-md overflow-hidden">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-xs">Asset</TableHead>
+                              <TableHead className="text-xs">Method</TableHead>
+                              <TableHead className="text-xs">Status</TableHead>
+                              <TableHead className="text-xs">Initiated By</TableHead>
+                              <TableHead className="text-xs">Time</TableHead>
+                              <TableHead className="text-xs">Error</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {deploymentHistory.map(job => (
+                              <TableRow key={job.id}>
+                                <TableCell className="text-xs font-mono">
+                                  {job.cloudAssetId?.slice(0, 12)}...
+                                </TableCell>
+                                <TableCell className="text-xs">{job.deploymentMethod || "-"}</TableCell>
+                                <TableCell>
+                                  <Badge
+                                    variant={
+                                      job.status === "success" ? "default" :
+                                      job.status === "failed" ? "destructive" :
+                                      "secondary"
+                                    }
+                                    className="text-xs"
+                                  >
+                                    {job.status || "pending"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {job.initiatedBy || "manual"}
+                                </TableCell>
+                                <TableCell className="text-xs text-muted-foreground">
+                                  {job.createdAt ? new Date(job.createdAt).toLocaleString() : "-"}
+                                </TableCell>
+                                <TableCell className="text-xs text-red-500 max-w-[200px] truncate">
+                                  {job.errorMessage || "-"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
                   )}
                 </CardContent>

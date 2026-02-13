@@ -4019,6 +4019,88 @@ export async function registerRoutes(
     }
   });
 
+  // Get auto-deploy deployment history for organization
+  app.get("/api/auto-deploy/history", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const initiatedBy = req.query.initiatedBy as string | undefined;
+
+      let jobs = await storage.getDeploymentJobsByOrganization(organizationId, limit);
+
+      if (initiatedBy) {
+        jobs = jobs.filter(j => j.initiatedBy === initiatedBy);
+      }
+
+      res.json(jobs);
+    } catch (error) {
+      console.error("Error fetching auto-deploy history:", error);
+      res.status(500).json({ error: "Failed to fetch deployment history" });
+    }
+  });
+
+  // Manually trigger auto-deploy for all eligible assets
+  app.post("/api/auto-deploy/trigger", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const organizationId = req.uiUser?.organizationId || getOrganizationId(req) || "default";
+      const tenantId = organizationId;
+
+      const connections = await storage.getCloudConnections(organizationId);
+      if (connections.length === 0) {
+        return res.json({ deploymentsTriggered: 0, skippedAssets: 0, errors: ["No cloud connections found"] });
+      }
+
+      let totalTriggered = 0;
+      let totalSkipped = 0;
+      const allErrors: string[] = [];
+
+      for (const conn of connections) {
+        const allAssets = await storage.getCloudAssetsByConnection(conn.id);
+
+        // Same eligibility filter as cloud-discovery-handler
+        const eligibleAssets = allAssets
+          .filter(asset => {
+            const noAgent = !asset.agentInstalled;
+            const eligibleStatus = !asset.agentDeploymentStatus ||
+              asset.agentDeploymentStatus === "pending" ||
+              asset.agentDeploymentStatus === "failed";
+            return noAgent && eligibleStatus;
+          })
+          .map(asset => {
+            const rawMeta = asset.rawMetadata as Record<string, any> | null;
+            let platform: string | undefined;
+            if (rawMeta?.platform) platform = String(rawMeta.platform).toLowerCase();
+            else if (rawMeta?.osType) platform = String(rawMeta.osType).toLowerCase();
+            else if (rawMeta?.Platform) platform = String(rawMeta.Platform).toLowerCase();
+
+            return {
+              id: asset.id,
+              assetType: asset.assetType,
+              provider: asset.provider,
+              region: asset.region || undefined,
+              platform,
+              tags: asset.providerTags as Record<string, string> | undefined,
+              agentInstalled: asset.agentInstalled || false,
+            };
+          });
+
+        if (eligibleAssets.length > 0) {
+          const { triggerAutoDeployForNewAssets } = await import("./services/auto-deploy-orchestrator");
+          const result = await triggerAutoDeployForNewAssets(organizationId, tenantId, conn.id, eligibleAssets);
+          totalTriggered += result.deploymentsTriggered;
+          totalSkipped += result.skippedAssets;
+          allErrors.push(...result.errors);
+        }
+      }
+
+      console.log(`[AutoDeploy] Manual trigger for org ${organizationId}: ${totalTriggered} deployments, ${totalSkipped} skipped`);
+      res.json({ deploymentsTriggered: totalTriggered, skippedAssets: totalSkipped, errors: allErrors });
+    } catch (error) {
+      console.error("Error triggering auto-deploy:", error);
+      res.status(500).json({ error: "Failed to trigger auto-deploy" });
+    }
+  });
+
   // ========== AI VS AI SIMULATION API ==========
 
   // Import the AI simulation runner
