@@ -65,9 +65,9 @@ export function Header() {
               variant="ghost" 
               size="sm" 
               className={isActive("/infrastructure") ? "text-foreground" : "text-muted-foreground"} 
-              data-testid="nav-data-sources"
+              data-testid="nav-integrations"
             >
-              Data Sources
+              Integrations
             </Button>
           </Link>
           <Link href="/risk">

@@ -19,7 +19,6 @@ import {
   Globe,
   Shield,
   Zap,
-  ArrowRight,
   Settings,
   Bot,
   Power,
@@ -70,7 +69,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
-import { AssetDependencyGraph } from "@/components/AssetDependencyGraph";
 import { DataTable } from "@/components/shared/DataTable";
 import type { DataTableColumn } from "@/components/shared/DataTable";
 
@@ -1135,7 +1133,7 @@ function CountdownTimer({ targetTime }: { targetTime: Date }) {
 
 export default function Infrastructure() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("scanner-imports");
+  const [activeTab, setActiveTab] = useState("cloud");
   const [searchQuery, setSearchQuery] = useState("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [cloudDialogOpen, setCloudDialogOpen] = useState(false);
@@ -1468,11 +1466,10 @@ export default function Infrastructure() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Database className="h-6 w-6 text-purple-400 glow-purple-sm" />
-            <span className="text-neon-cyan">Data</span>
-            <span>Sources</span>
+            <span className="text-neon-cyan">Integrations</span>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Import vulnerability data and connect cloud providers for asset discovery
+            Connect cloud providers, import scanner data, and configure security tool integrations
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1642,25 +1639,17 @@ export default function Infrastructure() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
+          <TabsTrigger value="cloud" data-testid="tab-cloud">
+            <Cloud className="h-4 w-4 mr-2" />
+            Cloud Accounts ({cloudConnections.length})
+          </TabsTrigger>
           <TabsTrigger value="scanner-imports" data-testid="tab-scanner-imports">
             <Upload className="h-4 w-4 mr-2" />
             Scanner Imports ({importJobs.length + vulnerabilities.length})
           </TabsTrigger>
-          <TabsTrigger value="cloud" data-testid="tab-cloud">
-            <Cloud className="h-4 w-4 mr-2" />
-            Cloud Connections ({cloudConnections.length})
-          </TabsTrigger>
-          <TabsTrigger value="dependencies" data-testid="tab-dependencies">
-            <ArrowRight className="h-4 w-4 mr-2" />
-            Asset Dependencies
-          </TabsTrigger>
-          <TabsTrigger value="threat-intel" data-testid="tab-threat-intel">
-            <Rss className="h-4 w-4 mr-2" />
-            Threat Intel ({threatFeeds.length})
-          </TabsTrigger>
-          <TabsTrigger value="siem" data-testid="tab-siem">
-            <Radio className="h-4 w-4 mr-2" />
-            SIEM/EDR ({siemConnections.length})
+          <TabsTrigger value="security-tools" data-testid="tab-security-tools">
+            <Shield className="h-4 w-4 mr-2" />
+            Security Tools ({threatFeeds.length + siemConnections.length})
           </TabsTrigger>
         </TabsList>
 
@@ -1835,7 +1824,7 @@ export default function Infrastructure() {
                               )}
                               {vuln.aevEvaluationId && (
                                 <DropdownMenuItem data-testid={`menu-view-eval-${vuln.id}`}>
-                                  <ArrowRight className="h-4 w-4 mr-2" />
+                                  <Eye className="h-4 w-4 mr-2" />
                                   View Evaluation
                                 </DropdownMenuItem>
                               )}
@@ -1960,90 +1949,8 @@ export default function Infrastructure() {
           )}
         </TabsContent>
 
-        <TabsContent value="dependencies" className="mt-4">
-          <Card className="glass border-border/50 glow-purple-sm scan-line">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ArrowRight className="h-5 w-5 text-purple-400" />
-                Asset Dependency Graph
-              </CardTitle>
-              <CardDescription>
-                Visualize dependencies and data flows between infrastructure assets
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AssetDependencyGraph
-                nodes={(() => {
-                  // Generate sample dependency nodes from cloud connections and vulnerabilities
-                  const nodes: any[] = [];
-
-                  // Add cloud assets as foundation nodes
-                  cloudConnections.slice(0, 5).forEach((conn, i) => {
-                    nodes.push({
-                      id: `cloud-${conn.id}`,
-                      name: conn.name,
-                      type: conn.provider === "aws" ? "storage" : conn.provider === "azure" ? "database" : "service",
-                      criticality: conn.status === "active" ? "high" : "medium",
-                      dependencies: [],
-                      vulnerabilityCount: 0,
-                    });
-                  });
-
-                  // Add vulnerability hosts as dependent nodes
-                  const hostMap = new Map();
-                  vulnerabilities.slice(0, 10).forEach(vuln => {
-                    if (vuln.affectedHost && !hostMap.has(vuln.affectedHost)) {
-                      const cloudDeps = nodes.slice(0, Math.min(2, nodes.length)).map(n => n.id);
-                      hostMap.set(vuln.affectedHost, {
-                        id: `host-${vuln.affectedHost}`,
-                        name: vuln.affectedHost,
-                        type: vuln.affectedPort === 443 || vuln.affectedPort === 80 ? "load_balancer" : "application",
-                        criticality: vuln.severity === "critical" || vuln.severity === "high" ? "critical" : "medium",
-                        dependencies: cloudDeps,
-                        vulnerabilityCount: vulnerabilities.filter(v => v.affectedHost === vuln.affectedHost).length,
-                      });
-                    }
-                  });
-
-                  nodes.push(...Array.from(hostMap.values()));
-
-                  return nodes.length > 0 ? nodes : [
-                    {
-                      id: "db-1",
-                      name: "Primary Database",
-                      type: "database",
-                      criticality: "critical",
-                      dependencies: [],
-                      vulnerabilityCount: 0,
-                    },
-                    {
-                      id: "api-1",
-                      name: "API Server",
-                      type: "api",
-                      criticality: "high",
-                      dependencies: ["db-1"],
-                      vulnerabilityCount: 2,
-                    },
-                    {
-                      id: "lb-1",
-                      name: "Load Balancer",
-                      type: "load_balancer",
-                      criticality: "high",
-                      dependencies: ["api-1"],
-                      vulnerabilityCount: 0,
-                    },
-                  ];
-                })()}
-                onNodeClick={(_node) => {
-                  // Handle node click - could show details dialog
-                }}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Threat Intelligence Tab */}
-        <TabsContent value="threat-intel" className="mt-4 space-y-6">
+        {/* Security Tools Tab — Threat Intel + SIEM/EDR */}
+        <TabsContent value="security-tools" className="mt-4 space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">Threat Intelligence Feeds</h3>
@@ -2276,10 +2183,8 @@ export default function Infrastructure() {
               </CardContent>
             </Card>
           )}
-        </TabsContent>
 
-        {/* SIEM/EDR Connections Tab */}
-        <TabsContent value="siem" className="mt-4 space-y-6">
+          {/* SIEM/EDR Connections — within Security Tools tab */}
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">SIEM/EDR Connections</h3>

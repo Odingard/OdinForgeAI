@@ -51,7 +51,7 @@ import { roleMetadata } from "@shared/schema";
 const mainNavItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Assets", href: "/assets", icon: Server },
-  { title: "Data Sources", href: "/infrastructure", icon: Building2 },
+  { title: "Integrations", href: "/infrastructure", icon: Building2 },
   { title: "Risk Dashboard", href: "/risk", icon: BarChart3 },
 ];
 
