@@ -1382,7 +1382,115 @@ export async function registerRoutes(
   });
 
   // ========== SYSTEM MONITORING ENDPOINTS ==========
-  
+
+  // Real system health status — replaces hardcoded mock data on the System Health page
+  const serverStartTime = Date.now();
+
+  app.get("/api/system/health-status", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
+    try {
+      const checks: {
+        name: string;
+        status: "healthy" | "degraded" | "down";
+        responseTime?: number;
+        message?: string;
+      }[] = [];
+
+      // 1. PostgreSQL check
+      const dbStart = Date.now();
+      try {
+        await db.execute(sql`SELECT 1`);
+        checks.push({
+          name: "PostgreSQL Database",
+          status: "healthy",
+          responseTime: Date.now() - dbStart,
+        });
+      } catch (err: any) {
+        checks.push({
+          name: "PostgreSQL Database",
+          status: "down",
+          responseTime: Date.now() - dbStart,
+          message: err.message || "Connection failed",
+        });
+      }
+
+      // 2. Redis check
+      const redisStart = Date.now();
+      const redisUp = queueService.isUsingRedis();
+      checks.push({
+        name: "Redis Cache",
+        status: redisUp ? "healthy" : "degraded",
+        responseTime: Date.now() - redisStart,
+        message: redisUp ? undefined : "Using in-memory fallback",
+      });
+
+      // 3. WebSocket server check
+      const wsStats = wsService.getStats();
+      checks.push({
+        name: "WebSocket Server",
+        status: "healthy",
+        message: `${wsStats.activeConnections} active connections`,
+      });
+
+      // 4. S3 / MinIO storage check
+      const s3Start = Date.now();
+      try {
+        await storageService.exists("__health_probe__");
+        checks.push({
+          name: "S3 Storage",
+          status: "healthy",
+          responseTime: Date.now() - s3Start,
+        });
+      } catch (err: any) {
+        // HeadObject 404 = connection works, object just doesn't exist
+        if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404) {
+          checks.push({
+            name: "S3 Storage",
+            status: "healthy",
+            responseTime: Date.now() - s3Start,
+          });
+        } else {
+          checks.push({
+            name: "S3 Storage",
+            status: "down",
+            responseTime: Date.now() - s3Start,
+            message: err.message || "Connection failed",
+          });
+        }
+      }
+
+      // 5. Job Queue check
+      const queueStats = await queueService.getQueueStats();
+      const queueBacklog = queueStats.waiting + queueStats.active;
+      checks.push({
+        name: "Job Queue",
+        status: queueBacklog > 100 ? "degraded" : "healthy",
+        message: `${queueStats.active} running, ${queueStats.waiting} pending`,
+      });
+
+      // Compute overall uptime
+      const uptimeMs = Date.now() - serverStartTime;
+      const uptimeHours = Math.floor(uptimeMs / (1000 * 60 * 60));
+      const uptimeMinutes = Math.floor((uptimeMs % (1000 * 60 * 60)) / (1000 * 60));
+
+      const version = process.env.npm_package_version || "1.0.0";
+
+      res.json({
+        components: checks,
+        uptime: {
+          ms: uptimeMs,
+          hours: uptimeHours,
+          minutes: uptimeMinutes,
+          formatted: uptimeHours > 0 ? `${uptimeHours}h ${uptimeMinutes}m` : `${uptimeMinutes}m`,
+        },
+        version,
+        ts: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching system health:", error);
+      res.status(500).json({ error: "Failed to fetch system health" });
+    }
+  });
+
   app.get("/api/system/websocket-stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const stats = wsService.getStats();
