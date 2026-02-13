@@ -66,7 +66,7 @@ function normalizePlatform(platform: string): string {
   }
   
   // Normalize Linux variants
-  if (lower.includes("linux") || lower === "ubuntu" || lower === "debian" || lower === "centos" || lower === "rhel" || lower === "fedora") {
+  if (lower.includes("linux") || lower === "ubuntu" || lower === "debian" || lower === "centos" || lower === "rhel" || lower === "fedora" || lower === "amzn" || lower === "amazon" || lower.includes("suse") || lower === "arch" || lower === "alpine") {
     return "linux";
   }
   

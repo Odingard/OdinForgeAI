@@ -30,7 +30,8 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 # Pre-compiled Go agent binaries for download endpoint
-COPY public/agents ./dist/public/agents
+# Code looks at public/agents/ (relative to cwd), so place them there
+COPY public/agents ./public/agents
 
 # Drizzle config + schema (needed for db:push migrations)
 COPY drizzle.config.ts tsconfig.json ./
