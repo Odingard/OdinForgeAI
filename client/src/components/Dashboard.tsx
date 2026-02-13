@@ -189,8 +189,13 @@ export function Dashboard() {
   };
 
   const handleRunEvaluation = (evaluation: Evaluation) => {
-    setActiveEvaluation({ assetId: evaluation.assetId, id: evaluation.id });
-    setShowProgressModal(true);
+    createEvaluationMutation.mutate({
+      assetId: evaluation.assetId,
+      exposureType: evaluation.exposureType,
+      priority: evaluation.priority,
+      description: evaluation.description || "",
+      adversaryProfile: evaluation.adversaryProfile,
+    });
   };
 
   const handleStartSimulation = (evaluation: Evaluation) => {

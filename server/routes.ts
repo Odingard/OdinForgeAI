@@ -721,6 +721,24 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/aev/evaluations/:id/progress", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const evaluation = await storage.getEvaluation(req.params.id);
+      if (!evaluation) {
+        return res.status(404).json({ error: "Evaluation not found" });
+      }
+      res.json({
+        status: evaluation.status,
+        phaseProgress: evaluation.phaseProgress || [],
+        createdAt: evaluation.createdAt,
+        updatedAt: evaluation.updatedAt,
+      });
+    } catch (error) {
+      console.error("Error fetching evaluation progress:", error);
+      res.status(500).json({ error: "Failed to fetch evaluation progress" });
+    }
+  });
+
   app.delete("/api/aev/evaluations/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
     try {
       const evaluationId = req.params.id;
@@ -1515,8 +1533,246 @@ export async function registerRoutes(
 
   app.post("/api/reports/generate", reportRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
     try {
-      const { type, format, from, to, framework, organizationId = "default", evaluationId, engagementMetadata } = req.body;
-      
+      const { type, format, from, to, framework, organizationId = "default", evaluationId, engagementMetadata, breachChainId } = req.body;
+
+      // If breachChainId is provided, generate report from breach chain data
+      if (breachChainId) {
+        const chain = await storage.getBreachChain(breachChainId);
+        if (!chain) {
+          return res.status(404).json({ error: `Breach chain ${breachChainId} not found` });
+        }
+
+        const executionMode = (chain.config as any)?.executionMode || "safe";
+        const chainStart = chain.startedAt ? new Date(chain.startedAt) : (chain.createdAt ? new Date(chain.createdAt) : new Date());
+        const chainEnd = chain.completedAt ? new Date(chain.completedAt) : new Date();
+        const durationMin = chain.durationMs ? Math.round(chain.durationMs / 60000) : Math.round((chainEnd.getTime() - chainStart.getTime()) / 60000);
+
+        // Build findings from phase results
+        const findings: any[] = [];
+        const phaseNames: string[] = [];
+        if (Array.isArray(chain.phaseResults)) {
+          for (const phase of chain.phaseResults) {
+            const phaseFriendly = (phase.phaseName || "unknown").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+            phaseNames.push(phaseFriendly);
+            if (phase.findings) {
+              for (const f of phase.findings) {
+                findings.push({
+                  id: f.id,
+                  title: f.title,
+                  severity: f.severity,
+                  description: f.description,
+                  technique: f.technique || "",
+                  phase: phaseFriendly,
+                  mitreId: f.mitreId,
+                  recommendation: f.severity === "critical"
+                    ? "Immediate remediation required. Isolate affected systems and apply emergency patches within 48 hours."
+                    : f.severity === "high"
+                    ? "Prioritize remediation within 30 days. Implement compensating controls in the interim."
+                    : "Schedule remediation within the next assessment cycle. Monitor for exploitation attempts.",
+                });
+              }
+            }
+          }
+        }
+
+        // Sort findings: critical first, then high, medium, low
+        const severityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, informational: 4 };
+        findings.sort((a, b) => (severityOrder[a.severity] ?? 5) - (severityOrder[b.severity] ?? 5));
+
+        const severityCounts = { critical: 0, high: 0, medium: 0, low: 0, informational: 0 };
+        for (const f of findings) {
+          const sev = f.severity as keyof typeof severityCounts;
+          if (sev in severityCounts) severityCounts[sev]++;
+        }
+
+        const riskScore = chain.overallRiskScore || 0;
+        const assetsCompromised = chain.totalAssetsCompromised || 0;
+        const credsHarvested = chain.totalCredentialsHarvested || 0;
+        const maxPrivilege = chain.maxPrivilegeAchieved || "none";
+        const domainsBreached = Array.isArray(chain.domainsBreached) ? chain.domainsBreached : [];
+        const targetCount = chain.assetIds?.length || 0;
+
+        // Risk tier
+        const riskTier = riskScore >= 80 ? "CRITICAL" : riskScore >= 60 ? "HIGH" : riskScore >= 40 ? "MODERATE" : "LOW";
+        const riskColor = riskScore >= 80 ? "critical" : riskScore >= 60 ? "high" : riskScore >= 40 ? "medium" : "low";
+
+        // Build executive summary narrative
+        const execParts: string[] = [];
+        execParts.push(
+          `OdinForge conducted a cross-domain breach chain simulation against ${targetCount} target asset${targetCount !== 1 ? "s" : ""} operating in ${executionMode} mode. The assessment executed ${phaseNames.length} attack phases over a period of ${durationMin} minute${durationMin !== 1 ? "s" : ""}, simulating a real-world adversary's lateral progression through the environment.`
+        );
+
+        if (findings.length > 0) {
+          execParts.push(
+            `The simulation identified ${findings.length} security finding${findings.length !== 1 ? "s" : ""} across the kill chain, including ${severityCounts.critical} critical and ${severityCounts.high} high-severity issue${severityCounts.critical + severityCounts.high !== 1 ? "s" : ""}. ${assetsCompromised > 0 ? `${assetsCompromised} asset${assetsCompromised !== 1 ? "s were" : " was"} compromised during the simulation, ` : ""}${credsHarvested > 0 ? `with ${credsHarvested} credential${credsHarvested !== 1 ? "s" : ""} harvested. ` : ""}${maxPrivilege !== "none" ? `The highest privilege level achieved was ${maxPrivilege.replace(/_/g, " ")}.` : ""}`
+          );
+        } else {
+          execParts.push(
+            "No exploitable vulnerabilities were confirmed during this assessment. The target environment demonstrated adequate defensive controls against the simulated attack scenarios."
+          );
+        }
+
+        if (domainsBreached.length > 0) {
+          execParts.push(
+            `The attacker successfully traversed ${domainsBreached.length} security domain${domainsBreached.length !== 1 ? "s" : ""}: ${domainsBreached.map(d => d.replace(/_/g, " ")).join(", ")}. This indicates gaps in segmentation controls that could enable an adversary to escalate from initial compromise to full environment control.`
+          );
+        }
+
+        const overallRisk = riskScore >= 80
+          ? "The overall risk posture is CRITICAL. Immediate action is required to remediate the identified attack paths. The demonstrated breach chain represents a realistic threat scenario with high likelihood of exploitation by a motivated adversary."
+          : riskScore >= 60
+          ? "The overall risk posture is HIGH. Significant security gaps were identified that could be exploited by a skilled adversary. Prioritized remediation is recommended within 30 days, with compensating controls deployed immediately."
+          : riskScore >= 40
+          ? "The overall risk posture is MODERATE. While the environment demonstrates some defensive capabilities, identified weaknesses could be chained together by a persistent adversary. Remediation should be planned within the next assessment cycle."
+          : "The overall risk posture is LOW. The target environment demonstrated strong defensive controls. Continue regular assessment cycles and monitor for emerging threats.";
+        execParts.push(overallRisk);
+
+        // Build chain-specific narrative if available, otherwise use generated
+        const executiveSummary = chain.executiveSummary || execParts.join("\n\n");
+
+        // Key metrics for dashboard display
+        const keyMetrics: Record<string, string | number> = {
+          "Overall Risk Score": `${riskScore}/100 (${riskTier})`,
+          "Total Findings": findings.length,
+          "Critical Findings": severityCounts.critical,
+          "High Findings": severityCounts.high,
+          "Assets Compromised": assetsCompromised,
+          "Credentials Harvested": credsHarvested,
+          "Max Privilege Achieved": maxPrivilege.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          "Domains Breached": domainsBreached.length,
+          "Assessment Duration": `${durationMin} min`,
+          "Execution Mode": executionMode.replace(/\b\w/g, (c: string) => c.toUpperCase()),
+        };
+
+        // Build recommendations
+        const recommendations: any[] = [];
+        if (severityCounts.critical > 0) {
+          recommendations.push({
+            priority: 1,
+            action: `Immediately remediate ${severityCounts.critical} critical finding${severityCounts.critical !== 1 ? "s" : ""}. Isolate affected assets and deploy emergency patches within 48 hours.`,
+            impact: "Eliminates highest-risk attack vectors",
+          });
+        }
+        if (severityCounts.high > 0) {
+          recommendations.push({
+            priority: recommendations.length + 1,
+            action: `Prioritize remediation of ${severityCounts.high} high-severity finding${severityCounts.high !== 1 ? "s" : ""} within 30 days. Implement compensating controls (WAF rules, network segmentation) in the interim.`,
+            impact: "Reduces exploitable attack surface",
+          });
+        }
+        if (domainsBreached.length > 1) {
+          recommendations.push({
+            priority: recommendations.length + 1,
+            action: "Implement network segmentation and zero-trust architecture to prevent cross-domain lateral movement. Review firewall rules and access policies between security zones.",
+            impact: "Prevents attacker progression across domains",
+          });
+        }
+        if (credsHarvested > 0) {
+          recommendations.push({
+            priority: recommendations.length + 1,
+            action: "Rotate all compromised credentials immediately. Implement MFA across all administrative interfaces and enforce credential complexity policies.",
+            impact: "Eliminates harvested credential risk",
+          });
+        }
+        recommendations.push({
+          priority: recommendations.length + 1,
+          action: "Conduct follow-up breach chain simulation in 90 days to validate remediation effectiveness and identify newly introduced risks.",
+          impact: "Continuous security posture improvement",
+        });
+
+        // Build top risks from highest-severity findings
+        const topRisks = findings.slice(0, 5).map(f => ({
+          severity: f.severity,
+          assetId: chain.assetIds?.[0] || "Target",
+          riskDescription: `${f.title} — ${f.description}`,
+          financialImpact: f.severity === "critical" ? "High" : f.severity === "high" ? "Significant" : "Moderate",
+        }));
+
+        // Build attack paths from phase progression
+        const attackPaths = Array.isArray(chain.phaseResults)
+          ? chain.phaseResults
+              .filter(p => p.findings && p.findings.length > 0)
+              .map((p, idx) => ({
+                assetId: chain.assetIds?.[0] || "Target",
+                complexity: p.findings && p.findings.length > 5 ? "Complex" : p.findings && p.findings.length > 2 ? "Moderate" : "Low",
+                timeToCompromise: p.durationMs ? `${Math.round(p.durationMs / 1000)}s` : undefined,
+                steps: (p.findings || []).slice(0, 5).map((f: any, i: number) => ({
+                  order: i + 1,
+                  technique: f.technique || f.title,
+                  description: f.description,
+                })),
+              }))
+          : [];
+
+        // Risk breakdown for charts
+        const riskBreakdown = {
+          Critical: severityCounts.critical,
+          High: severityCounts.high,
+          Medium: severityCounts.medium,
+          Low: severityCounts.low,
+        };
+
+        // Phase execution summary
+        const phases = Array.isArray(chain.phaseResults)
+          ? chain.phaseResults.map(p => ({
+              name: (p.phaseName || "unknown").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+              status: p.status,
+              findingCount: p.findings?.length || 0,
+              durationMs: p.durationMs || 0,
+            }))
+          : [];
+
+        const reportData = {
+          reportType: "breach_chain",
+          chainId: chain.id,
+          chainName: chain.name,
+
+          // Standard report fields (rendered by preview + PDF builder)
+          executiveSummary,
+          keyMetrics,
+          findings,
+          recommendations,
+          topRisks,
+          attackPaths,
+          riskBreakdown,
+
+          // Breach-chain-specific data
+          overallRiskScore: riskScore,
+          riskTier,
+          executionMode,
+          targets: chain.assetIds,
+          targetDomains: chain.targetDomains || [],
+          assetsCompromised,
+          credentialsHarvested: credsHarvested,
+          maxPrivilegeAchieved: maxPrivilege,
+          domainsBreached,
+          phases,
+          attackGraph: chain.unifiedAttackGraph || null,
+          durationMs: chain.durationMs || 0,
+        };
+
+        const title = `Cross-Domain Breach Chain Assessment — ${chain.name}`;
+
+        const report = await storage.createReport({
+          reportType: "breach_chain",
+          title,
+          organizationId: chain.organizationId || organizationId,
+          status: "completed",
+          content: reportData,
+          dateRangeFrom: chainStart,
+          dateRangeTo: chainEnd,
+          engagementMetadata,
+        });
+
+        return res.json({
+          reportId: report.id,
+          title,
+          data: reportData,
+          content: JSON.stringify(reportData),
+          contentType: "application/json",
+        });
+      }
+
       // If evaluationId is provided, generate single-evaluation report
       if (evaluationId) {
         if (!type || !format) {

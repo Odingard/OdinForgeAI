@@ -46,6 +46,7 @@ services:
       PUBLIC_ODINFORGE_URL: ${SERVER_URL}
       AGENT_REGISTRATION_TOKEN: ${AGENT_REGISTRATION_TOKEN:-}
       CLOUD_CREDENTIALS_KEY: ${CLOUD_CREDENTIALS_KEY:-}
+      REPORTS_V2_NARRATIVE: ${REPORTS_V2_NARRATIVE:-true}
     depends_on:
       postgres:
         condition: service_healthy

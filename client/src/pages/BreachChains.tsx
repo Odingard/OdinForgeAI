@@ -809,10 +809,8 @@ export default function BreachChains() {
 
   const generateReportMutation = useMutation({
     mutationFn: async (chainId: string) => {
-      const res = await apiRequest("POST", "/api/reports/v2/generate", {
+      const res = await apiRequest("POST", "/api/reports/generate", {
         breachChainId: chainId,
-        reportTypes: ["breach_validation", "executive"],
-        reportVersion: "v2_narrative",
       });
       return res.json();
     },

@@ -196,7 +196,8 @@ export interface IStorage {
   getEvaluations(organizationId?: string): Promise<Evaluation[]>;
   getEvaluationsByDateRange(from: Date, to: Date, organizationId?: string): Promise<Evaluation[]>;
   updateEvaluationStatus(id: string, status: string, executionMode?: string): Promise<void>;
-  
+  updateEvaluationPhaseProgress(evaluationId: string, phases: import("@shared/schema").EvaluationPhaseProgress[]): Promise<void>;
+
   // AEV Result operations
   createResult(data: InsertResult & { id: string }): Promise<Result>;
   getResultByEvaluationId(evaluationId: string): Promise<Result | undefined>;
@@ -514,6 +515,13 @@ export class DatabaseStorage implements IStorage {
       .update(aevEvaluations)
       .set(updates)
       .where(eq(aevEvaluations.id, id));
+  }
+
+  async updateEvaluationPhaseProgress(evaluationId: string, phases: import("@shared/schema").EvaluationPhaseProgress[]): Promise<void> {
+    await db
+      .update(aevEvaluations)
+      .set({ phaseProgress: phases, updatedAt: new Date() })
+      .where(eq(aevEvaluations.id, evaluationId));
   }
 
   // AEV Result operations

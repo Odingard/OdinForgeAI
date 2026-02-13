@@ -616,9 +616,23 @@ export const aevEvaluations = pgTable("aev_evaluations", {
   adversaryProfile: varchar("adversary_profile"), // One of adversaryProfiles (optional)
   executionMode: varchar("execution_mode").default("safe"), // safe, live, simulation - tracks which governance mode was used
   status: varchar("status").notNull().default("pending"), // pending, in_progress, completed, failed
+  phaseProgress: jsonb("phase_progress").$type<EvaluationPhaseProgress[]>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Evaluation phase progress tracking (breach-chain-style)
+export interface EvaluationPhaseProgress {
+  phase: string;
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  startedAt?: string;
+  completedAt?: string;
+  duration?: number;
+  message?: string;
+  progress?: number;
+  error?: string;
+  findingSummary?: string;
+}
 
 // Attack path step type
 export const attackPathStepSchema = z.object({

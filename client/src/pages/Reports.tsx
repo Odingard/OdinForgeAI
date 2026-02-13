@@ -381,7 +381,8 @@ export default function Reports() {
 
   const generatePdf = async (report: Report) => {
     const content = report.content as any;
-    const reportTypeLabel = reportTypes.find(t => t.value === report.reportType)?.label || report.reportType;
+    const reportTypeLabel = reportTypes.find(t => t.value === report.reportType)?.label
+      || (report.reportType === "breach_chain" ? "Breach Chain Analysis" : report.reportType);
     
     const docDefinition: any = {
       pageSize: "A4",
@@ -508,6 +509,61 @@ export default function Reports() {
       return buildWebAppScanPdfContent(data);
     }
 
+    // Breach Chain — inject phase execution and breach metrics sections
+    if (data.reportType === "breach_chain" || reportType === "breach_chain") {
+      // Phase Execution Summary (before standard sections)
+      if (data.phases && Array.isArray(data.phases) && data.phases.length > 0) {
+        content.push({ text: "Breach Chain Phase Execution", style: "sectionHeader" });
+        content.push({
+          text: `The simulation executed ${data.phases.length} attack phases against the target environment. The following table summarizes the outcome of each phase:`,
+          style: "bodyText",
+        });
+        const phaseTable = {
+          table: {
+            headerRows: 1,
+            widths: ["*", "auto", "auto", "auto"],
+            body: [
+              [
+                { text: "Phase", style: "tableHeader" },
+                { text: "Status", style: "tableHeader" },
+                { text: "Findings", style: "tableHeader" },
+                { text: "Duration", style: "tableHeader" },
+              ],
+              ...data.phases.map((p: any) => [
+                { text: p.name || "Unknown", style: "tableCell" },
+                { text: (p.status || "unknown").toUpperCase(), style: "tableCell", color: p.status === "completed" ? "#16a34a" : p.status === "failed" ? "#dc2626" : "#64748b" },
+                { text: String(p.findingCount || 0), style: "tableCell" },
+                { text: p.durationMs ? `${Math.round(p.durationMs / 1000)}s` : "—", style: "tableCell" },
+              ]),
+            ],
+          },
+          layout: "lightHorizontalLines",
+          margin: [0, 5, 0, 15],
+        };
+        content.push(phaseTable);
+      }
+
+      // Breach Metrics Summary
+      if (data.overallRiskScore !== undefined) {
+        content.push({ text: "Breach Impact Summary", style: "sectionHeader" });
+        const metricsRows: any[][] = [
+          [{ text: "Metric", style: "tableHeader" }, { text: "Value", style: "tableHeader" }],
+        ];
+        metricsRows.push([{ text: "Overall Risk Score", style: "tableCell" }, { text: `${data.overallRiskScore}/100 (${data.riskTier || "N/A"})`, style: "tableCell", bold: true, color: data.overallRiskScore >= 80 ? "#dc2626" : data.overallRiskScore >= 60 ? "#ea580c" : data.overallRiskScore >= 40 ? "#ca8a04" : "#16a34a" }]);
+        if (data.assetsCompromised) metricsRows.push([{ text: "Assets Compromised", style: "tableCell" }, { text: String(data.assetsCompromised), style: "tableCell" }]);
+        if (data.credentialsHarvested) metricsRows.push([{ text: "Credentials Harvested", style: "tableCell" }, { text: String(data.credentialsHarvested), style: "tableCell" }]);
+        if (data.maxPrivilegeAchieved && data.maxPrivilegeAchieved !== "none") metricsRows.push([{ text: "Maximum Privilege Achieved", style: "tableCell" }, { text: data.maxPrivilegeAchieved.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()), style: "tableCell" }]);
+        if (data.domainsBreached?.length > 0) metricsRows.push([{ text: "Domains Breached", style: "tableCell" }, { text: data.domainsBreached.map((d: string) => d.replace(/_/g, " ")).join(", "), style: "tableCell" }]);
+        if (data.executionMode) metricsRows.push([{ text: "Execution Mode", style: "tableCell" }, { text: data.executionMode.replace(/\b\w/g, (c: string) => c.toUpperCase()), style: "tableCell" }]);
+
+        content.push({
+          table: { headerRows: 1, widths: ["*", "*"], body: metricsRows },
+          layout: "lightHorizontalLines",
+          margin: [0, 5, 0, 15],
+        });
+      }
+    }
+
     if (data.executiveSummary || reportType === "executive_summary") {
       content.push({ text: "1. Executive Summary", style: "sectionHeader" });
       if (data.executiveSummary) {
@@ -546,28 +602,54 @@ export default function Reports() {
       }
     }
 
-    // Methodology Section
+    // Methodology Section — breach chain vs standard
     content.push({ text: "2. Assessment Methodology", style: "sectionHeader" });
-    content.push({
-      text: "This assessment was conducted using OdinForge's automated multi-agent AI security analysis platform. The platform employs a pipeline of six specialized AI agents that systematically evaluate the target attack surface:",
-      style: "methodologyText",
-    });
-    content.push({
-      ol: [
-        "Reconnaissance Agent — Maps the attack surface, identifies exposed services, and catalogs potential entry points.",
-        "Exploit Validation Agent — Validates identified vulnerabilities through safe exploitation techniques and confirms exploitability.",
-        "Lateral Movement Agent — Analyzes pivot paths and identifies opportunities for post-exploitation movement across the environment.",
-        "Business Logic Agent — Evaluates application-layer vulnerabilities including authentication bypasses, authorization flaws, and workflow manipulation.",
-        "Multi-Vector Agent — Identifies chained attack paths that combine multiple individual findings into compound exploitation scenarios.",
-        "Impact Assessment Agent — Quantifies the business impact of confirmed findings including financial exposure, operational disruption, and regulatory implications.",
-      ],
-      style: "methodologyText",
-      margin: [10, 5, 0, 10],
-    });
-    content.push({
-      text: "Findings are mapped to the MITRE ATT&CK framework for technique identification and to the CWE (Common Weakness Enumeration) taxonomy for vulnerability classification. Risk scoring considers exploitability, business impact, and confidence level.",
-      style: "methodologyText",
-    });
+    if (data.reportType === "breach_chain" || reportType === "breach_chain") {
+      content.push({
+        text: "This assessment was conducted using OdinForge's Cross-Domain Breach Chain Simulation engine. The simulation models real-world adversary behavior by executing a sequence of attack phases across organizational boundaries, validating whether an attacker could traverse from initial compromise to critical asset exfiltration.",
+        style: "methodologyText",
+      });
+      content.push({
+        text: "The breach chain methodology follows a structured kill-chain progression:",
+        style: "methodologyText",
+      });
+      content.push({
+        ol: [
+          "Reconnaissance & Target Enumeration — Identifies exposed assets across target domains, catalogs services, and maps trust relationships between environments.",
+          "Initial Access & Exploitation — Validates exploitable entry points using confirmed vulnerability data from prior evaluations and simulated attack techniques.",
+          "Credential Harvesting & Privilege Escalation — Assesses credential exposure, tests privilege escalation paths, and determines maximum achievable access level.",
+          "Lateral Movement & Domain Traversal — Simulates cross-domain pivot paths, evaluating network segmentation effectiveness and trust boundary enforcement.",
+          "Data Collection & Impact Assessment — Quantifies the blast radius of a successful breach including assets compromised, data at risk, and business process disruption.",
+        ],
+        style: "methodologyText",
+        margin: [10, 5, 0, 10],
+      });
+      content.push({
+        text: "Each phase produces findings mapped to the MITRE ATT&CK framework. The overall risk score reflects the cumulative impact of all confirmed attack paths, weighted by exploitability, blast radius, and business criticality of affected assets.",
+        style: "methodologyText",
+      });
+    } else {
+      content.push({
+        text: "This assessment was conducted using OdinForge's automated multi-agent AI security analysis platform. The platform employs a pipeline of six specialized AI agents that systematically evaluate the target attack surface:",
+        style: "methodologyText",
+      });
+      content.push({
+        ol: [
+          "Reconnaissance Agent — Maps the attack surface, identifies exposed services, and catalogs potential entry points.",
+          "Exploit Validation Agent — Validates identified vulnerabilities through safe exploitation techniques and confirms exploitability.",
+          "Lateral Movement Agent — Analyzes pivot paths and identifies opportunities for post-exploitation movement across the environment.",
+          "Business Logic Agent — Evaluates application-layer vulnerabilities including authentication bypasses, authorization flaws, and workflow manipulation.",
+          "Multi-Vector Agent — Identifies chained attack paths that combine multiple individual findings into compound exploitation scenarios.",
+          "Impact Assessment Agent — Quantifies the business impact of confirmed findings including financial exposure, operational disruption, and regulatory implications.",
+        ],
+        style: "methodologyText",
+        margin: [10, 5, 0, 10],
+      });
+      content.push({
+        text: "Findings are mapped to the MITRE ATT&CK framework for technique identification and to the CWE (Common Weakness Enumeration) taxonomy for vulnerability classification. Risk scoring considers exploitability, business impact, and confidence level.",
+        style: "methodologyText",
+      });
+    }
 
     if (data.findings && Array.isArray(data.findings)) {
       content.push({ text: "3. Security Findings", style: "sectionHeader" });
@@ -1082,6 +1164,8 @@ export default function Reports() {
       case "executive_summary": return <Briefcase className="w-4 h-4" />;
       case "technical_deep_dive": return <FileText className="w-4 h-4" />;
       case "compliance_mapping": return <Shield className="w-4 h-4" />;
+      case "breach_chain":
+      case "breach_chain_analysis": return <Link2 className="w-4 h-4" />;
       default: return <FileText className="w-4 h-4" />;
     }
   };
@@ -1505,7 +1589,7 @@ export default function Reports() {
                   <h3 className="font-medium">Report Type Distribution</h3>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {reportTypes.map(type => {
-                      const count = reports.filter(r => r.reportType === type.value).length;
+                      const count = reports.filter(r => r.reportType === type.value || (type.value === "breach_chain_analysis" && r.reportType === "breach_chain")).length;
                       const percentage = reports.length > 0 ? ((count / reports.length) * 100).toFixed(1) : "0";
 
                       return (
@@ -1698,6 +1782,80 @@ export default function Reports() {
                                   <li key={idx}>{action}</li>
                                 ))}
                               </ul>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Breach Chain specific preview sections */}
+                    {previewData.data.reportType === "breach_chain" && previewData.data.phases && Array.isArray(previewData.data.phases) && previewData.data.phases.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Breach Chain Phase Execution</h3>
+                        <div className="space-y-2">
+                          {previewData.data.phases.map((phase: any, idx: number) => (
+                            <div key={idx} className="bg-muted p-3 rounded-md flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-mono bg-background px-2 py-1 rounded">{idx + 1}</span>
+                                <span className="font-medium">{phase.name}</span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <Badge variant={phase.status === "completed" ? "default" : phase.status === "failed" ? "destructive" : "secondary"}
+                                  className={phase.status === "completed" ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}>
+                                  {phase.status?.toUpperCase() || "UNKNOWN"}
+                                </Badge>
+                                <span className="text-sm text-muted-foreground">{phase.findingCount || 0} findings</span>
+                                {phase.durationMs > 0 && (
+                                  <span className="text-sm text-muted-foreground">{Math.round(phase.durationMs / 1000)}s</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {previewData.data.reportType === "breach_chain" && previewData.data.overallRiskScore !== undefined && (
+                      <div>
+                        <h3 className="font-semibold text-lg mb-2">Breach Impact Summary</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          <div className="bg-muted p-3 rounded-md">
+                            <div className="text-sm text-muted-foreground">Risk Score</div>
+                            <div className={`text-2xl font-bold ${
+                              previewData.data.overallRiskScore >= 80 ? "text-red-500" :
+                              previewData.data.overallRiskScore >= 60 ? "text-orange-500" :
+                              previewData.data.overallRiskScore >= 40 ? "text-yellow-500" : "text-green-500"
+                            }`}>{previewData.data.overallRiskScore}/100</div>
+                            <div className="text-xs text-muted-foreground">{previewData.data.riskTier}</div>
+                          </div>
+                          {previewData.data.assetsCompromised !== undefined && (
+                            <div className="bg-muted p-3 rounded-md">
+                              <div className="text-sm text-muted-foreground">Assets Compromised</div>
+                              <div className="text-2xl font-bold">{previewData.data.assetsCompromised}</div>
+                            </div>
+                          )}
+                          {previewData.data.credentialsHarvested !== undefined && (
+                            <div className="bg-muted p-3 rounded-md">
+                              <div className="text-sm text-muted-foreground">Credentials Harvested</div>
+                              <div className="text-2xl font-bold">{previewData.data.credentialsHarvested}</div>
+                            </div>
+                          )}
+                          {previewData.data.maxPrivilegeAchieved && previewData.data.maxPrivilegeAchieved !== "none" && (
+                            <div className="bg-muted p-3 rounded-md">
+                              <div className="text-sm text-muted-foreground">Max Privilege</div>
+                              <div className="text-lg font-bold">{previewData.data.maxPrivilegeAchieved.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</div>
+                            </div>
+                          )}
+                          {previewData.data.domainsBreached && previewData.data.domainsBreached.length > 0 && (
+                            <div className="bg-muted p-3 rounded-md">
+                              <div className="text-sm text-muted-foreground">Domains Breached</div>
+                              <div className="text-lg font-bold">{previewData.data.domainsBreached.length}</div>
+                            </div>
+                          )}
+                          {previewData.data.executionMode && (
+                            <div className="bg-muted p-3 rounded-md">
+                              <div className="text-sm text-muted-foreground">Execution Mode</div>
+                              <div className="text-lg font-bold">{previewData.data.executionMode.replace(/\b\w/g, (c: string) => c.toUpperCase())}</div>
                             </div>
                           )}
                         </div>

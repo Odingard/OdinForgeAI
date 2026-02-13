@@ -81,6 +81,188 @@ const DEFAULT_CONFIG: Required<NarrativeEngineConfig> = {
 };
 
 /**
+ * Normalize raw AI output to match ENO schema expectations.
+ * GPT-4o often returns human-readable text where strict enums are expected.
+ */
+function normalizeENO(raw: any): any {
+  if (!raw || typeof raw !== "object") return raw;
+
+  // Phase name mapping: human-readable → snake_case enum
+  const phaseMap: Record<string, string> = {
+    "initial access": "initial_access",
+    "privilege escalation": "privilege_escalation",
+    "defense evasion": "defense_evasion",
+    "credential access": "credential_access",
+    "lateral movement": "lateral_movement",
+    "execution": "execution",
+    "persistence": "persistence",
+    "discovery": "discovery",
+    "collection": "collection",
+    "exfiltration": "exfiltration",
+    "impact": "impact",
+  };
+
+  // Complexity mapping
+  const complexityMap: Record<string, string> = {
+    "low": "trivial", "trivial": "trivial", "easy": "trivial", "simple": "trivial",
+    "moderate": "moderate", "medium": "moderate",
+    "complex": "complex", "hard": "complex", "difficult": "complex", "high": "complex",
+    "expert": "expert", "advanced": "expert", "very high": "expert",
+  };
+
+  // Risk level extraction: take first word if it's a valid enum
+  function normalizeEnum(val: any, validValues: string[]): string {
+    if (typeof val !== "string") return val;
+    const lower = val.toLowerCase().trim();
+    // Direct match
+    if (validValues.includes(lower)) return lower;
+    // First word match (handles "Critical, due to..." → "critical")
+    const firstWord = lower.split(/[,.\s]/)[0];
+    if (validValues.includes(firstWord)) return firstWord;
+    // Fuzzy: check if any valid value is contained
+    for (const v of validValues) {
+      if (lower.startsWith(v)) return v;
+    }
+    return val;
+  }
+
+  // Ensure value is an array
+  function ensureArray(val: any): any[] {
+    if (Array.isArray(val)) return val;
+    if (typeof val === "string") {
+      // Try to split comma-separated or newline-separated
+      const parts = val.split(/[,\n]/).map((s: string) => s.trim()).filter(Boolean);
+      return parts.length > 0 ? parts : [val];
+    }
+    if (val != null) return [val];
+    return [];
+  }
+
+  // Normalize confidence to a number 0-1
+  function normalizeConfidence(val: any): number {
+    if (typeof val === "number") return Math.min(1, Math.max(0, val > 1 ? val / 100 : val));
+    if (typeof val === "string") {
+      const num = parseFloat(val);
+      if (!isNaN(num)) return Math.min(1, Math.max(0, num > 1 ? num / 100 : num));
+    }
+    return 0.7; // sensible default
+  }
+
+  // Normalize engagementOverview
+  if (raw.engagementOverview) {
+    const eo = raw.engagementOverview;
+    eo.objectives = ensureArray(eo.objectives);
+    eo.keyHighlights = ensureArray(eo.keyHighlights);
+    eo.overallRiskLevel = normalizeEnum(eo.overallRiskLevel, ["critical", "high", "medium", "low"]);
+    eo.confidence = normalizeConfidence(eo.confidence);
+
+    // Normalize assetsAssessed to array of objects
+    if (typeof eo.assetsAssessed === "string") {
+      eo.assetsAssessed = [{ id: "asset-1", name: eo.assetsAssessed, type: "web_application", criticality: "high" }];
+    } else if (Array.isArray(eo.assetsAssessed)) {
+      eo.assetsAssessed = eo.assetsAssessed.map((a: any, i: number) => {
+        if (typeof a === "string") return { id: `asset-${i + 1}`, name: a, type: "web_application", criticality: "high" };
+        return {
+          ...a,
+          id: a.id || `asset-${i + 1}`,
+          name: a.name || "Unknown",
+          type: a.type || "web_application",
+          criticality: normalizeEnum(a.criticality || "high", ["critical", "high", "medium", "low"]),
+        };
+      });
+    }
+
+    // Ensure timeframe exists
+    if (!eo.timeframe) {
+      const now = new Date().toISOString();
+      eo.timeframe = { start: now, end: now };
+    } else if (typeof eo.timeframe === "string") {
+      const now = new Date().toISOString();
+      eo.timeframe = { start: now, end: now };
+    }
+  }
+
+  // Normalize attackStory
+  if (Array.isArray(raw.attackStory)) {
+    raw.attackStory = raw.attackStory.map((segment: any) => ({
+      ...segment,
+      phase: phaseMap[(segment.phase || "").toLowerCase().trim()] || segment.phase,
+      complexity: normalizeEnum(
+        complexityMap[(segment.complexity || "").toLowerCase().split(/[,.\s]/)[0]] || segment.complexity,
+        ["trivial", "moderate", "complex", "expert"]
+      ),
+      confidence: normalizeConfidence(segment.confidence),
+      techniques: ensureArray(segment.techniques),
+      evidenceRefs: ensureArray(segment.evidenceRefs || []),
+    }));
+  }
+
+  // Normalize defensiveGaps
+  if (Array.isArray(raw.defensiveGaps)) {
+    raw.defensiveGaps = raw.defensiveGaps.map((gap: any) => ({
+      ...gap,
+      category: normalizeEnum(gap.category, ["detection", "prevention", "response", "recovery", "visibility", "process", "training"]),
+      affectedAssets: ensureArray(gap.affectedAssets || []),
+      remediationEffort: normalizeEnum(gap.remediationEffort, ["low", "medium", "high"]),
+      confidence: normalizeConfidence(gap.confidence),
+    }));
+  }
+
+  // Normalize riskPrioritizationLogic
+  if (Array.isArray(raw.riskPrioritizationLogic)) {
+    raw.riskPrioritizationLogic = raw.riskPrioritizationLogic.map((entry: any) => ({
+      ...entry,
+      exploitLikelihood: normalizeEnum(entry.exploitLikelihood, ["certain", "highly_likely", "likely", "possible", "unlikely"]),
+      confidence: normalizeConfidence(entry.confidence),
+      priority: typeof entry.priority === "number" ? entry.priority : parseInt(entry.priority) || 1,
+    }));
+  }
+
+  // Normalize overallAssessment
+  if (raw.overallAssessment) {
+    const oa = raw.overallAssessment;
+    oa.verdict = normalizeEnum(oa.verdict, ["critical", "high", "medium", "low"]);
+    oa.confidence = normalizeConfidence(oa.confidence);
+    oa.strengthsObserved = ensureArray(oa.strengthsObserved || []);
+    oa.criticalWeaknesses = ensureArray(oa.criticalWeaknesses || []);
+
+    if (Array.isArray(oa.immediateActions)) {
+      oa.immediateActions = oa.immediateActions.map((a: any) => ({
+        ...a,
+        priority: normalizeEnum(a.priority, ["immediate", "short_term", "medium_term"]),
+        effort: normalizeEnum(a.effort, ["low", "medium", "high"]),
+      }));
+    }
+  }
+
+  // Normalize businessImpactAnalysis
+  if (raw.businessImpactAnalysis) {
+    raw.businessImpactAnalysis.confidence = normalizeConfidence(raw.businessImpactAnalysis.confidence);
+    if (Array.isArray(raw.businessImpactAnalysis.primaryRisks)) {
+      raw.businessImpactAnalysis.primaryRisks = raw.businessImpactAnalysis.primaryRisks.map((r: any) => ({
+        ...r,
+        potentialConsequences: ensureArray(r.potentialConsequences || []),
+      }));
+    }
+  }
+
+  // Normalize evidenceIndex
+  if (Array.isArray(raw.evidenceIndex)) {
+    raw.evidenceIndex = raw.evidenceIndex.map((e: any) => ({
+      ...e,
+      type: normalizeEnum(e.type, ["http_capture", "log_entry", "screenshot", "config_file", "network_trace", "command_output"]),
+    }));
+  }
+
+  // Ensure validationStatus exists
+  if (!raw.validationStatus) {
+    raw.validationStatus = { passed: true, warnings: [], errors: [] };
+  }
+
+  return raw;
+}
+
+/**
  * Calculate hash of prompt content for traceability
  */
 function hashPrompt(content: string): string {
@@ -130,26 +312,29 @@ export async function generateENO(
     }
     
     const parsed = JSON.parse(content);
-    
+
+    // Normalize AI output to match schema expectations
+    const normalized = normalizeENO(parsed);
+
     // Add metadata
-    parsed.version = "1.0";
-    parsed.generatedAt = new Date().toISOString();
-    parsed.modelMeta = {
+    normalized.version = "1.0";
+    normalized.generatedAt = new Date().toISOString();
+    normalized.modelMeta = {
       modelName: cfg.modelName,
       promptHash,
       temperature: cfg.temperature,
       generationTimeMs,
     };
-    
+
     // Validate ENO
-    const validation = validateENO(parsed);
+    const validation = validateENO(normalized);
     
     if (!validation.valid) {
       return {
         success: false,
         error: `ENO validation failed: ${validation.errors.join("; ")}`,
         warnings: validation.warnings,
-        modelMeta: parsed.modelMeta,
+        modelMeta: normalized.modelMeta,
       };
     }
     
@@ -162,7 +347,7 @@ export async function generateENO(
           success: false,
           error: `Anti-template lint failed: ${lintResult.errors.join("; ")}`,
           warnings: lintResult.warnings,
-          modelMeta: parsed.modelMeta,
+          modelMeta: normalized.modelMeta,
           lintResult,
         };
       }
@@ -172,7 +357,7 @@ export async function generateENO(
       success: true,
       data: validation.eno,
       warnings: [...validation.warnings, ...(lintResult?.warnings || [])],
-      modelMeta: parsed.modelMeta,
+      modelMeta: normalized.modelMeta,
       lintResult,
     };
   } catch (error) {

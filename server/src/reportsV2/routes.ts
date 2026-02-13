@@ -153,28 +153,134 @@ export function registerReportV2Routes(app: Express): void {
           const result = await storage.getResultByEvaluationId(evaluation.id);
           evaluationsWithResults.push({ evaluation, result });
         }
+      } else if (breachChainId) {
+        // Breach chain only — extract evaluations from phase results
+        const chain = await storage.getBreachChain(breachChainId);
+        if (!chain) {
+          return res.status(404).json({ error: `Breach chain ${breachChainId} not found` });
+        }
+
+        // Collect evaluation IDs from all phase results
+        const phaseEvalIds: string[] = [];
+        if (Array.isArray(chain.phaseResults)) {
+          for (const phase of chain.phaseResults) {
+            if (phase.evaluationIds) {
+              phaseEvalIds.push(...phase.evaluationIds);
+            }
+          }
+        }
+
+        // Load evaluations if any exist
+        for (const id of phaseEvalIds) {
+          const evaluation = await storage.getEvaluation(id);
+          if (evaluation) {
+            const result = await storage.getResultByEvaluationId(id);
+            evaluationsWithResults.push({ evaluation, result });
+          }
+        }
+
+        // Set date range from chain timing
+        if (chain.startedAt) {
+          parsedFrom = new Date(chain.startedAt);
+        }
+        if (chain.completedAt) {
+          parsedTo = new Date(chain.completedAt);
+        }
+        if (!parsedFrom) parsedFrom = chain.createdAt ? new Date(chain.createdAt) : new Date();
+        if (!parsedTo) parsedTo = new Date();
       } else {
         return res.status(400).json({
-          error: "Must provide evaluationId, evaluationIds, or dateRange"
+          error: "Must provide evaluationId, evaluationIds, breachChainId, or dateRange"
         });
       }
-      
-      if (evaluationsWithResults.length === 0) {
+
+      // For breach chains without linked evaluations, build input from chain findings
+      let inputPayload: any;
+      if (evaluationsWithResults.length === 0 && breachChainId) {
+        const chain = await storage.getBreachChain(breachChainId);
+        if (!chain) {
+          return res.status(404).json({ error: `Breach chain ${breachChainId} not found` });
+        }
+
+        // Build synthetic findings from breach chain phase results
+        const findings: any[] = [];
+        const attackPaths: any[] = [];
+        if (Array.isArray(chain.phaseResults)) {
+          for (const phase of chain.phaseResults) {
+            if (phase.findings) {
+              for (const finding of phase.findings) {
+                findings.push({
+                  id: finding.id,
+                  evaluationId: `breach-chain-${chain.id}`,
+                  assetId: chain.assetIds?.[0] || "unknown",
+                  assetName: chain.name,
+                  title: finding.title,
+                  description: finding.description,
+                  exposureType: finding.technique || phase.phaseName || "breach_chain",
+                  severity: finding.severity || "medium",
+                  exploitable: finding.severity === "critical" || finding.severity === "high",
+                  exploitabilityScore: finding.severity === "critical" ? 95 : finding.severity === "high" ? 75 : finding.severity === "medium" ? 50 : 25,
+                  mitreId: finding.mitreId,
+                });
+              }
+            }
+          }
+        }
+
+        const severityDistribution = {
+          critical: findings.filter(f => f.severity === "critical").length,
+          high: findings.filter(f => f.severity === "high").length,
+          medium: findings.filter(f => f.severity === "medium").length,
+          low: findings.filter(f => f.severity === "low").length,
+          informational: findings.filter(f => f.severity === "informational").length,
+        };
+
+        const exposureTypeDistribution: Record<string, number> = {};
+        findings.forEach(f => {
+          exposureTypeDistribution[f.exposureType] = (exposureTypeDistribution[f.exposureType] || 0) + 1;
+        });
+
+        inputPayload = {
+          generatedAt: new Date().toISOString(),
+          reportScopeType: "multi_evaluation" as const,
+          evaluationMetadata: {
+            organizationId: chain.organizationId || organizationId,
+            evaluationIds: [`breach-chain-${chain.id}`],
+            dateRange: parsedFrom && parsedTo ? { from: parsedFrom.toISOString(), to: parsedTo.toISOString() } : undefined,
+            totalEvaluations: findings.length || 1,
+            completedEvaluations: findings.length || 1,
+          },
+          findings,
+          attackPaths,
+          evidenceArtifacts: [],
+          riskScores: [],
+          customerContext,
+          statistics: {
+            severityDistribution,
+            exposureTypeDistribution,
+            averageExploitabilityScore: findings.length > 0
+              ? findings.reduce((sum: number, f: any) => sum + f.exploitabilityScore, 0) / findings.length
+              : 0,
+            averageRiskScore: chain.overallRiskScore || 0,
+            assetsAffected: chain.assetIds?.length || 0,
+            uniqueCVEs: 0,
+          },
+        };
+      } else if (evaluationsWithResults.length === 0) {
         return res.status(404).json({ error: "No evaluations found matching criteria" });
+      } else {
+        inputPayload = evaluationsWithResults.length === 1
+          ? buildReportInputFromEvaluation(
+              evaluationsWithResults[0].evaluation,
+              evaluationsWithResults[0].result,
+              customerContext
+            )
+          : buildReportInputFromEvaluations(
+              evaluationsWithResults,
+              customerContext,
+              parsedFrom && parsedTo ? { from: parsedFrom, to: parsedTo } : undefined
+            );
       }
-      
-      // Build input payload
-      const inputPayload = evaluationsWithResults.length === 1
-        ? buildReportInputFromEvaluation(
-            evaluationsWithResults[0].evaluation,
-            evaluationsWithResults[0].result,
-            customerContext
-          )
-        : buildReportInputFromEvaluations(
-            evaluationsWithResults,
-            customerContext,
-            parsedFrom && parsedTo ? { from: parsedFrom, to: parsedTo } : undefined
-          );
       
       // Compute Breach Realization Score if breach_validation report requested
       let breachScoreJson: string | undefined;

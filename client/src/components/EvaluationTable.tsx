@@ -25,6 +25,9 @@ export interface Evaluation {
   assetId: string;
   exposureType: "cve" | "misconfiguration" | "behavior" | "network" | "business_logic" | "api_abuse";
   priority: "critical" | "high" | "medium" | "low";
+  description?: string;
+  organizationId?: string;
+  adversaryProfile?: string;
   status: "pending" | "in_progress" | "completed" | "failed";
   exploitable?: boolean;
   score?: number;
