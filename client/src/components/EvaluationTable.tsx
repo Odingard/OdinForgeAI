@@ -40,11 +40,12 @@ interface EvaluationTableProps {
   onViewDetails: (evaluation: Evaluation) => void;
   onRunEvaluation: (evaluation: Evaluation) => void;
   onStartSimulation?: (evaluation: Evaluation) => void;
+  isRunning?: boolean;
 }
 
 type SortField = "createdAt" | "priority" | "status" | "score";
 
-export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation, onStartSimulation }: EvaluationTableProps) {
+export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation, onStartSimulation, isRunning }: EvaluationTableProps) {
   const [sortField, setSortField] = useState<SortField>("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
@@ -239,10 +240,11 @@ export function EvaluationTable({ evaluations, onViewDetails, onRunEvaluation, o
                     {evaluation.status !== "in_progress" && (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button 
-                            variant="ghost" 
+                          <Button
+                            variant="ghost"
                             size="icon"
                             onClick={() => onRunEvaluation(evaluation)}
+                            disabled={isRunning}
                             data-testid={`button-run-${evaluation.id}`}
                           >
                             <Play className="h-4 w-4" />

@@ -128,27 +128,33 @@ export function AttackGraphVisualizer({ attackGraph, isExploitable }: AttackGrap
     return "text-emerald-400";
   };
 
+  // Defensive: ensure arrays exist (some evaluation modes may have partial data)
+  const nodes = attackGraph.nodes || [];
+  const edges = attackGraph.edges || [];
+  const criticalPath = attackGraph.criticalPath || [];
+  const killChainCoverage = attackGraph.killChainCoverage || [];
+
   const formatTactic = (tactic: string) => {
     return tactic.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   };
 
   const isNodeOnCriticalPath = (nodeId: string) => {
-    return attackGraph.criticalPath.includes(nodeId);
+    return criticalPath.includes(nodeId);
   };
 
   const getEdgesFromNode = (nodeId: string) => {
-    return attackGraph.edges.filter(e => e.source === nodeId);
+    return edges.filter(e => e.source === nodeId);
   };
 
   const getNodeById = (nodeId: string) => {
-    return attackGraph.nodes.find(n => n.id === nodeId);
+    return nodes.find(n => n.id === nodeId);
   };
 
-  const orderedNodes = attackGraph.criticalPath
+  const orderedNodes = criticalPath
     .map(id => getNodeById(id))
     .filter((n): n is AttackNode => n !== undefined);
 
-  if (attackGraph.nodes.length === 0) {
+  if (nodes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <div className="p-4 rounded-full bg-emerald-500/10 mb-4">
@@ -188,7 +194,7 @@ export function AttackGraphVisualizer({ attackGraph, isExploitable }: AttackGrap
             <Network className="h-4 w-4 text-muted-foreground" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground">Attack Steps</span>
           </div>
-          <div className="text-2xl font-bold text-foreground">{attackGraph.criticalPath.length}</div>
+          <div className="text-2xl font-bold text-foreground">{criticalPath.length}</div>
           <div className="text-xs text-muted-foreground">critical path</div>
         </div>
         
@@ -197,7 +203,7 @@ export function AttackGraphVisualizer({ attackGraph, isExploitable }: AttackGrap
             <Layers className="h-4 w-4 text-muted-foreground" />
             <span className="text-xs uppercase tracking-wider text-muted-foreground">Kill Chain Coverage</span>
           </div>
-          <div className="text-2xl font-bold text-foreground">{attackGraph.killChainCoverage.length}</div>
+          <div className="text-2xl font-bold text-foreground">{killChainCoverage.length}</div>
           <div className="text-xs text-muted-foreground">tactics</div>
         </div>
       </div>
@@ -208,7 +214,7 @@ export function AttackGraphVisualizer({ attackGraph, isExploitable }: AttackGrap
           <span className="text-sm font-medium text-foreground">MITRE ATT&CK Kill Chain Coverage</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          {attackGraph.killChainCoverage.map((tactic, index) => (
+          {killChainCoverage.map((tactic, index) => (
             <Badge 
               key={tactic} 
               className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30"
@@ -242,7 +248,7 @@ export function AttackGraphVisualizer({ attackGraph, isExploitable }: AttackGrap
           {orderedNodes.map((node, index) => {
             const NodeIcon = getNodeTypeIcon(node.nodeType);
             const outgoingEdges = getEdgesFromNode(node.id);
-            const nextNodeId = attackGraph.criticalPath[index + 1];
+            const nextNodeId = criticalPath[index + 1];
             const criticalEdge = outgoingEdges.find(e => e.target === nextNodeId);
             const isExpanded = expandedNodes.has(node.id);
 

@@ -107,6 +107,8 @@ export interface OrchestratorOptions {
   adversaryProfile?: AdversaryProfile;
   organizationId?: string;
   executionMode?: "safe" | "simulation" | "live";
+  /** Skip writing phase progress to DB (used when orchestrator is called multiple times, e.g. simulation rounds) */
+  skipPhaseTracking?: boolean;
 }
 
 export async function runAgentOrchestrator(
@@ -155,9 +157,13 @@ async function runPipeline(
     { assetId, exposureType, priority, description, executionMode: options?.executionMode }
   );
 
-  // Initialize phase tracking in DB
+  // Initialize phase tracking in DB (skip for simulation rounds to avoid cycling)
   const phases = initPhases();
-  await updatePhase(evaluationId, phases, "recon", { status: "pending" });
+  const trackPhases = !options?.skipPhaseTracking;
+  const trackPhase = trackPhases
+    ? (phase: string, update: Partial<EvaluationPhaseProgress>) => updatePhase(evaluationId, phases, phase, update)
+    : async (_phase: string, _update: Partial<EvaluationPhaseProgress>) => {};
+  await trackPhase("recon", { status: "pending" });
 
   // ──────────────────────────────────────────────────────────────
   // Tier 0: Policy Context (no LLM, ~1s)
@@ -206,7 +212,7 @@ async function runPipeline(
   // Tier 1: Recon Agent (1 LLM call, max 30s)
   // ──────────────────────────────────────────────────────────────
   const reconStart = Date.now();
-  await updatePhase(evaluationId, phases, "recon", { status: "running", startedAt: new Date().toISOString(), message: "Initializing reconnaissance..." });
+  await trackPhase("recon", { status: "running", startedAt: new Date().toISOString(), message: "Initializing reconnaissance..." });
   onProgress?.("Recon Agent", "recon", 5, "Initializing reconnaissance...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
     "Initiating reconnaissance phase to discover attack surface and entry points");
@@ -230,7 +236,7 @@ async function runPipeline(
   memory.recon = reconResult.findings;
 
   const reconSummary = `Discovered ${reconResult.findings.attackSurface?.length || 0} attack surface elements`;
-  await updatePhase(evaluationId, phases, "recon", {
+  await trackPhase("recon", {
     status: "completed", completedAt: new Date().toISOString(),
     duration: Date.now() - reconStart, findingSummary: reconSummary,
   });
@@ -240,8 +246,8 @@ async function runPipeline(
   // Tier 2: Parallel — Exploit + Business Logic + Multi-Vector (max 30s wall-clock)
   // ──────────────────────────────────────────────────────────────
   const tier2Start = Date.now();
-  await updatePhase(evaluationId, phases, "exploit", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing exploit chains..." });
-  await updatePhase(evaluationId, phases, "business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
+  await trackPhase("exploit", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing exploit chains..." });
+  await trackPhase("business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
   onProgress?.("Analysis Agents", "analysis", 25, "Running parallel analysis...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
     "Running exploit, business logic, and multi-vector analysis in parallel");
@@ -297,13 +303,13 @@ async function runPipeline(
 
   const exploitSummary = `Identified ${exploitResult.findings.exploitChains?.length || 0} potential exploit chains`;
   const blSummary = `Found ${blResult.findings.workflowAbuse?.length || 0} workflow abuse patterns`;
-  await updatePhase(evaluationId, phases, "exploit", {
+  await trackPhase("exploit", {
     status: exploitSettled.status === "fulfilled" ? "completed" : "failed",
     completedAt: new Date().toISOString(), duration: Date.now() - tier2Start,
     findingSummary: exploitSummary,
     error: exploitSettled.status === "rejected" ? String((exploitSettled as PromiseRejectedResult).reason) : undefined,
   });
-  await updatePhase(evaluationId, phases, "business_logic", {
+  await trackPhase("business_logic", {
     status: blSettled.status === "fulfilled" ? "completed" : "failed",
     completedAt: new Date().toISOString(), duration: Date.now() - tier2Start,
     findingSummary: blSummary,
@@ -333,8 +339,8 @@ async function runPipeline(
   // Tier 3: Parallel — Lateral + Impact + Enhanced BL (max 30s wall-clock)
   // ──────────────────────────────────────────────────────────────
   const tier3Start = Date.now();
-  await updatePhase(evaluationId, phases, "lateral", { status: "running", startedAt: new Date().toISOString(), message: "Identifying lateral movement paths..." });
-  await updatePhase(evaluationId, phases, "impact", { status: "running", startedAt: new Date().toISOString(), message: "Assessing business impact..." });
+  await trackPhase("lateral", { status: "running", startedAt: new Date().toISOString(), message: "Identifying lateral movement paths..." });
+  await trackPhase("impact", { status: "running", startedAt: new Date().toISOString(), message: "Assessing business impact..." });
   onProgress?.("Analysis Agents", "analysis_tier3", 50, "Running lateral, impact, and enhanced analysis...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
     "Running lateral movement, impact assessment, and enhanced analysis in parallel");
@@ -404,13 +410,13 @@ async function runPipeline(
 
   const lateralSummary = `Discovered ${lateralResult.findings.pivotPaths?.length || 0} lateral movement paths`;
   const impactSummary = `Data exposure severity: ${impactResult.findings.dataExposure?.severity || "unknown"}`;
-  await updatePhase(evaluationId, phases, "lateral", {
+  await trackPhase("lateral", {
     status: lateralSettled.status === "fulfilled" ? "completed" : "failed",
     completedAt: new Date().toISOString(), duration: Date.now() - tier3Start,
     findingSummary: lateralSummary,
     error: lateralSettled.status === "rejected" ? String((lateralSettled as PromiseRejectedResult).reason) : undefined,
   });
-  await updatePhase(evaluationId, phases, "impact", {
+  await trackPhase("impact", {
     status: impactSettled.status === "fulfilled" ? "completed" : "failed",
     completedAt: new Date().toISOString(), duration: Date.now() - tier3Start,
     findingSummary: impactSummary,
@@ -440,7 +446,7 @@ async function runPipeline(
   // Tier 4: Synthesizer (1 LLM call, max 30s)
   // ──────────────────────────────────────────────────────────────
   const synthesisStart = Date.now();
-  await updatePhase(evaluationId, phases, "synthesis", { status: "running", startedAt: new Date().toISOString(), message: "Generating final report..." });
+  await trackPhase("synthesis", { status: "running", startedAt: new Date().toISOString(), message: "Generating final report..." });
   onProgress?.("Synthesizer", "synthesis", 80, "Generating final report...");
 
   const result = await withCircuitBreaker(
@@ -457,7 +463,7 @@ async function runPipeline(
     30_000
   );
 
-  await updatePhase(evaluationId, phases, "synthesis", {
+  await trackPhase("synthesis", {
     status: "completed", completedAt: new Date().toISOString(),
     duration: Date.now() - synthesisStart,
     findingSummary: `Exploitable: ${result.exploitable}, Score: ${result.score}`,
@@ -467,7 +473,7 @@ async function runPipeline(
   // Tier 5: Structural/Rule-based (no LLM, ~100ms)
   // ──────────────────────────────────────────────────────────────
   const finalizationStart = Date.now();
-  await updatePhase(evaluationId, phases, "finalization", { status: "running", startedAt: new Date().toISOString(), message: "Building attack graph and scoring..." });
+  await trackPhase("finalization", { status: "running", startedAt: new Date().toISOString(), message: "Building attack graph and scoring..." });
   onProgress?.("Finalization", "finalization", 90, "Building attack graph and scoring...");
 
   const attackGraph = createFallbackGraph(memory);
@@ -534,7 +540,7 @@ async function runPipeline(
     }
   }
 
-  await updatePhase(evaluationId, phases, "finalization", {
+  await trackPhase("finalization", {
     status: "completed", completedAt: new Date().toISOString(),
     duration: Date.now() - finalizationStart,
     findingSummary: `Score: ${intelligentScore?.riskRank?.overallScore ?? result.score}, ${result.recommendations?.length || 0} recommendations`,

@@ -31,8 +31,6 @@ import {
   Loader2,
   Plus,
   ExternalLink,
-  Eye,
-  EyeOff,
   Skull,
   Building2,
   GraduationCap,
@@ -611,7 +609,7 @@ export default function Advanced() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         <Card data-testid="card-attack-predictions">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -876,102 +874,6 @@ export default function Advanced() {
           </CardContent>
         </Card>
 
-        <Card data-testid="card-adversary-profiles">
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Skull className="h-5 w-5 text-purple-400" />
-              <CardTitle className="text-lg">AI Adversary Profiles</CardTitle>
-            </div>
-            <CardDescription>Threat actor personas for attack simulation</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {profilesLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : adversaryProfiles.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {adversaryProfiles.map((profile) => {
-                  const config = adversaryTypeConfig[profile.profileType] || adversaryTypeConfig.script_kiddie;
-                  const ProfileIcon = config.icon;
-                  const capabilities = profile.capabilities as any;
-                  return (
-                    <div
-                      key={profile.id}
-                      className="p-3 rounded-lg bg-muted/50 space-y-3"
-                      data-testid={`card-profile-${profile.id}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <ProfileIcon className={`h-5 w-5 ${config.color}`} />
-                          <span className="font-medium">{profile.name}</span>
-                        </div>
-                        <Badge variant="outline" className={`text-xs ${config.color}`}>
-                          {config.label}
-                        </Badge>
-                      </div>
-                      
-                      {capabilities && (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground w-20">Sophistication</span>
-                            <Progress value={(capabilities.technicalSophistication || 0) * 10} className="flex-1 h-1.5" />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground w-20">Resources</span>
-                            <Progress value={(capabilities.resources || 0) * 10} className="flex-1 h-1.5" />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground w-20">Persistence</span>
-                            <Progress value={(capabilities.persistence || 0) * 10} className="flex-1 h-1.5" />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground w-20">Stealth</span>
-                            <Progress value={(capabilities.stealth || 0) * 10} className="flex-1 h-1.5" />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground flex-wrap">
-                        {profile.detectionDifficulty && (
-                          <Badge variant="outline" className="text-xs">
-                            {profile.detectionDifficulty === "very_high" ? (
-                              <EyeOff className="h-3 w-3 mr-1" />
-                            ) : (
-                              <Eye className="h-3 w-3 mr-1" />
-                            )}
-                            {profile.detectionDifficulty.replace("_", " ")}
-                          </Badge>
-                        )}
-                        {profile.avgDwellTime && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {profile.avgDwellTime}d dwell
-                          </span>
-                        )}
-                      </div>
-
-                      {(profile.motivations as string[])?.length > 0 && (
-                        <div className="flex gap-1 flex-wrap">
-                          {(profile.motivations as string[]).slice(0, 3).map((m, i) => (
-                            <Badge key={i} variant="secondary" className="text-xs">
-                              {m}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Skull className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>No adversary profiles configured</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       <Card data-testid="card-ai-simulations">

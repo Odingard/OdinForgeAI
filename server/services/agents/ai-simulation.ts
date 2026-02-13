@@ -149,6 +149,7 @@ Use this real network data as the foundation for attack planning.`;
     const orchestratorOptions: OrchestratorOptions = {
       organizationId: options?.organizationId,
       executionMode: options?.executionMode || "simulation",
+      skipPhaseTracking: true, // Simulation runs orchestrator 3x — skip DB phase writes to avoid cycling
     };
     
     const attackerResult = await runAgentOrchestrator(

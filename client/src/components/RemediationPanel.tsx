@@ -31,6 +31,23 @@ export function RemediationPanel({ guidance, viewMode = "engineer" }: Remediatio
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Defensive: ensure arrays exist (simulation mode may provide different shape)
+  if (!guidance?.prioritizedActions) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        <Shield className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">Remediation guidance available in summary format</p>
+        {(guidance as any)?.immediate && (
+          <div className="mt-4 text-left space-y-2">
+            {((guidance as any).immediate as string[])?.map((item: string, i: number) => (
+              <div key={i} className="text-xs bg-muted/30 rounded p-2">{item}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const toggleExpanded = (id: string) => {
     setExpandedItems(prev => {
       const next = new Set(prev);

@@ -341,6 +341,7 @@ export function Dashboard() {
           onViewDetails={handleViewDetails}
           onRunEvaluation={handleRunEvaluation}
           onStartSimulation={handleStartSimulation}
+          isRunning={createEvaluationMutation.isPending}
         />
       )}
 
