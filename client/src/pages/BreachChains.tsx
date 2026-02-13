@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,6 +47,7 @@ import {
   Target,
   Settings2,
   ArrowRight,
+  FileBarChart,
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName } from "@shared/schema";
 
@@ -562,12 +564,13 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   );
 }
 
-function ChainCard({ chain, onView, onDelete, onResume, onAbort }: {
+function ChainCard({ chain, onView, onDelete, onResume, onAbort, onGenerateReport }: {
   chain: BreachChain;
   onView: () => void;
   onDelete: () => void;
   onResume: () => void;
   onAbort: () => void;
+  onGenerateReport?: () => void;
 }) {
   const isRunning = chain.status === "running";
   const isPaused = chain.status === "paused";
@@ -644,6 +647,12 @@ function ChainCard({ chain, onView, onDelete, onResume, onAbort }: {
             <Eye className="w-4 h-4 mr-1" />
             View Details
           </Button>
+          {chain.status === "completed" && onGenerateReport && (
+            <Button size="sm" variant="outline" onClick={onGenerateReport}>
+              <FileBarChart className="w-4 h-4 mr-1" />
+              Report
+            </Button>
+          )}
           {isPaused && (
             <Button size="sm" variant="outline" onClick={onResume}>
               <Play className="w-4 h-4 mr-1" />
@@ -680,6 +689,7 @@ function ChainCard({ chain, onView, onDelete, onResume, onAbort }: {
 
 export default function BreachChains() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission("evaluations:create");
   const canDelete = hasPermission("evaluations:delete");
@@ -794,6 +804,28 @@ export default function BreachChains() {
       queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
       setSelectedChain(null);
       toast({ title: "Chain Deleted" });
+    },
+  });
+
+  const generateReportMutation = useMutation({
+    mutationFn: async (chainId: string) => {
+      const res = await apiRequest("POST", "/api/reports/v2/generate", {
+        breachChainId: chainId,
+        reportTypes: ["breach_validation", "executive"],
+        reportVersion: "v2_narrative",
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Report Generated",
+        description: "Breach chain report is ready. Redirecting to Reports...",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/reports"] });
+      setTimeout(() => navigate("/reports"), 1000);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Report Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1021,6 +1053,20 @@ export default function BreachChains() {
             <Button variant="outline" onClick={() => setSelectedChain(null)}>
               Back to List
             </Button>
+            {displayChain.status === "completed" && (
+              <Button
+                variant="outline"
+                onClick={() => generateReportMutation.mutate(displayChain.id)}
+                disabled={generateReportMutation.isPending}
+              >
+                {generateReportMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <FileBarChart className="w-4 h-4 mr-1" />
+                )}
+                Generate Report
+              </Button>
+            )}
             {displayChain.status === "paused" && (
               <Button variant="outline" onClick={() => resumeMutation.mutate(displayChain.id)}>
                 <Play className="w-4 h-4 mr-1" /> Resume
@@ -1091,6 +1137,7 @@ export default function BreachChains() {
                   onDelete={() => canDelete && deleteMutation.mutate(chain.id)}
                   onResume={() => resumeMutation.mutate(chain.id)}
                   onAbort={() => abortMutation.mutate(chain.id)}
+                  onGenerateReport={() => generateReportMutation.mutate(chain.id)}
                 />
               ))}
             </div>
