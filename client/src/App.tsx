@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
 import { NotificationsPopover } from "./components/NotificationsPopover";
 import { DemoDataBanner } from "./components/DemoDataBanner";
+import { TrialBanner } from "./components/TrialBanner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +54,9 @@ const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
 const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const CompareShannon = lazy(() => import("@/pages/CompareShannon"));
+const ComparePentera = lazy(() => import("@/pages/ComparePentera"));
+const CompareNodeZero = lazy(() => import("@/pages/CompareNodeZero"));
+const CompareAttackIQ = lazy(() => import("@/pages/CompareAttackIQ"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
@@ -223,7 +227,8 @@ function AppLayout() {
         <AppSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
           <AppHeader />
-          <div className="px-6 pt-4">
+          <div className="px-6 pt-4 space-y-2">
+            <TrialBanner />
             <DemoDataBanner />
           </div>
           <main className="flex-1 overflow-auto p-6">
@@ -250,6 +255,9 @@ function AuthenticatedApp() {
       <Suspense fallback={<PageLoader />}>
         <Switch>
           <Route path="/compare/shannon" component={CompareShannon} />
+          <Route path="/compare/pentera" component={ComparePentera} />
+          <Route path="/compare/nodezero" component={CompareNodeZero} />
+          <Route path="/compare/attackiq" component={CompareAttackIQ} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>

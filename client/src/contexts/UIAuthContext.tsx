@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   UIUser,
+  TrialInfo,
   getStoredTokens,
   clearAuthData,
   isTokenExpired,
@@ -17,6 +18,7 @@ interface UIAuthContextType {
   user: UIUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  trial: TrialInfo | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName?: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -38,6 +40,7 @@ const TOKEN_REFRESH_BUFFER = 2 * 60 * 1000; // 2 minutes before expiry
 
 export function UIAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UIUser | null>(null);
+  const [trial, setTrial] = useState<TrialInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -87,9 +90,10 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const sessionUser = await fetchSession(accessToken);
-      if (sessionUser) {
-        setUser(sessionUser);
+      const sessionResult = await fetchSession(accessToken);
+      if (sessionResult) {
+        setUser(sessionResult.user);
+        setTrial(sessionResult.trial);
         if (accessTokenExpiry) {
           scheduleTokenRefresh(accessTokenExpiry);
         }
@@ -116,12 +120,14 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const result = await apiLogin(email, password);
     setUser(result.user);
+    setTrial(result.trial || null);
     scheduleTokenRefresh(new Date(result.accessTokenExpiresAt));
   };
 
   const register = async (email: string, password: string, displayName?: string) => {
     const result = await apiRegister(email, password, displayName);
     setUser(result.user);
+    setTrial(result.trial || null);
     scheduleTokenRefresh(new Date(result.accessTokenExpiresAt));
   };
 
@@ -132,6 +138,7 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
     }
     await apiLogout(accessToken);
     setUser(null);
+    setTrial(null);
   };
 
   const getAccessToken = (): string | null => {
@@ -194,6 +201,7 @@ export function UIAuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isAuthenticated: !!user,
         isLoading,
+        trial,
         login,
         register,
         logout,

@@ -33,6 +33,14 @@ export interface UIUser {
   lastActivityAt?: string;
 }
 
+export interface TrialInfo {
+  status: string;
+  trialEndsAt: string | null;
+  daysRemaining: number | null;
+  isExpired: boolean;
+  tier: string;
+}
+
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
@@ -46,6 +54,7 @@ export interface LoginResponse {
   refreshToken: string;
   accessTokenExpiresAt: string;
   refreshTokenExpiresAt: string;
+  trial?: TrialInfo | null;
 }
 
 const TOKEN_KEY = "odinforge_access_token";
@@ -185,7 +194,7 @@ export async function logout(accessToken?: string | null): Promise<void> {
   clearAuthData();
 }
 
-export async function fetchSession(accessToken: string): Promise<UIUser | null> {
+export async function fetchSession(accessToken: string): Promise<{ user: UIUser; trial: TrialInfo | null } | null> {
   try {
     const response = await fetch("/ui/api/auth/session", {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -194,7 +203,7 @@ export async function fetchSession(accessToken: string): Promise<UIUser | null> 
     if (!response.ok) return null;
 
     const data = await response.json();
-    return data.user;
+    return { user: data.user, trial: data.trial || null };
   } catch {
     return null;
   }

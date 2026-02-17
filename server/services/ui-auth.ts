@@ -317,6 +317,91 @@ export function requireAllPermissions(...requiredPermissions: Permission[]) {
   };
 }
 
+/**
+ * Trial enforcement middleware.
+ * Checks if the tenant's trial has expired and blocks write operations.
+ * Read-only endpoints should NOT use this middleware so users can still view
+ * their data after trial expiration.
+ */
+export function requireActiveTrial(
+  req: UIAuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  if (!req.uiUser) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  storage.getTenant(req.uiUser.tenantId)
+    .then((tenant) => {
+      if (!tenant) {
+        // No tenant record — allow through (legacy/default behavior)
+        next();
+        return;
+      }
+
+      // Active or no trial — allow through
+      if (tenant.status !== "trial") {
+        next();
+        return;
+      }
+
+      // Trial tenant with no expiration set — allow through
+      if (!tenant.trialEndsAt) {
+        next();
+        return;
+      }
+
+      // Check if trial has expired
+      if (new Date(tenant.trialEndsAt) < new Date()) {
+        res.status(403).json({
+          error: "TrialExpired",
+          message: "Your free trial has ended. Upgrade to continue using OdinForge.",
+          trialEndsAt: tenant.trialEndsAt,
+        });
+        return;
+      }
+
+      next();
+    })
+    .catch((err) => {
+      console.error("[Trial] Failed to check trial status:", err);
+      // Fail open — don't block users if the check fails
+      next();
+    });
+}
+
+/**
+ * Get trial info for a tenant. Returns null if tenant has no trial.
+ */
+export async function getTrialInfo(tenantId: string): Promise<{
+  status: string;
+  trialEndsAt: Date | null;
+  daysRemaining: number | null;
+  isExpired: boolean;
+  tier: string;
+} | null> {
+  const tenant = await storage.getTenant(tenantId);
+  if (!tenant) return null;
+
+  const now = new Date();
+  const isTrialTenant = tenant.status === "trial";
+  const trialEndsAt = tenant.trialEndsAt ? new Date(tenant.trialEndsAt) : null;
+  const isExpired = isTrialTenant && trialEndsAt ? trialEndsAt < now : false;
+  const daysRemaining = isTrialTenant && trialEndsAt
+    ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+    : null;
+
+  return {
+    status: tenant.status,
+    trialEndsAt,
+    daysRemaining,
+    isExpired,
+    tier: tenant.tier,
+  };
+}
+
 export async function loginUser(
   email: string,
   password: string,

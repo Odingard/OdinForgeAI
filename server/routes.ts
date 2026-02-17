@@ -35,6 +35,8 @@ import {
   uiAuthMiddleware,
   requireRole,
   requirePermission,
+  requireActiveTrial,
+  getTrialInfo,
   hashPassword,
   type UIAuthenticatedRequest,
 } from "./services/ui-auth";
@@ -292,6 +294,7 @@ export async function registerRoutes(
       }
 
       const role = await storage.getUIRole(result.user.roleId);
+      const trialInfo = await getTrialInfo(result.user.tenantId);
       res.json({
         user: {
           id: result.user.id,
@@ -306,6 +309,7 @@ export async function registerRoutes(
         refreshToken: result.tokens.refreshToken,
         accessTokenExpiresAt: result.tokens.accessTokenExpiresAt,
         refreshTokenExpiresAt: result.tokens.refreshTokenExpiresAt,
+        trial: trialInfo,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -340,6 +344,20 @@ export async function registerRoutes(
       const existingUsers = await storage.getUIUsers(tenantId);
       const isFirstUser = !existingUsers || existingUsers.length === 0;
 
+      // Initialize trial for the tenant if this is the first user and tenant is new
+      if (isFirstUser) {
+        const tenant = await storage.getTenant(tenantId);
+        if (tenant && !tenant.trialEndsAt && tenant.status === "active") {
+          const trialDays = 14;
+          const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
+          await storage.updateTenant(tenantId, {
+            status: "trial",
+            trialEndsAt,
+          });
+          console.log(`[Trial] Initialized ${trialDays}-day trial for tenant ${tenantId}, expires ${trialEndsAt.toISOString()}`);
+        }
+      }
+
       const passwordHash = await hashPassword(password);
       const user = await storage.createUIUser({
         email,
@@ -362,6 +380,7 @@ export async function registerRoutes(
       }
 
       const role = await storage.getUIRole(user.roleId);
+      const trialInfo = await getTrialInfo(user.tenantId);
       res.status(201).json({
         user: {
           id: user.id,
@@ -376,6 +395,7 @@ export async function registerRoutes(
         refreshToken: loginResult.tokens.refreshToken,
         accessTokenExpiresAt: loginResult.tokens.accessTokenExpiresAt,
         refreshTokenExpiresAt: loginResult.tokens.refreshTokenExpiresAt,
+        trial: trialInfo,
       });
     } catch (error) {
       console.error("Signup error:", error);
@@ -456,6 +476,7 @@ export async function registerRoutes(
 
       const role = await storage.getUIRole(user.roleId);
       const permissions = getPermissionsForDbRole(user.roleId);
+      const trialInfo = await getTrialInfo(user.tenantId);
       res.json({
         user: {
           id: user.id,
@@ -469,6 +490,7 @@ export async function registerRoutes(
           lastLoginAt: user.lastLoginAt,
           lastActivityAt: user.lastActivityAt,
         },
+        trial: trialInfo,
       });
     } catch (error) {
       console.error("Session fetch error:", error);
