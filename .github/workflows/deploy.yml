@@ -152,16 +152,6 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps app
             docker image prune -f
 
-      - name: Run database migrations
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            cd /opt/odinforge
-            docker compose -f docker-compose.prod.yml exec -T app npx drizzle-kit push
-
       - name: Verify deployment
         uses: appleboy/ssh-action@v1
         with:
