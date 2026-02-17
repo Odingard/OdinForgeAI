@@ -52,6 +52,7 @@ const Simulations = lazy(() => import("@/pages/Simulations"));
 const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
 const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
+const CompareShannon = lazy(() => import("@/pages/CompareShannon"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
@@ -242,6 +243,18 @@ function AuthenticatedApp() {
   const handleAuthSuccess = useCallback(() => {
     forceUpdate(x => x + 1);
   }, []);
+
+  // Public pages that don't require authentication
+  if (location.startsWith("/compare/")) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/compare/shannon" component={CompareShannon} />
+          <Route component={NotFound} />
+        </Switch>
+      </Suspense>
+    );
+  }
 
   if (isLoading) {
     return (
