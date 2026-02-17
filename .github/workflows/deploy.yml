@@ -159,6 +159,13 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            sleep 10
-            curl -sf http://localhost:5000/healthz || exit 1
-            echo "Health check passed"
+            for i in 1 2 3 4 5 6; do
+              sleep 10
+              if curl -sf http://localhost:5000/healthz; then
+                echo "Health check passed"
+                exit 0
+              fi
+              echo "Attempt $i failed, retrying..."
+            done
+            echo "Health check failed after 60s"
+            exit 1
