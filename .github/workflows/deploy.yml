@@ -161,7 +161,7 @@ jobs:
           script: |
             for i in 1 2 3 4 5 6; do
               sleep 10
-              if curl -sf http://localhost:5000/healthz; then
+              if docker exec odinforge-app wget -q --spider http://127.0.0.1:5000/healthz 2>/dev/null; then
                 echo "Health check passed"
                 exit 0
               fi
