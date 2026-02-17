@@ -47,6 +47,7 @@ services:
       AGENT_REGISTRATION_TOKEN: ${AGENT_REGISTRATION_TOKEN:-}
       CLOUD_CREDENTIALS_KEY: ${CLOUD_CREDENTIALS_KEY:-}
       REPORTS_V2_NARRATIVE: ${REPORTS_V2_NARRATIVE:-true}
+      DISABLE_WORKER: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,6 +61,33 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  worker:
+    image: ${APP_IMAGE:-ghcr.io/odingard/odinforgeai:latest}
+    container_name: odinforge-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker.cjs"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET}
+      CLOUD_CREDENTIALS_KEY: ${CLOUD_CREDENTIALS_KEY:-}
+      AGENT_REGISTRATION_TOKEN: ${AGENT_REGISTRATION_TOKEN:-}
+      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
+      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-odinforge}
+      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-odinforge}
+      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
+      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_FORCE_PATH_STYLE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
   postgres:
     image: pgvector/pgvector:pg15

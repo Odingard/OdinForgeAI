@@ -35,66 +35,54 @@ function emitSecureScanProgress(
     console.log(`[NetworkScan] ${scanId}: Failed - ${event.error}`);
   }
   
-  // Send secure WebSocket progress with tenant scoping
+  // Send secure WebSocket progress with tenant scoping via ws-bridge
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
+    const channel = `network-scan:${tenantId}:${organizationId}:${scanId}`;
+
+    let phase: string | undefined;
+    let progress = 0;
+    let message = "";
+    let portsFound = 0;
+    let vulnerabilitiesFound = 0;
+
     if (type === "network_scan_progress") {
-      wsService.sendNetworkScanProgress(
-        tenantId,
-        organizationId,
-        scanId,
-        "ports",
-        event.progress || 0,
-        event.message || "",
-        event.portsScanned,
-        event.vulnerabilities
-      );
+      phase = "ports";
+      progress = event.progress || 0;
+      message = event.message || "";
+      portsFound = event.portsScanned;
+      vulnerabilitiesFound = event.vulnerabilities;
     } else if (type === "network_scan_target_completed") {
-      wsService.sendNetworkScanProgress(
-        tenantId,
-        organizationId,
-        scanId,
-        "vulnerabilities",
-        event.progress || 50,
-        `Target ${event.target}: ${event.openPorts} ports, ${event.vulnerabilities} vulnerabilities`,
-        event.openPorts,
-        event.vulnerabilities
-      );
+      phase = "http"; // "vulnerabilities" maps to "http" in wsService.sendNetworkScanProgress
+      progress = event.progress || 50;
+      message = `Target ${event.target}: ${event.openPorts} ports, ${event.vulnerabilities} vulnerabilities`;
+      portsFound = event.openPorts;
+      vulnerabilitiesFound = event.vulnerabilities;
     } else if (type === "network_scan_completed") {
-      wsService.sendNetworkScanProgress(
-        tenantId,
-        organizationId,
-        scanId,
-        "complete",
-        100,
-        `Scan complete: ${event.successCount} succeeded, ${event.failCount} failed`,
-        event.totalOpenPorts,
-        event.totalVulnerabilities
-      );
+      phase = "complete";
+      progress = 100;
+      message = `Scan complete: ${event.successCount} succeeded, ${event.failCount} failed`;
+      portsFound = event.totalOpenPorts;
+      vulnerabilitiesFound = event.totalVulnerabilities;
     } else if (type === "network_scan_target_failed") {
-      wsService.sendNetworkScanProgress(
-        tenantId,
-        organizationId,
-        scanId,
-        "error",
-        event.progress || 0,
-        `Target ${event.target} failed: ${event.error}`,
-        0,
-        0
-      );
+      phase = "error";
+      progress = event.progress || 0;
+      message = `Target ${event.target} failed: ${event.error}`;
     } else if (type === "network_scan_failed") {
-      wsService.sendNetworkScanProgress(
-        tenantId,
-        organizationId,
+      phase = "error";
+      message = `Scan failed: ${event.error}`;
+    }
+
+    if (phase) {
+      broadcastToChannel(channel, {
+        type: "recon_progress",
         scanId,
-        "error",
-        0,
-        `Scan failed: ${event.error}`,
-        0,
-        0
-      );
+        phase,
+        progress,
+        message,
+        portsFound,
+        vulnerabilitiesFound,
+      });
     }
   } catch {
     // WebSocket delivery is best-effort; failures are non-fatal

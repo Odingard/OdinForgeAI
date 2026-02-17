@@ -33,11 +33,9 @@ function emitReconProgress(
   }
   
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `external-recon:${tenantId}:${organizationId}:${reconId}`;
-    
+
     const phaseMap: Record<string, "dns" | "ports" | "ssl" | "http" | "complete" | "error"> = {
       dns: "dns",
       ports: "ports",
@@ -46,9 +44,9 @@ function emitReconProgress(
       complete: "complete",
       error: "error",
     };
-    
+
     if (type === "external_recon_progress") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "recon_progress",
         scanId: reconId,
         phase: phaseMap[event.phase] || "ports",
@@ -58,7 +56,7 @@ function emitReconProgress(
         vulnerabilitiesFound: event.exposuresFound || 0,
       });
     } else if (type === "external_recon_completed") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "recon_progress",
         scanId: reconId,
         phase: "complete",
@@ -68,7 +66,7 @@ function emitReconProgress(
         vulnerabilitiesFound: event.exposuresFound || 0,
       });
     } else if (type === "external_recon_failed") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "recon_progress",
         scanId: reconId,
         phase: "error",

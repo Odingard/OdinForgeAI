@@ -45,11 +45,9 @@ function emitRemediationProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `remediation:${tenantId}:${organizationId}:${remediationId}`;
-    wsService.broadcastToChannel(channel, {
+    broadcastToChannel(channel, {
       type: "remediation_progress",
       remediationId,
       phase: event.phase || "processing",

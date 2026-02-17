@@ -55,11 +55,9 @@ function emitAuthScanProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `auth_scan:${tenantId}:${organizationId}:${scanId}`;
-    wsService.broadcastToChannel(channel, {
+    broadcastToChannel(channel, {
       type: "auth_scan_progress",
       scanId,
       phase: event.phase || "processing",

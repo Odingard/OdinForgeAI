@@ -12,6 +12,7 @@ import { startReconciliationScheduler, runReconciliation } from "./services/data
 import { gunzipSync, inflateSync } from "zlib";
 import { envConfig, logEnvironmentInfo } from "./lib/environment";
 import { initializeRLS } from "./services/rls-setup";
+import { initWsBridge } from "./services/ws-bridge";
 
 const app = express();
 const httpServer = createServer(app);
@@ -198,10 +199,21 @@ app.use((req, res, next) => {
   // Initialize job queue service
   try {
     await queueService.initialize();
-    registerJobHandlers();
-    console.log(`Job queue initialized (using ${queueService.isUsingRedis() ? "Redis" : "in-memory fallback"})`);
+    if (process.env.DISABLE_WORKER === "true") {
+      console.log(`Job queue initialized in queue-only mode (worker disabled, using ${queueService.isUsingRedis() ? "Redis" : "in-memory fallback"})`);
+    } else {
+      registerJobHandlers();
+      console.log(`Job queue initialized with worker (using ${queueService.isUsingRedis() ? "Redis" : "in-memory fallback"})`);
+    }
   } catch (error) {
     console.warn("Job queue initialization failed:", error instanceof Error ? error.message : error);
+  }
+
+  // Initialize WebSocket bridge in app mode (subscribes to Redis pub/sub for worker events)
+  try {
+    await initWsBridge("app");
+  } catch (error) {
+    console.warn("WS bridge initialization failed:", error instanceof Error ? error.message : error);
   }
   
   // Initialize scheduled scan scheduler

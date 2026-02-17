@@ -34,13 +34,11 @@ function emitSimulationProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `simulation:${tenantId}:${organizationId}:${simulationId}`;
-    
+
     if (type === "ai_simulation_round") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "simulation_progress",
         simulationId,
         round: event.round,
@@ -48,7 +46,7 @@ function emitSimulationProgress(
         message: event.message,
       });
     } else if (type === "ai_simulation_completed") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "simulation_progress",
         simulationId,
         round: event.rounds,

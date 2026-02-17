@@ -34,13 +34,11 @@ function emitDiscoveryProgress(
   }
   
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `cloud-discovery:${tenantId}:${organizationId}:${jobId}`;
-    
+
     if (type === "cloud_discovery_progress") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "recon_progress",
         scanId: jobId,
         phase: "ports",
@@ -50,7 +48,7 @@ function emitDiscoveryProgress(
         vulnerabilitiesFound: 0,
       });
     } else if (type === "cloud_discovery_completed") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "recon_progress",
         scanId: jobId,
         phase: "complete",
@@ -60,7 +58,7 @@ function emitDiscoveryProgress(
         vulnerabilitiesFound: 0,
       });
     } else if (type === "cloud_discovery_failed") {
-      wsService.broadcastToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "recon_progress",
         scanId: jobId,
         phase: "error",
@@ -191,26 +189,24 @@ export async function handleCloudDiscoveryJob(
 
         // Broadcast assets_updated event to tenant/org channel so UI can auto-refresh
         try {
-          const { wsService } = require("../../websocket");
-          if (wsService) {
-            const assetUpdateEvent = {
-              type: "assets_updated",
-              source: "cloud_discovery",
-              provider,
-              connectionId,
-              organizationId,
-              tenantId,
-              newAssets: discoveryJob.newAssets || 0,
-              updatedAssets: discoveryJob.updatedAssets || 0,
-              totalAssets: discoveryJob.totalAssets || 0,
-              timestamp: new Date().toISOString(),
-            };
-            // Broadcast to organization-specific channel for multi-tenant isolation
-            wsService.broadcastToChannel(`assets:${organizationId}`, assetUpdateEvent);
-            // Also broadcast globally for clients that haven't subscribed to specific channels
-            wsService.broadcast(assetUpdateEvent);
-            console.log(`[CloudDiscovery] Broadcasted assets_updated event for ${discoveryJob.newAssets} new assets`);
-          }
+          const { broadcastToChannel, broadcast } = require("../../ws-bridge");
+          const assetUpdateEvent = {
+            type: "assets_updated",
+            source: "cloud_discovery",
+            provider,
+            connectionId,
+            organizationId,
+            tenantId,
+            newAssets: discoveryJob.newAssets || 0,
+            updatedAssets: discoveryJob.updatedAssets || 0,
+            totalAssets: discoveryJob.totalAssets || 0,
+            timestamp: new Date().toISOString(),
+          };
+          // Broadcast to organization-specific channel for multi-tenant isolation
+          broadcastToChannel(`assets:${organizationId}`, assetUpdateEvent);
+          // Also broadcast globally for clients that haven't subscribed to specific channels
+          broadcast(assetUpdateEvent);
+          console.log(`[CloudDiscovery] Broadcasted assets_updated event for ${discoveryJob.newAssets} new assets`);
         } catch {
           // WebSocket broadcast is best-effort
         }

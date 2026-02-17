@@ -34,11 +34,9 @@ function emitAssessmentProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `assessment:${tenantId}:${organizationId}:${assessmentId}`;
-    wsService.broadcastToChannel(channel, {
+    broadcastToChannel(channel, {
       type: "assessment_progress",
       assessmentId,
       phase: event.phase || "processing",

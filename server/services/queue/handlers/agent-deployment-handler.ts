@@ -40,11 +40,9 @@ function emitDeploymentProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `deployment:${tenantId}:${organizationId}:${deploymentId}`;
-    wsService.broadcastToChannel(channel, {
+    broadcastToChannel(channel, {
       type: "deployment_progress",
       deploymentId,
       phase: event.phase || "processing",

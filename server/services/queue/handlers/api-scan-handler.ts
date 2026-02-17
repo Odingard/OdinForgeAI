@@ -55,11 +55,9 @@ function emitApiScanProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `api_scan:${tenantId}:${organizationId}:${scanId}`;
-    wsService.broadcastToChannel(channel, {
+    broadcastToChannel(channel, {
       type: "api_scan_progress",
       scanId,
       phase: event.phase || "processing",

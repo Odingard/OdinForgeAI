@@ -33,11 +33,9 @@ function emitReportProgress(
   }
 
   try {
-    const { wsService } = require("../../websocket");
-    if (!wsService) return;
-    
+    const { broadcastToChannel } = require("../../ws-bridge");
     const channel = `report:${tenantId}:${organizationId}:${reportId}`;
-    wsService.broadcastToChannel(channel, {
+    broadcastToChannel(channel, {
       type: "recon_progress",
       scanId: reportId,
       phase: event.phase === "complete" ? "complete" : event.phase === "error" ? "error" : "http",
