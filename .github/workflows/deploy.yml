@@ -149,7 +149,7 @@ jobs:
           script: |
             cd /opt/odinforge
             docker compose -f docker-compose.prod.yml pull app
-            docker compose -f docker-compose.prod.yml up -d --no-deps app
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps app
             docker image prune -f
 
       - name: Run database migrations

@@ -20,7 +20,7 @@ services:
         condition: service_healthy
 
   app:
-    image: ${APP_IMAGE:-ghcr.io/odinforge/odinforge-ai:latest}
+    image: ${APP_IMAGE:-ghcr.io/odingard/odinforgeai:latest}
     build:
       context: .
       dockerfile: Dockerfile
