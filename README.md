@@ -190,7 +190,7 @@ Agents auto-register, begin telemetry collection, and trigger evaluations based 
 | GET | `/api/agents` | List all agents |
 | POST | `/api/agents/:id/commands` | Send command to agent |
 
-See full API reference in [docs/api/reference.md](docs/api/reference.md).
+See full API reference in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
 
 ## Documentation
 
@@ -201,11 +201,11 @@ See full API reference in [docs/api/reference.md](docs/api/reference.md).
 | [Server Configuration](docs/server/configuration.md) | Environment variables and settings |
 | [Production Deployment](docs/server/production.md) | Docker, Kubernetes, cloud deployment |
 | [Agent Installation](docs/agent/INSTALL.md) | Deploy endpoint agents |
-| [API Reference](docs/api/reference.md) | REST API endpoints |
+| [API Reference](docs/API_REFERENCE.md) | REST API endpoints |
 
 ## License
 
-Proprietary - All rights reserved
+Business Source License 1.1 (BSL 1.1) — see [LICENSE](LICENSE) for details. Converts to Apache 2.0 on February 1, 2030.
 
 ## Support
 

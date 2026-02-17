@@ -13,12 +13,11 @@
 3. [Sandbox Operations API](#3-sandbox-operations-api)
 4. [API Fuzzing](#4-api-fuzzing)
 5. [Compliance Mapping API](#5-compliance-mapping-api)
-6. [Tool Integration API](#6-tool-integration-api)
-7. [Cloud Pentesting API](#7-cloud-pentesting-api)
-8. [Protocol Probes API](#8-protocol-probes-api)
-9. [Session Management API](#9-session-management-api)
-10. [Business Logic Testing API](#10-business-logic-testing-api)
-11. [Forensic Analysis API](#11-forensic-analysis-api)
+6. [Cloud Pentesting API](#7-cloud-pentesting-api)
+7. [Protocol Probes API](#8-protocol-probes-api)
+8. [Session Management API](#9-session-management-api)
+9. [Business Logic Testing API](#10-business-logic-testing-api)
+10. [Forensic Analysis API](#11-forensic-analysis-api)
 
 ---
 
@@ -502,74 +501,6 @@ Content-Type: application/json
 ```
 
 ---
-
-## 6. Tool Integration API
-
-Integrate with security tools like Metasploit and Nuclei.
-
-### 6.1 Metasploit Integration
-
-#### List Modules
-```bash
-GET /api/tools/metasploit/modules
-```
-
-#### Execute Module
-```bash
-POST /api/tools/metasploit/execute
-Content-Type: application/json
-
-{
-  "module": "exploit/multi/http/apache_struts_rce",
-  "targetHost": "192.168.1.10",
-  "targetPort": 8080,
-  "options": {
-    "RHOST": "192.168.1.10",
-    "RPORT": 8080
-  },
-  "payloadType": "reverse_tcp"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "sessionId": "msf-session-123",
-  "result": "simulated",
-  "exploitWouldSucceed": true
-}
-```
-
-### 6.2 Nuclei Integration
-
-#### Run Templates
-```bash
-POST /api/tools/nuclei/scan
-Content-Type: application/json
-
-{
-  "targets": ["https://example.com"],
-  "templates": ["cves/", "vulnerabilities/"],
-  "severity": ["critical", "high"]
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "scanId": "nuclei-abc123",
-  "findings": [
-    {
-      "templateId": "CVE-2021-44228",
-      "severity": "critical",
-      "target": "https://example.com",
-      "matched": true
-    }
-  ]
-}
-```
 
 ---
 

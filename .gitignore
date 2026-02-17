@@ -1,14 +1,22 @@
 node_modules
 dist
 .DS_Store
+Thumbs.db
 server/public
 vite.config.ts.*
-*.tar.gz
 
 # Environment and secrets
 .env
 .env.local
 .env.*.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # Runtime data
 data/
@@ -21,3 +29,17 @@ supabase/
 
 # Build artifacts
 *.tsbuildinfo
+*.tar.gz
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Compiled agent binaries (use GitHub Releases instead)
+public/agents/*.exe
+public/agents/odinforge-agent-*
+odinforge-agent/odinforge-agent
+
+# OS files
+Desktop.ini
+ehthumbs.db
