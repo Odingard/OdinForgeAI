@@ -93,13 +93,13 @@ export default function RiskDashboard() {
 
   const filteredEvaluations = evaluationsWithScores
     .filter(e => {
-      if (riskFilter !== "all" && e.intelligentScore?.riskRank.riskLevel !== riskFilter) return false;
-      if (timeframeFilter !== "all" && e.intelligentScore?.riskRank.recommendation.timeframe !== timeframeFilter) return false;
+      if (riskFilter !== "all" && e.intelligentScore?.riskRank?.riskLevel !== riskFilter) return false;
+      if (timeframeFilter !== "all" && e.intelligentScore?.riskRank?.recommendation?.timeframe !== timeframeFilter) return false;
       return true;
     })
     .sort((a, b) => {
-      const aPriority = a.intelligentScore?.riskRank.fixPriority ?? 100;
-      const bPriority = b.intelligentScore?.riskRank.fixPriority ?? 100;
+      const aPriority = a.intelligentScore?.riskRank?.fixPriority ?? 100;
+      const bPriority = b.intelligentScore?.riskRank?.fixPriority ?? 100;
       return aPriority - bPriority;
     });
 
@@ -146,16 +146,16 @@ export default function RiskDashboard() {
   };
 
   const stats = {
-    critical: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank.riskLevel === "critical" || e.intelligentScore?.riskRank.riskLevel === "emergency").length,
-    high: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank.riskLevel === "high").length,
-    medium: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank.riskLevel === "medium").length,
-    low: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank.riskLevel === "low" || e.intelligentScore?.riskRank.riskLevel === "info").length,
+    critical: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank?.riskLevel === "critical" || e.intelligentScore?.riskRank?.riskLevel === "emergency").length,
+    high: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank?.riskLevel === "high").length,
+    medium: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank?.riskLevel === "medium").length,
+    low: evaluationsWithScores.filter(e => e.intelligentScore?.riskRank?.riskLevel === "low" || e.intelligentScore?.riskRank?.riskLevel === "info").length,
     totalExposure: evaluationsWithScores.reduce((sum, e) => {
-      const max = e.intelligentScore?.businessImpact.factors.financialExposure.directLoss.max || 0;
+      const max = e.intelligentScore?.businessImpact?.factors?.financialExposure?.directLoss?.max || 0;
       return sum + max;
     }, 0),
     avgRiskScore: evaluationsWithScores.length > 0
-      ? Math.round(evaluationsWithScores.reduce((sum, e) => sum + (e.intelligentScore?.riskRank.overallScore || 0), 0) / evaluationsWithScores.length)
+      ? Math.round(evaluationsWithScores.reduce((sum, e) => sum + (e.intelligentScore?.riskRank?.overallScore || 0), 0) / evaluationsWithScores.length)
       : 0,
   };
 
@@ -399,9 +399,9 @@ export default function RiskDashboard() {
             <CardContent>
               <RiskMatrixHeatmap
                 items={evaluationsWithScores.map(e => {
-                  const score = e.intelligentScore?.riskRank.overallScore || 50;
-                  const exploitability = e.intelligentScore?.exploitability.score || 50;
-                  const businessImpact = e.intelligentScore?.businessImpact.score || 50;
+                  const score = e.intelligentScore?.riskRank?.overallScore || 50;
+                  const exploitability = e.intelligentScore?.exploitability?.score || 50;
+                  const businessImpact = e.intelligentScore?.businessImpact?.score || 50;
                   const likelihood = Math.min(5, Math.max(1, Math.ceil(exploitability / 20)));
                   const impact = Math.min(5, Math.max(1, Math.ceil(businessImpact / 20)));
                   return {
@@ -410,11 +410,11 @@ export default function RiskDashboard() {
                     likelihood,
                     impact,
                     riskScore: score,
-                    severity: (e.intelligentScore?.riskRank.riskLevel === "critical" || e.intelligentScore?.riskRank.riskLevel === "emergency")
+                    severity: (e.intelligentScore?.riskRank?.riskLevel === "critical" || e.intelligentScore?.riskRank?.riskLevel === "emergency")
                       ? "critical"
-                      : e.intelligentScore?.riskRank.riskLevel === "high"
+                      : e.intelligentScore?.riskRank?.riskLevel === "high"
                       ? "high"
-                      : e.intelligentScore?.riskRank.riskLevel === "medium"
+                      : e.intelligentScore?.riskRank?.riskLevel === "medium"
                       ? "medium"
                       : "low",
                   };
@@ -529,24 +529,24 @@ export default function RiskDashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-sm font-medium text-foreground truncate">{evaluation.assetId}</span>
-                        <Badge className={`text-[10px] py-0 ${getRiskLevelColor(evaluation.intelligentScore?.riskRank.riskLevel || "medium")}`}>
-                          {evaluation.intelligentScore?.riskRank.riskLevel?.toUpperCase()}
+                        <Badge className={`text-[10px] py-0 ${getRiskLevelColor(evaluation.intelligentScore?.riskRank?.riskLevel || "medium")}`}>
+                          {evaluation.intelligentScore?.riskRank?.riskLevel?.toUpperCase()}
                         </Badge>
-                        <Badge className={`text-[10px] py-0 ${getTimeframeColor(evaluation.intelligentScore?.riskRank.recommendation.timeframe || "30_days")}`}>
-                          {getTimeframeLabel(evaluation.intelligentScore?.riskRank.recommendation.timeframe || "30_days")}
+                        <Badge className={`text-[10px] py-0 ${getTimeframeColor(evaluation.intelligentScore?.riskRank?.recommendation?.timeframe || "30_days")}`}>
+                          {getTimeframeLabel(evaluation.intelligentScore?.riskRank?.recommendation?.timeframe || "30_days")}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                        {evaluation.intelligentScore?.riskRank.executiveLabel}
+                        {evaluation.intelligentScore?.riskRank?.executiveLabel}
                       </p>
                     </div>
 
                     <div className="text-right hidden sm:block shrink-0">
                       <div className="font-mono text-sm font-bold text-foreground">
-                        {evaluation.intelligentScore?.riskRank.overallScore}
+                        {evaluation.intelligentScore?.riskRank?.overallScore}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
-                        {formatCurrency(evaluation.intelligentScore?.businessImpact.factors.financialExposure.directLoss.max || 0)}
+                        {formatCurrency(evaluation.intelligentScore?.businessImpact?.factors?.financialExposure?.directLoss?.max || 0)}
                       </div>
                     </div>
 
