@@ -57,6 +57,7 @@ const CompareShannon = lazy(() => import("@/pages/CompareShannon"));
 const ComparePentera = lazy(() => import("@/pages/ComparePentera"));
 const CompareNodeZero = lazy(() => import("@/pages/CompareNodeZero"));
 const CompareAttackIQ = lazy(() => import("@/pages/CompareAttackIQ"));
+const DemoBreachChain = lazy(() => import("@/pages/DemoBreachChain"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
@@ -250,7 +251,7 @@ function AuthenticatedApp() {
   }, []);
 
   // Public pages that don't require authentication
-  if (location.startsWith("/compare/")) {
+  if (location.startsWith("/compare/") || location.startsWith("/demo/")) {
     return (
       <Suspense fallback={<PageLoader />}>
         <Switch>
@@ -258,6 +259,7 @@ function AuthenticatedApp() {
           <Route path="/compare/pentera" component={ComparePentera} />
           <Route path="/compare/nodezero" component={CompareNodeZero} />
           <Route path="/compare/attackiq" component={CompareAttackIQ} />
+          <Route path="/demo/breach-chain" component={DemoBreachChain} />
           <Route component={NotFound} />
         </Switch>
       </Suspense>
