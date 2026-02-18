@@ -54,7 +54,7 @@ jobs:
         run: npm ci
 
       - name: Run TypeScript check
-        run: npm run check || true
+        run: npm run check
 
       - name: Build application
         run: npm run build
@@ -79,7 +79,7 @@ jobs:
           cache: "npm"
 
       - name: Run npm audit
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high
 
   build-and-push:
     name: Build & Push Docker Image

@@ -1,0 +1,3 @@
+# Gitleaks ignore file
+# Add fingerprints of known false positives here (one per line)
+# Format: fingerprint:reason

@@ -1,0 +1,51 @@
+name: ESLint Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  eslint-security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint security rules
+        run: npm run lint:security -- --format json --output-file eslint-security.json || true
+
+      - name: Check for critical findings
+        run: |
+          node -e "
+          const fs = require('fs');
+          if (!fs.existsSync('eslint-security.json')) process.exit(0);
+          const results = JSON.parse(fs.readFileSync('eslint-security.json', 'utf8'));
+          let errors = 0;
+          for (const file of results) {
+            errors += file.errorCount;
+          }
+          console.log('ESLint security errors:', errors);
+          if (errors > 0) {
+            console.log('::warning::ESLint security plugin found', errors, 'error(s)');
+          }
+          "
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eslint-security-results
+          path: eslint-security.json
+          if-no-files-found: ignore
