@@ -281,7 +281,7 @@ async function runPipeline(
         })
       ),
       () => ({ success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 }),
-      30_000
+      120_000
     ),
     withCircuitBreaker(
       "openai",

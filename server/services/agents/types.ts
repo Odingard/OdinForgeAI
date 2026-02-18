@@ -32,9 +32,30 @@ export interface ExploitFindings {
     technique: string;
     description: string;
     success_likelihood: "high" | "medium" | "low";
+    /** Tool-call-backed fields — only present when agentic exploit agent validates */
+    validated?: boolean;
+    validationVerdict?: "confirmed" | "likely" | "theoretical" | "false_positive";
+    validationConfidence?: number;
+    evidence?: Array<{
+      toolName: string;
+      summary: string;
+      request?: string;
+      response?: string;
+      timing?: number;
+    }>;
   }>;
   cveReferences: string[];
   misconfigurations: string[];
+  /** Aggregate tool call log from agentic exploit loop */
+  toolCallLog?: Array<{
+    turn: number;
+    toolName: string;
+    arguments: Record<string, unknown>;
+    resultSummary: string;
+    vulnerable: boolean;
+    confidence: number;
+    executionTimeMs: number;
+  }>;
 }
 
 export interface LateralShadowAdminIndicator {
