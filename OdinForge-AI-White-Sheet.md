@@ -4,7 +4,7 @@
 
 ---
 
-**White Paper | February 2026**
+**Executive White Paper | February 2026**
 
 ---
 
@@ -12,9 +12,9 @@
 
 Organizations today face an unprecedented volume of security alerts, vulnerability findings, and compliance requirements. Traditional vulnerability scanners identify thousands of potential issues but cannot answer the most critical question a security leader needs answered: **"Can an attacker actually exploit this, and what would happen if they did?"**
 
-OdinForge AI is an autonomous adversarial exposure validation platform that closes this gap. By combining multi-agent artificial intelligence, breach chain simulation, and continuous posture assessment, OdinForge moves beyond theoretical vulnerability identification to deliver validated, contextual, and business-impact-quantified security intelligence.
+OdinForge AI is an autonomous adversarial exposure validation platform that closes this gap. By combining multi-agent artificial intelligence with real security validation tooling, breach chain simulation, and continuous posture assessment, OdinForge moves beyond theoretical vulnerability identification to deliver validated, evidence-backed, and business-impact-quantified security intelligence.
 
-The platform operates across the full spectrum of offensive and defensive security — performing reconnaissance, exploit validation, lateral movement analysis, privilege escalation simulation, and business impact assessment — all orchestrated by specialized AI agents and governed by human-in-the-loop safety controls.
+The platform operates across the full spectrum of offensive and defensive security — performing reconnaissance, exploit validation, lateral movement analysis, privilege escalation simulation, and business impact assessment — all orchestrated by specialized AI agents that invoke real security tools and governed by human-in-the-loop safety controls.
 
 ---
 
@@ -44,7 +44,20 @@ OdinForge AI addresses these challenges through four core capabilities:
 
 ### 1. Adversarial Exposure Validation (AEV)
 
-Rather than simply scanning for known vulnerabilities, OdinForge validates whether findings are actually exploitable in the context of the target environment. The AEV engine employs six specialized AI agents — each responsible for a distinct phase of the assessment — working in parallel to evaluate targets across web applications, APIs, cloud infrastructure, containers, and network services.
+Rather than simply scanning for known vulnerabilities, OdinForge validates whether findings are actually exploitable in the context of the target environment. The AEV engine employs **eight specialized AI agents** — each responsible for a distinct phase of the assessment — working in tiered parallel execution to evaluate targets across web applications, APIs, cloud infrastructure, containers, and network services.
+
+The exploit agent is **fully agentic**: it operates through a multi-turn tool-calling loop of up to 12 reasoning turns, during which it invokes real security validation tools against the target. Six purpose-built tools are available to the agent:
+
+- **Vulnerability Validation** — Sends real payloads to test for SQL injection, cross-site scripting, server-side request forgery, command injection, path traversal, and authentication bypass, returning actual HTTP request/response evidence
+- **API Fuzzing** — Probes API endpoints with structured and malformed inputs to surface unexpected behaviors, injection points, and error-disclosure weaknesses
+- **HTTP Fingerprinting** — Identifies server technologies, frameworks, middleware, and version information from response headers and behavioral signatures
+- **Port Scanning** — Discovers open services and their versions across the target's network surface
+- **SSL/TLS Analysis** — Evaluates transport security configuration, certificate validity, cipher strength, and protocol support with grade estimation
+- **Protocol Probes** — Tests non-HTTP services including SMTP, DNS, LDAP, and credential endpoints for misconfigurations and information disclosure
+
+The agent reasons about what to test, selects the appropriate tools, interprets the results, and iterates — exactly as a skilled penetration tester would. Tool results include actual HTTP request and response evidence, not AI-generated speculation. Each finding can carry a `validated: true` status with a validation verdict (confirmed, likely, theoretical, or false positive) and a confidence percentage derived from observed evidence.
+
+**This is the platform's key differentiator**: the AI does not merely hypothesize about vulnerabilities. It reasons about what to test, executes real probes, observes actual responses, and produces findings backed by verifiable evidence.
 
 Each evaluation produces a validated verdict (exploitable or safe), a confidence score, and a business-impact-quantified risk ranking that considers financial exposure, compliance framework implications, and operational consequence.
 
@@ -84,17 +97,39 @@ OdinForge maintains a living security posture score that evolves with each evalu
 
 ---
 
+## Model-Agnostic AI Architecture
+
+OdinForge AI is not locked to any single AI provider. The platform supports multiple large language model providers and can be configured per deployment to match organizational requirements, security policies, or procurement constraints.
+
+### Supported Providers
+
+- **OpenAI** — GPT-4o and related models for high-throughput agent reasoning
+- **Anthropic** — Claude for nuanced analysis and extended-context evaluation
+- **Google** — Gemini models via OpenRouter for additional coverage and diversity
+
+### Alloy Rotation
+
+OdinForge employs a technique called **alloy rotation**: the platform alternates between AI models on a per-turn basis within a single evaluation conversation. When the exploit agent enters its multi-turn tool-calling loop, successive reasoning turns may be handled by different models. This approach yields measurable benefits:
+
+- **Exploit diversity** — Different models exhibit different reasoning biases. Rotating models within a single evaluation surfaces exploit paths that any single model might overlook.
+- **Single-vendor risk elimination** — No provider outage or rate limit can halt operations. If one provider degrades, the platform continues with available alternatives.
+- **Improved false positive filtering** — Cross-model consensus on findings increases confidence in validated results and reduces noise.
+
+Model selection is configurable at the deployment level, allowing organizations to restrict providers based on data residency, compliance, or contractual requirements.
+
+---
+
 ## Platform Capabilities
 
 ### Assessment Configuration
 
 OdinForge supports three execution modes that balance thoroughness with operational safety:
 
-| Mode | Description | Governance |
-|------|-------------|------------|
-| **Safe** | Read-only reconnaissance with no payloads or exploitation | No approval required |
-| **Simulation** | Safe payloads against targets without actual exploitation | No approval required |
-| **Live** | Full exploitation with real payloads against production systems | Requires human-in-the-loop approval |
+| Mode | Description | Tools Available | Governance |
+|------|-------------|-----------------|------------|
+| **Safe** | Passive reconnaissance and analysis only. No exploitation payloads are sent. | HTTP fingerprinting, port scanning, SSL/TLS analysis, protocol probes. The exploit agent can reason and observe but cannot invoke vulnerability validation or API fuzzing. | No approval required |
+| **Simulation** | Safe payloads with enforced payload limits. Real validation with HTTP evidence. | All six tools available. Vulnerability validation and API fuzzing operate with constrained payloads designed to prove exploitability without causing damage. | No approval required |
+| **Live** | Full exploitation with unrestricted payloads. Pentest-grade evidence collection. | All six tools available with no payload restrictions. Produces exploitation artifacts suitable for compliance audits and penetration test deliverables. | Requires human-in-the-loop approval |
 
 Assessments can be launched as infrastructure-wide posture scans, targeted breach chain simulations, or comprehensive evaluations that combine both approaches. The assessment wizard guides operators through target selection, scope definition, configuration, and launch.
 
@@ -197,14 +232,19 @@ Permissions are enforced at the API level. Multi-tenant isolation is achieved th
 
 ## Architecture
 
-OdinForge is built on a modern, scalable architecture:
+OdinForge is built on a modern, scalable architecture designed for operational resilience and security rigor:
 
-- **Multi-Agent AI Engine** — Six specialized security agents (Reconnaissance, Exploitation, Lateral Movement, Business Logic, Multi-Vector, and Impact Assessment) orchestrated in tiered parallel execution with circuit breaker protection against provider failures
+- **Decoupled App and Worker Containers** — The API server and background job processor run as separate containers sharing the same database, Redis, and object storage. The worker processes all long-running operations (evaluations, breach chains, scans, reports) while the app handles API requests and WebSocket connections. This separation enables independent scaling and ensures that compute-intensive security operations never degrade API responsiveness.
+- **Model-Agnostic AI with Alloy Rotation** — Eight specialized security agents (Reconnaissance, Exploitation, Lateral Movement, Business Logic, Multi-Vector, Impact Assessment, Credential Analysis, and Container Security) orchestrated in tiered parallel execution with circuit breaker protection against provider failures. Multi-model support with per-turn model selection across OpenAI, Anthropic, and Google providers.
+- **Real Validation Engines** — Six purpose-built security tools invoked by the agentic exploit agent: vulnerability validation (SQL injection, XSS, SSRF, command injection, path traversal, authentication bypass) with HTTP request/response evidence, API fuzzing, HTTP fingerprinting, port scanning, SSL/TLS analysis, and protocol probes (SMTP, DNS, LDAP, credentials). Findings carry validation verdicts and confidence percentages derived from observed evidence.
+- **Adversarial Debate Module** — Attacker-versus-defender AI discourse for confidence calibration. Competing agent perspectives challenge findings from opposing viewpoints, reducing false positives and strengthening validated results.
+- **Noise Reduction Pipeline** — Multi-layer false positive filtering that combines cross-model consensus, evidence-based validation, and adversarial debate to ensure that only substantiated findings reach the final report.
 - **Real-Time Event System** — WebSocket-based live updates for evaluation progress, scan results, and system events
 - **Background Job Orchestration** — Priority-based queue system supporting 13 job types with automatic retry, exponential backoff, and concurrent execution
 - **Cloud-Native Storage** — S3-compatible object storage for evidence artifacts and report files
 - **Relational Database** — PostgreSQL with row-level security for multi-tenant data isolation
 - **Vector Embeddings** — pgvector support for AI-powered similarity search and knowledge retrieval
+- **17 CI/CD Workflows** — Comprehensive pipeline coverage including SAST (CodeQL, Semgrep, ESLint security), DAST (ZAP authenticated scanning, API fuzzing), supply chain security (Dependabot, npm audit, SBOM generation), container scanning (Trivy), secret detection (Gitleaks), and automated deployment
 
 The platform supports deployment across cloud, on-premise, and hybrid environments with horizontal scaling for enterprise workloads.
 
@@ -245,7 +285,7 @@ Visibility into all background operations with real-time progress tracking, prio
 
 ## Summary
 
-OdinForge AI transforms security testing from periodic, manual, finding-list-oriented assessments into continuous, autonomous, business-impact-quantified adversarial validation. By combining multi-agent AI, breach chain simulation, intelligent risk prioritization, and closed-loop purple team feedback — all governed by human-in-the-loop safety controls — the platform enables security teams to focus their limited resources on the exposures that matter most.
+OdinForge AI transforms security testing from periodic, manual, finding-list-oriented assessments into continuous, autonomous, evidence-backed adversarial validation. Its agentic exploit engine does not speculate about vulnerabilities — it reasons about what to test, invokes real security tools, observes actual responses, and produces findings with verifiable proof. Combined with model-agnostic AI architecture, breach chain simulation, intelligent risk prioritization, and closed-loop purple team feedback — all governed by human-in-the-loop safety controls — the platform enables security teams to focus their limited resources on the exposures that matter most.
 
 ---
 

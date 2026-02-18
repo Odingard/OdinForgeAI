@@ -59,8 +59,8 @@ For a capabilities overview and business context, refer to the companion Executi
                     ┌────────┘   ┌──┘   ┌──┘   ┌──┘
                     ▼            ▼      ▼      ▼
               ┌──────────┐ ┌────────┐ ┌─────┐ ┌──────────┐
-              │PostgreSQL│ │ Redis  │ │ S3  │ │ OpenAI   │
-              │ + RLS    │ │(Queue) │ │Store│ │ API      │
+              │PostgreSQL│ │ Redis  │ │ S3  │ │ LLM      │
+              │ + RLS    │ │(Queue) │ │Store│ │ Providers│
               └──────────┘ └────────┘ └─────┘ └──────────┘
 ```
 
@@ -77,8 +77,8 @@ For a capabilities overview and business context, refer to the companion Executi
 | **Database** | PostgreSQL | Relational storage with row-level security |
 | **Vector Store** | pgvector (1536 dimensions) | AI embedding storage for similarity search |
 | **Queue** | BullMQ on Redis | Persistent job queue with priority scheduling |
-| **Object Storage** | S3-compatible | Evidence artifacts, report files |
-| **AI Provider** | OpenAI API | Narrative generation, agent reasoning |
+| **Object Storage** | S3-compatible (MinIO) | Evidence artifacts, report files |
+| **AI Providers** | OpenAI API, OpenRouter gateway | Agent reasoning, narrative generation, multi-model routing |
 | **Real-Time** | Native WebSocket | Live progress events, status broadcasts |
 
 ### Request Lifecycle
@@ -98,16 +98,18 @@ For a capabilities overview and business context, refer to the companion Executi
 
 ### Agent Architecture
 
-OdinForge employs six specialized AI agents, each responsible for a distinct analysis domain:
+OdinForge employs eight specialized agents, each responsible for a distinct analysis domain:
 
 | Agent | Domain | Responsibility |
 |-------|--------|----------------|
 | **Recon Agent** | Discovery | Asset enumeration, attack surface mapping, technology fingerprinting |
-| **Exploit Agent** | Validation | Exploit construction, payload generation, vulnerability confirmation |
+| **Exploit Agent** | Validation | Multi-turn exploit construction, tool-backed vulnerability confirmation |
 | **Lateral Agent** | Movement | Pivot path discovery, credential reuse analysis, network traversal |
 | **Business Logic Agent** | Application | IDOR, mass assignment, workflow abuse, payment flow manipulation |
 | **Multi-Vector Agent** | Synthesis | Cross-domain attack path construction, chained exploit assembly |
 | **Impact Agent** | Consequence | Financial exposure calculation, compliance mapping, operational impact |
+| **Debate Module** | Adversarial Review | Cross-agent challenge and validation of findings, false positive reduction |
+| **Noise Reduction Agent** | Signal Refinement | Multi-layer filtering of agent output to remove false positives and duplicates |
 
 ### Tiered Parallel Execution
 
@@ -121,9 +123,159 @@ Tier 2 (Parallel):  Exploit Agent  +  Lateral Agent
                           │                   │
                           ▼                   ▼
 Tier 3 (Parallel):  Multi-Vector Agent  +  Impact Agent
+                          │                   │
+                          ▼                   ▼
+Tier 4 (Sequential):  Debate Module → Noise Reduction
 ```
 
-This design ensures that discovery-phase agents complete before exploitation agents begin, while agents within the same tier run concurrently for throughput. Each tier receives the accumulated context from all preceding tiers.
+This design ensures that discovery-phase agents complete before exploitation agents begin, while agents within the same tier run concurrently for throughput. Each tier receives the accumulated context from all preceding tiers. The Debate Module cross-examines findings from Tiers 1-3, and the Noise Reduction Agent applies final signal filtering before results are persisted.
+
+### Agentic Exploit Agent
+
+The exploit agent is the most technically sophisticated component in the pipeline. Unlike the other agents, which perform single-turn LLM inference, the exploit agent operates as a **multi-turn tool-calling loop** — an autonomous reasoning system that iteratively investigates targets using real security tooling.
+
+#### Multi-Turn Reasoning Loop
+
+The exploit agent executes up to **12 reasoning turns** within a **110-second soft timeout** (bounded by a 120-second circuit breaker). On each turn, the agent:
+
+1. Receives the accumulated conversation thread (system prompt, prior tool calls, prior tool results)
+2. Reasons about what it has learned so far
+3. Decides whether to invoke a tool, report a finding, or conclude
+4. If a tool call is selected, the platform executes the tool, captures evidence, and feeds the result back as the next turn
+
+This loop continues until the agent explicitly signals completion, exhausts its turn budget, or hits the timeout. The result is a depth of analysis impossible with single-shot inference — the agent can probe a target, analyze the response, adjust its approach, and probe again.
+
+#### Security Tool Suite
+
+Six real security tools are available to the exploit agent via OpenAI function-calling format:
+
+| Tool | Capability | Mode Requirement |
+|------|-----------|-----------------|
+| `validate_vulnerability` | Tests SQLi, XSS, SSRF, command injection, path traversal, and auth bypass using real HTTP payloads against the target | simulation+ |
+| `fuzz_endpoint` | Smart API fuzzing with type mutation, boundary value injection, encoding tricks, and response differential analysis | simulation+ |
+| `http_fingerprint` | Technology stack detection, security header audit, authentication surface enumeration, and server identity analysis | all modes |
+| `port_scan` | TCP port scanning with service identification, banner grabbing, and version detection | all modes |
+| `check_ssl_tls` | Certificate chain validation, protocol version analysis, cipher suite enumeration, and known vulnerability detection | all modes |
+| `run_protocol_probe` | SMTP open relay testing, DNS zone transfer, LDAP enumeration, and credential brute-force probing | all modes (credential sub-type requires simulation+) |
+
+#### Execution Mode Gating
+
+Tool availability is governed by the evaluation's execution mode:
+
+- **Safe mode** — Only passive, non-intrusive tools are permitted (`http_fingerprint`, `port_scan`, `check_ssl_tls`, `run_protocol_probe` without credential testing). The agent reasons about potential vulnerabilities but cannot send exploit payloads.
+- **Simulation mode** — Full tool suite is available. Active testing tools (`validate_vulnerability`, `fuzz_endpoint`, credential probing) are unlocked. The agent can construct and send real payloads to validate vulnerabilities.
+- **Live mode** — Same tool access as simulation, with additional logging and HITL approval gating for high-risk operations.
+
+If the agent attempts to call a tool that is not permitted in the current mode, the call is blocked and the agent receives an error message explaining the restriction, allowing it to adjust its strategy.
+
+#### Evidence Collection
+
+Every tool invocation produces a `ToolCallEvidence` record containing:
+
+- **Tool name and arguments** — Exactly what was called and with what parameters
+- **Raw request** — The HTTP request, TCP connection, or protocol command sent
+- **Raw response** — The full response received from the target
+- **Confidence score** — The tool's assessment of whether the result confirms a vulnerability
+- **Execution time** — Wall-clock duration of the tool call
+- **Timestamp** — UTC time of invocation
+
+#### Finding Enrichment
+
+When the exploit agent's tool calls produce evidence of a vulnerability, the resulting finding is enriched beyond what pure LLM reasoning can provide:
+
+- `validated: true` — The finding is backed by tool-call evidence, not just LLM inference
+- `validationVerdict` — One of `confirmed` (definitive proof), `likely` (strong indicators), `theoretical` (plausible but unverified), or `false_positive` (disproven by testing)
+- `validationConfidence` — Numeric confidence (0-1) derived from tool results
+- `evidence[]` — Array of `ToolCallEvidence` records attached to the finding
+
+The `toolCallLog` on each evaluation captures the full audit trail of every tool invocation — including tools that returned negative results — providing complete forensic traceability of what the agent tested and what it found.
+
+### Model Router and Alloy Rotation
+
+The platform is not locked to a single LLM provider. A model-agnostic routing layer (`ModelRouter` class) abstracts provider-specific API differences and enables flexible model selection.
+
+#### Supported Providers
+
+- **OpenAI Direct** — GPT-4o and other OpenAI models via the native API
+- **OpenRouter Gateway** — Access to Claude Sonnet, Gemini, Llama, and other models through a unified API gateway
+
+#### Routing Strategies
+
+Three routing strategies control which model handles each agent turn:
+
+| Strategy | Behavior |
+|----------|----------|
+| `single` | All turns use a single model (default: GPT-4o). Predictable, consistent reasoning. |
+| `round_robin` | Models rotate in order across turns. Even distribution of reasoning load. |
+| `weighted_random` | Models are selected probabilistically per-turn based on configured weights. This is the **alloy** mode. |
+
+#### Alloy Mode
+
+Alloy is the most distinctive strategy. When enabled, each turn within a single agent conversation may be handled by a different model. The message thread remains fully consistent — each model receives the complete conversation history — but the models themselves do not know they are being rotated.
+
+The rationale is **exploit diversity**: different models have different reasoning biases, training data, and vulnerability knowledge. By blending models within a single evaluation, the exploit agent generates a wider range of attack hypotheses than any single model would produce alone.
+
+Configuration is via environment variables:
+
+```
+EXPLOIT_AGENT_ALLOY=true
+EXPLOIT_AGENT_MODELS=openai:gpt-4o:0.4,openrouter:anthropic/claude-sonnet-4:0.4,openrouter:google/gemini-2.5-pro:0.2
+```
+
+The format is `provider:model:weight`, where weights are normalized to sum to 1.0. The example above routes 40% of turns to GPT-4o, 40% to Claude Sonnet, and 20% to Gemini Pro.
+
+### Ground-Truth Data Injection
+
+A persistent challenge in AI-driven security analysis is hallucination — the LLM inventing vulnerabilities that do not exist. OdinForge mitigates this by injecting verified ground-truth data from real scans into the agent context before reasoning begins.
+
+#### Scan Data Loader
+
+The `scan-data-loader.ts` module bridges the gap between stored scan results and agent input. Before an evaluation starts, the loader queries the database for completed scan results associated with the target asset and constructs a structured context payload.
+
+#### Data Sources
+
+| Ground Truth Type | Source | Data Injected |
+|-------------------|--------|---------------|
+| **Network** | Network scan results | Open ports, services, versions, banners, known CVEs from banner matching |
+| **Recon** | External recon results | SSL/TLS configuration, HTTP fingerprint, technology stack, security headers |
+| **Auth Surface** | Auth scan results | Login endpoints, OAuth flows, MFA presence, password policies, session handling |
+
+#### Impact on Agent Behavior
+
+When ground-truth data is present, agents receive verified facts rather than relying on LLM speculation. The recon agent can skip re-discovering what is already known. The exploit agent can immediately target confirmed open ports and known service versions rather than guessing. The impact agent can reference real certificate expiry dates and missing headers rather than hypothesizing.
+
+This significantly reduces false positives and improves the specificity of findings, because agents are reasoning over real observations rather than generating plausible-but-unverified scenarios.
+
+### Noise Reduction Pipeline
+
+After all agents complete their analysis, the combined findings pass through a multi-layer noise reduction pipeline before being persisted as final results.
+
+#### Filtering Layers
+
+| Layer | Purpose | Criteria |
+|-------|---------|----------|
+| **Reachability** | Eliminates findings for targets that are not network-reachable | Checks against ground-truth port scan and HTTP fingerprint data |
+| **Exploitability** | Downgrades or removes findings with no plausible exploitation path | Evaluates whether the finding has a concrete attack vector vs. purely theoretical risk |
+| **Environmental Context** | Adjusts findings based on deployment context | Considers WAF presence, CDN protection, authentication requirements, network segmentation |
+| **Deduplication** | Merges semantically equivalent findings | Groups findings by vulnerability class, target, and vector; retains the highest-confidence instance |
+
+#### Output
+
+The pipeline produces `NoiseReductionStats` documenting the before and after finding counts at each layer:
+
+```
+{
+  "initial": 47,
+  "afterReachability": 38,
+  "afterExploitability": 29,
+  "afterEnvironmental": 24,
+  "afterDeduplication": 19,
+  "removed": 28,
+  "removalRate": "59.6%"
+}
+```
+
+This transparency ensures that security teams can understand exactly how many findings were filtered and why, and can audit the pipeline's decisions.
 
 ### Circuit Breaker Protection
 
@@ -137,7 +289,16 @@ This prevents cascading failures when an AI provider experiences degradation. Th
 
 ### Agent Timeout Policy
 
-Each agent call enforces a 30-second timeout. Combined with the circuit breaker's 2-failure threshold, the maximum wasted time on a degraded provider is 60 seconds before fail-fast behavior activates.
+Agent timeouts are differentiated by role:
+
+| Agent | Timeout | Rationale |
+|-------|---------|-----------|
+| **Exploit Agent** | 120 seconds | Multi-turn tool-calling loop with up to 12 reasoning turns and real network I/O requires extended time |
+| **All other agents** | 30 seconds | Single-turn inference completes well within this bound |
+
+The exploit agent's 110-second soft timeout (for the reasoning loop itself) operates within the 120-second hard circuit breaker. If the soft timeout is reached mid-turn, the agent gracefully terminates and returns whatever findings it has accumulated. If the hard timeout is reached, the circuit breaker forces termination.
+
+Tier 2 wall-clock time is bounded by the exploit agent at 120 seconds in the worst case, since the lateral agent (its tier partner) operates within the standard 30-second timeout.
 
 ---
 
@@ -330,23 +491,28 @@ The external recon engine operates without agent deployment, gathering intellige
 
 | Module | Data Produced |
 |--------|--------------|
-| **Port Scan** | Open ports, service identification, banner grabbing |
-| **SSL/TLS Analysis** | Certificate validity, expiry, TLS version, cipher strength, vulnerabilities |
-| **HTTP Fingerprint** | Server identity, technologies, frameworks, security headers (present/missing) |
-| **Auth Surface Detection** | Login pages, admin panels, OAuth endpoints, password reset, API auth methods |
-| **Transport Security** | Forward secrecy, HSTS, OCSP, downgrade risks, overall grade (A+ through F) |
-| **Infrastructure Discovery** | Hosting/CDN/cloud provider, subdomains, related domains, IP geolocation, ASN, SPF/DMARC |
+| **Port Scan** | Open ports, service identification, banner grabbing, version detection |
+| **SSL/TLS Analysis** | Certificate validity, expiry, chain integrity, TLS version, cipher strength, known vulnerabilities (BEAST, POODLE, Heartbleed) |
+| **HTTP Fingerprint** | Server identity, technologies, frameworks, security headers (present/missing/misconfigured), response behavior analysis |
+| **Auth Surface Detection** | Login pages, admin panels, OAuth endpoints, password reset flows, API auth methods, MFA presence |
+| **Transport Security** | Forward secrecy, HSTS, OCSP stapling, downgrade risks, overall grade (A+ through F) |
+| **Infrastructure Discovery** | CDN detection, cloud provider identification, subdomain enumeration, shadow asset discovery, related domains, IP geolocation, ASN and organization lookup |
 | **Attack Readiness** | Composite exposure score (0-100), category breakdown, prioritized next actions with MITRE mapping |
 
-### OSINT Integration
+### OSINT and DNS Intelligence
 
-Infrastructure discovery includes:
+Infrastructure discovery and DNS intelligence includes:
+
 - DNS enumeration across A, AAAA, MX, TXT, NS, and CNAME record types
+- **SPF record analysis** — Identifying permissive sender policies that enable email spoofing
+- **DMARC policy evaluation** — Detecting missing, permissive, or misconfigured DMARC records
+- **MX enumeration** — Mail server discovery and relay configuration analysis
 - Reverse DNS lookups
 - Subdomain and related domain discovery
 - Historical DNS record analysis
 - IP geolocation with ASN and organization lookup
-- Shadow asset identification
+- Shadow asset identification — Discovering forgotten, unmonitored, or undocumented infrastructure tied to the organization
+- CDN and cloud provider fingerprinting — Identifying Cloudflare, AWS CloudFront, Azure CDN, Akamai, and other providers from HTTP headers and DNS patterns
 
 ### AEV Handoff
 
@@ -423,12 +589,12 @@ OdinForge uses BullMQ backed by Redis for persistent, priority-based job process
 
 ### Job Types
 
-The system supports 13 distinct job types:
+The system supports 14 distinct job types:
 
 | Category | Job Types |
 |----------|-----------|
 | **Assessment** | Evaluation, Full Assessment, Exploit Validation |
-| **Simulation** | AI Simulation |
+| **Simulation** | AI Simulation, Breach Chain |
 | **Scanning** | Network Scan, External Recon, API Scan, Auth Scan, Protocol Probe |
 | **Infrastructure** | Cloud Discovery, Agent Deployment |
 | **Output** | Report Generation |
@@ -473,6 +639,8 @@ Client                    Server                    Database
 
 ### Role Hierarchy
 
+Eight roles govern access across the platform:
+
 ```
 Platform Super Admin (all permissions, cross-tenant)
   └── Organization Owner (all org permissions)
@@ -482,8 +650,7 @@ Platform Super Admin (all permissions, cross-tenant)
         │     └── Compliance Officer (GRC-focused)
         └── Executive Viewer (dashboards + executive reports only)
 
-Automation Account (API-only, no UI access)
-Endpoint Agent (system identity, telemetry submission only)
+Automation Account (API-only, no UI access, CI/CD integration)
 ```
 
 ### Permission Model
@@ -718,6 +885,109 @@ The Automation Account role provides API-only access for pipeline integration:
 | **Cloud SaaS** | Multi-tenant hosted deployment with RLS isolation |
 | **On-Premise** | Single-tenant deployment behind corporate firewall |
 | **Hybrid** | Cloud management plane with on-premise agents |
+
+### Decoupled App and Worker Architecture
+
+Production deployments run as two separate containers with shared infrastructure:
+
+```
+                    ┌──────────┐
+                    │  Caddy   │  ← TLS termination, reverse proxy
+                    │ (Proxy)  │
+                    └────┬─────┘
+                         │
+              ┌──────────┴──────────┐
+              ▼                     │
+       ┌─────────────┐             │
+       │     App      │             │
+       │ Express API  │             │
+       │ + WebSocket  │             │
+       │ + Frontend   │             │
+       └──────┬───────┘             │
+              │                     │
+         Redis Pub/Sub              │
+              │                     │
+       ┌──────▼───────┐            │
+       │    Worker     │            │
+       │  BullMQ Job   │            │
+       │  Processor    │            │
+       └──────┬───────┘            │
+              │                     │
+    ┌─────────┼─────────────────────┘
+    │         │         │         │
+    ▼         ▼         ▼         ▼
+┌────────┐ ┌───────┐ ┌──────┐ ┌──────┐
+│Postgres│ │ Redis │ │MinIO │ │ LLM  │
+│ + RLS  │ │       │ │(S3)  │ │ APIs │
+└────────┘ └───────┘ └──────┘ └──────┘
+```
+
+**App container** serves the Express API, WebSocket connections, and static frontend assets. It enqueues jobs into BullMQ and listens for progress events via Redis pub/sub to broadcast to connected WebSocket clients.
+
+**Worker container** runs the BullMQ job processor. It executes AI agent pipelines, network scans, report generation, and all other long-running operations. Progress updates are published to Redis pub/sub channels, which the app container subscribes to for real-time client notification.
+
+Both containers share:
+- **PostgreSQL** — With RLS tenant context propagated to worker jobs (the worker sets the same session variables as the app)
+- **Redis** — Job queue (BullMQ) and inter-process communication (pub/sub)
+- **MinIO** — S3-compatible object storage for evidence and report artifacts
+- **LLM APIs** — Shared API keys and model router configuration
+
+The `docker-compose.prod.yml` defines the full stack: Caddy (reverse proxy with automatic TLS), app, worker, PostgreSQL, Redis, and MinIO.
+
+### CI/CD Pipeline
+
+The project maintains 17 GitHub Actions workflows organized across security and deployment concerns:
+
+#### Build and Test
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **CI** | Push, PR | TypeScript compilation, lint, unit tests, build verification |
+| **AEV Smoke Tests** | Push, PR | End-to-end validation of the adversarial exposure pipeline |
+| **Unit Tests** | Push, PR | Isolated test suite execution with coverage reporting |
+
+#### Static Application Security Testing (SAST)
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **CodeQL** | Push, PR, scheduled | GitHub's semantic code analysis for JavaScript/TypeScript vulnerabilities |
+| **Semgrep** | Push, PR | Pattern-based static analysis with custom security rules |
+| **ESLint Security** | Push, PR | Security-focused linting rules (no-eval, no-unsafe-regex, etc.) |
+
+#### Dynamic Application Security Testing (DAST)
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **ZAP Full Scan** | Scheduled, manual | OWASP ZAP authenticated full scan against staging environment |
+| **API Fuzzing** | Scheduled, manual | OpenAPI-driven API endpoint fuzzing |
+
+#### Supply Chain Security
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **npm Audit** | Push, PR | Dependency vulnerability scanning for npm packages |
+| **Dependabot (npm)** | Scheduled | Automated dependency update PRs for npm packages |
+| **Dependabot (Go)** | Scheduled | Automated dependency update PRs for Go modules |
+| **Dependabot (Actions)** | Scheduled | Automated update PRs for GitHub Actions versions |
+| **SBOM Generation** | Release | Software Bill of Materials generation for compliance |
+
+#### Container Security
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **Trivy Scan** | Push, PR | Container image vulnerability scanning |
+
+#### Secrets Detection
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **Gitleaks** | Push, PR | Pre-commit and CI scanning for leaked secrets, keys, and credentials |
+
+#### Deployment
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **Deploy** | Manual, tag | Docker build → push to GHCR → SSH deploy to production → health check verification |
 
 ### Horizontal Scaling Points
 

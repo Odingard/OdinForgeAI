@@ -1,96 +1,222 @@
 # OdinForge AI
 
-**Adversarial Exposure Validation Platform**
+**Autonomous Adversarial Exposure Validation Platform**
 
-OdinForge AI is an enterprise-grade security platform for autonomous exploit validation, multi-domain breach simulation, and continuous attack surface analysis. It goes beyond single-vector scanning by chaining exploits across application, cloud, container, and network domains — proving not just that vulnerabilities exist, but that they lead to full organizational compromise.
+OdinForge AI is an enterprise-grade security platform that combines agentic AI reasoning with real offensive security tooling to autonomously validate exploitability, simulate multi-domain breach chains, and continuously assess organizational security posture. It goes beyond scanning by proving whether vulnerabilities lead to full organizational compromise — with HTTP evidence, not speculation.
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          OdinForge Platform                              │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Frontend (React 18 + TypeScript)       │  API Server (Express)          │
+│  ├─ Dashboard & Risk Analytics          │  ├─ 200+ REST Endpoints        │
+│  ├─ Evaluation Wizard                   │  ├─ WebSocket (Live Events)    │
+│  ├─ Attack Graph Visualization (D3.js)  │  ├─ JWT Auth + 67 Permissions  │
+│  ├─ Breach Chain Monitor (Live WS)      │  ├─ Rate Limiting (Redis)      │
+│  ├─ Purple Team Simulations             │  └─ Multi-Tenant RLS           │
+│  ├─ Cloud/K8s Security Views            │                                │
+│  └─ Executive Reports & Exports         │                                │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Worker (BullMQ)                        │  AI Agent Pipeline             │
+│  ├─ Decoupled Container                 │  ├─ 8 Specialized Agents       │
+│  ├─ 14 Job Types                        │  ├─ Tiered Parallel Execution  │
+│  ├─ Priority Scheduling                 │  ├─ Agentic Tool-Calling Loop  │
+│  ├─ Auto-Retry + Backoff                │  ├─ Model Router (Alloy)       │
+│  └─ Redis Pub/Sub WS Bridge             │  ├─ Adversarial Debate Module  │
+│                                         │  └─ Noise Reduction Pipeline   │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Validation Engines                     │  External Recon                │
+│  ├─ SQLi, XSS, SSRF, Cmd Injection     │  ├─ Port Scanning              │
+│  ├─ Path Traversal, Auth Bypass         │  ├─ SSL/TLS Analysis (A+ → F) │
+│  ├─ API Fuzzing Engine                  │  ├─ HTTP Fingerprinting        │
+│  ├─ Protocol Probes (SMTP/DNS/LDAP)     │  ├─ Auth Surface Detection     │
+│  └─ Credential Testing                  │  └─ Infrastructure Discovery   │
+├──────────────────────────────────────────────────────────────────────────┤
+│  Data Layer                             │  Infrastructure                │
+│  ├─ PostgreSQL 15+ (50+ tables, RLS)    │  ├─ Docker (app + worker)      │
+│  ├─ pgvector (1536-dim embeddings)      │  ├─ Caddy (TLS, reverse proxy) │
+│  ├─ Redis 7+ (queues, cache, pub/sub)   │  ├─ MinIO (S3 storage)         │
+│  └─ Drizzle ORM (type-safe migrations)  │  └─ Go Endpoint Agents         │
+├──────────────────────────────────────────────────────────────────────────┤
+│  AI Providers                           │  Security Services             │
+│  ├─ OpenAI (GPT-4o)                     │  ├─ Policy Guardian (RAG)      │
+│  ├─ OpenRouter (Claude, Gemini, etc.)   │  ├─ HITL Safety Framework      │
+│  └─ Alloy Rotation (per-turn model      │  ├─ Kill Switch + Auto-Kill    │
+│     selection for exploit diversity)     │  └─ Evidence Chain of Custody  │
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Key Features
 
-### Core Platform
-- **AI-Powered Exploit Validation** — Multi-agent AI pipeline (recon, exploit, policy guardian, lateral movement, debate, impact) autonomously validates security exposures
-- **Active Exploit Engine** — Real HTTP payload validation that sends actual exploit payloads against targets (SQLi, XSS, SSRF, path traversal, auth bypass, command injection, IDOR) and analyzes real responses — not just AI simulation
-- **Attack Path Visualization** — MITRE ATT&CK mapped attack graphs with interactive kill chain analysis across 14 tactics
-- **Purple Team Simulations** — AI vs AI attack/defense exercises with iterative adversarial learning, real-time MTTD/MTTR metrics, and SIEM-observed detection data
-- **Endpoint Agents** — Cross-platform Go agents for real-time telemetry, vulnerability scanning, and auto-evaluation triggers
-- **Full Assessment Mode** — Multi-phase penetration testing with web app recon, API scanning, auth testing, exploit validation, and remediation verification
-- **Executive Reporting** — Professional pentest-quality PDF/CSV reports with business impact analysis, compliance mapping, and remediation guidance including breach chain analysis reports
+### Agentic Exploit Validation
+
+The exploit agent uses a **multi-turn tool-calling loop** — not a single LLM prompt. It reasons about attack vectors, invokes real security tools, analyzes results, adapts strategy, and produces findings backed by actual HTTP evidence.
+
+**6 Security Tools Available to the Agent:**
+
+| Tool | Function | Mode Required |
+|------|----------|---------------|
+| `validate_vulnerability` | Test SQLi, XSS, SSRF, command injection, path traversal, auth bypass | Simulation+ |
+| `fuzz_endpoint` | Smart payload fuzzing (type mutation, boundary, encoding, injection) | Simulation+ |
+| `http_fingerprint` | Tech stack, security headers, authentication surface detection | All modes |
+| `port_scan` | TCP port scanning with service identification and banners | All modes |
+| `check_ssl_tls` | Certificate, protocol, cipher suite, and weakness analysis | All modes |
+| `run_protocol_probe` | SMTP relay, DNS misconfig, LDAP anonymous bind, default credentials | All modes |
+
+The agent executes up to 12 reasoning turns, with execution mode gating controlling which tools are available (safe = passive only, simulation/live = full active testing). Findings include `validated: true` with HTTP request/response evidence when tool-confirmed.
+
+### Model-Agnostic AI with Alloy Rotation
+
+The exploit agent supports **multi-model rotation** within a single conversation — alternating between GPT-4o, Claude Sonnet, and Gemini per-turn for exploit diversity. Configurable via environment variables:
+
+- **Single model** (default) — GPT-4o, zero config needed
+- **Round-robin** — Alternate models each turn
+- **Weighted random (alloy)** — Per-turn probabilistic model selection
 
 ### Cross-Domain Breach Orchestrator
-The competitive differentiator. Chains evaluations across security domains with context propagation between phases:
+
+Chains evaluations across security domains with cumulative context propagation:
 
 | Phase | Description | Delegates To |
 |-------|-------------|-------------|
 | **Application Compromise** | Exploits app-layer vulnerabilities (logic flaws, CVEs, API abuse) | Agent Orchestrator Pipeline |
 | **Credential Extraction** | Harvests credentials from compromised applications | Agent Orchestrator (data exfiltration) |
-| **Cloud IAM Escalation** | Escalates privileges via IAM misconfigurations | AWS Pentest Service |
+| **Cloud IAM Escalation** | Escalates privileges via IAM misconfigurations | AWS/Azure/GCP Pentest Services |
 | **Container/K8s Breakout** | Exploits RBAC, secrets, and container escape paths | Kubernetes Pentest Service |
 | **Lateral Movement** | Pivots across network using harvested credentials | Lateral Movement Service |
 | **Impact Assessment** | Aggregates business impact, compliance gaps, and risk scoring | Template-based aggregation |
 
-Each phase passes a `BreachPhaseContext` (credentials, compromised assets, privilege level, attack path steps) to the next. Phase gates ensure logical progression — no cloud escalation without credentials, no K8s breakout without cloud access.
+Each phase passes a `BreachPhaseContext` (credentials, compromised assets, privilege level, attack path steps) to the next. Safety gates enforce execution mode compliance at every phase transition. Features: pause/resume/abort, real-time WebSocket progress, crash recovery via DB persistence.
 
-Features: pause/resume/abort, real-time WebSocket progress, unified cross-domain attack graph, per-phase timeout controls, crash recovery via DB persistence.
+### AI Agent Pipeline
 
-### Breach Chains UI
-Full-featured monitoring interface for cross-domain breach chains:
-- **Chain Creation** — Create breach chains with target URL, asset selection, per-phase toggles, execution mode (sequential/opportunistic), and pause-on-critical configuration
-- **Real-Time Monitoring** — Live WebSocket-driven progress updates with phase timeline visualization and auto-refreshing status cards
-- **Detail View** — 4-tab interface: Overview (metrics + phase timeline), Phase Results (expandable per-phase findings with severity badges), Breach Context (harvested credentials, compromised assets, attack path steps), and Executive Summary
-- **Platform Integration** — Breach chain metrics surface across the Dashboard (stat card with active chain glow), Risk Dashboard (consolidated risk strip), Jobs queue (breach_chain job type filter), and Reports (breach chain analysis report type)
+8 specialized agents orchestrated in tiered parallel execution:
+
+```
+Tier 1 (Parallel, 30s):    Recon Agent  +  Business Logic Agent
+                                │                    │
+                                ▼                    ▼
+Tier 2 (Parallel, 120s):   Exploit Agent  +  Lateral Agent
+                            (agentic loop)
+                                │                    │
+                                ▼                    ▼
+Tier 3 (Parallel, 30s):    Multi-Vector Agent  +  Impact Agent
+                                │                    │
+                                ▼                    ▼
+Synthesis:                  Debate Module → Noise Reduction → Report
+```
+
+- **Recon Agent** — Attack surface mapping, technology fingerprinting, entry point discovery
+- **Exploit Agent** — Multi-turn tool-calling loop with real HTTP validation (12 turns, 110s timeout)
+- **Lateral Agent** — Pivot path discovery, credential reuse analysis, network traversal
+- **Business Logic Agent** — IDOR, mass assignment, workflow abuse, payment flow manipulation, state machine violations
+- **Multi-Vector Agent** — Cross-domain attack path synthesis, chained exploit assembly
+- **Impact Agent** — Financial exposure, compliance mapping, operational consequence modeling
+- **Debate Module** — Adversarial attacker-vs-defender AI discourse for confidence calibration
+- **Noise Reduction** — Multi-layer filter (reachability, exploitability, environmental, deduplication)
 
 ### Active Exploit Engine
-Real HTTP-based exploit validation that goes beyond AI simulation:
-- **Payload Categories** — SQL injection (error-based, union, blind), XSS (reflected, stored, DOM), SSRF (internal network probing), path traversal, authentication bypass, command injection, IDOR
-- **Response Analysis** — Analyzes actual HTTP responses for exploit indicators (error patterns, reflection detection, timing analysis, status code anomalies)
-- **Confidence Scoring** — Multi-signal confidence scoring based on response characteristics, not just AI judgment
-- **Safety Controls** — Respects scope boundaries, rate limits exploit attempts, integrates with Policy Guardian for out-of-scope blocking
-- **Evidence Collection** — Captures full request/response pairs as evidence artifacts for audit and reporting
+
+Real HTTP-based exploit validation beyond AI simulation:
+
+- **Payload Categories** — SQL injection (error/union/blind), XSS (reflected/stored/DOM), SSRF, path traversal, auth bypass, command injection, IDOR
+- **API Fuzzing** — Smart payload generation with type mutation, null injection, boundary values, encoding tricks
+- **Protocol Probes** — SMTP open relay, DNS zone transfer, LDAP anonymous bind, default credential testing
+- **Response Analysis** — Error pattern matching, reflection detection, timing analysis, status code anomalies
+- **Evidence Collection** — Full request/response pairs with confidence scoring and validation verdicts
 
 ### Cloud & Infrastructure Security
+
 - **AWS IAM Privilege Escalation** — 10 real escalation path analyses (CreatePolicyVersion, AssumeRole, PassRole, etc.)
+- **Azure Pentest Service** — Service principal analysis, RBAC misconfigurations, storage exposure
+- **GCP Pentest Service** — IAM bindings, service account key analysis, storage ACLs
 - **Kubernetes RBAC Analysis** — 5 escalation vectors (pod exec, secret access, privilege escalation, host mounting, RBAC manipulation)
 - **Lateral Movement Engine** — Credential reuse testing, pivot point discovery, network segmentation validation
 - **Cloud Asset Discovery** — AWS/Azure/GCP resource enumeration with automatic agent deployment
 
 ### Security & Governance
-- **JWT-Based Authentication** — Role-based access with 67 granular permissions across 8 roles
-- **Multi-Tenancy** — Row-Level Security (RLS) with per-tenant data isolation
-- **Policy Guardian** — RAG-powered policy enforcement that blocks out-of-scope exploit attempts in real-time
-- **Safety Framework** — Human-in-the-loop (HITL) approval for critical operations, safety decisions audit trail
-- **Rate Limiting** — Per-endpoint and per-user rate limiting with Redis-backed sliding windows
 
-## Quick Start
+- **JWT Authentication** — Role-based access with 67 granular permissions across 8 roles
+- **Multi-Tenancy** — Row-Level Security (RLS) with per-tenant data isolation at the database layer
+- **Policy Guardian** — RAG-powered policy enforcement blocking out-of-scope exploits in real-time
+- **Safety Framework** — HITL approval for live operations, kill switch, auto-kill on critical findings
+- **Execution Modes** — safe (passive only), simulation (safe payloads), live (full exploitation with HITL)
+- **Rate Limiting** — Per-endpoint and per-user with Redis-backed sliding windows
+- **Audit Trail** — Every action logged with timestamp, actor, IP, severity; CSV export for compliance
 
-### Prerequisites
-- **Node.js** 20+
-- **PostgreSQL** 15+ (with pgvector extension recommended)
-- **Redis** 7+ (for job queues, rate limiting, caching)
-- **Go** 1.21+ (for building endpoint agents)
-- **OpenAI API Key**
+### Purple Team Simulations
 
-### Deploy the Server
+AI vs AI attack/defense exercises across 5 scenarios (web breach, cloud attack, ransomware, data exfiltration, insider threat) with iterative adversarial learning, real-time MTTD/MTTR metrics, and SIEM-observed detection data.
+
+### Reporting Engine
+
+Dual report generation: V1 template engine (structured, deterministic) and V2 AI narrative engine (consulting-quality prose with financial exposure analysis, 30/60/90-day remediation roadmaps, MITRE ATT&CK mapped attack narratives). Compliance mapping across SOC 2, PCI DSS, HIPAA, GDPR, CCPA, ISO 27001, NIST CSF, and FedRAMP.
+
+## Technology Stack
+
+| Component | Technology |
+|-----------|------------|
+| Frontend | React 18, TypeScript, Vite, TailwindCSS, shadcn/ui, Radix, Recharts, D3.js |
+| Backend | Express.js, TypeScript, WebSocket (ws) |
+| Database | PostgreSQL 15+ with Drizzle ORM, pgvector (1536-dim) |
+| Cache/Queue | Redis 7+, BullMQ (14 job types, priority scheduling) |
+| AI | OpenAI GPT-4o, OpenRouter (Claude, Gemini), model-agnostic routing, alloy rotation |
+| Validation | Validation engine (6 vuln types), API fuzzer, protocol probes (SMTP/DNS/LDAP/creds) |
+| Agents | Go 1.21+ (cross-compiled: linux/mac/windows, amd64/arm64) |
+| Auth | JWT with refresh rotation, 67 permissions, 8 roles, RLS multi-tenancy |
+| Deployment | Docker (app + worker containers), Caddy, MinIO, DigitalOcean |
+| CI/CD | 17 GitHub Actions workflows (SAST, DAST, secret scanning, fuzzing, container scanning) |
+
+## Deployment
+
+### Production Architecture
+
+```
+                    ┌─────────────────┐
+                    │   Caddy Proxy   │  ← TLS termination, HTTP/2
+                    │   (Port 443)    │
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │   App Container │  ← Express API + WebSocket + Frontend
+                    │   (Port 5000)   │
+                    └───┬────┬────┬───┘
+                        │    │    │
+           ┌────────────┼────┼────┼──────────────┐
+           │            │    │    │               │
+  ┌────────▼──────┐ ┌──▼────▼──┐ ┌──▼──────────┐ ┌▼───────────────┐
+  │  PostgreSQL   │ │  Redis   │ │    MinIO     │ │ Worker Container│
+  │  (pgvector)   │ │  (7+)    │ │ (S3 storage) │ │  (BullMQ jobs)  │
+  └───────────────┘ └──────────┘ └──────────────┘ └─────────────────┘
+```
+
+The app and worker run as **separate containers** sharing the same database, Redis, and MinIO. The worker processes all long-running jobs (evaluations, breach chains, scans, reports) via BullMQ, communicating progress back to the app via Redis pub/sub for WebSocket broadcast.
+
+### Quick Start
 
 ```bash
-# Clone and install dependencies
+# Clone and install
 git clone <repository-url>
 cd odinforge
 npm install
 
 # Set up environment
 cp .env.example .env
-# Edit .env with your configuration (DATABASE_URL, OPENAI_API_KEY, SESSION_SECRET, etc.)
+# Edit .env: DATABASE_URL, OPENAI_API_KEY, SESSION_SECRET, JWT_SECRET
 
-# Start infrastructure (PostgreSQL + Redis)
-docker-compose up -d
+# Start infrastructure
+docker-compose up -d   # PostgreSQL + Redis
 
 # Initialize database
 npm run db:push
 
-# Start the server
+# Start development server
 npm run dev
 ```
 
-Server runs at `http://localhost:5000` with WebSocket support on `/ws`.
+Server runs at `http://localhost:5000` with WebSocket on `/ws`.
 
 ### Deploy Agents
 
@@ -104,57 +230,6 @@ curl -sSL https://YOUR_SERVER/api/agents/install.sh | sudo bash
 irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 ```
 
-Agents auto-register, begin telemetry collection, and trigger evaluations based on discovered vulnerabilities.
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        OdinForge Platform                            │
-├──────────────────────────────────────────────────────────────────────┤
-│  Frontend (React + TypeScript)       │  Backend (Express + TypeScript)│
-│  ├─ Dashboard & Risk Analytics       │  ├─ REST API (200+ endpoints) │
-│  ├─ Evaluation Wizard                │  ├─ WebSocket Real-time Events│
-│  ├─ Attack Graph Visualization       │  ├─ AI Agent Pipeline (8 agents)
-│  ├─ Breach Chain Monitor (Live WS)   │  ├─ Breach Orchestrator       │
-│  ├─ Purple Team Simulations          │  ├─ Active Exploit Engine     │
-│  ├─ Cloud/K8s Security Views         │  ├─ Report Generator (PDF/CSV)│
-│  └─ Executive Reports & Exports      │  └─ Job Queue (14 job types)  │
-├──────────────────────────────────────────────────────────────────────┤
-│  PostgreSQL + pgvector               │  OpenAI Integration           │
-│  ├─ 50+ tables with RLS             │  ├─ GPT-4 Multi-Agent Analysis│
-│  ├─ Breach chains & phase results    │  ├─ Attack Path Generation    │
-│  ├─ Evaluations, findings, evidence  │  ├─ Adversarial Debate Module │
-│  └─ Audit logs & compliance          │  └─ Business Impact Narratives│
-├──────────────────────────────────────────────────────────────────────┤
-│  Redis                               │  Endpoint Agents (Go)         │
-│  ├─ Job queues (Bull)                │  ├─ System Telemetry          │
-│  ├─ Rate limiting                    │  ├─ Vulnerability Scanning    │
-│  └─ Session caching                  │  ├─ Container Detection       │
-│                                      │  └─ Auto-Evaluation Triggers  │
-├──────────────────────────────────────────────────────────────────────┤
-│                     Security Services                                │
-│  ├─ AWS IAM Privilege Escalation     ├─ Kubernetes RBAC Analysis     │
-│  ├─ Lateral Movement Engine          ├─ Cloud Asset Discovery        │
-│  ├─ Active Exploit Engine (HTTP)     ├─ Safety Framework (HITL)      │
-│  ├─ Policy Guardian (RAG)            ├─ Multi-Tenant RLS             │
-│  └─ Breach Chain Orchestrator        └─ MTTD/MTTR Metrics Engine     │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-## Technology Stack
-
-| Component | Technology |
-|-----------|------------|
-| Frontend | React 18, TypeScript, TailwindCSS, shadcn/ui, Recharts, D3.js |
-| Backend | Express.js, TypeScript, WebSocket (ws) |
-| Database | PostgreSQL 15+ with Drizzle ORM, pgvector |
-| Cache/Queue | Redis 7+, Bull job queues |
-| AI | OpenAI GPT-4, multi-agent orchestration, adversarial debate |
-| Agents | Go 1.21+ (cross-compiled: linux/mac/windows, amd64/arm64) |
-| Auth | JWT with role-based permissions, refresh token rotation |
-| Security | RLS multi-tenancy, RAG policy enforcement, HITL safety |
-
 ## API Overview
 
 ### Breach Orchestrator
@@ -165,7 +240,6 @@ Agents auto-register, begin telemetry collection, and trigger evaluations based 
 | GET | `/api/breach-chains/:id` | Get chain with full phase results and context |
 | POST | `/api/breach-chains/:id/resume` | Resume a paused chain |
 | POST | `/api/breach-chains/:id/abort` | Abort a running chain |
-| DELETE | `/api/breach-chains/:id` | Delete a breach chain |
 
 ### Evaluations & Assessments
 | Method | Endpoint | Description |
@@ -188,9 +262,22 @@ Agents auto-register, begin telemetry collection, and trigger evaluations based 
 | POST | `/api/agents/register` | Register an endpoint agent |
 | POST | `/api/agents/:id/telemetry` | Submit agent telemetry |
 | GET | `/api/agents` | List all agents |
-| POST | `/api/agents/:id/commands` | Send command to agent |
 
 See full API reference in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
+
+## CI/CD Pipeline
+
+17 automated workflows covering the full security development lifecycle:
+
+| Category | Workflows |
+|----------|-----------|
+| **Build & Test** | CI (Node + Go tests), AEV smoke tests, unit tests |
+| **SAST** | CodeQL, Semgrep, ESLint security plugin |
+| **DAST** | ZAP authenticated full scan, API fuzzing |
+| **Supply Chain** | npm audit, Dependabot (npm + Go + Actions), SBOM generation |
+| **Container** | Trivy container scanning |
+| **Secrets** | Gitleaks secret detection |
+| **Deploy** | Docker build + push to GHCR + SSH deploy + health check |
 
 ## Documentation
 
@@ -202,6 +289,8 @@ See full API reference in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
 | [Production Deployment](docs/server/production.md) | Docker, Kubernetes, cloud deployment |
 | [Agent Installation](docs/agent/INSTALL.md) | Deploy endpoint agents |
 | [API Reference](docs/API_REFERENCE.md) | REST API endpoints |
+| [Technical White Paper](OdinForge-AI-Technical-White-Paper.md) | Architecture deep-dive |
+| [Executive White Paper](OdinForge-AI-White-Sheet.md) | Business capabilities overview |
 
 ## License
 
