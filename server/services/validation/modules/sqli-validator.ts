@@ -178,7 +178,7 @@ export class SqliValidator {
     let detectedDb: SqliValidationResult["dbType"] = null;
     let bestEvidence = "";
 
-    for (const payload of payloads.slice(0, 5)) {
+    for (const payload of payloads.slice(0, 7)) {
       try {
         const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
@@ -219,6 +219,22 @@ export class SqliValidator {
           if (response.body.toLowerCase().includes(indicator.toLowerCase())) {
             matchedIndicators.push(indicator);
             confidence = Math.max(confidence, 60);
+          }
+        }
+
+        // Detect auth bypass SQLi: if baseline returned 4xx/5xx and this
+        // OR-based payload flipped the response to 200, it's a strong indicator.
+        const isOrPayload = /\bOR\b/i.test(payload.value);
+        if (isOrPayload && baseline.status >= 400 && response.statusCode === 200) {
+          const bodyLenDiff = Math.abs(response.body.length - baseline.body.length);
+          if (bodyLenDiff > 50) {
+            matchedIndicators.push(`Auth bypass: status ${baseline.status}→${response.statusCode}`);
+            confidence = Math.max(confidence, 90);
+            // Check for JWT / auth token in response
+            if (/token|jwt|auth|session/i.test(response.body)) {
+              matchedIndicators.push("Auth token in response");
+              confidence = Math.max(confidence, 95);
+            }
           }
         }
 
