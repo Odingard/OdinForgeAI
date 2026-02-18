@@ -1,6 +1,7 @@
 import { ValidatingHttpClient } from "../validating-http-client";
 import { getSqliPayloads, getSqliPayloadsByDb } from "../payloads/sqli-payloads";
 import type { Payload, PayloadExecutionContext, PayloadResult } from "../payloads/payload-types";
+import { buildPayloadRequest } from "../payloads/payload-types";
 import type { ValidationContext } from "../validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
 
@@ -145,12 +146,13 @@ export class SqliValidator {
 
   private async getBaselineResponse(ctx: PayloadExecutionContext): Promise<{ body: string; time: number; status: number } | null> {
     try {
-      const url = this.buildUrl(ctx, ctx.originalValue || "1");
+      const req = this.buildRequest(ctx, ctx.originalValue || "1");
       const startTime = Date.now();
       const { response } = await this.client.request({
-        url,
+        url: req.url,
         method: ctx.httpMethod,
-        headers: ctx.headers,
+        headers: { ...ctx.headers, ...req.headers },
+        body: req.body,
         timeout: ctx.timeout || 10000,
       });
       const endTime = Date.now();
@@ -178,11 +180,12 @@ export class SqliValidator {
 
     for (const payload of payloads.slice(0, 5)) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...req.headers },
+          body: req.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -272,12 +275,13 @@ export class SqliValidator {
 
     for (const payload of payloads.slice(0, 3)) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const startTime = Date.now();
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...req.headers },
+          body: req.body,
           timeout: 15000,
         });
         const responseTime = Date.now() - startTime;
@@ -342,19 +346,21 @@ export class SqliValidator {
       const falsePayload = falsePayloads[i];
 
       try {
-        const trueUrl = this.buildUrl(ctx, truePayload.value);
+        const trueReq = this.buildRequest(ctx, truePayload.value);
         const { response: trueResponse } = await this.client.request({
-          url: trueUrl,
+          url: trueReq.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...trueReq.headers },
+          body: trueReq.body,
           timeout: ctx.timeout || 10000,
         });
 
-        const falseUrl = this.buildUrl(ctx, falsePayload.value);
+        const falseReq = this.buildRequest(ctx, falsePayload.value);
         const { response: falseResponse } = await this.client.request({
-          url: falseUrl,
+          url: falseReq.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...falseReq.headers },
+          body: falseReq.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -411,13 +417,8 @@ export class SqliValidator {
     };
   }
 
-  private buildUrl(ctx: PayloadExecutionContext, payloadValue: string): string {
-    if (ctx.parameterLocation === "url_param") {
-      const url = new URL(ctx.targetUrl);
-      url.searchParams.set(ctx.parameterName, payloadValue);
-      return url.toString();
-    }
-    return ctx.targetUrl;
+  private buildRequest(ctx: PayloadExecutionContext, payloadValue: string) {
+    return buildPayloadRequest(ctx, payloadValue);
   }
 
   private determineVerdict(confidence: number): ValidationVerdict {

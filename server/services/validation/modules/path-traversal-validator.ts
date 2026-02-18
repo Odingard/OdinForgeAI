@@ -1,6 +1,7 @@
 import { ValidatingHttpClient } from "../validating-http-client";
 import { getPathTraversalPayloads } from "../payloads/path-traversal-payloads";
 import type { Payload, PayloadExecutionContext, PayloadResult } from "../payloads/payload-types";
+import { buildPayloadRequest } from "../payloads/payload-types";
 import type { ValidationContext } from "../validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
 
@@ -72,11 +73,12 @@ export class PathTraversalValidator {
     
     for (const payload of payloads.slice(0, 10)) {
       try {
-        const url = this.buildUrl(executionContext, payload.value);
+        const req = this.buildRequest(executionContext, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: executionContext.httpMethod,
-          headers: executionContext.headers,
+          headers: { ...executionContext.headers, ...req.headers },
+          body: req.body,
           timeout: executionContext.timeout || 10000,
         });
 
@@ -197,12 +199,13 @@ export class PathTraversalValidator {
 
   private async getBaselineResponse(ctx: PayloadExecutionContext): Promise<{ body: string; time: number; status: number } | null> {
     try {
-      const url = this.buildUrl(ctx, ctx.originalValue || "default.txt");
+      const req = this.buildRequest(ctx, ctx.originalValue || "default.txt");
       const startTime = Date.now();
       const { response } = await this.client.request({
-        url,
+        url: req.url,
         method: ctx.httpMethod,
-        headers: ctx.headers,
+        headers: { ...ctx.headers, ...req.headers },
+        body: req.body,
         timeout: ctx.timeout || 10000,
       });
       const endTime = Date.now();
@@ -218,15 +221,8 @@ export class PathTraversalValidator {
     }
   }
 
-  private buildUrl(ctx: PayloadExecutionContext, payloadValue: string): string {
-    if (ctx.parameterLocation === "url_param") {
-      const url = new URL(ctx.targetUrl);
-      url.searchParams.set(ctx.parameterName, payloadValue);
-      return url.toString();
-    } else if (ctx.parameterLocation === "path") {
-      return ctx.targetUrl.replace(/\/[^\/]*$/, `/${payloadValue}`);
-    }
-    return ctx.targetUrl;
+  private buildRequest(ctx: PayloadExecutionContext, payloadValue: string) {
+    return buildPayloadRequest(ctx, payloadValue);
   }
 
   private determineVerdict(confidence: number): ValidationVerdict {

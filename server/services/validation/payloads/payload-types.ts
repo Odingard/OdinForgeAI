@@ -66,6 +66,47 @@ export interface PayloadResult {
   verdict: "confirmed" | "likely" | "theoretical" | "false_positive" | "error";
 }
 
+/** Prepared request with URL, optional body, and extra headers for payload injection. */
+export interface PreparedRequest {
+  url: string;
+  body?: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Build a PreparedRequest that injects the payload into the correct location
+ * (URL query param, JSON body, header, cookie, or path segment).
+ */
+export function buildPayloadRequest(ctx: PayloadExecutionContext, payloadValue: string): PreparedRequest {
+  switch (ctx.parameterLocation) {
+    case "url_param": {
+      const url = new URL(ctx.targetUrl);
+      url.searchParams.set(ctx.parameterName, payloadValue);
+      return { url: url.toString() };
+    }
+    case "body_param":
+      return {
+        url: ctx.targetUrl,
+        body: JSON.stringify({ [ctx.parameterName]: payloadValue }),
+        headers: { "Content-Type": "application/json" },
+      };
+    case "header":
+      return {
+        url: ctx.targetUrl,
+        headers: { [ctx.parameterName]: payloadValue },
+      };
+    case "cookie":
+      return {
+        url: ctx.targetUrl,
+        headers: { Cookie: `${ctx.parameterName}=${payloadValue}` },
+      };
+    case "path":
+      return { url: ctx.targetUrl.replace(/\/[^/]*$/, `/${payloadValue}`) };
+    default:
+      return { url: ctx.targetUrl };
+  }
+}
+
 export function generatePayloadId(category: PayloadCategory, technique: PayloadTechnique, index: number): string {
   return `${category}-${technique}-${String(index).padStart(3, "0")}`;
 }

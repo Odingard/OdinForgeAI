@@ -1,6 +1,7 @@
 import { ValidatingHttpClient } from "../validating-http-client";
 import { getSsrfPayloads, getCloudMetadataPayloads } from "../payloads/ssrf-payloads";
 import type { Payload, PayloadExecutionContext, PayloadResult } from "../payloads/payload-types";
+import { buildPayloadRequest } from "../payloads/payload-types";
 import type { ValidationContext } from "../validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
 
@@ -117,12 +118,13 @@ export class SsrfValidator {
 
   private async getBaselineResponse(ctx: PayloadExecutionContext): Promise<{ body: string; time: number; status: number } | null> {
     try {
-      const url = this.buildUrl(ctx, ctx.originalValue || "https://example.com");
+      const req = this.buildRequest(ctx, ctx.originalValue || "https://example.com");
       const startTime = Date.now();
       const { response } = await this.client.request({
-        url,
+        url: req.url,
         method: ctx.httpMethod,
-        headers: ctx.headers,
+        headers: { ...ctx.headers, ...req.headers },
+        body: req.body,
         timeout: ctx.timeout || 10000,
       });
       const endTime = Date.now();
@@ -150,14 +152,16 @@ export class SsrfValidator {
 
     for (const payload of payloads) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
           headers: {
             ...ctx.headers,
+            ...req.headers,
             "Metadata-Flavor": "Google",
           },
+          body: req.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -271,11 +275,12 @@ export class SsrfValidator {
 
     for (const payload of localhostPayloads.slice(0, 5)) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...req.headers },
+          body: req.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -360,11 +365,12 @@ export class SsrfValidator {
 
     for (const payload of internalPayloads.slice(0, 3)) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...req.headers },
+          body: req.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -426,13 +432,8 @@ export class SsrfValidator {
     };
   }
 
-  private buildUrl(ctx: PayloadExecutionContext, payloadValue: string): string {
-    if (ctx.parameterLocation === "url_param") {
-      const url = new URL(ctx.targetUrl);
-      url.searchParams.set(ctx.parameterName, payloadValue);
-      return url.toString();
-    }
-    return ctx.targetUrl;
+  private buildRequest(ctx: PayloadExecutionContext, payloadValue: string) {
+    return buildPayloadRequest(ctx, payloadValue);
   }
 
   private determineVerdict(confidence: number): ValidationVerdict {

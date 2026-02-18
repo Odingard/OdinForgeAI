@@ -1,6 +1,7 @@
 import { ValidatingHttpClient } from "../validating-http-client";
 import { getXssPayloads } from "../payloads/xss-payloads";
 import type { Payload, PayloadExecutionContext, PayloadResult } from "../payloads/payload-types";
+import { buildPayloadRequest } from "../payloads/payload-types";
 import type { ValidationContext } from "../validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
 
@@ -85,11 +86,12 @@ export class XssValidator {
 
     for (const payload of payloads.slice(0, 8)) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...req.headers },
+          body: req.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -161,11 +163,12 @@ export class XssValidator {
 
     for (const payload of payloads.slice(0, 3)) {
       try {
-        const url = this.buildUrl(ctx, payload.value);
+        const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
-          url,
+          url: req.url,
           method: ctx.httpMethod,
-          headers: ctx.headers,
+          headers: { ...ctx.headers, ...req.headers },
+          body: req.body,
           timeout: ctx.timeout || 10000,
         });
 
@@ -264,13 +267,8 @@ export class XssValidator {
       .replace(/&amp;/g, "&");
   }
 
-  private buildUrl(ctx: PayloadExecutionContext, payloadValue: string): string {
-    if (ctx.parameterLocation === "url_param") {
-      const url = new URL(ctx.targetUrl);
-      url.searchParams.set(ctx.parameterName, payloadValue);
-      return url.toString();
-    }
-    return ctx.targetUrl;
+  private buildRequest(ctx: PayloadExecutionContext, payloadValue: string) {
+    return buildPayloadRequest(ctx, payloadValue);
   }
 
   private determineVerdict(confidence: number): ValidationVerdict {
