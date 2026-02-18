@@ -12,6 +12,8 @@ export interface AgentContext {
   organizationId?: string;
   executionMode?: "safe" | "simulation" | "live";
   policyContext?: string;
+  /** Ground-truth scan data from real handlers — injected by orchestrator */
+  realScanData?: import("./scan-data-loader").RealScanData;
 }
 
 export interface ReconFindings {
@@ -214,6 +216,8 @@ export interface AgentMemory {
   multiVector?: MultiVectorFindings;
   impact?: ImpactFindings;
   safetyDecisions?: SafetyDecision[];
+  /** Ground-truth data from real scan handlers — used by all agents */
+  groundTruth?: import("./scan-data-loader").RealScanData;
 }
 
 export interface AgentResult<T> {
@@ -232,6 +236,25 @@ export interface ValidationStats {
   skipped: number;
 }
 
+export interface ConfidenceBreakdown {
+  exploitConfidence: number;     // from debate adjustedConfidence (0-1)
+  groundTruthConfidence: number; // based on real scan data availability (0-1)
+  overallConfidence: number;     // weighted combination (0-1)
+  verifiedFindings: number;
+  disputedFindings: number;
+  rejectedFindings: number;
+}
+
+export interface NoiseReductionStats {
+  inputCount: number;
+  afterReachability: number;
+  afterExploitability: number;
+  afterEnvironmental: number;
+  afterDeduplication: number;
+  finalCount: number;
+  removedChains: Array<{ name: string; reason: string; layer: string }>;
+}
+
 export interface OrchestratorResult {
   exploitable: boolean;
   confidence: number;
@@ -248,6 +271,8 @@ export interface OrchestratorResult {
   llmValidationVerdict?: LLMValidationVerdict;
   validationStats?: ValidationStats;
   debateSummary?: DebateSummary;
+  confidenceBreakdown?: ConfidenceBreakdown;
+  noiseReductionStats?: NoiseReductionStats;
   impact: string;
   recommendations: Recommendation[];
   agentFindings: {

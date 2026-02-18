@@ -10,8 +10,11 @@ import type {
   MultiVectorFindings,
   ImpactFindings,
   EnhancedBusinessLogicFindings,
+  ConfidenceBreakdown,
 } from "./types";
-import type { AdversaryProfile, EvaluationPhaseProgress } from "@shared/schema";
+import type { AdversaryProfile, EvaluationPhaseProgress, DebateSummary } from "@shared/schema";
+import { runDebateModule, filterVerifiedFindings, type DebateResult } from "./debate-module";
+import { applyNoiseReduction, type NoiseReductionResult } from "./noise-reduction";
 import { runReconAgent } from "./recon";
 import { runExploitAgent } from "./exploit";
 import { runLateralAgent } from "./lateral";
@@ -186,6 +189,21 @@ async function runPipeline(
     console.warn("[Orchestrator] Failed to load policy context:", err);
   }
 
+  // ──────────────────────────────────────────────────────────────
+  // Tier -1: Load ground-truth scan data (no LLM, DB queries only)
+  // ──────────────────────────────────────────────────────────────
+  onProgress?.("Data Loader", "ground_truth", 2, "Loading real scan data...");
+  let realScanData: import("./scan-data-loader").RealScanData | undefined;
+  try {
+    const { loadScanDataForAsset } = await import("./scan-data-loader");
+    realScanData = await loadScanDataForAsset(assetId, options?.organizationId || "default", evaluationId);
+    const avail = realScanData.dataAvailability;
+    const sources = [avail.hasRecon && "recon", avail.hasNetwork && "network", avail.hasAuth && "auth", avail.hasCloud && "cloud", avail.hasExploitValidation && "exploit", avail.hasTelemetry && "telemetry"].filter(Boolean);
+    console.log(`[Orchestrator] Ground truth loaded: ${sources.length}/6 sources (${sources.join(", ") || "none"}) — coverage ${(avail.coverageScore * 100).toFixed(0)}%`);
+  } catch (err) {
+    console.warn("[Orchestrator] Failed to load scan data (agents will proceed without ground truth):", err);
+  }
+
   const context: AgentContext = {
     assetId,
     exposureType,
@@ -196,9 +214,10 @@ async function runPipeline(
     organizationId: options?.organizationId,
     executionMode: options?.executionMode || "safe",
     policyContext,
+    realScanData,
   };
 
-  const memory: AgentMemory = { context, safetyDecisions: [] };
+  const memory: AgentMemory = { context, safetyDecisions: [], groundTruth: realScanData };
 
   const guardianContext = {
     organizationId: options?.organizationId,
@@ -331,7 +350,82 @@ async function runPipeline(
     exploitResult.findings
   );
 
-  memory.exploit = guardedExploitFindings;
+  // ──────────────────────────────────────────────────────────────
+  // Debate Module: Adversarial validation of exploit findings
+  // Uses Llama 3.3 70B via OpenRouter to challenge false positives
+  // ──────────────────────────────────────────────────────────────
+  let debateResult: DebateResult | undefined;
+  let debatedExploitFindings = guardedExploitFindings;
+
+  if (guardedExploitFindings.exploitable && guardedExploitFindings.exploitChains.length > 0) {
+    onProgress?.("Debate Module", "debate", 43, "Initiating adversarial validation...");
+    wsService.sendReasoningTrace(evaluationId, "debate_module", "DebateModule",
+      "CriticAgent (Llama 3.3 70B) challenging exploit findings for false positives");
+
+    try {
+      debateResult = await withCircuitBreaker(
+        "openrouter",
+        () => runDebateModule(
+          memory,
+          guardedExploitFindings,
+          {},
+          (stage: string, progress: number, message: string) => {
+            onProgress?.("Debate Module", stage, 43 + Math.floor(progress * 0.05), message);
+          }
+        ),
+        () => undefined as unknown as DebateResult,
+        30_000
+      );
+
+      if (debateResult) {
+        debatedExploitFindings = filterVerifiedFindings(debateResult);
+        const verified = debateResult.verifiedChains.filter(c => c.verificationStatus === "verified").length;
+        const disputed = debateResult.verifiedChains.filter(c => c.verificationStatus === "disputed").length;
+        const rejected = debateResult.verifiedChains.filter(c => c.verificationStatus === "rejected").length;
+
+        console.log(`[Orchestrator] Debate complete: ${debateResult.finalVerdict} — ${verified} verified, ${disputed} disputed, ${rejected} rejected (confidence: ${debateResult.adjustedConfidence.toFixed(2)})`);
+
+        wsService.sendReasoningTrace(evaluationId, "debate_module", "DebateModule",
+          `Verdict: ${debateResult.finalVerdict} — ${verified} verified, ${disputed} disputed, ${rejected} rejected`,
+          { confidence: debateResult.adjustedConfidence });
+      } else {
+        console.log("[Orchestrator] Debate module skipped (OpenRouter circuit breaker fallback)");
+      }
+    } catch (err) {
+      console.warn("[Orchestrator] Debate module failed (non-fatal, proceeding without):", err);
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Noise Reduction: Swiss Cheese 4-layer filtering
+  // ──────────────────────────────────────────────────────────────
+  let noiseReductionResult: NoiseReductionResult | undefined;
+
+  if (debatedExploitFindings.exploitChains.length > 0) {
+    onProgress?.("Noise Reduction", "noise_filter", 47, "Applying Swiss Cheese noise filters...");
+
+    noiseReductionResult = applyNoiseReduction(
+      debatedExploitFindings,
+      realScanData,
+      { exposureType, priority, assetId, description, executionMode: options?.executionMode },
+      memory.recon
+    );
+
+    debatedExploitFindings = {
+      ...debatedExploitFindings,
+      exploitChains: noiseReductionResult.filteredChains,
+      exploitable: noiseReductionResult.filteredChains.length > 0 && debatedExploitFindings.exploitable,
+    };
+
+    const stats = noiseReductionResult.stats;
+    if (stats.inputCount !== stats.finalCount) {
+      console.log(`[Orchestrator] Noise reduction: ${stats.inputCount} → ${stats.finalCount} chains (removed ${stats.inputCount - stats.finalCount})`);
+      wsService.sendReasoningTrace(evaluationId, "noise_reduction", "NoiseReduction",
+        `Filtered ${stats.inputCount} → ${stats.finalCount} exploit chains: ${stats.removedChains.map(r => `${r.name} (${r.layer})`).join(", ") || "none removed"}`);
+    }
+  }
+
+  memory.exploit = debatedExploitFindings;
   memory.businessLogic = blResult.findings;
   if (mvResult) memory.multiVector = mvResult.findings;
 
@@ -561,7 +655,18 @@ async function runPipeline(
     llmValidation: undefined,
     llmValidationVerdict: undefined,
     validationStats: undefined,
-    debateSummary: undefined,
+    debateSummary: debateResult ? {
+      finalVerdict: debateResult.finalVerdict,
+      consensusReached: debateResult.consensusReached,
+      verifiedChains: debateResult.verifiedChains,
+      adjustedConfidence: debateResult.adjustedConfidence,
+      debateRounds: debateResult.debateRounds,
+      criticModelUsed: debateResult.criticResult.modelUsed,
+      criticReasoning: debateResult.criticResult.reasoning,
+      processingTime: debateResult.processingTime,
+    } as DebateSummary : undefined,
+    confidenceBreakdown: buildConfidenceBreakdown(debateResult, realScanData),
+    noiseReductionStats: noiseReductionResult?.stats,
     agentFindings: {
       recon: memory.recon!,
       exploit: memory.exploit!,
@@ -806,5 +911,36 @@ async function runLateralGuardianCheckLoop(
   return {
     ...lateralFindings,
     pivotPaths: allowedPaths,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────
+// Confidence Breakdown Builder
+// ──────────────────────────────────────────────────────────────
+function buildConfidenceBreakdown(
+  debateResult: DebateResult | undefined,
+  realScanData: import("./scan-data-loader").RealScanData | undefined
+): ConfidenceBreakdown | undefined {
+  if (!debateResult && !realScanData) return undefined;
+
+  const exploitConfidence = debateResult?.adjustedConfidence ?? 0.5;
+
+  // Ground truth confidence: how much real scan data backs the findings
+  const groundTruthConfidence = realScanData?.dataAvailability.coverageScore ?? 0;
+
+  // Weighted combination: 60% exploit validation, 40% ground truth backing
+  const overallConfidence = exploitConfidence * 0.6 + groundTruthConfidence * 0.4;
+
+  const verifiedFindings = debateResult?.verifiedChains.filter(c => c.verificationStatus === "verified").length ?? 0;
+  const disputedFindings = debateResult?.verifiedChains.filter(c => c.verificationStatus === "disputed").length ?? 0;
+  const rejectedFindings = debateResult?.verifiedChains.filter(c => c.verificationStatus === "rejected").length ?? 0;
+
+  return {
+    exploitConfidence,
+    groundTruthConfidence,
+    overallConfidence: Math.max(0, Math.min(1, overallConfidence)),
+    verifiedFindings,
+    disputedFindings,
+    rejectedFindings,
   };
 }

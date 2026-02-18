@@ -11,6 +11,7 @@ import type {
 import type { MultiVectorFinding, CloudVectorType } from "@shared/schema";
 import { cloudVectorTypes } from "@shared/schema";
 import { openai } from "./openai-client";
+import { buildCloudGroundTruth } from "./scan-data-loader";
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
 
@@ -102,6 +103,9 @@ Your task is to identify cloud misconfigurations and abuse paths across AWS, GCP
 
 For each finding, provide exploitation path and remediation steps.`;
 
+  // Inject verified cloud infrastructure data
+  const cloudGroundTruth = memory.groundTruth ? buildCloudGroundTruth(memory.groundTruth) : "";
+
   const userPrompt = `Analyze cloud security vectors for:
 
 Asset ID: ${memory.context.assetId}
@@ -110,7 +114,7 @@ Description: ${memory.context.description}
 
 ${memory.recon ? `Technologies: ${memory.recon.technologies.join(", ")}
 Entry Points: ${memory.recon.entryPoints.join(", ")}` : ""}
-
+${cloudGroundTruth ? `\n${cloudGroundTruth}\n` : ""}
 Return a JSON object with this structure:
 {
   "findings": [
@@ -175,16 +179,19 @@ Your task is to identify IAM misconfigurations and privilege escalation paths:
 
 For each finding, map the privilege escalation path from initial access to objective.`;
 
+  // Inject verified cloud infrastructure data for IAM context
+  const iamGroundTruth = memory.groundTruth ? buildCloudGroundTruth(memory.groundTruth) : "";
+
   const userPrompt = `Analyze IAM abuse paths for:
 
 Asset ID: ${memory.context.assetId}
 Exposure Type: ${memory.context.exposureType}
 Description: ${memory.context.description}
 
-${memory.lateral ? `Privilege Escalation Paths: ${memory.lateral.privilegeEscalation.map(p => 
+${memory.lateral ? `Privilege Escalation Paths: ${memory.lateral.privilegeEscalation.map(p =>
   `${p.target} via ${p.method}`
 ).join(", ")}` : ""}
-
+${iamGroundTruth ? `\n${iamGroundTruth}\n` : ""}
 Return a JSON object with this structure:
 {
   "findings": [

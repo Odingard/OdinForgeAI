@@ -3,14 +3,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Brain, 
-  Shield, 
-  Target, 
-  Search, 
-  GitBranch, 
-  Building2, 
-  Zap, 
+import {
+  Brain,
+  Shield,
+  Target,
+  Search,
+  GitBranch,
+  Building2,
+  Zap,
   MessageSquare,
   Layers,
   ChevronDown,
@@ -20,6 +20,7 @@ import {
   Trash2,
   Database
 } from "lucide-react";
+import { getStoredTokens } from "@/lib/uiAuth";
 
 type ReasoningTraceAgentType = 
   | "policy_guardian"
@@ -170,7 +171,9 @@ export function ReasoningTracePanel({ evaluationId, isLive = false }: ReasoningT
     if (!isLive) return;
     
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const { accessToken } = getStoredTokens();
+    const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws${tokenParam}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

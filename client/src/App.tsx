@@ -43,8 +43,6 @@ const ExternalRecon = lazy(() => import("@/components/ExternalRecon").then(m => 
 const Jobs = lazy(() => import("@/pages/Jobs"));
 const SystemHealth = lazy(() => import("@/pages/SystemHealth"));
 const AuditLogs = lazy(() => import("@/pages/AuditLogs"));
-const Evidence = lazy(() => import("@/pages/Evidence"));
-const ForensicExports = lazy(() => import("@/pages/ForensicExports"));
 const Sessions = lazy(() => import("@/pages/Sessions"));
 const LiveScans = lazy(() => import("@/pages/LiveScans"));
 const ScheduledScans = lazy(() => import("@/pages/ScheduledScans"));
@@ -133,8 +131,6 @@ function Router() {
         <Route path="/jobs" component={Jobs} />
         <Route path="/health" component={SystemHealth} />
         <Route path="/audit" component={AuditLogs} />
-        <Route path="/evidence" component={Evidence} />
-        <Route path="/forensics" component={ForensicExports} />
         <Route path="/sessions" component={Sessions} />
         <Route path="/scans" component={LiveScans} />
         <Route path="/scheduled-scans" component={ScheduledScans} />

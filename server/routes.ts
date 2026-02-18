@@ -53,7 +53,6 @@ import { runActiveExploitEngine, type ActiveExploitTarget } from "./services/act
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
 import { generateAgentFindings } from "./services/telemetry-analyzer";
-import { forensicExportService } from "./services/forensic-export";
 import { AuditLogger } from "./services/audit-logger";
 import { runtimeGuard } from "./services/runtime-guard";
 import { storageService } from "./services/storage";
@@ -2394,62 +2393,53 @@ export async function registerRoutes(
     }
   });
 
-  // ========== VALIDATION EVIDENCE ENDPOINTS ==========
-  // Tenant context provided by global tenantMiddleware; enforce org scoping per route
-  
-  app.get("/api/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
+  // Scheduled scan aggregate stats
+  app.get("/api/scheduled-scans/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const organizationId = req.tenant!.organizationId;
-      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-      const artifacts = await evidenceStorageService.queryEvidence({ organizationId, limit });
-      res.json(artifacts);
+      const organizationId = req.tenant?.organizationId || "default";
+      const scans = await storage.getScheduledScans(organizationId);
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+      const total = scans.length;
+      const enabled = scans.filter(s => s.enabled).length;
+      const upcoming = scans.filter(s => s.enabled && s.nextRunAt && new Date(s.nextRunAt) > now).length;
+      const ranToday = scans.filter(s => s.lastRunAt && new Date(s.lastRunAt) >= todayStart).length;
+
+      res.json({ total, enabled, upcoming, ranToday });
     } catch (error) {
-      console.error("Error fetching evidence artifacts:", error);
-      res.status(500).json({ error: "Failed to fetch evidence artifacts" });
+      console.error("Error fetching scheduled scan stats:", error);
+      res.status(500).json({ error: "Failed to fetch stats" });
     }
   });
 
-  app.get("/api/evidence/summary", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
+  // Scheduled scan run history
+  app.get("/api/scheduled-scans/:id/runs", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const organizationId = req.tenant!.organizationId;
-      const summary = await evidenceStorageService.getSummary(organizationId);
-      res.json(summary);
+      const { scheduledScanRuns } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const { eq, and, desc } = await import("drizzle-orm");
+      const organizationId = req.tenant?.organizationId || "default";
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
+
+      const runs = await db
+        .select()
+        .from(scheduledScanRuns)
+        .where(and(
+          eq(scheduledScanRuns.scheduledScanId, req.params.id),
+          eq(scheduledScanRuns.organizationId, organizationId)
+        ))
+        .orderBy(desc(scheduledScanRuns.triggeredAt))
+        .limit(Math.min(limit, 100));
+
+      res.json(runs);
     } catch (error) {
-      console.error("Error fetching evidence summary:", error);
-      res.status(500).json({ error: "Failed to fetch evidence summary" });
+      console.error("Error fetching scheduled scan runs:", error);
+      res.status(500).json({ error: "Failed to fetch run history" });
     }
   });
 
-  app.get("/api/evidence/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const artifact = await evidenceStorageService.getEvidence(req.params.id);
-      if (!artifact) {
-        return res.status(404).json({ error: "Evidence artifact not found" });
-      }
-      if (artifact.organizationId !== req.tenant!.organizationId) {
-        return res.status(403).json({ error: "Access denied to this evidence" });
-      }
-      res.json(artifact);
-    } catch (error) {
-      console.error("Error fetching evidence artifact:", error);
-      res.status(500).json({ error: "Failed to fetch evidence artifact" });
-    }
-  });
-
-  app.get("/api/evaluations/:evaluationId/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const organizationId = req.tenant!.organizationId;
-      const artifacts = await evidenceStorageService.getEvidenceForEvaluation(req.params.evaluationId, organizationId);
-      res.json(artifacts);
-    } catch (error) {
-      console.error("Error fetching evidence for evaluation:", error);
-      res.status(500).json({ error: "Failed to fetch evidence for evaluation" });
-    }
-  });
+  // ========== GOVERNANCE ENDPOINTS ==========
 
   // Safety Decisions API - PolicyGuardian audit trail
   app.get("/api/evaluations/:evaluationId/safety-decisions", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
@@ -2502,108 +2492,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching safety decision stats:", error);
       res.status(500).json({ error: "Failed to fetch safety decision stats" });
-    }
-  });
-
-  app.get("/api/findings/:findingId/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const organizationId = req.tenant!.organizationId;
-      const artifacts = await evidenceStorageService.getEvidenceForFinding(req.params.findingId, organizationId);
-      res.json(artifacts);
-    } catch (error) {
-      console.error("Error fetching evidence for finding:", error);
-      res.status(500).json({ error: "Failed to fetch evidence for finding" });
-    }
-  });
-
-  app.delete("/api/evidence/:id", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const artifact = await evidenceStorageService.getEvidence(req.params.id);
-      if (!artifact) {
-        return res.status(404).json({ error: "Evidence artifact not found" });
-      }
-      if (artifact.organizationId !== req.tenant!.organizationId) {
-        return res.status(403).json({ error: "Access denied to delete this evidence" });
-      }
-      await evidenceStorageService.deleteEvidence(req.params.id);
-      res.json({ success: true, message: "Evidence artifact deleted" });
-    } catch (error) {
-      console.error("Error deleting evidence artifact:", error);
-      res.status(500).json({ error: "Failed to delete evidence artifact" });
-    }
-  });
-
-  app.post("/api/evidence/cleanup", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:delete"), async (req, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const result = await evidenceStorageService.cleanupOldArtifacts();
-      res.json({ success: true, deletedCount: result.deletedCount });
-    } catch (error) {
-      console.error("Error cleaning up evidence artifacts:", error);
-      res.status(500).json({ error: "Failed to clean up evidence artifacts" });
-    }
-  });
-
-  // Upload evidence artifact
-  app.post("/api/evidence", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req: UIAuthenticatedRequest, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const { evaluationId, evidenceType, fileName, fileSize, mimeType, content, description } = req.body;
-
-      if (!evaluationId || !content) {
-        return res.status(400).json({ error: "evaluationId and content are required" });
-      }
-
-      const organizationId = req.tenant!.organizationId;
-      const tenantId = req.uiUser?.tenantId || "default";
-
-      const artifact = await evidenceStorageService.storeEvidence({
-        tenantId,
-        organizationId,
-        evaluationId,
-        evidenceType: evidenceType || "file",
-        verdict: "theoretical",
-        rawDataBase64: content,
-        artifactSizeBytes: fileSize || Buffer.byteLength(content, "base64"),
-        validationMethod: "manual",
-        observedBehavior: description || undefined,
-        capturedAt: new Date(),
-      });
-
-      res.json(artifact);
-    } catch (error) {
-      console.error("Error uploading evidence:", error);
-      res.status(500).json({ error: "Failed to upload evidence" });
-    }
-  });
-
-  // Verify evidence artifact (update verdict)
-  app.post("/api/evidence/:id/verify", apiRateLimiter, uiAuthMiddleware, requirePermission("evidence:read"), async (req: UIAuthenticatedRequest, res) => {
-    try {
-      const { evidenceStorageService } = await import("./services/validation/evidence-storage-service");
-      const artifact = await evidenceStorageService.getEvidence(req.params.id);
-
-      if (!artifact) {
-        return res.status(404).json({ error: "Evidence artifact not found" });
-      }
-      if (artifact.organizationId !== req.tenant!.organizationId) {
-        return res.status(403).json({ error: "Access denied" });
-      }
-
-      const currentVerdict = artifact.verdict;
-      const isAlreadyVerified = currentVerdict === "confirmed" || currentVerdict === "likely";
-
-      if (isAlreadyVerified) {
-        return res.json({ verified: true, message: "Evidence already verified" });
-      }
-
-      await evidenceStorageService.updateVerdict(req.params.id, "confirmed", 100);
-      res.json({ verified: true, message: "Evidence verified successfully" });
-    } catch (error) {
-      console.error("Error verifying evidence:", error);
-      res.status(500).json({ error: "Failed to verify evidence" });
     }
   });
 
@@ -4965,6 +4853,41 @@ export async function registerRoutes(
     }
   });
 
+  // Agent auto-update version check
+  // Called by the Go agent's updater.go — returns 204 if up-to-date, 200 with VersionInfo if update available
+  app.get("/api/agents/version", apiRateLimiter, authenticateAgent, async (req: any, res) => {
+    try {
+      const { AGENT_RELEASE } = await import("@shared/agent-releases");
+      const agentVersion = req.headers["x-agent-version"] as string || "";
+      const agentPlatform = req.headers["x-agent-platform"] as string || ""; // e.g. "linux/amd64"
+
+      // Compare versions — if agent is current, return 204
+      if (agentVersion === AGENT_RELEASE.version) {
+        return res.status(204).send();
+      }
+
+      // Find the matching platform release
+      const normalizedPlatform = agentPlatform.replace("/", "-"); // "linux/amd64" → "linux-amd64"
+      const platformRelease = AGENT_RELEASE.platforms.find(p => p.platform === normalizedPlatform);
+
+      // Construct download URL (use local download endpoint, not GitHub)
+      const downloadUrl = platformRelease
+        ? `/api/agents/download/${platformRelease.platform}`
+        : `/api/agents/download/${normalizedPlatform}`;
+
+      res.json({
+        version: AGENT_RELEASE.version,
+        downloadUrl,
+        checksum: platformRelease?.sha256 || "",
+        releaseDate: AGENT_RELEASE.releaseDate,
+        mandatory: false,
+      });
+    } catch (error) {
+      console.error("Error checking agent version:", error);
+      res.status(500).json({ error: "Failed to check agent version" });
+    }
+  });
+
   // Agent heartbeat
   app.post("/api/agents/heartbeat", apiRateLimiter, authenticateAgent, async (req: any, res) => {
     try {
@@ -5095,6 +5018,53 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error ingesting telemetry:", error);
       res.status(500).json({ error: "Failed to ingest telemetry" });
+    }
+  });
+
+  // Telemetry trend endpoints — time-series aggregation for dashboards
+  app.get("/api/telemetry/trends/:agentId", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
+    try {
+      const { getAgentTelemetryTrends } = await import("./services/telemetry-trends");
+      const organizationId = req.tenant?.organizationId || "default";
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+      const maxPoints = req.query.maxPoints ? parseInt(req.query.maxPoints as string, 10) : 50;
+
+      const result = await getAgentTelemetryTrends(req.params.agentId, organizationId, from, to, maxPoints);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching telemetry trends:", error);
+      res.status(500).json({ error: "Failed to fetch telemetry trends" });
+    }
+  });
+
+  app.get("/api/telemetry/trends/organization", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
+    try {
+      const { getOrganizationTelemetryTrends } = await import("./services/telemetry-trends");
+      const organizationId = req.tenant?.organizationId || "default";
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+
+      const result = await getOrganizationTelemetryTrends(organizationId, from, to);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching organization telemetry trends:", error);
+      res.status(500).json({ error: "Failed to fetch organization telemetry trends" });
+    }
+  });
+
+  app.get("/api/assets/:assetId/security-trend", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const { getAssetSecurityTrend } = await import("./services/telemetry-trends");
+      const organizationId = req.tenant?.organizationId || "default";
+      const from = req.query.from ? new Date(req.query.from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = req.query.to ? new Date(req.query.to as string) : new Date();
+
+      const result = await getAssetSecurityTrend(req.params.assetId, organizationId, from, to);
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching asset security trend:", error);
+      res.status(500).json({ error: "Failed to fetch asset security trend" });
     }
   });
 
@@ -7438,16 +7408,27 @@ async function runEvaluation(evaluationId: string, data: {
     if (executionMode === "simulation") {
       console.log(`[GOVERNANCE] Running AI vs AI simulation for evaluation ${evaluationId}`);
 
-      // Set initial phase progress so the progress modal shows simulation running
-      await storage.updateEvaluationPhaseProgress(evaluationId, [
-        { phase: "recon", status: "running", startedAt: new Date().toISOString(), message: "Running AI vs AI simulation..." },
-        { phase: "exploit", status: "pending" },
-        { phase: "business_logic", status: "pending" },
-        { phase: "lateral", status: "pending" },
-        { phase: "impact", status: "pending" },
-        { phase: "synthesis", status: "pending" },
-        { phase: "finalization", status: "pending" },
-      ]);
+      // Track simulation phases progressively so the progress modal updates in real time
+      const simPhases = [
+        { phase: "recon", status: "running" as const, startedAt: new Date().toISOString(), message: "Initializing simulation..." },
+        { phase: "exploit", status: "pending" as const },
+        { phase: "business_logic", status: "pending" as const },
+        { phase: "lateral", status: "pending" as const },
+        { phase: "impact", status: "pending" as const },
+        { phase: "synthesis", status: "pending" as const },
+        { phase: "finalization", status: "pending" as const },
+      ];
+      await storage.updateEvaluationPhaseProgress(evaluationId, simPhases);
+
+      // Map simulation callback phases to our 7-stage pipeline
+      let lastMappedPhase = "";
+      const phaseMap: Record<string, { agentKey: string; agentName: string }> = {
+        initialization: { agentKey: "recon", agentName: "Recon Agent" },
+        attack: { agentKey: "exploit", agentName: "Exploit Agent" },
+        defense: { agentKey: "lateral", agentName: "Lateral Movement Agent" },
+        synthesis: { agentKey: "synthesis", agentName: "Synthesis" },
+        finalization: { agentKey: "finalization", agentName: "Finalization" },
+      };
 
       const simulationResult = await runAISimulation(
         data.assetId,
@@ -7457,7 +7438,34 @@ async function runEvaluation(evaluationId: string, data: {
         evaluationId,
         3, // 3 rounds by default
         (phase, round, progress, message) => {
-          wsService.sendProgress(evaluationId, `Simulation ${phase}`, `round-${round}`, progress, message);
+          const mapped = phaseMap[phase];
+          if (mapped) {
+            // When we advance to a new phase, mark previous as completed
+            if (mapped.agentKey !== lastMappedPhase) {
+              if (lastMappedPhase) {
+                const prev = simPhases.find(p => p.phase === lastMappedPhase);
+                if (prev) { prev.status = "completed" as any; (prev as any).completedAt = new Date().toISOString(); }
+              }
+              const current = simPhases.find(p => p.phase === mapped.agentKey);
+              if (current) { current.status = "running" as any; (current as any).startedAt = new Date().toISOString(); current.message = message; }
+              // Also mark intermediate "business_logic" and "impact" based on attack/defense progress
+              if (mapped.agentKey === "lateral") {
+                const bl = simPhases.find(p => p.phase === "business_logic");
+                if (bl && bl.status !== ("completed" as any)) { bl.status = "completed" as any; (bl as any).completedAt = new Date().toISOString(); (bl as any).findingSummary = "Attack rounds analyzed"; }
+              }
+              if (mapped.agentKey === "synthesis") {
+                const imp = simPhases.find(p => p.phase === "impact");
+                if (imp && imp.status !== ("completed" as any)) { imp.status = "completed" as any; (imp as any).completedAt = new Date().toISOString(); (imp as any).findingSummary = "Defense rounds analyzed"; }
+                const lat = simPhases.find(p => p.phase === "lateral");
+                if (lat && lat.status !== ("completed" as any)) { lat.status = "completed" as any; (lat as any).completedAt = new Date().toISOString(); }
+              }
+              lastMappedPhase = mapped.agentKey;
+              storage.updateEvaluationPhaseProgress(evaluationId, simPhases).catch(() => {});
+            }
+            wsService.sendProgress(evaluationId, mapped.agentName, mapped.agentKey, progress, message);
+          } else {
+            wsService.sendProgress(evaluationId, "Simulation", phase, progress, message);
+          }
         }
       );
 
@@ -11779,76 +11787,6 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     } catch (error: any) {
       console.error("Failed to delete policy:", error);
       res.status(500).json({ error: error.message || "Failed to delete policy" });
-    }
-  });
-
-  // ============================================================================
-  // FORENSIC EXPORT ROUTES
-  // ============================================================================
-
-  // POST /api/forensic-exports - Create a forensic export
-  app.post("/api/forensic-exports", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
-    try {
-      const { evaluationId, executionId, encryptionPassword, includeEvidenceFiles } = req.body;
-      const authReq = req as UIAuthenticatedRequest;
-      const exportedBy = authReq.uiUser?.email || "unknown";
-
-      if (!evaluationId || !encryptionPassword) {
-        return res.status(400).json({ error: "evaluationId and encryptionPassword are required" });
-      }
-
-      if (encryptionPassword.length < 12) {
-        return res.status(400).json({ error: "Encryption password must be at least 12 characters" });
-      }
-
-      const result = await forensicExportService.createExport(
-        evaluationId,
-        executionId || evaluationId,
-        exportedBy,
-        encryptionPassword,
-        includeEvidenceFiles ?? true
-      );
-
-      res.json({
-        success: true,
-        exportId: result.exportId,
-        message: "Forensic export created successfully",
-      });
-    } catch (error: any) {
-      console.error("Failed to create forensic export:", error);
-      res.status(500).json({ error: error.message || "Failed to create forensic export" });
-    }
-  });
-
-  // GET /api/forensic-exports/:exportId/download - Download a forensic export
-  app.get("/api/forensic-exports/:exportId/download", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
-    try {
-      const { exportId } = req.params;
-
-      const result = await forensicExportService.downloadExport(exportId);
-      if (!result) {
-        return res.status(404).json({ error: "Export not found" });
-      }
-
-      res.setHeader("Content-Type", "application/octet-stream");
-      res.setHeader("Content-Disposition", `attachment; filename="${result.filename}"`);
-      res.setHeader("Content-Length", result.data.length);
-      res.send(result.data);
-    } catch (error: any) {
-      console.error("Failed to download forensic export:", error);
-      res.status(500).json({ error: error.message || "Failed to download forensic export" });
-    }
-  });
-
-  // GET /api/forensic-exports/evaluation/:evaluationId - Get export history for an evaluation
-  app.get("/api/forensic-exports/evaluation/:evaluationId", apiRateLimiter, uiAuthMiddleware, requireRole("security_admin", "org_owner", "security_analyst"), async (req, res) => {
-    try {
-      const { evaluationId } = req.params;
-      const exports = await forensicExportService.getExportHistory(evaluationId);
-      res.json(exports);
-    } catch (error: any) {
-      console.error("Failed to get forensic export history:", error);
-      res.status(500).json({ error: error.message || "Failed to get export history" });
     }
   });
 

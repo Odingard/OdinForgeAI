@@ -3,6 +3,7 @@ import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
 import { openai } from "./openai-client";
+import { buildCloudGroundTruth, buildTelemetryGroundTruth, buildNetworkGroundTruth } from "./scan-data-loader";
 
 /**
  * ARCHITECTURAL CONSTRAINT: Plan-Only Agent
@@ -61,6 +62,11 @@ Your mission is to analyze how an attacker could move laterally after initial co
 Use MITRE ATT&CK lateral movement techniques (TA0008). Think like a red team operator planning post-exploitation.
 For cloud and SaaS environments, focus on IAM abuse paths and shadow admin indicators.`;
 
+  // Inject verified cloud infrastructure, network, and telemetry data for pivot path analysis
+  const groundTruthContext = memory.groundTruth
+    ? [buildCloudGroundTruth(memory.groundTruth), buildNetworkGroundTruth(memory.groundTruth), buildTelemetryGroundTruth(memory.groundTruth)].filter(Boolean).join("\n\n")
+    : "";
+
   const userPrompt = `Analyze lateral movement opportunities for this exposure:
 
 Asset ID: ${memory.context.assetId}
@@ -68,7 +74,7 @@ Exposure Type: ${memory.context.exposureType}
 Priority: ${memory.context.priority}
 Description: ${memory.context.description}
 ${previousContext}
-
+${groundTruthContext ? `\n${groundTruthContext}\n` : ""}
 Provide your lateral movement analysis as a JSON object with this structure:
 {
   "pivotPaths": [

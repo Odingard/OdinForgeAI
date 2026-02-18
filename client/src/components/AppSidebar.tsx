@@ -18,8 +18,6 @@ import {
   History,
   ListChecks,
   Activity,
-  FileCheck,
-  Package,
   UserCheck,
   Radar,
   Calendar,
@@ -73,11 +71,6 @@ const operationsItems = [
   { title: "Jobs", href: "/jobs", icon: ListChecks },
   { title: "System Health", href: "/health", icon: Activity },
   { title: "Audit Logs", href: "/audit", icon: FileText },
-];
-
-const complianceItems = [
-  { title: "Evidence", href: "/evidence", icon: FileCheck },
-  { title: "Forensics", href: "/forensics", icon: Package },
 ];
 
 const advancedItems = [
@@ -225,32 +218,6 @@ export function AppSidebar() {
           </SidebarGroup>
         </Collapsible>
 
-        <Collapsible defaultOpen className="group/collapsible">
-          <SidebarGroup>
-            <CollapsibleTrigger asChild>
-              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
-                Compliance & Forensics
-                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-              </SidebarGroupLabel>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {complianceItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
-                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </CollapsibleContent>
-          </SidebarGroup>
-        </Collapsible>
 
         <Collapsible defaultOpen className="group/collapsible">
           <SidebarGroup>

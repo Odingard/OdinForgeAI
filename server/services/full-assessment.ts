@@ -1034,6 +1034,196 @@ function calculateOverallRiskScore(
 }
 
 // ============================================================================
+// Internal Mode Assessment — Leverages endpoint agent data + AEV orchestrator
+// ============================================================================
+
+export async function runInternalModeAssessment(
+  assessmentId: string,
+  onProgress?: FullAssessmentProgressCallback
+): Promise<void> {
+  const startTime = Date.now();
+
+  try {
+    const assessment = await storage.getFullAssessment(assessmentId);
+    if (!assessment) {
+      await updateAssessmentStatus(assessmentId, "failed", 0, "Assessment not found");
+      return;
+    }
+
+    // Phase 1: Gather endpoint agent findings and telemetry
+    await updateAssessmentStatus(assessmentId, "agent_collection", 5, "Gathering endpoint agent data...");
+    onProgress?.(assessmentId, "agent_collection", 5, "Collecting agent findings and telemetry...");
+    broadcastProgress(assessmentId, "agent_collection", 5, "Collecting agent findings and telemetry...");
+
+    let agents = await storage.getEndpointAgents();
+    if (assessment.agentIds && assessment.agentIds.length > 0) {
+      const scopedAgentIds = new Set(assessment.agentIds);
+      agents = agents.filter(a => scopedAgentIds.has(a.id));
+    }
+
+    if (agents.length === 0) {
+      await updateAssessmentStatus(assessmentId, "failed", 0, "No endpoint agents available. Deploy agents or use External mode.");
+      return;
+    }
+
+    // Gather findings + telemetry per agent
+    const agentProfiles: Array<{
+      agent: typeof agents[0];
+      findings: AgentFinding[];
+      telemetry: any;
+      hostname: string;
+    }> = [];
+
+    for (const agent of agents) {
+      const findings = await storage.getAgentFindings(agent.id);
+      const telemetryRecords = await storage.getAgentTelemetry(agent.id);
+      agentProfiles.push({
+        agent,
+        findings,
+        telemetry: telemetryRecords[0] || null,
+        hostname: agent.hostname || agent.agentName,
+      });
+    }
+
+    const totalFindings = agentProfiles.reduce((sum, p) => sum + p.findings.length, 0);
+    await updateAssessmentStatus(assessmentId, "agent_collection", 15,
+      `Collected ${totalFindings} findings from ${agentProfiles.length} agents`);
+
+    // Phase 2: Run AEV orchestrator per high-risk agent to get grounded analysis
+    await updateAssessmentStatus(assessmentId, "aev_analysis", 20, "Running AEV analysis on internal hosts...");
+    onProgress?.(assessmentId, "aev_analysis", 20, "Analyzing internal attack surface with AI agents...");
+    broadcastProgress(assessmentId, "aev_analysis", 20, "Running AI-powered internal analysis...");
+
+    const { runAgentOrchestrator } = await import("./agents/orchestrator");
+    const internalResults: Array<{
+      hostname: string;
+      orchestratorResult: any;
+      evaluationId: string;
+    }> = [];
+
+    // Pick agents with findings (most interesting) — cap at 5 to avoid timeout
+    const agentsToAnalyze = agentProfiles
+      .filter(p => p.findings.length > 0)
+      .sort((a, b) => b.findings.length - a.findings.length)
+      .slice(0, 5);
+
+    for (let i = 0; i < agentsToAnalyze.length; i++) {
+      const profile = agentsToAnalyze[i];
+      const progress = 20 + Math.floor((i / agentsToAnalyze.length) * 40);
+
+      onProgress?.(assessmentId, "aev_analysis", progress,
+        `Analyzing ${profile.hostname} (${i + 1}/${agentsToAnalyze.length})...`);
+      broadcastProgress(assessmentId, "aev_analysis", progress,
+        `Analyzing ${profile.hostname}...`);
+
+      try {
+        // Create a temporary evaluation for this internal host
+        const evaluation = await storage.createEvaluation({
+          assetId: profile.hostname,
+          exposureType: "internal_network",
+          priority: profile.findings.some(f => f.severity === "critical") ? "critical" : "high",
+          description: `Internal assessment of ${profile.hostname} — ${profile.findings.length} agent findings: ${profile.findings.slice(0, 3).map(f => f.title).join(", ")}`,
+          organizationId: assessment.organizationId || "default",
+        });
+
+        const result = await runAgentOrchestrator(
+          profile.hostname,
+          "internal_network",
+          "high",
+          `Internal host ${profile.hostname} with ${profile.findings.length} security findings from endpoint agent`,
+          evaluation.id,
+          undefined,
+          {
+            organizationId: assessment.organizationId || "default",
+            executionMode: "safe",
+            skipPhaseTracking: true,
+          }
+        );
+
+        internalResults.push({
+          hostname: profile.hostname,
+          orchestratorResult: result,
+          evaluationId: evaluation.id,
+        });
+      } catch (err) {
+        console.error(`[InternalAssessment] Failed to analyze ${profile.hostname}:`, err);
+      }
+    }
+
+    // Phase 3: Cross-system correlation
+    await updateAssessmentStatus(assessmentId, "cross_correlation", 65, "Correlating internal findings across systems...");
+    onProgress?.(assessmentId, "cross_correlation", 65, "Correlating cross-system attack paths...");
+    broadcastProgress(assessmentId, "cross_correlation", 65, "Building cross-system attack graph...");
+
+    // Build system profiles for cross-system analysis
+    const systemProfiles = await buildSystemProfiles(agents, agentProfiles.flatMap(p => p.findings));
+
+    // Merge AEV orchestrator attack paths into cross-system graph
+    const allAttackPaths: any[] = [];
+    for (const ir of internalResults) {
+      if (ir.orchestratorResult?.attackPath) {
+        allAttackPaths.push(...ir.orchestratorResult.attackPath.map((step: any) => ({
+          ...step,
+          sourceHost: ir.hostname,
+        })));
+      }
+    }
+
+    const attackGraph = await synthesizeCrossSystemAttackGraph(
+      systemProfiles,
+      { vulnerabilities: allAttackPaths, riskDistribution: {}, keyRisks: [] }
+    );
+
+    // Phase 4: Impact and recommendations
+    await updateAssessmentStatus(assessmentId, "impact_assessment", 80, "Assessing business impact...");
+    onProgress?.(assessmentId, "impact_assessment", 80, "Calculating business impact...");
+    broadcastProgress(assessmentId, "impact_assessment", 80, "Assessing impact...");
+
+    const lateralPaths = await analyzeLateralMovement(systemProfiles, attackGraph);
+    const impactAnalysis = await assessBusinessImpact(systemProfiles, attackGraph, lateralPaths);
+    const recommendations = await generatePrioritizedRecommendations(systemProfiles, { vulnerabilities: allAttackPaths }, attackGraph, impactAnalysis);
+    const executiveSummary = await generateExecutiveSummary(systemProfiles, { vulnerabilities: allAttackPaths }, attackGraph, impactAnalysis);
+    const overallRiskScore = calculateOverallRiskScore(attackGraph, impactAnalysis);
+
+    // Complete
+    await storage.updateFullAssessment(assessmentId, {
+      status: "completed",
+      progress: 100,
+      currentPhase: "completed",
+      overallRiskScore,
+      criticalPathCount: attackGraph.criticalPaths.length,
+      systemsAnalyzed: agentProfiles.length,
+      findingsAnalyzed: totalFindings,
+      unifiedAttackGraph: attackGraph,
+      lateralMovementPaths: lateralPaths,
+      businessImpactAnalysis: impactAnalysis,
+      recommendations,
+      executiveSummary,
+      reconFindings: agentProfiles.map(p => ({
+        agentId: p.agent.id,
+        hostname: p.hostname,
+        findingCount: p.findings.length,
+      })),
+      durationMs: Date.now() - startTime,
+      completedAt: new Date(),
+    });
+
+    broadcastProgress(assessmentId, "completed", 100, "Internal assessment complete");
+    console.log(`[InternalAssessment] Completed in ${Date.now() - startTime}ms — ${internalResults.length} hosts analyzed, ${attackGraph.criticalPaths.length} critical paths`);
+
+  } catch (error) {
+    console.error("[InternalAssessment] Fatal error:", error);
+    await storage.updateFullAssessment(assessmentId, {
+      status: "failed",
+      progress: 0,
+      currentPhase: "failed",
+    });
+    broadcastProgress(assessmentId, "failed", 0, `Internal assessment failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw error;
+  }
+}
+
+// ============================================================================
 // Enhanced Full Assessment with Web App Reconnaissance
 // ============================================================================
 

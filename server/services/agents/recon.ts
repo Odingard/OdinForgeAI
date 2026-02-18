@@ -3,6 +3,7 @@ import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
 import { openai } from "./openai-client";
+import { buildReconGroundTruth, buildTelemetryGroundTruth } from "./scan-data-loader";
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
 
@@ -36,13 +37,18 @@ ${adversaryContext}
 ${executionModeConstraints}
 ${policyContext}`;
 
+  // Inject ground-truth scan data when available
+  const groundTruthContext = memory.groundTruth
+    ? [buildReconGroundTruth(memory.groundTruth), buildTelemetryGroundTruth(memory.groundTruth)].filter(Boolean).join("\n\n")
+    : "";
+
   const userPrompt = `Perform reconnaissance analysis on this security exposure:
 
 Asset ID: ${memory.context.assetId}
 Exposure Type: ${memory.context.exposureType}
 Priority: ${memory.context.priority}
 Description: ${memory.context.description}
-
+${groundTruthContext ? `\n${groundTruthContext}\n` : ""}
 Provide your reconnaissance findings as a JSON object with this structure:
 {
   "attackSurface": ["list of attack surface elements discovered"],

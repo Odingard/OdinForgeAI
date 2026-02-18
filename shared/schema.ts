@@ -1736,6 +1736,7 @@ export const scheduledScans = pgTable("scheduled_scans", {
   techniqueSet: jsonb("technique_set").$type<string[]>(), // ATT&CK IDs to test
   triggerCondition: varchar("trigger_condition"), // manual, finding_resolved, asset_changed
   sourceEvaluationId: varchar("source_evaluation_id"), // For revalidation: original eval that found the issue
+  timezone: varchar("timezone").default("UTC"), // IANA timezone (e.g. "America/New_York")
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1749,6 +1750,25 @@ export const insertScheduledScanSchema = createInsertSchema(scheduledScans).omit
 
 export type InsertScheduledScan = z.infer<typeof insertScheduledScanSchema>;
 export type ScheduledScan = typeof scheduledScans.$inferSelect;
+
+// Scheduled Scan Run History — tracks each execution of a scheduled scan
+export const scheduledScanRuns = pgTable("scheduled_scan_runs", {
+  id: varchar("id").primaryKey(),
+  scheduledScanId: varchar("scheduled_scan_id").notNull(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  triggeredAt: timestamp("triggered_at").defaultNow(),
+  status: varchar("status").notNull().default("running"), // running, completed, failed
+  evaluationIds: jsonb("evaluation_ids").$type<string[]>().default([]),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+  summary: jsonb("summary").$type<{
+    totalAssets: number;
+    successCount: number;
+    failCount: number;
+  }>(),
+});
+
+export type ScheduledScanRun = typeof scheduledScanRuns.$inferSelect;
 
 // Drift Detection / Comparison Result
 export const driftResultSchema = z.object({
@@ -4774,31 +4794,6 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 
-export const forensicExports = pgTable("forensic_exports", {
-  id: varchar("id").primaryKey(),
-  evaluationId: varchar("evaluation_id").notNull(),
-  executionId: varchar("execution_id").notNull(),
-  organizationId: varchar("organization_id").notNull(),
-  exportedBy: varchar("exported_by").notNull(),
-  encryptionKeyHash: varchar("encryption_key_hash").notNull(),
-  objectStorageKey: varchar("object_storage_key").notNull(),
-  fileSize: integer("file_size").notNull(),
-  logCount: integer("log_count").notNull(),
-  includesScreenshots: boolean("includes_screenshots").default(false),
-  includesNetworkCaptures: boolean("includes_network_captures").default(false),
-  expiresAt: timestamp("expires_at"),
-  downloadCount: integer("download_count").default(0),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const insertForensicExportSchema = createInsertSchema(forensicExports).omit({
-  id: true,
-  createdAt: true,
-});
-
-export type InsertForensicExport = z.infer<typeof insertForensicExportSchema>;
-export type ForensicExport = typeof forensicExports.$inferSelect;
 
 // ============================================================================
 // HITL APPROVAL REQUESTS (Human-in-the-Loop for high-risk commands)

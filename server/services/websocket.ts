@@ -72,6 +72,7 @@ export type ReasoningTraceAgentType =
   | "business_logic_agent"
   | "impact_agent"
   | "debate_module"
+  | "noise_reduction"
   | "orchestrator";
 
 interface ReasoningTraceEvent {

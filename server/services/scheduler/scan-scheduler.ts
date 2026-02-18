@@ -1,6 +1,9 @@
 import cron from "node-cron";
 import { storage } from "../../storage";
 import { queueService } from "../queue/queue-service";
+import { db } from "../../db";
+import { eq } from "drizzle-orm";
+import { scheduledScanRuns } from "@shared/schema";
 import type { ScheduledScan } from "@shared/schema";
 
 let schedulerTask: ReturnType<typeof cron.schedule> | null = null;
@@ -79,43 +82,58 @@ async function processDueScans(): Promise<void> {
     console.log(`[Scheduler] Found ${dueScans.length} due scheduled scan(s)`);
 
     for (const scan of dueScans) {
+      const runId = `run-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       try {
         console.log(`[Scheduler] Processing scheduled scan: ${scan.name} (${scan.id})`);
 
+        // Create run history record
+        await db.insert(scheduledScanRuns).values({
+          id: runId,
+          scheduledScanId: scan.id,
+          organizationId: scan.organizationId,
+          status: "running",
+        });
+
         const evaluationIds: string[] = [];
+        let failCount = 0;
 
         for (const asset of scan.assets) {
-          const evaluation = await storage.createEvaluation({
-            assetId: asset.assetId,
-            exposureType: asset.exposureType,
-            priority: asset.priority,
-            description: asset.description,
-            organizationId: scan.organizationId,
-          });
-
-          evaluationIds.push(evaluation.id);
-
-          const tenantId = (scan as any).tenantId || "default";
-          await queueService.addJob(
-            "evaluation",
-            {
-              type: "evaluation",
-              evaluationId: evaluation.id,
-              executionMode: "safe",
+          try {
+            const evaluation = await storage.createEvaluation({
               assetId: asset.assetId,
-              tenantId,
+              exposureType: asset.exposureType,
+              priority: asset.priority,
+              description: asset.description,
               organizationId: scan.organizationId,
-              exposureData: {
-                exposureType: asset.exposureType,
-                priority: asset.priority,
-                description: asset.description,
-                scheduledScanId: scan.id,
+            });
+
+            evaluationIds.push(evaluation.id);
+
+            const tenantId = (scan as any).tenantId || "default";
+            await queueService.addJob(
+              "evaluation",
+              {
+                type: "evaluation",
+                evaluationId: evaluation.id,
+                executionMode: "safe",
+                assetId: asset.assetId,
+                tenantId,
+                organizationId: scan.organizationId,
+                exposureData: {
+                  exposureType: asset.exposureType,
+                  priority: asset.priority,
+                  description: asset.description,
+                  scheduledScanId: scan.id,
+                },
               },
-            },
-            {
-              priority: asset.priority === "critical" ? "critical" : asset.priority === "high" ? "high" : "normal",
-            }
-          );
+              {
+                priority: asset.priority === "critical" ? "critical" : asset.priority === "high" ? "high" : "normal",
+              }
+            );
+          } catch (assetError) {
+            failCount++;
+            console.error(`[Scheduler] Error queuing asset ${asset.assetId} for scan ${scan.id}:`, assetError);
+          }
         }
 
         const nextRunAt = calculateNextRunAt(scan);
@@ -123,6 +141,20 @@ async function processDueScans(): Promise<void> {
           lastRunAt: now,
           nextRunAt: nextRunAt,
         });
+
+        // Update run record with success
+        await db.update(scheduledScanRuns)
+          .set({
+            status: "completed",
+            evaluationIds,
+            completedAt: new Date(),
+            summary: {
+              totalAssets: scan.assets.length,
+              successCount: evaluationIds.length,
+              failCount,
+            },
+          })
+          .where(eq(scheduledScanRuns.id, runId));
 
         console.log(`[Scheduler] Queued ${evaluationIds.length} evaluations for scan ${scan.id}`);
         console.log(`[Scheduler] Scheduled scan ${scan.id} next run: ${nextRunAt.toISOString()}`);
@@ -134,6 +166,16 @@ async function processDueScans(): Promise<void> {
 
       } catch (scanError) {
         console.error(`[Scheduler] Error processing scan ${scan.id}:`, scanError);
+        // Mark run as failed
+        try {
+          await db.update(scheduledScanRuns)
+            .set({
+              status: "failed",
+              completedAt: new Date(),
+              errorMessage: scanError instanceof Error ? scanError.message : String(scanError),
+            })
+            .where(eq(scheduledScanRuns.id, runId));
+        } catch { /* ignore tracking errors */ }
       }
     }
 

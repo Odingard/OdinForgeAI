@@ -3,6 +3,7 @@ import { generateAdversaryPromptContext } from "./adversary-profile";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
 import { openai } from "./openai-client";
+import { buildAllGroundTruth } from "./scan-data-loader";
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
 
@@ -53,6 +54,11 @@ ${adversaryContext}
 ${executionModeConstraints}
 ${policyContext}`;
 
+  // Inject all verified scan data for accurate impact assessment
+  const groundTruthContext = memory.groundTruth
+    ? buildAllGroundTruth(memory.groundTruth)
+    : "";
+
   const userPrompt = `Assess the business impact for this exposure:
 
 Asset ID: ${memory.context.assetId}
@@ -60,7 +66,7 @@ Exposure Type: ${memory.context.exposureType}
 Priority: ${memory.context.priority}
 Description: ${memory.context.description}
 ${previousContext}
-
+${groundTruthContext ? `\n${groundTruthContext}\n` : ""}
 Provide your impact assessment as a JSON object with this structure:
 {
   "dataExposure": {

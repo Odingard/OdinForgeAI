@@ -35,15 +35,20 @@ function emitEvaluationProgress(
   }
 
   try {
-    const { broadcastToChannel } = require("../../ws-bridge");
-    const channel = `evaluation:${tenantId}:${organizationId}:${evaluationId}`;
-    broadcastToChannel(channel, {
-      type: "evaluation_progress",
+    const { broadcast, broadcastToChannel } = require("../../ws-bridge");
+    const progressEvent = {
+      type: "aev_progress",
       evaluationId,
-      phase: event.phase || event.agent || "processing",
+      agentName: event.agent || "Processing",
+      stage: event.phase || event.agent || "processing",
       progress: event.progress || 0,
-      message: event.message,
-    });
+      message: event.message || "",
+    };
+    // Broadcast globally (Dashboard listens on all messages for aev_progress)
+    broadcast(progressEvent);
+    // Also send to scoped channel for targeted subscribers
+    const channel = `evaluation:${tenantId}:${organizationId}:${evaluationId}`;
+    broadcastToChannel(channel, progressEvent);
   } catch {
   }
 }
@@ -217,6 +222,12 @@ export async function handleEvaluationJob(
       recommendationCount: result.recommendations?.length || 0,
     });
 
+    // Send aev_complete so Dashboard closes the progress modal
+    try {
+      const { broadcast } = require("../../ws-bridge");
+      broadcast({ type: "aev_complete", evaluationId, success: true });
+    } catch { /* ignore */ }
+
     return {
       success: true,
       data: {
@@ -239,6 +250,12 @@ export async function handleEvaluationJob(
       type: "evaluation_failed",
       error: errorMessage,
     });
+
+    // Send aev_complete with error so Dashboard closes the progress modal
+    try {
+      const { broadcast } = require("../../ws-bridge");
+      broadcast({ type: "aev_complete", evaluationId, success: false, error: errorMessage });
+    } catch { /* ignore */ }
 
     return {
       success: false,

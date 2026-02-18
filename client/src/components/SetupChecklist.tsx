@@ -70,16 +70,6 @@ export function SetupChecklist() {
         href: "/full-assessment",
       },
     },
-    {
-      id: "compliance",
-      title: "Configure Compliance",
-      description: "Set up compliance framework monitoring",
-      completed: false,
-      action: {
-        label: "Configure",
-        href: "/compliance",
-      },
-    },
   ];
 
   const completedCount = checklistItems.filter(item => item.completed).length;

@@ -20,6 +20,7 @@ import { ProgressModal } from "./ProgressModal";
 import { EvaluationDetail } from "./EvaluationDetail";
 import { EvaluationWizard } from "./EvaluationWizard";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getStoredTokens } from "@/lib/uiAuth";
 import { SetupChecklist } from "./SetupChecklist";
 import { OnboardingWizard } from "./OnboardingWizard";
 
@@ -111,32 +112,38 @@ export function Dashboard() {
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    const { accessToken } = getStoredTokens();
+    const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws${tokenParam}`);
     wsRef.current = ws;
 
     ws.onmessage = (event) => {
-      const data: ProgressEvent = JSON.parse(event.data);
-      
-      if (data.type === "aev_progress" && data.evaluationId === activeEvaluation?.id) {
-        setProgressData({
-          agentName: data.agentName,
-          stage: data.stage || "",
-          progress: data.progress || 0,
-          message: data.message || "",
-        });
-      }
-      
-      if (data.type === "aev_complete") {
-        if (data.evaluationId === activeEvaluation?.id) {
-          setTimeout(() => {
-            setShowProgressModal(false);
-            setActiveEvaluation(null);
-            setProgressData(null);
-            queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
-          }, 1000);
-        } else {
-          queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+      try {
+        const data: ProgressEvent = JSON.parse(event.data);
+
+        if (data.type === "aev_progress" && data.evaluationId === activeEvaluation?.id) {
+          setProgressData({
+            agentName: data.agentName,
+            stage: data.stage || "",
+            progress: data.progress || 0,
+            message: data.message || "",
+          });
         }
+
+        if (data.type === "aev_complete") {
+          if (data.evaluationId === activeEvaluation?.id) {
+            setTimeout(() => {
+              setShowProgressModal(false);
+              setActiveEvaluation(null);
+              setProgressData(null);
+              queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+            }, 1000);
+          } else {
+            queryClient.invalidateQueries({ queryKey: ["/api/aev/evaluations"] });
+          }
+        }
+      } catch {
+        // Ignore malformed messages
       }
     };
 

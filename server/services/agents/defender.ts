@@ -2,6 +2,7 @@ import type { AgentMemory, AgentResult, ProgressCallback, ExploitFindings, Later
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
 import { openai } from "./openai-client";
+import { buildAllGroundTruth } from "./scan-data-loader";
 
 export interface DefenderFindings {
   detectedAttacks: DetectedAttack[];
@@ -88,6 +89,11 @@ Consider both technical controls and process-based defenses.
 ${executionModeConstraints}
 ${policyContext}`;
 
+  // Inject all verified scan data for realistic defense simulation
+  const groundTruthContext = memory.groundTruth
+    ? buildAllGroundTruth(memory.groundTruth)
+    : "";
+
   const userPrompt = `Analyze the defensive posture against these identified attacks:
 
 Asset: ${memory.context.assetId}
@@ -95,7 +101,7 @@ Exposure Type: ${memory.context.exposureType}
 Priority: ${memory.context.priority}
 
 ${attackContext}
-
+${groundTruthContext ? `\n${groundTruthContext}\n` : ""}
 Provide your defensive analysis as a JSON object with this structure:
 {
   "detectedAttacks": [
