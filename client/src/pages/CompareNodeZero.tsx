@@ -275,6 +275,22 @@ export default function CompareNodeZero() {
           </div>
         </section>
 
+        {/* BENCHMARK PROOF */}
+        <section className="cp-section cp-reveal">
+          <div className="cp-section-label">Benchmark Results</div>
+          <div className="cp-section-title">Proven performance. Transparent results.</div>
+          <p className="cp-section-desc">
+            OdinForge publishes full benchmark results against OWASP Juice Shop &mdash; no cherry-picking.
+            5/5 scenarios passed with 90% detection rate. Our exploit agent uses real HTTP validation,
+            not AI speculation.
+          </p>
+          <div className="cp-hero-actions" style={{ justifyContent: "flex-start" }}>
+            <a href="/benchmark" className="cp-btn-secondary">
+              See Full Benchmark Results &rarr;
+            </a>
+          </div>
+        </section>
+
         {/* COMPETITOR CREDIT */}
         <section className="cp-shannon-credit cp-reveal">
           <div className="cp-shannon-box">

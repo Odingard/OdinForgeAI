@@ -1,5 +1,8 @@
 # OdinForge AI
 
+![Benchmark](https://github.com/OdinGard/OdinForgeAI/actions/workflows/benchmark.yml/badge.svg)
+![CI](https://github.com/OdinGard/OdinForgeAI/actions/workflows/ci.yml/badge.svg)
+
 **Autonomous Adversarial Exposure Validation Platform**
 
 OdinForge AI is an enterprise-grade security platform that combines agentic AI reasoning with real offensive security tooling to autonomously validate exploitability, simulate multi-domain breach chains, and continuously assess organizational security posture. It goes beyond scanning by proving whether vulnerabilities lead to full organizational compromise — with HTTP evidence, not speculation.

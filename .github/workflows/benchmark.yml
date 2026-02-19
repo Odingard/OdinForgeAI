@@ -1,0 +1,76 @@
+name: Benchmark (Exploit Agent)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/services/agents/**"
+      - "server/services/validation/**"
+      - "server/benchmark/**"
+  workflow_dispatch:
+    inputs:
+      threshold_pass_rate:
+        description: "Minimum scenarios that must pass"
+        default: "4"
+        type: string
+      threshold_detection_rate:
+        description: "Minimum detection rate percentage"
+        default: "70"
+        type: string
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    services:
+      juice-shop:
+        image: bkimminich/juice-shop:v17.1.1
+        ports:
+          - 3001:3000
+        options: >-
+          --health-cmd "wget -q --spider http://localhost:3000 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 30s
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Juice Shop
+        run: |
+          npx --yes wait-on@7 -t 120000 http://localhost:3001
+
+      - name: Run exploit agent benchmark
+        run: |
+          PASS_RATE="${{ github.event.inputs.threshold_pass_rate || '4' }}"
+          DET_RATE="${{ github.event.inputs.threshold_detection_rate || '70' }}"
+
+          npx tsx server/benchmark/exploit-benchmark.ts \
+            http://localhost:3001 simulation \
+            --output artifacts/benchmark-report.json \
+            --threshold-pass-rate "$PASS_RATE" \
+            --threshold-detection-rate "$DET_RATE"
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: artifacts/benchmark-report.json
+          retention-days: 90
