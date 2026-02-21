@@ -137,10 +137,24 @@ func (s *SystemdInstaller) Install(cfg InstallConfig) error {
                 return fmt.Errorf("failed to start service: %w", err)
         }
 
+        // Configure firewall rules for agent communication
+        if cfg.ServerURL != "" {
+                fw := NewFirewallManager(cfg.ServerURL)
+                if err := fw.ConfigureRules(); err != nil {
+                        fmt.Printf("Note: Could not configure firewall rules: %v\n", err)
+                }
+        }
+
         return nil
 }
 
 func (s *SystemdInstaller) Uninstall(cfg InstallConfig) error {
+        // Remove firewall rules
+        if cfg.ServerURL != "" {
+                fw := NewFirewallManager(cfg.ServerURL)
+                fw.RemoveRules()
+        }
+
         // Stop service
         exec.Command("systemctl", "stop", cfg.ServiceName).Run()
 

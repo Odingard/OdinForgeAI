@@ -678,6 +678,135 @@ export const workflowBypassPlaybook: Playbook = {
 };
 
 // ============================================================================
+// CLOUD SECURITY PLAYBOOKS
+// ============================================================================
+
+export const iamEscalationPlaybook: Playbook = {
+  id: "iam-escalation-chain",
+  name: "IAM Privilege Escalation Chain",
+  description: "Validates IAM permission analysis, tests privilege escalation paths, and proves impact",
+  version: "1.0.0",
+  category: "iam_escalation",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1098.001", "T1098.003", "T1548.005"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 45000,
+
+  steps: [
+    {
+      id: "iam-permission-audit",
+      name: "IAM Permission Analysis",
+      description: "Enumerate current IAM permissions and identify dangerous capabilities",
+      type: "validate",
+      category: "iam_escalation",
+      requiredMode: "safe",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 2,
+      config: {},
+    },
+    {
+      id: "iam-escalation-test",
+      name: "Privilege Escalation Path Testing",
+      description: "Test identified escalation paths (CreateAccessKey, AttachPolicy, PassRole)",
+      type: "escalate",
+      category: "iam_escalation",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["iam-permission-audit"],
+      requiredConfidence: 60,
+      config: {},
+    },
+    {
+      id: "iam-impact-proof",
+      name: "Escalation Impact Proof",
+      description: "Demonstrate the scope of access achievable through escalation",
+      type: "exploit",
+      category: "iam_escalation",
+      requiredMode: "live",
+      requiresApproval: true,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["iam-escalation-test"],
+      requiredConfidence: 70,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 1,
+    confidenceBelow: 40,
+  },
+};
+
+export const cloudStorageExposurePlaybook: Playbook = {
+  id: "cloud-storage-exposure",
+  name: "Cloud Storage Exposure Chain",
+  description: "S3/blob scan, public access test, sensitive data exposure proof",
+  version: "1.0.0",
+  category: "cloud_storage_exposure",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1530", "T1537"],
+  riskLevel: "high",
+
+  minimumMode: "safe",
+  estimatedDuration: 40000,
+
+  steps: [
+    {
+      id: "storage-enum",
+      name: "Storage Bucket Enumeration",
+      description: "Enumerate cloud storage buckets and check public access configuration",
+      type: "validate",
+      category: "cloud_storage_exposure",
+      requiredMode: "safe",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 2,
+      config: {},
+    },
+    {
+      id: "storage-access-test",
+      name: "Public Access Verification",
+      description: "Test for public read/write access and misconfigured ACLs",
+      type: "exploit",
+      category: "cloud_storage_exposure",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["storage-enum"],
+      requiredConfidence: 50,
+      config: {},
+    },
+    {
+      id: "storage-data-exposure",
+      name: "Sensitive Data Exposure Proof",
+      description: "Identify sensitive file patterns in exposed buckets",
+      type: "exfiltrate",
+      category: "cloud_storage_exposure",
+      requiredMode: "live",
+      requiresApproval: true,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["storage-access-test"],
+      requiredConfidence: 60,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 2,
+  },
+};
+
+// ============================================================================
 // PLAYBOOK REGISTRY
 // ============================================================================
 
@@ -691,6 +820,8 @@ export const playbookRegistry: Map<string, Playbook> = new Map([
   [idorEscalationPlaybook.id, idorEscalationPlaybook],
   [raceConditionPlaybook.id, raceConditionPlaybook],
   [workflowBypassPlaybook.id, workflowBypassPlaybook],
+  [iamEscalationPlaybook.id, iamEscalationPlaybook],
+  [cloudStorageExposurePlaybook.id, cloudStorageExposurePlaybook],
 ]);
 
 export function getPlaybook(id: string): Playbook | undefined {

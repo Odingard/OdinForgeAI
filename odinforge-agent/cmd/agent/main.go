@@ -12,9 +12,9 @@ import (
 	"odinforge-agent/internal/collector"
 	"odinforge-agent/internal/config"
 	"odinforge-agent/internal/healthz"
+	"odinforge-agent/internal/implant"
 	"odinforge-agent/internal/installer"
 	"odinforge-agent/internal/logger"
-	"odinforge-agent/internal/prober"
 	"odinforge-agent/internal/queue"
 	"odinforge-agent/internal/registrar"
 	"odinforge-agent/internal/sender"
@@ -24,7 +24,7 @@ import (
 )
 
 // version is set at build time via -ldflags "-X main.version=..."
-var version = "1.0.4-dev"
+var version = "1.1.0-dev"
 
 var log = logger.WithComponent("main")
 
@@ -284,6 +284,7 @@ func runAgent() {
 
 	var c *collector.Collector
 	var s *sender.Sender
+	var dispatcher *implant.Dispatcher
 	authenticated := false
 
 	for {
@@ -302,9 +303,14 @@ func runAgent() {
 					authenticated = false
 					continue
 				}
+				dispatcher = implant.NewDispatcher()
+				dispatcher.Register("force_checkin", implant.NewCheckinHandler(c, q, s, stats))
+				dispatcher.Register("run_scan", implant.NewScanHandler(c, q, stats))
+				dispatcher.Register("validation_probe", implant.NewProbeHandler())
 				log.Info("odinforge-agent fully started",
 					"server", cfg.Server.URL,
 					"tenant", cfg.Auth.TenantID,
+					"implants", dispatcher.Registered(),
 				)
 				enqueueTelemetry(ctx, c, q, stats)
 			}
@@ -335,8 +341,8 @@ func runAgent() {
 			}
 
 		case <-commandPollTicker.C:
-			if authenticated && s != nil {
-				pollAndExecuteCommands(ctx, cfg, c, q, s, stats)
+			if authenticated && s != nil && dispatcher != nil {
+				pollAndExecuteCommands(ctx, cfg, dispatcher, s, stats)
 			}
 
 		case <-flushTicker.C:
@@ -429,6 +435,7 @@ func runAgentWithContext(ctx context.Context) {
 
 	var c *collector.Collector
 	var s *sender.Sender
+	var dispatcher *implant.Dispatcher
 	authenticated := false
 
 	for {
@@ -447,9 +454,14 @@ func runAgentWithContext(ctx context.Context) {
 					authenticated = false
 					continue
 				}
+				dispatcher = implant.NewDispatcher()
+				dispatcher.Register("force_checkin", implant.NewCheckinHandler(c, q, s, stats))
+				dispatcher.Register("run_scan", implant.NewScanHandler(c, q, stats))
+				dispatcher.Register("validation_probe", implant.NewProbeHandler())
 				log.Info("odinforge-agent fully started",
 					"server", cfg.Server.URL,
 					"tenant", cfg.Auth.TenantID,
+					"implants", dispatcher.Registered(),
 				)
 				enqueueTelemetry(ctx, c, q, stats)
 			}
@@ -480,8 +492,8 @@ func runAgentWithContext(ctx context.Context) {
 			}
 
 		case <-commandPollTicker.C:
-			if authenticated && s != nil {
-				pollAndExecuteCommands(ctx, cfg, c, q, s, stats)
+			if authenticated && s != nil && dispatcher != nil {
+				pollAndExecuteCommands(ctx, cfg, dispatcher, s, stats)
 			}
 
 		case <-flushTicker.C:
@@ -534,7 +546,7 @@ func enqueueHeartbeat(c *collector.Collector, q *queue.BoltQueue, stats *watchdo
 	stats.LastHeartbeatAt.Store(time.Now().Unix())
 }
 
-func pollAndExecuteCommands(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, stats *watchdog.Stats) {
+func pollAndExecuteCommands(ctx context.Context, cfg config.Config, dispatcher *implant.Dispatcher, s *sender.Sender, stats *watchdog.Stats) {
 	agentID := cfg.Auth.TenantID
 	if cfg.Auth.APIKey != "" {
 		if len(cfg.Auth.APIKey) >= 8 {
@@ -555,130 +567,34 @@ func pollAndExecuteCommands(ctx context.Context, cfg config.Config, c *collector
 	log.Info("received commands from server", "count", len(commands))
 
 	for _, cmd := range commands {
-		executeCommand(ctx, cfg, c, q, s, agentID, cmd, stats)
+		executeCommand(ctx, dispatcher, s, agentID, cmd, stats)
 	}
 }
 
-func executeCommand(ctx context.Context, cfg config.Config, c *collector.Collector, q *queue.BoltQueue, s *sender.Sender, agentID string, cmd sender.Command, stats *watchdog.Stats) {
+func executeCommand(ctx context.Context, dispatcher *implant.Dispatcher, s *sender.Sender, agentID string, cmd sender.Command, stats *watchdog.Stats) {
 	log.Info("executing command", "id", cmd.ID, "type", cmd.CommandType)
 
-	var result map[string]interface{}
+	result := dispatcher.Execute(ctx, cmd.CommandType, cmd.Payload)
+
+	var resultMap map[string]interface{}
 	var errorMsg string
 
-	switch cmd.CommandType {
-	case "force_checkin":
-		enqueueTelemetry(ctx, c, q, stats)
-		enqueueHeartbeat(c, q, stats)
-		if err := s.Flush(ctx, q); err != nil {
-			errorMsg = err.Error()
-		} else {
-			result = map[string]interface{}{
-				"status":        "completed",
-				"executedAt":    time.Now().Format(time.RFC3339),
-				"telemetrySent": true,
-			}
+	if result.Error != "" {
+		errorMsg = result.Error
+	} else {
+		resultMap = result.Data
+		if resultMap == nil {
+			resultMap = map[string]interface{}{}
 		}
-
-	case "run_scan":
-		enqueueTelemetry(ctx, c, q, stats)
-		result = map[string]interface{}{
-			"status":     "completed",
-			"executedAt": time.Now().Format(time.RFC3339),
-			"scanType":   "full",
-		}
-
-	case "validation_probe":
-		result = executeValidationProbe(ctx, cmd.Payload)
-
-	default:
-		errorMsg = "unknown command type: " + cmd.CommandType
+		resultMap["status"] = result.Status
+		resultMap["startedAt"] = result.StartedAt
+		resultMap["durationMs"] = result.Duration
 	}
 
-	if err := s.CompleteCommand(ctx, agentID, cmd.ID, result, errorMsg); err != nil {
+	if err := s.CompleteCommand(ctx, agentID, cmd.ID, resultMap, errorMsg); err != nil {
 		log.Error("failed to report command completion", "id", cmd.ID, "error", err.Error())
 	} else {
 		stats.CommandsExec.Add(1)
 		log.Info("command completed", "id", cmd.ID)
-	}
-}
-
-func executeValidationProbe(ctx context.Context, payload map[string]interface{}) map[string]interface{} {
-	start := time.Now()
-
-	host, _ := payload["host"].(string)
-	if host == "" {
-		return map[string]interface{}{
-			"status": "error",
-			"error":  "missing required 'host' parameter",
-		}
-	}
-
-	probeTypes, _ := payload["probes"].([]interface{})
-	var probes []string
-	for _, p := range probeTypes {
-		if pStr, ok := p.(string); ok {
-			probes = append(probes, pStr)
-		}
-	}
-
-	port := 0
-	if portFloat, ok := payload["port"].(float64); ok {
-		port = int(portFloat)
-	}
-
-	timeout := 5000
-	if timeoutFloat, ok := payload["timeout"].(float64); ok {
-		timeout = int(timeoutFloat)
-	}
-
-	log.Info("running validation probes", "host", host, "probes", probes)
-
-	var allResults []prober.ProbeResult
-
-	if len(probes) > 0 {
-		cfg := prober.ProbeConfig{
-			Host:    host,
-			Port:    port,
-			Timeout: timeout,
-			Probes:  probes,
-		}
-		p := prober.New(cfg)
-		results := p.RunProbes(ctx)
-		allResults = append(allResults, results...)
-	}
-
-	credServices, _ := payload["credentialServices"].([]interface{})
-	if len(credServices) > 0 {
-		credProber := prober.NewCredentialProber(host, timeout)
-		for _, svc := range credServices {
-			svcStr, ok := svc.(string)
-			if !ok {
-				continue
-			}
-			result := credProber.ProbeService(ctx, prober.ServiceType(svcStr), port)
-			allResults = append(allResults, result)
-		}
-	}
-
-	var vulnerableCount int
-	var criticalFindings []string
-	for _, r := range allResults {
-		if r.Vulnerable {
-			vulnerableCount++
-			if r.Confidence >= 90 {
-				criticalFindings = append(criticalFindings, r.Evidence)
-			}
-		}
-	}
-
-	return map[string]interface{}{
-		"status":           "completed",
-		"executedAt":       time.Now().Format(time.RFC3339),
-		"host":             host,
-		"probeCount":       len(allResults),
-		"vulnerableCount":  vulnerableCount,
-		"criticalFindings": criticalFindings,
-		"results":          allResults,
-		"executionMs":      time.Since(start).Milliseconds(),
 	}
 }

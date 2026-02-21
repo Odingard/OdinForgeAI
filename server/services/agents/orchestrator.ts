@@ -114,6 +114,8 @@ export interface OrchestratorOptions {
   executionMode?: "safe" | "simulation" | "live";
   /** Skip writing phase progress to DB (used when orchestrator is called multiple times, e.g. simulation rounds) */
   skipPhaseTracking?: boolean;
+  /** Scheduled scan ID for drift tracking (set by scan scheduler) */
+  scheduledScanId?: string;
 }
 
 export async function runAgentOrchestrator(
@@ -294,6 +296,33 @@ async function runPipeline(
     duration: Date.now() - reconStart, findingSummary: reconSummary,
   });
   wsService.sendSharedMemoryUpdate(evaluationId, "recon_agent", "ReconAgent", "recon", reconSummary);
+
+  // ──────────────────────────────────────────────────────────────
+  // Tier 1.25: Threat Intel Enrichment (non-fatal, <5s)
+  // ──────────────────────────────────────────────────────────────
+  try {
+    const vulnImports = await storage.getVulnerabilityImportsByAssetId(assetId);
+    const cveIds = vulnImports.map(v => v.cveId).filter((id): id is string => !!id);
+    if (cveIds.length > 0) {
+      const epssResults = await getEPSSScores(cveIds);
+      const orgId = options?.organizationId || "default";
+      const kevCves: string[] = [];
+      for (const cveId of cveIds) {
+        const indicator = await storage.getThreatIntelIndicatorByValue(cveId, orgId);
+        if (indicator) kevCves.push(cveId);
+      }
+      const epssArray = Array.from(epssResults.entries());
+      memory.threatIntel = {
+        epssScores: epssArray.map(([cve, data]) => ({ cve, epss: data.epss, percentile: data.percentile })),
+        kevCves,
+      };
+      if (kevCves.length > 0 || epssArray.length > 0) {
+        console.log(`[Orchestrator] Threat intel: ${kevCves.length} KEV CVEs, ${epssArray.length} EPSS scores`);
+      }
+    }
+  } catch (err) {
+    console.warn("[Orchestrator] Threat intel enrichment failed (non-fatal):", err);
+  }
 
   // ──────────────────────────────────────────────────────────────
   // Tier 1.5: Plan Agent (1 LLM call, max 15s)
@@ -773,6 +802,26 @@ async function runPipeline(
     duration: Date.now() - finalizationStart,
     findingSummary: `Score: ${intelligentScore?.riskRank?.overallScore ?? result.score}, ${result.recommendations?.length || 0} recommendations`,
   });
+
+  // Record evaluation snapshot and compute drift (non-fatal)
+  let evaluationDiff: import("@shared/schema").DriftResult | null = null;
+  try {
+    const { computeEvaluationDiff, recordEvaluationSnapshot } = await import("../evaluation-differ");
+    const evaluation = await storage.getEvaluation(evaluationId);
+    if (evaluation) {
+      evaluationDiff = await computeEvaluationDiff({
+        currentEvaluation: evaluation,
+        currentResult: result as any,
+        assetId,
+      });
+      await recordEvaluationSnapshot(evaluation, result as any, options?.scheduledScanId);
+      if (evaluationDiff) {
+        console.log(`[Orchestrator] Drift detected: ${evaluationDiff.riskTrend}, score change: ${evaluationDiff.changes.scoreChange}`);
+      }
+    }
+  } catch (err) {
+    console.warn("[Orchestrator] Evaluation diff/snapshot failed (non-fatal):", err);
+  }
 
   onProgress?.("Complete", "complete", 100, "Analysis complete");
   console.log(`[Orchestrator] Pipeline completed in ${totalProcessingTime}ms`);

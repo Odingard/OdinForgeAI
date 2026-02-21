@@ -32,7 +32,10 @@ export type ExploitCategory =
   | "credential_attack"
   | "idor"
   | "race_condition"
-  | "workflow_bypass";
+  | "workflow_bypass"
+  | "iam_escalation"
+  | "cloud_storage_exposure"
+  | "cloud_misconfig";
 
 export type StepType = 
   | "validate"      // Initial vulnerability validation
@@ -535,6 +538,16 @@ export class ChainOrchestrator {
     // Workflow bypass handlers
     this.registerHandler("workflow_bypass", "validate", new WorkflowBypassValidateHandler());
     this.registerHandler("workflow_bypass", "exploit", new WorkflowBypassExploitHandler());
+
+    // Cloud IAM escalation handlers
+    this.registerHandler("iam_escalation", "validate", new IAMValidateHandler());
+    this.registerHandler("iam_escalation", "escalate", new IAMEscalateHandler());
+    this.registerHandler("iam_escalation", "exploit", new IAMImpactHandler());
+
+    // Cloud storage exposure handlers
+    this.registerHandler("cloud_storage_exposure", "validate", new CloudStorageValidateHandler());
+    this.registerHandler("cloud_storage_exposure", "exploit", new CloudStorageAccessHandler());
+    this.registerHandler("cloud_storage_exposure", "exfiltrate", new CloudStorageExfilHandler());
   }
   
   // ---------------------------------------------------------------------------
@@ -1369,6 +1382,141 @@ class WorkflowBypassExploitHandler implements StepHandler {
         evidence: exploitable.length > 0
           ? [{ type: "workflow_exploit", data: exploitable.map(v => `${v.type} in ${v.workflowId}: ${v.proof}`).join("; "), capturedAt: new Date() }]
           : [],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+// ============================================================================
+// CLOUD SECURITY HANDLERS
+// ============================================================================
+
+class IAMValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { awsPentestService } = await import("../cloud-pentest/aws-pentest-service");
+      const permissions = step.config?.permissions || ["iam:*", "s3:*"];
+      const result = await awsPentestService.analyzeIAMPrivilegeEscalation(
+        permissions,
+        step.config?.userId || "unknown",
+        step.config?.userName || "unknown",
+        step.config?.accountId
+      );
+      const hasEscalation = result.escalationPaths.length > 0;
+      return {
+        stepId: step.id, stepName: step.name,
+        status: hasEscalation ? "success" : "failed",
+        confidence: hasEscalation ? 85 : 10,
+        evidence: result.escalationPaths.map(p => ({ type: "iam_escalation", data: `${p.name}: ${p.description} (${p.mitreId})`, capturedAt: new Date() })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IAMEscalateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { awsPentestService } = await import("../cloud-pentest/aws-pentest-service");
+      const permissions = step.config?.permissions || ["iam:CreateAccessKey", "iam:AttachUserPolicy"];
+      const result = await awsPentestService.analyzeIAMPrivilegeEscalation(permissions, step.config?.userId || "unknown", step.config?.userName || "unknown");
+      const highImpact = result.escalationPaths.filter(p => p.impact === "critical" || p.impact === "high");
+      return {
+        stepId: step.id, stepName: step.name,
+        status: highImpact.length > 0 ? "success" : "failed",
+        confidence: highImpact.length > 0 ? 90 : 10,
+        evidence: highImpact.map(p => ({ type: "iam_escalation_path", data: `${p.name}: ${p.steps.join(" → ")}`, capturedAt: new Date() })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IAMImpactHandler implements StepHandler {
+  async execute(step: PlaybookStep, _context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { awsPentestService } = await import("../cloud-pentest/aws-pentest-service");
+      const permissions = step.config?.permissions || ["iam:*"];
+      const result = await awsPentestService.analyzeIAMPrivilegeEscalation(permissions, step.config?.userId || "unknown", step.config?.userName || "unknown");
+      const vulnerable = result.riskScore >= 70;
+      return {
+        stepId: step.id, stepName: step.name,
+        status: vulnerable ? "success" : "failed",
+        confidence: vulnerable ? 85 : 10,
+        evidence: [{ type: "iam_impact", data: `Risk score: ${result.riskScore}, ${result.dangerousPermissions.length} dangerous permissions, ${result.escalationPaths.length} escalation paths`, capturedAt: new Date() }],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class CloudStorageValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, _context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { awsPentestService } = await import("../cloud-pentest/aws-pentest-service");
+      const buckets = step.config?.buckets || [{ name: "test-bucket", isPublic: false }];
+      const result = await awsPentestService.analyzeS3Buckets(buckets);
+      const hasIssues = result.misconfigurations.length > 0 || result.publicBuckets.length > 0;
+      return {
+        stepId: step.id, stepName: step.name,
+        status: hasIssues ? "success" : "failed",
+        confidence: result.publicBuckets.length > 0 ? 95 : hasIssues ? 75 : 10,
+        evidence: result.misconfigurations.map(m => ({ type: "s3_misconfig", data: `${m.bucketName}: ${m.type} (${m.severity}) - ${m.description}`, capturedAt: new Date() })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class CloudStorageAccessHandler implements StepHandler {
+  async execute(step: PlaybookStep, _context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { awsPentestService } = await import("../cloud-pentest/aws-pentest-service");
+      const buckets = step.config?.buckets || [{ name: "test-bucket", isPublic: true }];
+      const result = await awsPentestService.analyzeS3Buckets(buckets);
+      const publicAccess = result.publicBuckets.length > 0;
+      return {
+        stepId: step.id, stepName: step.name,
+        status: publicAccess ? "success" : "failed",
+        confidence: publicAccess ? 95 : 10,
+        evidence: result.publicBuckets.map(b => ({ type: "s3_public_access", data: `Public bucket: ${b.name} (region: ${b.region || "unknown"})`, capturedAt: new Date() })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class CloudStorageExfilHandler implements StepHandler {
+  async execute(step: PlaybookStep, _context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { awsPentestService } = await import("../cloud-pentest/aws-pentest-service");
+      const buckets = step.config?.buckets || [{ name: "test-bucket", isPublic: true }];
+      const result = await awsPentestService.analyzeS3Buckets(buckets);
+      const hasExposure = result.sensitiveDataExposures.length > 0;
+      return {
+        stepId: step.id, stepName: step.name,
+        status: hasExposure ? "success" : "failed",
+        confidence: hasExposure ? 90 : 10,
+        evidence: result.sensitiveDataExposures.map(e => ({ type: "s3_data_exposure", data: `${e.bucketName}/${e.objectKey}: ${e.dataType} (${e.sensitivityLevel})`, capturedAt: new Date() })),
         startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
       };
     } catch (error: any) {

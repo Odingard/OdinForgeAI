@@ -177,6 +177,9 @@ import {
   breachChains,
   type BreachChain,
   type InsertBreachChain,
+  // Evaluation History (drift detection)
+  type EvaluationHistory,
+  type InsertEvaluationHistory,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -227,6 +230,11 @@ export interface IStorage {
   updateScheduledScan(id: string, updates: Partial<ScheduledScan>): Promise<void>;
   deleteScheduledScan(id: string): Promise<void>;
   
+  // Evaluation History (drift detection)
+  createEvaluationHistoryEntry(data: InsertEvaluationHistory): Promise<EvaluationHistory>;
+  getEvaluationHistoryForAsset(assetId: string, limit?: number): Promise<EvaluationHistory[]>;
+  getLatestEvaluationHistoryForAsset(assetId: string): Promise<EvaluationHistory | undefined>;
+
   // Full Assessment operations
   createFullAssessment(data: InsertFullAssessment): Promise<FullAssessment>;
   getFullAssessment(id: string): Promise<FullAssessment | undefined>;
@@ -1898,6 +1906,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBreachChain(id: string): Promise<void> {
     await db.delete(breachChains).where(eq(breachChains.id, id));
+  }
+
+  // Evaluation History (drift detection)
+  async createEvaluationHistoryEntry(data: InsertEvaluationHistory): Promise<EvaluationHistory> {
+    const id = `evhist-${randomUUID().slice(0, 8)}`;
+    const [entry] = await db
+      .insert(evaluationHistory)
+      .values({ ...data, id } as typeof evaluationHistory.$inferInsert)
+      .returning();
+    return entry;
+  }
+
+  async getEvaluationHistoryForAsset(assetId: string, limit = 20): Promise<EvaluationHistory[]> {
+    return db
+      .select()
+      .from(evaluationHistory)
+      .where(eq(evaluationHistory.assetId, assetId))
+      .orderBy(desc(evaluationHistory.createdAt))
+      .limit(limit);
+  }
+
+  async getLatestEvaluationHistoryForAsset(assetId: string): Promise<EvaluationHistory | undefined> {
+    const [entry] = await db
+      .select()
+      .from(evaluationHistory)
+      .where(eq(evaluationHistory.assetId, assetId))
+      .orderBy(desc(evaluationHistory.createdAt))
+      .limit(1);
+    return entry;
   }
 
   async createLiveScanResult(data: InsertLiveScanResult): Promise<LiveScanResult> {

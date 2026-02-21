@@ -39,6 +39,25 @@ export async function runPlanAgent(
     if (gt) reconSummary.push(gt);
   }
 
+  if (memory.threatIntel) {
+    const tiParts: string[] = [];
+    if (memory.threatIntel.kevCves.length > 0) {
+      tiParts.push(`CISA KEV CVEs (CONFIRMED actively exploited in the wild): ${memory.threatIntel.kevCves.join(", ")}`);
+      tiParts.push("IMPORTANT: KEV-listed CVEs should receive HIGHEST priority — they are confirmed active threats.");
+    }
+    if (memory.threatIntel.epssScores.length > 0) {
+      const sorted = [...memory.threatIntel.epssScores].sort((a, b) => b.epss - a.epss);
+      const top5 = sorted.slice(0, 5);
+      tiParts.push("EPSS Exploitation Probabilities (30-day window):");
+      for (const e of top5) {
+        tiParts.push(`  ${e.cve}: ${(e.epss * 100).toFixed(1)}% probability (P${Math.round(e.percentile * 100)})`);
+      }
+    }
+    if (tiParts.length > 0) {
+      reconSummary.push(`Threat Intelligence Context:\n${tiParts.join("\n")}`);
+    }
+  }
+
   const systemPrompt = `You are the PLAN AGENT for OdinForge AI.
 
 Given reconnaissance data, produce a prioritized attack plan that the exploit agent will follow.

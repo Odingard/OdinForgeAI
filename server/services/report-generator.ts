@@ -703,6 +703,11 @@ WRITING RULES — follow these precisely:
   exportToJSON(data: any): string {
     return JSON.stringify(data, null, 2);
   }
+
+  exportToSarif(evaluations: any[], results: any[], organizationId: string): string {
+    const { generateSarifReport } = require("./sarif-exporter");
+    return JSON.stringify(generateSarifReport(evaluations, results, organizationId), null, 2);
+  }
   
   private generateExecutiveNarrative(
     totalEvaluations: number,

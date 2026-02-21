@@ -258,6 +258,11 @@ export interface AgentMemory {
   externalRecon?: import("../external-recon").ReconResult;
   /** Attack plan derived from recon findings — guides exploit agent */
   plan?: PlanFindings;
+  /** Threat intel enrichment — CISA KEV + EPSS data for plan agent prioritization */
+  threatIntel?: {
+    epssScores: Array<{ cve: string; epss: number; percentile: number }>;
+    kevCves: string[];
+  };
 }
 
 export interface AgentResult<T> {

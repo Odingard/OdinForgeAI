@@ -2009,6 +2009,15 @@ export async function registerRoutes(
           filename = `${report.title.replace(/\s+/g, "_")}.csv`;
           contentType = "text/csv";
           break;
+        case "sarif": {
+          const reportContent = report.content as any;
+          const sarifEvaluations = reportContent?.evaluations || [];
+          const sarifResults = reportContent?.results || [];
+          content = reportGenerator.exportToSarif(sarifEvaluations, sarifResults, report.organizationId || "default");
+          filename = `${report.title.replace(/\s+/g, "_")}.sarif.json`;
+          contentType = "application/sarif+json";
+          break;
+        }
         case "json":
         default:
           content = reportGenerator.exportToJSON(report.content);
@@ -2016,13 +2025,49 @@ export async function registerRoutes(
           contentType = "application/json";
           break;
       }
-      
+
       res.setHeader("Content-Type", contentType);
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(content);
     } catch (error) {
       console.error("Error downloading report:", error);
       res.status(500).json({ error: "Failed to download report" });
+    }
+  });
+
+  // SARIF export for individual evaluations (CI/CD integration)
+  app.get("/api/evaluations/:evaluationId/sarif", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:export"), async (req: any, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const evaluation = await storage.getEvaluation(evaluationId);
+      if (!evaluation) return res.status(404).json({ error: "Evaluation not found" });
+
+      const result = await storage.getResultByEvaluationId(evaluationId);
+      const content = reportGenerator.exportToSarif(
+        [evaluation],
+        result ? [result] : [],
+        evaluation.organizationId || "default"
+      );
+
+      res.setHeader("Content-Type", "application/sarif+json");
+      res.setHeader("Content-Disposition", `attachment; filename="odinforge-${evaluationId}.sarif.json"`);
+      res.send(content);
+    } catch (error) {
+      console.error("Error exporting SARIF:", error);
+      res.status(500).json({ error: "Failed to export SARIF" });
+    }
+  });
+
+  // Asset drift history (continuous validation trend tracking)
+  app.get("/api/assets/:assetId/drift", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: any, res) => {
+    try {
+      const { assetId } = req.params;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const history = await storage.getEvaluationHistoryForAsset(assetId, limit);
+      res.json({ assetId, history, count: history.length });
+    } catch (error) {
+      console.error("Error fetching drift history:", error);
+      res.status(500).json({ error: "Failed to fetch drift history" });
     }
   });
 

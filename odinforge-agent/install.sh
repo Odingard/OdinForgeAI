@@ -528,6 +528,49 @@ validate_installation() {
     return 0
 }
 
+# Configure firewall rules for agent communication
+configure_firewall() {
+    echo -e "\n${BLUE}Configuring firewall rules...${NC}"
+
+    if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "active"; then
+        ufw allow out 443/tcp comment "OdinForge agent HTTPS" 2>/dev/null || true
+        ufw allow out 80/tcp comment "OdinForge agent HTTP" 2>/dev/null || true
+        echo -e "  ${GREEN}[OK]${NC} UFW outbound rules configured (80/tcp, 443/tcp)"
+    elif command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld 2>/dev/null; then
+        firewall-cmd --permanent --add-service=https 2>/dev/null || true
+        firewall-cmd --permanent --add-service=http 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+        echo -e "  ${GREEN}[OK]${NC} firewalld rules configured (http, https)"
+    elif command -v iptables &>/dev/null; then
+        # Only add if rule doesn't already exist
+        if ! iptables -C OUTPUT -p tcp --dport 443 -m comment --comment "OdinForge agent" -j ACCEPT 2>/dev/null; then
+            iptables -A OUTPUT -p tcp --dport 443 -m comment --comment "OdinForge agent" -j ACCEPT 2>/dev/null || true
+        fi
+        if ! iptables -C OUTPUT -p tcp --dport 80 -m comment --comment "OdinForge agent" -j ACCEPT 2>/dev/null; then
+            iptables -A OUTPUT -p tcp --dport 80 -m comment --comment "OdinForge agent" -j ACCEPT 2>/dev/null || true
+        fi
+        echo -e "  ${GREEN}[OK]${NC} iptables outbound rules configured (80/tcp, 443/tcp)"
+    else
+        echo -e "  ${YELLOW}[SKIP]${NC} No active firewall detected (ufw/firewalld/iptables)"
+    fi
+}
+
+# Remove firewall rules on uninstall
+remove_firewall_rules() {
+    echo "Removing firewall rules..."
+    if command -v ufw &>/dev/null; then
+        ufw delete allow out 443/tcp 2>/dev/null || true
+        ufw delete allow out 80/tcp 2>/dev/null || true
+    elif command -v firewall-cmd &>/dev/null && systemctl is-active --quiet firewalld 2>/dev/null; then
+        firewall-cmd --permanent --remove-service=https 2>/dev/null || true
+        firewall-cmd --permanent --remove-service=http 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+    elif command -v iptables &>/dev/null; then
+        iptables -D OUTPUT -p tcp --dport 443 -m comment --comment "OdinForge agent" -j ACCEPT 2>/dev/null || true
+        iptables -D OUTPUT -p tcp --dport 80 -m comment --comment "OdinForge agent" -j ACCEPT 2>/dev/null || true
+    fi
+}
+
 # Check if agent is already installed
 is_installed() {
     [ -f ${INSTALL_DIR}/odinforge-agent ]
@@ -644,6 +687,9 @@ EOF
     # Validate the installation
     validate_installation
 
+    # Configure firewall rules for agent communication
+    configure_firewall
+
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║         Agent installed and started successfully!         ║${NC}"
@@ -676,6 +722,9 @@ do_uninstall() {
         echo "  - Remove service user '${SERVICE_USER}'"
         exit 0
     fi
+
+    # Remove firewall rules
+    remove_firewall_rules
 
     # Stop and disable service (try all init systems)
     echo "Stopping service..."
