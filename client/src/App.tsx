@@ -55,6 +55,7 @@ const CompareShannon = lazy(() => import("@/pages/CompareShannon"));
 const ComparePentera = lazy(() => import("@/pages/ComparePentera"));
 const CompareNodeZero = lazy(() => import("@/pages/CompareNodeZero"));
 const CompareAttackIQ = lazy(() => import("@/pages/CompareAttackIQ"));
+const CompareXBOW = lazy(() => import("@/pages/CompareXBOW"));
 const BenchmarkResults = lazy(() => import("@/pages/BenchmarkResults"));
 const DemoBreachChain = lazy(() => import("@/pages/DemoBreachChain"));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -256,6 +257,7 @@ function AuthenticatedApp() {
           <Route path="/compare/pentera" component={ComparePentera} />
           <Route path="/compare/nodezero" component={CompareNodeZero} />
           <Route path="/compare/attackiq" component={CompareAttackIQ} />
+          <Route path="/compare/xbow" component={CompareXBOW} />
           <Route path="/benchmark" component={BenchmarkResults} />
           <Route path="/demo/breach-chain" component={DemoBreachChain} />
           <Route component={NotFound} />

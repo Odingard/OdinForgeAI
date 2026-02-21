@@ -26,6 +26,9 @@ Welcome to the OdinForge AI documentation. This guide covers installation, confi
 ### Scoring & Threat Intelligence
 - [Scoring Engine & Threat Intel](SCORING_ENGINE.md) - Deterministic scoring formula, EPSS, CVSS, CISA KEV integration
 
+### Benchmarks
+- [Benchmark System](BENCHMARKS.md) - Multi-target benchmark harness, CI workflow, adding new targets
+
 ### Architecture & Design
 - [Design System](DESIGN_SYSTEM.md) - Afterglow UI design system and patterns
 - [Testing Guide](TESTING_GUIDE.md) - Vitest integration testing
@@ -147,6 +150,7 @@ irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 docs/
 ├── README.md                      # This file
 ├── SCORING_ENGINE.md              # Deterministic scoring, EPSS, CVSS, KEV
+├── BENCHMARKS.md                  # Benchmark system, multi-target, CI
 ├── API_REFERENCE.md               # Complete API documentation
 ├── API_NAMING_CONVENTIONS.md      # REST API style guide
 ├── DESIGN_SYSTEM.md               # Afterglow UI design system
