@@ -89,8 +89,9 @@ jobs:
         if: always()
         run: docker rm -f benchmark-target || true
 
-  # ── Experimental targets (non-blocking) ──────────────────────────────
+  # ── Experimental targets (non-blocking, runs after primary) ──────────
   benchmark-experimental:
+    needs: benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true
@@ -171,8 +172,9 @@ jobs:
         if: always()
         run: docker rm -f benchmark-target || true
 
-  # ── Breach Chain Benchmark (non-blocking) ────────────────────────────
+  # ── Breach Chain Benchmark (non-blocking, runs after primary) ────────
   breach-chain:
+    needs: benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 20
     continue-on-error: true
