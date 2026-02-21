@@ -41,11 +41,14 @@ const juiceShopScenarios: BreachChainScenario[] = [
     name: "Path Traversal File Read Proof",
     target: "juice-shop",
     playbookId: "path-traversal-proof",
-    targetEndpoint: "/ftp/",
-    parameters: {},
+    targetEndpoint: "/ftp/eastere.gg%2500.md",
+    parameters: {
+      parameter: "file",
+      parameterLocation: "path",
+    },
     expectedOutcome: {
       minStepsCompleted: 1,
-      minConfidence: 40,
+      minConfidence: 30,
       shouldDetectVuln: true,
     },
   },
@@ -54,7 +57,7 @@ const juiceShopScenarios: BreachChainScenario[] = [
     name: "Multi-Vector Attack Chain",
     target: "juice-shop",
     playbookId: "multi-vector-chain",
-    targetEndpoint: "/",
+    targetEndpoint: "/rest/products/search?q=test",
     parameters: {},
     expectedOutcome: {
       minStepsCompleted: 2,

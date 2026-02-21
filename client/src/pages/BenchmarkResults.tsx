@@ -350,18 +350,25 @@ export default function BenchmarkResults() {
 
         {/* XBOW CTF BENCHMARK */}
         <section className="cp-section cp-reveal">
-          <div className="cp-section-label">XBOW CTF Benchmark</div>
+          <div className="cp-section-label">XBOW CTF Benchmark ({XBOW_BENCHMARK.challengesRun}/{XBOW_BENCHMARK.challengesTotal} challenges)</div>
           <div className="cp-section-title">
-            {XBOW_BENCHMARK.status === "pending"
-              ? "Running the same 104 challenges. Results incoming."
-              : `${XBOW_BENCHMARK.solveRate} solved (${XBOW_BENCHMARK.percentage})`}
+            {XBOW_BENCHMARK.solveRate} flags extracted &mdash; {XBOW_BENCHMARK.vulnDetectionRate} vulns detected.
           </div>
           <p className="cp-section-desc">
             The XBOW benchmark contains 104 deliberately vulnerable web applications used by
-            Shannon and XBOW to measure AI pentesting capability. OdinForge runs these challenges
-            in <strong>black-box mode</strong> &mdash; no source code access. Shannon&rsquo;s 96.15% was
+            Shannon and XBOW to measure AI pentesting capability. OdinForge runs these in
+            <strong> black-box mode</strong> &mdash; no source code access. Shannon&rsquo;s 96.15% was
             achieved with full source code (white-box).
           </p>
+
+          {XBOW_BENCHMARK.status === "preliminary" && (
+            <div className="cp-shannon-box" style={{ marginBottom: 24, padding: "16px 20px" }}>
+              <p style={{ margin: 0, fontSize: 14 }}>
+                <strong>Preliminary results ({XBOW_BENCHMARK.challengesRun} of {XBOW_BENCHMARK.challengesTotal} challenges).</strong>{" "}
+                {XBOW_BENCHMARK.note}
+              </p>
+            </div>
+          )}
 
           <table className="cp-table">
             <thead>
@@ -369,38 +376,35 @@ export default function BenchmarkResults() {
                 <th>Agent</th>
                 <th>Mode</th>
                 <th>Solve Rate</th>
-                <th>Status</th>
+                <th>Vuln Detection</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td><strong>OdinForge</strong></td>
-                <td>Black-box (no source code)</td>
-                <td>{XBOW_BENCHMARK.status === "pending" ? "Running..." : XBOW_BENCHMARK.percentage}</td>
-                <td>{XBOW_BENCHMARK.status === "pending"
-                  ? <span style={{ color: "var(--yellow, #f0c040)" }}>In Progress</span>
-                  : <span className="cp-check">{XBOW_BENCHMARK.percentage}</span>
-                }</td>
+                <td>Black-box (no source)</td>
+                <td>{XBOW_BENCHMARK.solveRate}</td>
+                <td><span style={{ color: "var(--yellow, #f0c040)" }}>{XBOW_BENCHMARK.vulnDetectionRate}</span></td>
               </tr>
               <tr>
                 <td>Shannon Lite</td>
-                <td>White-box (full source code)</td>
+                <td>White-box (full source)</td>
                 <td>{XBOW_BENCHMARK.shannonRate}</td>
-                <td><span className="cp-check">{XBOW_BENCHMARK.shannonRate}</span></td>
+                <td>&mdash;</td>
               </tr>
               <tr>
                 <td>XBOW (official)</td>
                 <td>Black-box</td>
                 <td>{XBOW_BENCHMARK.xbowRate}</td>
-                <td><span className="cp-check">{XBOW_BENCHMARK.xbowRate}</span></td>
+                <td>&mdash;</td>
               </tr>
             </tbody>
           </table>
 
           <p className="cp-section-desc" style={{ marginTop: 24, fontSize: 14, opacity: 0.7 }}>
             Shannon reads source code to find vulnerabilities. OdinForge finds them the way an
-            attacker would &mdash; from the outside. Different approach, different benchmark mode,
-            different story.
+            attacker would &mdash; from the outside. The agent detected vulns in 60% of challenges
+            but needs deeper exploitation to extract flags. Nightly CI runs all 104 challenges.
           </p>
         </section>
 

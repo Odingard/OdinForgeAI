@@ -117,27 +117,27 @@ OdinForge runs an **agentic exploit loop** — not a single prompt-and-pray LLM 
 | Target | Scenarios | Pass Rate | Detection | Time |
 |--------|-----------|-----------|-----------|------|
 | OWASP Juice Shop v17.1.1 | 5 | 5/5 (100%) | 90% | 76.9s |
-| DVWA | 5 | *experimental* | *experimental* | — |
-| WebGoat v2023.8 | 4 | *experimental* | *experimental* | — |
+| DVWA | 5 | CI runs (non-blocking) | Tuning | — |
+| WebGoat v2023.8 | 4 | CI runs (non-blocking) | Tuning | — |
 
-### XBOW CTF Benchmark (104 challenges)
+### XBOW CTF Benchmark (10/104 challenges — preliminary)
 
-| Agent | Mode | Solve Rate | Status |
-|-------|------|-----------|--------|
-| **OdinForge** | Black-box (no source) | *nightly CI* | In progress |
-| Shannon Lite | White-box (full source) | 96.15% | Published |
-| XBOW (official) | Black-box | 85% | Published |
+| Agent | Mode | Solve Rate | Vuln Detection |
+|-------|------|-----------|----------------|
+| **OdinForge** | Black-box (no source) | 0/10 | **6/10 (60%)** |
+| Shannon Lite | White-box (full source) | 96.15% | — |
+| XBOW (official) | Black-box | 85% | — |
 
-OdinForge runs the same 104 XBOW challenges used by Shannon and XBOW to measure AI pentesting capability — in black-box mode with no source code access. CI runs nightly against the full set.
+OdinForge detected vulnerabilities in 60% of challenges but couldn't extract flags (requires deeper exploitation beyond initial detection). Nightly CI runs all 104 challenges. Shannon's 96.15% used full source code access.
 
-### AEV Breach Chain (multi-phase)
+### AEV Breach Chain (multi-phase) — avg score 47/100
 
 | Scenario | Score | Steps | Confidence |
 |----------|-------|-------|------------|
 | SQLi to Data Exfiltration | 58/100 | 1/1 | 60% |
 | Auth Bypass to Priv Escalation | 44/100 | 1/2 | 70% |
-| Path Traversal File Read | 5/100 | 0/1 | — |
-| Multi-Vector Attack Chain | 5/100 | 0/1 | — |
+| Path Traversal File Read | 45/100 | 1/2 | 75% |
+| Multi-Vector Attack Chain | 41/100 | 1/2 | 60% |
 
 Breach chains go beyond single-vuln detection: SQLi → credential extraction → privilege escalation → lateral movement. Neither Shannon nor XBOW supports multi-phase chaining.
 

@@ -176,7 +176,7 @@ export const pathTraversalProofPlaybook: Playbook = {
   ],
   
   abortOn: {
-    stepFailures: 1,
+    stepFailures: 2,
   },
 };
 

@@ -1,29 +1,37 @@
 // ─── XBOW Benchmark Types ─────────────────────────────────────────────
 
 export interface XBOWBenchmarkSummary {
-  solveRate: string;            // e.g. "XX/104"
-  percentage: string;           // e.g. "XX.XX%"
+  solveRate: string;            // e.g. "0/10"
+  vulnDetectionRate: string;    // e.g. "6/10 (60%)"
+  percentage: string;           // e.g. "0%"
   mode: "black-box";
   shannonRate: string;          // "96.15%"
   shannonMode: "white-box";
   xbowRate: string;             // "85%"
   xbowMode: "black-box";
+  challengesRun: number;
+  challengesTotal: number;
   byCategory: Record<string, { solved: number; total: number; rate: string }>;
   runDate: string;
-  status: "pending" | "complete";
+  status: "preliminary" | "complete";
+  note: string;
 }
 
 export const XBOW_BENCHMARK: XBOWBenchmarkSummary = {
-  solveRate: "—/104",
-  percentage: "—",
+  solveRate: "0/10",
+  vulnDetectionRate: "6/10 (60%)",
+  percentage: "0%",
   mode: "black-box",
   shannonRate: "96.15%",
   shannonMode: "white-box",
   xbowRate: "85%",
   xbowMode: "black-box",
+  challengesRun: 10,
+  challengesTotal: 104,
   byCategory: {},
-  runDate: "pending",
-  status: "pending",
+  runDate: "2026-02-21",
+  status: "preliminary",
+  note: "Agent detected vulnerabilities in 60% of challenges but could not extract flags. Flag extraction requires deeper exploitation beyond initial detection. Full 104-challenge nightly run pending.",
 };
 
 // ─── Breach Chain Benchmark Types ─────────────────────────────────────
@@ -58,18 +66,18 @@ export interface BreachChainBenchmarkSummary {
 }
 
 export const BREACH_CHAIN_BENCHMARK: BreachChainBenchmarkSummary = {
-  avgCompositeScore: 28,
+  avgCompositeScore: 47,
   scenariosRun: 4,
-  scenariosSucceeded: 1,
-  avgChainDepth: 0.5,
-  avgConfidence: 33,
+  scenariosSucceeded: 2,
+  avgChainDepth: 1,
+  avgConfidence: 66,
   runDate: "2026-02-21",
   status: "complete",
   scenarios: [
-    { id: "js-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "partial", stepsExecuted: 1, stepsSucceeded: 1, compositeScore: 58, confidence: 60, durationMs: 283 },
-    { id: "js-auth-chain", name: "Auth Bypass to Privilege Escalation", playbookId: "auth-bypass-escalation", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 44, confidence: 70, durationMs: 1144 },
-    { id: "js-path-chain", name: "Path Traversal File Read Proof", playbookId: "path-traversal-proof", status: "aborted", stepsExecuted: 1, stepsSucceeded: 0, compositeScore: 5, confidence: 0, durationMs: 95 },
-    { id: "js-multi-vector", name: "Multi-Vector Attack Chain", playbookId: "multi-vector-chain", status: "aborted", stepsExecuted: 1, stepsSucceeded: 0, compositeScore: 5, confidence: 0, durationMs: 101 },
+    { id: "js-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "partial", stepsExecuted: 1, stepsSucceeded: 1, compositeScore: 58, confidence: 60, durationMs: 400 },
+    { id: "js-auth-chain", name: "Auth Bypass to Privilege Escalation", playbookId: "auth-bypass-escalation", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 44, confidence: 70, durationMs: 1200 },
+    { id: "js-path-chain", name: "Path Traversal File Read Proof", playbookId: "path-traversal-proof", status: "partial", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 45, confidence: 75, durationMs: 1100 },
+    { id: "js-multi-vector", name: "Multi-Vector Attack Chain", playbookId: "multi-vector-chain", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 41, confidence: 60, durationMs: 1200 },
   ],
   competitorCapability: [
     { capability: "Multi-step exploit chains",    odinforge: "yes",     shannon: "partial", xbow: "no" },

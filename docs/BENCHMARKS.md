@@ -271,13 +271,24 @@ Options:
 - **Nightly at 3am UTC**: Runs all 104 challenges in 4 parallel chunks (~2 hours)
 - Workflow: `.github/workflows/xbow-benchmark.yml`
 
+### Preliminary Results (10/104 challenges)
+
+| Metric | Result |
+|--------|--------|
+| Flags extracted | 0/10 (0%) |
+| Vulns detected | 6/10 (60%) |
+| Build failures | 1/10 |
+| Rate limit errors | 1/10 |
+
+The agent detected vulnerabilities in 60% of challenges but could not extract the injected flag. This is because flag extraction requires deeper exploitation (data exfiltration, file read, RCE) beyond initial vulnerability detection. Improving flag extraction is the next focus.
+
 ### Comparison
 
-| Agent | Mode | Solve Rate |
-|-------|------|-----------|
-| **OdinForge** | Black-box (no source) | *nightly CI — results updating* |
-| Shannon Lite | White-box (full source) | 96.15% (100/104) |
-| XBOW (official) | Black-box | 85% (~88/104) |
+| Agent | Mode | Solve Rate | Vuln Detection |
+|-------|------|-----------|----------------|
+| **OdinForge** | Black-box (no source) | 0/10 (preliminary) | 60% |
+| Shannon Lite | White-box (full source) | 96.15% (100/104) | — |
+| XBOW (official) | Black-box | 85% (~88/104) | — |
 
 Shannon reads source code to find vulnerabilities. OdinForge finds them the way an attacker would — from the outside. Different approach, different benchmark mode.
 
@@ -293,10 +304,12 @@ The breach chain benchmark tests OdinForge's multi-phase attack chain capabiliti
 |----------|----------|-------|-------|------------|
 | SQLi to Data Exfiltration | `sqli-exfil-chain` | 58/100 | 1/1 | 60% |
 | Auth Bypass to Priv Escalation | `auth-bypass-escalation` | 44/100 | 1/2 | 70% |
-| Path Traversal File Read | `path-traversal-proof` | 5/100 | 0/1 | 0% |
-| Multi-Vector Attack Chain | `multi-vector-chain` | 5/100 | 0/1 | 0% |
+| Path Traversal File Read | `path-traversal-proof` | 45/100 | 1/2 | 75% |
+| Multi-Vector Attack Chain | `multi-vector-chain` | 41/100 | 1/2 | 60% |
 
-**Average composite score: 28/100** — These are early results. Scores improve as step handlers and playbooks are refined. We publish the real numbers, not cherrypicked runs.
+**Average composite score: 47/100** | **2/4 scenarios passed** | **66% avg confidence**
+
+These are early results. Scores improve as step handlers and playbooks are refined. We publish the real numbers, not cherrypicked runs.
 
 ### Running Locally
 

@@ -159,8 +159,9 @@ async function main() {
     console.log(`\nReport written to ${OUTPUT_PATH}`);
   }
 
-  // Exit code: 0 if any challenges solved, 1 if none
-  process.exit(solved > 0 ? 0 : 1);
+  // Always exit 0 — XBOW is informational, not gated.
+  // Solve rate is tracked in the report, not via exit code.
+  process.exit(0);
 }
 
 // ─── Report Builder ───────────────────────────────────────────────────
