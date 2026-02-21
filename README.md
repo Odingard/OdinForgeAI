@@ -2,6 +2,7 @@
 *by Six Sense Enterprise Services*
 
 ![Benchmark](https://github.com/Odingard/OdinForgeAI/actions/workflows/benchmark.yml/badge.svg)
+![XBOW Benchmark](https://github.com/Odingard/OdinForgeAI/actions/workflows/xbow-benchmark.yml/badge.svg)
 ![CI](https://github.com/Odingard/OdinForgeAI/actions/workflows/ci.yml/badge.svg)
 
 **AI-powered exploit validation. Real vulnerabilities, real proof.**
@@ -111,15 +112,38 @@ OdinForge runs an **agentic exploit loop** — not a single prompt-and-pray LLM 
 
 ## Benchmark Results
 
+### Exploit Agent (per-target)
+
 | Target | Scenarios | Pass Rate | Detection | Time |
 |--------|-----------|-----------|-----------|------|
 | OWASP Juice Shop v17.1.1 | 5 | 5/5 (100%) | 90% | 76.9s |
-| DVWA | 5 | *testing* | *testing* | — |
-| WebGoat v2023.8 | 4 | *testing* | *testing* | — |
+| DVWA | 5 | *experimental* | *experimental* | — |
+| WebGoat v2023.8 | 4 | *experimental* | *experimental* | — |
+
+### XBOW CTF Benchmark (104 challenges)
+
+| Agent | Mode | Solve Rate | Status |
+|-------|------|-----------|--------|
+| **OdinForge** | Black-box (no source) | *nightly CI* | In progress |
+| Shannon Lite | White-box (full source) | 96.15% | Published |
+| XBOW (official) | Black-box | 85% | Published |
+
+OdinForge runs the same 104 XBOW challenges used by Shannon and XBOW to measure AI pentesting capability — in black-box mode with no source code access. CI runs nightly against the full set.
+
+### AEV Breach Chain (multi-phase)
+
+| Scenario | Score | Steps | Confidence |
+|----------|-------|-------|------------|
+| SQLi to Data Exfiltration | 58/100 | 1/1 | 60% |
+| Auth Bypass to Priv Escalation | 44/100 | 1/2 | 70% |
+| Path Traversal File Read | 5/100 | 0/1 | — |
+| Multi-Vector Attack Chain | 5/100 | 0/1 | — |
+
+Breach chains go beyond single-vuln detection: SQLi → credential extraction → privilege escalation → lateral movement. Neither Shannon nor XBOW supports multi-phase chaining.
 
 Benchmarks run in CI via GitHub Actions with threshold gating. If pass rate or detection rate drops below the threshold, the build fails. Results are public.
 
-[Reproduce it yourself →](docs/BENCHMARKS.md) | [CI Workflow →](.github/workflows/benchmark.yml)
+[See full results →](docs/BENCHMARKS.md) | [Public benchmark page →](http://24.199.95.237/benchmark) | [CI Workflows →](.github/workflows/)
 
 ---
 
@@ -182,7 +206,9 @@ OdinForge is in active development. Here's what's where:
 | Cloud security (AWS/Azure/GCP/K8s) | Beta |
 | Purple team simulations | Beta |
 | Endpoint agents (Go) | Beta |
-| DVWA + WebGoat benchmarks | In progress |
+| XBOW CTF benchmark (104 challenges) | In progress — nightly CI |
+| DVWA + WebGoat benchmarks | In progress — experimental CI |
+| Breach chain benchmark | Production — CI with scoring |
 | Alloy mode (multi-model rotation) | In progress |
 
 We ship fast and break nothing. The exploit engine and scoring are production-tested. Enterprise features are landing weekly.
