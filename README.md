@@ -1,4 +1,5 @@
 # OdinForge AI
+*by Six Sense Enterprise Services*
 
 ![Benchmark](https://github.com/Odingard/OdinForgeAI/actions/workflows/benchmark.yml/badge.svg)
 ![CI](https://github.com/Odingard/OdinForgeAI/actions/workflows/ci.yml/badge.svg)
@@ -196,3 +197,7 @@ Building or evaluating? We'd like to hear from you.
 Business Source License 1.1 (BSL 1.1) — see [LICENSE](LICENSE) for details.
 
 Converts to Apache 2.0 on February 1, 2030.
+
+---
+
+© 2026 Six Sense Enterprise Services LLC. OdinForge is a trademark of Six Sense Enterprise Services LLC.
