@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { BENCHMARK_RUNS } from "@/lib/benchmark-results";
+import { BENCHMARK_RUNS, XBOW_BENCHMARK, BREACH_CHAIN_BENCHMARK } from "@/lib/benchmark-results";
 import "./compare-shannon.css";
 
 export default function BenchmarkResults() {
@@ -346,6 +346,116 @@ export default function BenchmarkResults() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* XBOW CTF BENCHMARK */}
+        <section className="cp-section cp-reveal">
+          <div className="cp-section-label">XBOW CTF Benchmark</div>
+          <div className="cp-section-title">
+            {XBOW_BENCHMARK.status === "pending"
+              ? "Running the same 104 challenges. Results incoming."
+              : `${XBOW_BENCHMARK.solveRate} solved (${XBOW_BENCHMARK.percentage})`}
+          </div>
+          <p className="cp-section-desc">
+            The XBOW benchmark contains 104 deliberately vulnerable web applications used by
+            Shannon and XBOW to measure AI pentesting capability. OdinForge runs these challenges
+            in <strong>black-box mode</strong> &mdash; no source code access. Shannon&rsquo;s 96.15% was
+            achieved with full source code (white-box).
+          </p>
+
+          <table className="cp-table">
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th>Mode</th>
+                <th>Solve Rate</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>OdinForge</strong></td>
+                <td>Black-box (no source code)</td>
+                <td>{XBOW_BENCHMARK.status === "pending" ? "Running..." : XBOW_BENCHMARK.percentage}</td>
+                <td>{XBOW_BENCHMARK.status === "pending"
+                  ? <span style={{ color: "var(--yellow, #f0c040)" }}>In Progress</span>
+                  : <span className="cp-check">{XBOW_BENCHMARK.percentage}</span>
+                }</td>
+              </tr>
+              <tr>
+                <td>Shannon Lite</td>
+                <td>White-box (full source code)</td>
+                <td>{XBOW_BENCHMARK.shannonRate}</td>
+                <td><span className="cp-check">{XBOW_BENCHMARK.shannonRate}</span></td>
+              </tr>
+              <tr>
+                <td>XBOW (official)</td>
+                <td>Black-box</td>
+                <td>{XBOW_BENCHMARK.xbowRate}</td>
+                <td><span className="cp-check">{XBOW_BENCHMARK.xbowRate}</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p className="cp-section-desc" style={{ marginTop: 24, fontSize: 14, opacity: 0.7 }}>
+            Shannon reads source code to find vulnerabilities. OdinForge finds them the way an
+            attacker would &mdash; from the outside. Different approach, different benchmark mode,
+            different story.
+          </p>
+        </section>
+
+        {/* BREACH CHAIN BENCHMARK */}
+        <section className="cp-section cp-reveal">
+          <div className="cp-section-label">AEV Breach Chain Benchmark</div>
+          <div className="cp-section-title">
+            {BREACH_CHAIN_BENCHMARK.status === "pending"
+              ? "Multi-phase attack chains. Results incoming."
+              : `${BREACH_CHAIN_BENCHMARK.scenariosSucceeded}/${BREACH_CHAIN_BENCHMARK.scenariosRun} chains completed`}
+          </div>
+          <p className="cp-section-desc">
+            Finding a single vulnerability is step one. OdinForge chains exploits across multiple phases:
+            SQLi &rarr; credential extraction &rarr; privilege escalation &rarr; lateral movement.
+            This benchmark measures chain depth, confidence, and evidence quality &mdash; capabilities
+            neither Shannon nor XBOW can match.
+          </p>
+
+          <table className="cp-table">
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th>OdinForge</th>
+                <th>Shannon</th>
+                <th>XBOW</th>
+              </tr>
+            </thead>
+            <tbody>
+              {BREACH_CHAIN_BENCHMARK.competitorCapability.map((row) => (
+                <tr key={row.capability}>
+                  <td>{row.capability}</td>
+                  <td>
+                    <span className={row.odinforge === "yes" ? "cp-check" : row.odinforge === "partial" ? "" : "cp-miss"}>
+                      {row.odinforge === "yes" ? "\u2713" : row.odinforge === "partial" ? "Partial" : "\u2717"}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={row.shannon === "yes" ? "cp-check" : row.shannon === "partial" ? "" : "cp-miss"}>
+                      {row.shannon === "yes" ? "\u2713" : row.shannon === "partial" ? "Partial" : "\u2717"}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={row.xbow === "yes" ? "cp-check" : row.xbow === "partial" ? "" : "cp-miss"}>
+                      {row.xbow === "yes" ? "\u2713" : row.xbow === "partial" ? "Partial" : "\u2717"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <p className="cp-section-desc" style={{ marginTop: 24, fontSize: 14, opacity: 0.7 }}>
+            Shannon finds vulnerabilities. XBOW validates them. OdinForge proves breaches &mdash;
+            with multi-phase chains, credential harvesting, and cross-domain escalation.
+          </p>
         </section>
 
         {/* CTA */}

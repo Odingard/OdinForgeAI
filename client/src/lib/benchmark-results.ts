@@ -1,3 +1,73 @@
+// ─── XBOW Benchmark Types ─────────────────────────────────────────────
+
+export interface XBOWBenchmarkSummary {
+  solveRate: string;            // e.g. "XX/104"
+  percentage: string;           // e.g. "XX.XX%"
+  mode: "black-box";
+  shannonRate: string;          // "96.15%"
+  shannonMode: "white-box";
+  xbowRate: string;             // "85%"
+  xbowMode: "black-box";
+  byCategory: Record<string, { solved: number; total: number; rate: string }>;
+  runDate: string;
+  status: "pending" | "complete";
+}
+
+export const XBOW_BENCHMARK: XBOWBenchmarkSummary = {
+  solveRate: "—/104",
+  percentage: "—",
+  mode: "black-box",
+  shannonRate: "96.15%",
+  shannonMode: "white-box",
+  xbowRate: "85%",
+  xbowMode: "black-box",
+  byCategory: {},
+  runDate: "pending",
+  status: "pending",
+};
+
+// ─── Breach Chain Benchmark Types ─────────────────────────────────────
+
+export interface BreachChainBenchmarkSummary {
+  avgCompositeScore: number;
+  scenariosRun: number;
+  scenariosSucceeded: number;
+  avgChainDepth: number;
+  avgConfidence: number;
+  runDate: string;
+  status: "pending" | "complete";
+  competitorCapability: {
+    capability: string;
+    odinforge: "yes" | "partial" | "no";
+    shannon: "yes" | "partial" | "no";
+    xbow: "yes" | "partial" | "no";
+  }[];
+}
+
+export const BREACH_CHAIN_BENCHMARK: BreachChainBenchmarkSummary = {
+  avgCompositeScore: 0,
+  scenariosRun: 9,
+  scenariosSucceeded: 0,
+  avgChainDepth: 0,
+  avgConfidence: 0,
+  runDate: "pending",
+  status: "pending",
+  competitorCapability: [
+    { capability: "Multi-step exploit chains",    odinforge: "yes",     shannon: "partial", xbow: "no" },
+    { capability: "Confidence-gated progression",  odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "Cross-vuln chaining",           odinforge: "yes",     shannon: "partial", xbow: "no" },
+    { capability: "Credential extraction chains",  odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "Cloud IAM escalation",          odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "K8s/Container breakout",        odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "Lateral movement simulation",   odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "EPSS/CVSS/KEV scoring",         odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "Real-time visualization",       odinforge: "yes",     shannon: "no",      xbow: "no" },
+    { capability: "CI benchmark regression",       odinforge: "yes",     shannon: "partial", xbow: "partial" },
+  ],
+};
+
+// ─── Exploit Agent Benchmark Types ────────────────────────────────────
+
 export interface BenchmarkScenario {
   id: string;
   name: string;

@@ -1,0 +1,121 @@
+name: XBOW Benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/services/agents/**"
+      - "server/services/validation/**"
+      - "server/benchmark/xbow/**"
+  schedule:
+    # Nightly full run at 3am UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of challenges to run (0 = all)"
+        type: number
+        default: 10
+      category:
+        description: "Filter by category (leave empty for all)"
+        type: string
+        default: ""
+
+env:
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+jobs:
+  # ── Tier 1: Quick CI check (10 challenges) ──────────────────────────
+  xbow-quick:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Clone XBOW benchmark (cleaned fork)
+        run: |
+          git clone --depth 1 https://github.com/KeygraphHQ/xbow-validation-benchmarks.git /tmp/xbow-repo
+
+      - name: Run XBOW benchmark (10 challenges)
+        run: |
+          npx tsx server/benchmark/xbow/xbow-benchmark.ts \
+            /tmp/xbow-repo simulation \
+            --limit 10 \
+            --output /tmp/xbow-report.json \
+            --timeout 180000
+        timeout-minutes: 35
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xbow-report-quick
+          path: /tmp/xbow-report.json
+
+  # ── Tier 2: Nightly full run (all 104 — 4 parallel chunks) ─────────
+  xbow-full:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Clone XBOW benchmark (cleaned fork)
+        run: |
+          git clone --depth 1 https://github.com/KeygraphHQ/xbow-validation-benchmarks.git /tmp/xbow-repo
+
+      - name: Count challenges and calculate chunk
+        id: chunk
+        run: |
+          TOTAL=$(ls -d /tmp/xbow-repo/XBEN-* 2>/dev/null | wc -l)
+          CHUNK_SIZE=$(( (TOTAL + 3) / 4 ))
+          OFFSET=$(( ${{ matrix.chunk }} * CHUNK_SIZE ))
+          LIMIT=$CHUNK_SIZE
+          # Apply workflow_dispatch limit if set
+          if [ "${{ github.event.inputs.limit }}" != "0" ] && [ -n "${{ github.event.inputs.limit }}" ]; then
+            TOTAL_LIMIT=${{ github.event.inputs.limit }}
+            LIMIT=$(( (TOTAL_LIMIT + 3) / 4 ))
+            OFFSET=$(( ${{ matrix.chunk }} * LIMIT ))
+          fi
+          echo "offset=$OFFSET" >> $GITHUB_OUTPUT
+          echo "limit=$LIMIT" >> $GITHUB_OUTPUT
+
+      - name: Run XBOW benchmark (chunk ${{ matrix.chunk }})
+        run: |
+          CATEGORY_FLAG=""
+          if [ -n "${{ github.event.inputs.category }}" ]; then
+            CATEGORY_FLAG="--category ${{ github.event.inputs.category }}"
+          fi
+          npx tsx server/benchmark/xbow/xbow-benchmark.ts \
+            /tmp/xbow-repo simulation \
+            --limit ${{ steps.chunk.outputs.limit }} \
+            --output /tmp/xbow-report-chunk-${{ matrix.chunk }}.json \
+            --timeout 180000 \
+            $CATEGORY_FLAG
+        timeout-minutes: 100
+
+      - name: Upload chunk report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xbow-report-chunk-${{ matrix.chunk }}
+          path: /tmp/xbow-report-chunk-${{ matrix.chunk }}.json

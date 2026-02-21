@@ -129,6 +129,88 @@ jobs:
         if: always()
         run: docker rm -f benchmark-target || true
 
+  # ── Breach Chain Benchmark ──────────────────────────────────────────
+  breach-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: juice-shop
+            image: bkimminich/juice-shop:v17.1.1
+            port: "3001:3000"
+            health_url: "http://localhost:3001"
+            health_cmd: "wget -q --spider http://localhost:3000 || exit 1"
+            threshold_score: "30"
+          - target: dvwa
+            image: vulnerables/web-dvwa:latest
+            port: "3002:80"
+            health_url: "http://localhost:3002/login.php"
+            health_cmd: "curl -sf http://localhost:80/login.php > /dev/null || exit 1"
+            threshold_score: "20"
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start ${{ matrix.target }} container
+        run: |
+          docker run -d \
+            --name breach-chain-target \
+            -p ${{ matrix.port }} \
+            --health-cmd "${{ matrix.health_cmd }}" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 15 \
+            --health-start-period 30s \
+            ${{ matrix.image }}
+
+      - name: Wait for ${{ matrix.target }}
+        run: |
+          npx --yes wait-on@7 -t 120000 ${{ matrix.health_url }}
+
+      - name: Run breach chain benchmark (${{ matrix.target }})
+        run: |
+          TARGET_URL="${{ matrix.health_url }}"
+          if [ "${{ matrix.target }}" = "juice-shop" ]; then
+            TARGET_URL="http://localhost:3001"
+          fi
+          if [ "${{ matrix.target }}" = "dvwa" ]; then
+            TARGET_URL="http://localhost:3002"
+          fi
+          npx tsx server/benchmark/breach-chain/breach-chain-benchmark.ts \
+            "$TARGET_URL" simulation \
+            --target ${{ matrix.target }} \
+            --output artifacts/breach-chain-report-${{ matrix.target }}.json \
+            --threshold-score ${{ matrix.threshold_score }}
+
+      - name: Upload breach chain report (${{ matrix.target }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: breach-chain-report-${{ matrix.target }}
+          path: artifacts/breach-chain-report-${{ matrix.target }}.json
+          retention-days: 90
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f breach-chain-target || true
+
   benchmark-alloy:
     if: github.event_name == 'push' || github.event.inputs.run_alloy == 'true'
     runs-on: ubuntu-latest
