@@ -21,12 +21,13 @@ This document describes all configuration options for the OdinForge server.
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@host:5432/db` |
 | `OPENAI_API_KEY` | OpenAI API key for AI analysis | `sk-...` |
 | `SESSION_SECRET` | Secret for session encryption (32+ chars) | Random hex string |
+| `JWT_SECRET` | Secret for JWT token signing | Random hex string |
 
 ### Security Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ADMIN_API_KEY` | Admin API authentication key | None (development mode) |
+| `JWT_SECRET` | JWT signing secret (required for auth) | None |
 | `MTLS_SHARED_SECRET` | Shared secret for mTLS header validation | None |
 | `AGENT_REGISTRATION_TOKEN` | Token for agent registration | Auto-generated |
 
@@ -91,28 +92,19 @@ DATABASE_URL=postgresql://user:pass@pgbouncer:6432/odinforge?pgbouncer=true
 
 ## Authentication Settings
 
-### Session Configuration
+### JWT Authentication
+
+OdinForge uses JWT-based authentication with 67 granular permissions across 8 roles.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `JWT_SECRET` | Secret for signing JWT tokens | Required |
 | `SESSION_SECRET` | Secret for signing sessions | Required |
 | `SESSION_MAX_AGE` | Session lifetime in milliseconds | 86400000 (24h) |
 
-### Admin Authentication
+**Roles:** Organization Owner, Security Admin, Security Analyst, Operator, Viewer, Auditor, API Consumer, Agent Manager
 
-The `ADMIN_API_KEY` protects credential management endpoints:
-
-```bash
-# Set admin key
-ADMIN_API_KEY=your-secure-admin-key-here
-```
-
-Use in API requests:
-
-```bash
-curl -H "X-Admin-Key: your-secure-admin-key-here" \
-  https://odinforge.example.com/api/agents
-```
+**Permissions:** 67 action:resource patterns (e.g., `evaluations:read`, `agents:manage`, `breach_chains:create`)
 
 ### mTLS Configuration
 
@@ -136,8 +128,39 @@ Production mTLS setup requires:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | API key for GPT models | Required |
-| `OPENAI_MODEL` | Model to use | `gpt-4` |
+| `OPENAI_MODEL` | Model to use | `gpt-4o` |
 | `OPENAI_MAX_TOKENS` | Max tokens per request | `4096` |
+
+### Exploit Agent Model Router
+
+The exploit agent supports multi-model rotation for exploit diversity. Configure via:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `EXPLOIT_AGENT_ALLOY` | Enable alloy mode (weighted random multi-model) | `false` |
+| `EXPLOIT_AGENT_MODELS` | Custom model list with weights | — |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` | Alternative OpenAI API key | Falls back to `OPENAI_API_KEY` |
+| `AI_INTEGRATIONS_OPENROUTER_API_KEY` | OpenRouter API key (for Claude, Gemini) | — |
+| `AI_INTEGRATIONS_OPENROUTER_BASE_URL` | Custom OpenRouter endpoint | `https://openrouter.ai/api/v1` |
+
+**Configuration Examples:**
+
+```bash
+# Single model (default) — just needs OPENAI_API_KEY
+# No additional config required
+
+# Alloy mode — weighted random across GPT-4o (40%), Claude (40%), Gemini (20%)
+EXPLOIT_AGENT_ALLOY=true
+AI_INTEGRATIONS_OPENROUTER_API_KEY=sk-or-your-key
+
+# Custom model list with weights
+EXPLOIT_AGENT_MODELS=openai:gpt-4o:0.4,openrouter:anthropic/claude-sonnet-4:0.4,openrouter:google/gemini-2.5-pro:0.2
+```
+
+**Strategies:**
+- `single` — Always use first provider (default)
+- `round_robin` — Alternate models each turn
+- `weighted_random` — Per-turn probabilistic selection (alloy mode)
 
 ### Rate Limiting
 
@@ -177,11 +200,15 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 # Security
 SESSION_SECRET=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0
-ADMIN_API_KEY=OdinForgeAdmin2024SecureKey
+JWT_SECRET=your-jwt-secret-here
 MTLS_SHARED_SECRET=mTLSSharedSecret2024
 
 # Agent Registration
 AGENT_REGISTRATION_TOKEN=OdinForge2024SecureKey
+
+# Exploit Agent (optional — alloy mode)
+# EXPLOIT_AGENT_ALLOY=true
+# AI_INTEGRATIONS_OPENROUTER_API_KEY=sk-or-your-openrouter-key
 
 # Environment
 NODE_ENV=production

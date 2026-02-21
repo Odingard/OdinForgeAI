@@ -23,6 +23,9 @@ Welcome to the OdinForge AI documentation. This guide covers installation, confi
 - [API Reference](API_REFERENCE.md) - Complete API endpoint documentation
 - [API Naming Conventions](API_NAMING_CONVENTIONS.md) - REST API style guide
 
+### Scoring & Threat Intelligence
+- [Scoring Engine & Threat Intel](SCORING_ENGINE.md) - Deterministic scoring formula, EPSS, CVSS, CISA KEV integration
+
 ### Architecture & Design
 - [Design System](DESIGN_SYSTEM.md) - Afterglow UI design system and patterns
 - [Testing Guide](TESTING_GUIDE.md) - Vitest integration testing
@@ -43,17 +46,22 @@ OdinForge AI is an enterprise security platform that automates exploit validatio
 | Capability | Description |
 |------------|-------------|
 | **Exposure Analysis** | Analyze CVEs, misconfigurations, and vulnerabilities for exploitability |
-| **Attack Path Mapping** | Generate MITRE ATT&CK aligned attack graphs |
+| **Threat Intel Scoring** | Deterministic scoring with EPSS, CVSS, CISA KEV, and asset criticality |
+| **Attack Path Mapping** | Generate MITRE ATT&CK aligned attack graphs with live visualization |
+| **Breach Chain Orchestration** | Cross-domain attack chains with real-time WebSocket progress |
 | **AI Simulations** | Run AI vs AI purple team exercises |
 | **Endpoint Monitoring** | Deploy agents for real-time security telemetry |
+| **Benchmark Testing** | Continuous exploit agent validation against OWASP targets |
 | **Executive Reporting** | Generate PDF reports with business impact analysis |
 
 ### Architecture Components
 
-1. **Web Application** - React frontend with Express backend
-2. **AI Engine** - Multi-agent pipeline using OpenAI GPT-4
-3. **Database** - PostgreSQL for evaluations, agents, and findings
-4. **Endpoint Agents** - Go-based agents for Linux, macOS, Windows
+1. **Web Application** - React frontend with Express backend, live breach chain visualization
+2. **AI Engine** - 8-agent pipeline with multi-model alloy rotation (GPT-4o, Claude, Gemini)
+3. **Threat Intel** - EPSS, CVSS v2/v3.x, CISA KEV, deterministic scoring v3.0
+4. **Exploit Agent** - Multi-turn tool-calling loop with 6 security tools and HTTP evidence
+5. **Database** - PostgreSQL 15+ with 50+ tables, RLS, pgvector embeddings
+6. **Endpoint Agents** - Go-based agents for Linux, macOS, Windows
 
 ---
 
@@ -138,6 +146,7 @@ irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 ```
 docs/
 ├── README.md                      # This file
+├── SCORING_ENGINE.md              # Deterministic scoring, EPSS, CVSS, KEV
 ├── API_REFERENCE.md               # Complete API documentation
 ├── API_NAMING_CONVENTIONS.md      # REST API style guide
 ├── DESIGN_SYSTEM.md               # Afterglow UI design system

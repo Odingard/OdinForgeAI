@@ -17,8 +17,9 @@ OdinForge AI is an enterprise-grade security platform that combines agentic AI r
 │  ├─ Dashboard & Risk Analytics          │  ├─ 200+ REST Endpoints        │
 │  ├─ Evaluation Wizard                   │  ├─ WebSocket (Live Events)    │
 │  ├─ Attack Graph Visualization (D3.js)  │  ├─ JWT Auth + 67 Permissions  │
-│  ├─ Breach Chain Monitor (Live WS)      │  ├─ Rate Limiting (Redis)      │
-│  ├─ Purple Team Simulations             │  └─ Multi-Tenant RLS           │
+│  ├─ Live Breach Chain Graph (Canvas)    │  ├─ Rate Limiting (Redis)      │
+│  ├─ Threat Intel Score Panel            │  └─ Multi-Tenant RLS           │
+│  ├─ Purple Team Simulations             │                                │
 │  ├─ Cloud/K8s Security Views            │                                │
 │  └─ Executive Reports & Exports         │                                │
 ├──────────────────────────────────────────────────────────────────────────┤
@@ -30,28 +31,60 @@ OdinForge AI is an enterprise-grade security platform that combines agentic AI r
 │  └─ Redis Pub/Sub WS Bridge             │  ├─ Adversarial Debate Module  │
 │                                         │  └─ Noise Reduction Pipeline   │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Validation Engines                     │  External Recon                │
-│  ├─ SQLi, XSS, SSRF, Cmd Injection     │  ├─ Port Scanning              │
-│  ├─ Path Traversal, Auth Bypass         │  ├─ SSL/TLS Analysis (A+ → F) │
-│  ├─ API Fuzzing Engine                  │  ├─ HTTP Fingerprinting        │
-│  ├─ Protocol Probes (SMTP/DNS/LDAP)     │  ├─ Auth Surface Detection     │
-│  └─ Credential Testing                  │  └─ Infrastructure Discovery   │
+│  Threat Intelligence                    │  Validation Engines            │
+│  ├─ EPSS (FIRST.org, daily updates)     │  ├─ SQLi, XSS, SSRF, CmdInj   │
+│  ├─ CVSS v2/v3.x Vector Parsing        │  ├─ Path Traversal, Auth Bypass│
+│  ├─ CISA KEV (active exploitation)      │  ├─ API Fuzzing Engine         │
+│  ├─ Deterministic Scoring (v3.0)        │  ├─ Protocol Probes            │
+│  └─ Asset Criticality Weighting         │  └─ Credential Testing         │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  Data Layer                             │  Infrastructure                │
-│  ├─ PostgreSQL 15+ (50+ tables, RLS)    │  ├─ Docker (app + worker)      │
-│  ├─ pgvector (1536-dim embeddings)      │  ├─ Caddy (TLS, reverse proxy) │
-│  ├─ Redis 7+ (queues, cache, pub/sub)   │  ├─ MinIO (S3 storage)         │
-│  └─ Drizzle ORM (type-safe migrations)  │  └─ Go Endpoint Agents         │
+│  External Recon                         │  Infrastructure                │
+│  ├─ Port Scanning                       │  ├─ Docker (app + worker)      │
+│  ├─ SSL/TLS Analysis (A+ → F)          │  ├─ Caddy (TLS, reverse proxy) │
+│  ├─ HTTP Fingerprinting                 │  ├─ MinIO (S3 storage)         │
+│  ├─ Auth Surface Detection              │  └─ Go Endpoint Agents         │
+│  └─ Infrastructure Discovery            │                                │
 ├──────────────────────────────────────────────────────────────────────────┤
-│  AI Providers                           │  Security Services             │
-│  ├─ OpenAI (GPT-4o)                     │  ├─ Policy Guardian (RAG)      │
-│  ├─ OpenRouter (Claude, Gemini, etc.)   │  ├─ HITL Safety Framework      │
-│  └─ Alloy Rotation (per-turn model      │  ├─ Kill Switch + Auto-Kill    │
-│     selection for exploit diversity)     │  └─ Evidence Chain of Custody  │
+│  Data Layer                             │  Security Services             │
+│  ├─ PostgreSQL 15+ (50+ tables, RLS)    │  ├─ Policy Guardian (RAG)      │
+│  ├─ pgvector (1536-dim embeddings)      │  ├─ HITL Safety Framework      │
+│  ├─ Redis 7+ (queues, cache, pub/sub)   │  ├─ Kill Switch + Auto-Kill    │
+│  └─ Drizzle ORM (type-safe migrations)  │  └─ Evidence Chain of Custody  │
+├──────────────────────────────────────────────────────────────────────────┤
+│  AI Providers                                                            │
+│  ├─ OpenAI (GPT-4o)                                                      │
+│  ├─ OpenRouter (Claude, Gemini, etc.)                                    │
+│  └─ Alloy Rotation (per-turn model selection for exploit diversity)      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Features
+
+### Deterministic Threat Intelligence Scoring
+
+OdinForge uses a **deterministic, reproducible scoring formula** — not LLM estimation — to prioritize vulnerabilities. This is the same approach used by Qualys TruRisk, Tenable VPR, and CrowdStrike Falcon Spotlight.
+
+**Scoring Formula (v3.0):**
+
+| Signal | Weight | Source |
+|--------|--------|--------|
+| EPSS probability | 45% | FIRST.org API (daily updates, 200K+ CVEs) |
+| CVSS base score | 35% | Parsed from CVSS v2/v3.x vectors |
+| Agent exploitability | 20% | Confirmed via exploit agent tooling |
+
+**Threat Intelligence Signals:**
+
+- **EPSS (Exploit Prediction Scoring System)** — Real-time 30-day exploitation probability from FIRST.org. Batch queries with 24h cache. Free, no auth required.
+- **CVSS Vector Parsing** — Full v2.0, v3.0, v3.1 support with base score computation per FIRST.org specification. Extracts attack vector, complexity, privileges, user interaction, scope, and impact.
+- **CISA KEV Override** — Binary signal for confirmed active exploitation. Forces minimum exploitability floor of 85 and business impact floor of 70. Ransomware amplifier (+10) for known ransomware campaigns.
+- **Asset Criticality** — Multiplier based on asset classification (critical=1.3x, high=1.1x, medium=1.0x, low=0.7x).
+
+**Methodology string (audit-friendly):**
+```
+OdinForge Deterministic v3.0 | EPSS 97.2% (P100) | CVSS 3.1 9.8 | CISA KEV [Ransomware] | Asset: critical
+```
+
+When signals are missing, weights automatically redistribute to available data. Falls back to severity-based heuristic when no external data is available.
 
 ### Agentic Exploit Validation
 
@@ -76,11 +109,11 @@ The exploit agent supports **multi-model rotation** within a single conversation
 
 - **Single model** (default) — GPT-4o, zero config needed
 - **Round-robin** — Alternate models each turn
-- **Weighted random (alloy)** — Per-turn probabilistic model selection
+- **Weighted random (alloy)** — Per-turn probabilistic model selection (default: GPT-4o 40%, Claude Sonnet 40%, Gemini 2.5 Pro 20%)
 
 ### Cross-Domain Breach Orchestrator
 
-Chains evaluations across security domains with cumulative context propagation:
+Chains evaluations across security domains with cumulative context propagation and **real-time progressive visualization**:
 
 | Phase | Description | Delegates To |
 |-------|-------------|-------------|
@@ -89,9 +122,11 @@ Chains evaluations across security domains with cumulative context propagation:
 | **Cloud IAM Escalation** | Escalates privileges via IAM misconfigurations | AWS/Azure/GCP Pentest Services |
 | **Container/K8s Breakout** | Exploits RBAC, secrets, and container escape paths | Kubernetes Pentest Service |
 | **Lateral Movement** | Pivots across network using harvested credentials | Lateral Movement Service |
-| **Impact Assessment** | Aggregates business impact, compliance gaps, and risk scoring | Template-based aggregation |
+| **Impact Assessment** | Aggregates business impact, compliance gaps, and risk scoring | Deterministic Scoring Engine |
 
 Each phase passes a `BreachPhaseContext` (credentials, compromised assets, privilege level, attack path steps) to the next. Safety gates enforce execution mode compliance at every phase transition. Features: pause/resume/abort, real-time WebSocket progress, crash recovery via DB persistence.
+
+**Live Breach Chain Graph:** Canvas-based real-time visualization with spine+satellite layout. Phase nodes form the main arc with individual findings collapsed into parent phases. Color-coded by MITRE ATT&CK tactic, animated particles showing attack progression, and "+N" badges indicating hidden attack chains.
 
 ### AI Agent Pipeline
 
@@ -157,20 +192,44 @@ AI vs AI attack/defense exercises across 5 scenarios (web breach, cloud attack, 
 
 Dual report generation: V1 template engine (structured, deterministic) and V2 AI narrative engine (consulting-quality prose with financial exposure analysis, 30/60/90-day remediation roadmaps, MITRE ATT&CK mapped attack narratives). Compliance mapping across SOC 2, PCI DSS, HIPAA, GDPR, CCPA, ISO 27001, NIST CSF, and FedRAMP.
 
+## Benchmark Results
+
+OdinForge's exploit agent is continuously benchmarked against real vulnerable applications to measure detection accuracy.
+
+**Latest Results (OWASP Juice Shop v17.1.1):**
+
+| Metric | Result |
+|--------|--------|
+| Scenarios Passed | 5/5 (100%) |
+| Vulnerability Detection Rate | 90% (18/20 expected) |
+| Total Tool Calls | 19 |
+| Execution Time | 94.5s |
+
+**5 Benchmark Scenarios:**
+
+1. SQL Injection via search parameter
+2. Authentication bypass on login
+3. Full API attack surface analysis (SQLi, XSS, auth bypass, path traversal, misconfiguration)
+4. Stored XSS via feedback submission
+5. Path traversal and file access
+
+Benchmarks run automatically in CI on every push to agent/validation code. Results are publicly viewable at `/benchmark`. See the [Benchmark CI workflow](.github/workflows/benchmark.yml) for details.
+
 ## Technology Stack
 
 | Component | Technology |
 |-----------|------------|
-| Frontend | React 18, TypeScript, Vite, TailwindCSS, shadcn/ui, Radix, Recharts, D3.js |
+| Frontend | React 18, TypeScript, Vite, TailwindCSS, shadcn/ui, Radix, Recharts, D3.js, Canvas |
 | Backend | Express.js, TypeScript, WebSocket (ws) |
 | Database | PostgreSQL 15+ with Drizzle ORM, pgvector (1536-dim) |
 | Cache/Queue | Redis 7+, BullMQ (14 job types, priority scheduling) |
 | AI | OpenAI GPT-4o, OpenRouter (Claude, Gemini), model-agnostic routing, alloy rotation |
+| Threat Intel | EPSS (FIRST.org), CVSS v2/v3.x parser, CISA KEV, deterministic scoring v3.0 |
 | Validation | Validation engine (6 vuln types), API fuzzer, protocol probes (SMTP/DNS/LDAP/creds) |
 | Agents | Go 1.21+ (cross-compiled: linux/mac/windows, amd64/arm64) |
 | Auth | JWT with refresh rotation, 67 permissions, 8 roles, RLS multi-tenancy |
 | Deployment | Docker (app + worker containers), Caddy, MinIO, DigitalOcean |
-| CI/CD | 17 GitHub Actions workflows (SAST, DAST, secret scanning, fuzzing, container scanning) |
+| CI/CD | 18 GitHub Actions workflows (SAST, DAST, secret scanning, fuzzing, container scanning, benchmarks) |
 
 ## Deployment
 
@@ -235,6 +294,11 @@ irm https://YOUR_SERVER/api/agents/install.ps1 | iex
 
 ## API Overview
 
+### Threat Intelligence
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/threat-intel/epss?cve=CVE-1,CVE-2` | Batch EPSS score lookup (max 100 CVEs) |
+
 ### Breach Orchestrator
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -270,7 +334,7 @@ See full API reference in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
 
 ## CI/CD Pipeline
 
-17 automated workflows covering the full security development lifecycle:
+18 automated workflows covering the full security development lifecycle:
 
 | Category | Workflows |
 |----------|-----------|
@@ -280,6 +344,7 @@ See full API reference in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
 | **Supply Chain** | npm audit, Dependabot (npm + Go + Actions), SBOM generation |
 | **Container** | Trivy container scanning |
 | **Secrets** | Gitleaks secret detection |
+| **Benchmark** | Exploit agent accuracy against OWASP Juice Shop (threshold-gated) |
 | **Deploy** | Docker build + push to GHCR + SSH deploy + health check |
 
 ## Documentation
@@ -287,6 +352,7 @@ See full API reference in [docs/API_REFERENCE.md](docs/API_REFERENCE.md).
 | Document | Description |
 |----------|-------------|
 | [Documentation Hub](docs/README.md) | Complete documentation index |
+| [Scoring & Threat Intel](docs/SCORING_ENGINE.md) | Deterministic scoring formula, EPSS, CVSS, KEV |
 | [Server Installation](docs/server/installation.md) | Deploy the OdinForge server |
 | [Server Configuration](docs/server/configuration.md) | Environment variables and settings |
 | [Production Deployment](docs/server/production.md) | Docker, Kubernetes, cloud deployment |

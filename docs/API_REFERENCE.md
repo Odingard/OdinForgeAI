@@ -1,22 +1,24 @@
 # OdinForge-AI API Reference
 
-**Version:** 1.0
-**Last Updated:** February 7, 2026
+**Version:** 1.1
+**Last Updated:** February 20, 2026
 **Base URL:** `http://your-server:5000/api`
 
 ---
 
 ## Table of Contents
 
-1. [Lateral Movement API](#1-lateral-movement-api)
-2. [Container Security API](#2-container-security-api)
-3. [Sandbox Operations API](#3-sandbox-operations-api)
-4. [API Fuzzing](#4-api-fuzzing)
-5. [Compliance Mapping API](#5-compliance-mapping-api)
-6. [Cloud Pentesting API](#7-cloud-pentesting-api)
-7. [Protocol Probes API](#8-protocol-probes-api)
-8. [Session Management API](#9-session-management-api)
-9. [Business Logic Testing API](#10-business-logic-testing-api)
+1. [Threat Intelligence API](#1-threat-intelligence-api)
+2. [Breach Chain API](#2-breach-chain-api)
+3. [Lateral Movement API](#3-lateral-movement-api)
+4. [Container Security API](#4-container-security-api)
+5. [Sandbox Operations API](#5-sandbox-operations-api)
+6. [API Fuzzing](#6-api-fuzzing)
+7. [Compliance Mapping API](#7-compliance-mapping-api)
+8. [Cloud Pentesting API](#8-cloud-pentesting-api)
+9. [Protocol Probes API](#9-protocol-probes-api)
+10. [Session Management API](#10-session-management-api)
+11. [Business Logic Testing API](#11-business-logic-testing-api)
 10. [Forensic Analysis API](#11-forensic-analysis-api)
 
 ---
@@ -52,11 +54,138 @@ Content-Type: application/json
 
 ---
 
-## 1. Lateral Movement API
+## 1. Threat Intelligence API
+
+Query threat intelligence data for vulnerability prioritization.
+
+### 1.1 Batch EPSS Lookup
+
+Get EPSS (Exploit Prediction Scoring System) scores for CVEs. Returns 30-day exploitation probability from FIRST.org.
+
+```bash
+GET /api/threat-intel/epss?cve=CVE-2021-44228,CVE-2024-1234
+```
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `cve` | string | Yes | Comma-separated CVE IDs (max 100) |
+
+**Response:**
+```json
+{
+  "success": true,
+  "results": {
+    "CVE-2021-44228": {
+      "cve": "CVE-2021-44228",
+      "epss": 0.97224,
+      "percentile": 0.99994,
+      "date": "2026-02-20"
+    },
+    "CVE-2024-1234": {
+      "cve": "CVE-2024-1234",
+      "epss": 0.00123,
+      "percentile": 0.45231,
+      "date": "2026-02-20"
+    }
+  },
+  "count": 2
+}
+```
+
+**Permission Required:** `evaluations:read`
+
+**Notes:**
+- Results are cached for 24 hours (EPSS updates daily)
+- Maximum 100 CVEs per request
+- EPSS score range: 0.0 (no predicted exploitation) to 1.0 (near-certain exploitation)
+- Percentile range: 0.0 to 1.0 (rank among all scored CVEs)
+
+---
+
+## 2. Breach Chain API
+
+Manage cross-domain breach chain orchestrations.
+
+### 2.1 Create Breach Chain
+
+```bash
+POST /api/breach-chains
+Content-Type: application/json
+
+{
+  "name": "Full Kill Chain Assessment",
+  "targetUrl": "https://app.example.com",
+  "executionMode": "simulation",
+  "phases": ["application_compromise", "credential_extraction", "cloud_escalation", "lateral_movement", "impact_assessment"]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "breachChain": {
+    "id": "bc-abc123",
+    "status": "running",
+    "phases": [
+      {
+        "phase": "application_compromise",
+        "status": "running",
+        "startedAt": "2026-02-20T10:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### 2.2 List Breach Chains
+
+```bash
+GET /api/breach-chains
+```
+
+### 2.3 Get Breach Chain Details
+
+```bash
+GET /api/breach-chains/:id
+```
+
+Returns full chain with phase results, context propagation, attack path steps, and intelligent scoring.
+
+### 2.4 Resume Paused Chain
+
+```bash
+POST /api/breach-chains/:id/resume
+```
+
+### 2.5 Abort Running Chain
+
+```bash
+POST /api/breach-chains/:id/abort
+```
+
+**WebSocket Events:**
+
+Subscribe to real-time breach chain updates via WebSocket:
+
+| Event | Description |
+|-------|-------------|
+| `breach:phase_started` | Phase execution has begun |
+| `breach:phase_completed` | Phase finished with results |
+| `breach:finding` | New finding discovered during a phase |
+| `breach:progress` | Progress percentage update |
+| `breach:completed` | Entire breach chain completed |
+| `breach:error` | Error during phase execution |
+
+---
+
+## 3. Lateral Movement API
 
 Test and analyze lateral movement capabilities across your infrastructure.
 
-### 1.1 Get Available Techniques
+### 3.1 Get Available Techniques
 
 ```bash
 GET /api/lateral-movement/techniques
@@ -987,6 +1116,6 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" \
 
 ---
 
-**Last Updated:** February 7, 2026
-**Version:** 1.0
+**Last Updated:** February 20, 2026
+**Version:** 1.1
 **Status:** ✅ Production Ready
