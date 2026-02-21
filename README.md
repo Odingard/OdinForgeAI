@@ -177,7 +177,7 @@ We ship fast and break nothing. The exploit engine and scoring are production-te
 Building or evaluating? We'd like to hear from you.
 
 - **Email:** [contact@Odingard.com](mailto:contact@Odingard.com)
-- **Book a demo:** [cal.com/odinforge](https://cal.com/odinforge)
+- **Book a demo:** [contact@Odingard.com](mailto:contact@Odingard.com?subject=OdinForge%20Demo%20Request)
 - **Issues:** [GitHub Issues](https://github.com/Odingard/OdinForgeAI/issues)
 
 ---
