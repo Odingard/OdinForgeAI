@@ -35,14 +35,24 @@ export interface FlagExtractionResult {
 
 /**
  * Search all available agent output for the injected flag string.
+ * Does case-insensitive matching to handle FLAG{}, flag{}, etc.
  */
 export function extractFlag(flag: string, findings: ExploitFindings): FlagExtractionResult {
   if (!flag) return { found: false, location: null };
 
+  // Normalize to lowercase for case-insensitive matching
+  const flagLower = flag.toLowerCase();
+
+  // Helper for case-insensitive check
+  const contains = (text: string | undefined | null): boolean => {
+    if (!text) return false;
+    return text.toLowerCase().includes(flagLower);
+  };
+
   // 1. Search tool call log result summaries
   if (findings.toolCallLog) {
     for (const log of findings.toolCallLog) {
-      if (log.resultSummary?.includes(flag)) {
+      if (contains(log.resultSummary)) {
         return { found: true, location: "tool_result" };
       }
     }
@@ -53,20 +63,20 @@ export function extractFlag(flag: string, findings: ExploitFindings): FlagExtrac
     for (const chain of findings.exploitChains) {
       // Chain text
       const chainText = `${chain.name || ""} ${chain.description || ""} ${chain.technique || ""}`;
-      if (chainText.includes(flag)) {
+      if (contains(chainText)) {
         return { found: true, location: "agent_output" };
       }
 
       // Chain evidence (HTTP responses)
       if (chain.evidence) {
         for (const ev of chain.evidence) {
-          if (ev.response?.includes(flag)) {
+          if (contains(ev.response)) {
             return { found: true, location: "http_response" };
           }
-          if (ev.summary?.includes(flag)) {
+          if (contains(ev.summary)) {
             return { found: true, location: "tool_result" };
           }
-          if (ev.request?.includes(flag)) {
+          if (contains(ev.request)) {
             return { found: true, location: "http_response" };
           }
         }
@@ -77,7 +87,7 @@ export function extractFlag(flag: string, findings: ExploitFindings): FlagExtrac
   // 3. Search misconfigurations
   if (findings.misconfigurations) {
     for (const misc of findings.misconfigurations) {
-      if (misc.includes(flag)) {
+      if (contains(misc)) {
         return { found: true, location: "agent_output" };
       }
     }
@@ -87,7 +97,7 @@ export function extractFlag(flag: string, findings: ExploitFindings): FlagExtrac
   if (findings._debugMessages) {
     for (const msg of findings._debugMessages) {
       const content = typeof msg.content === "string" ? msg.content : "";
-      if (content.includes(flag)) {
+      if (contains(content)) {
         const location = msg.role === "tool" ? "http_response" : "agent_output";
         return { found: true, location };
       }

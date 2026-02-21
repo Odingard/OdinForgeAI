@@ -8,10 +8,10 @@
 export interface XBOWChallenge {
   id: string;                // e.g. "XBEN-001-24"
   name: string;
-  category: string;          // mapped from tags: "sqli", "xss", "idor", etc.
-  difficulty: 1 | 2 | 3;
+  category: string;          // inferred from app code/compose, or "unknown"
+  difficulty: 1 | 2 | 3;    // inferred: 1=simple, 2=default, 3=multi-service
   description: string;
-  tags: string[];
+  tags: string[];            // may be empty (real XBOW repo has no tags)
   win_condition: string;
   composeDir: string;        // absolute path to challenge directory
 }

@@ -22,6 +22,8 @@
 import { writeFileSync } from "fs";
 import { ChainOrchestrator } from "../../services/aev/chain-orchestrator";
 import { getPlaybook } from "../../services/aev/playbooks/index";
+import { executionModeEnforcer } from "../../services/validation/execution-modes";
+import { sandboxExecutor } from "../../services/validation/sandbox-executor";
 import { getScenariosForTarget, getScenarioById, getAllScenarios } from "./scenarios";
 import { scoreChainResult, buildCompetitorComparison } from "./breach-chain-scorer";
 import type { BreachChainScenario, BreachChainBenchmarkResult, BreachChainReport } from "./breach-chain-types";
@@ -90,6 +92,20 @@ async function main() {
     console.error(`  ERROR: Cannot reach ${TARGET_URL}: ${err.message}`);
     process.exit(1);
   }
+
+  // Set execution mode to match CLI arg (playbooks require simulation or live)
+  executionModeEnforcer.setMode(EXECUTION_MODE as "safe" | "simulation" | "live");
+
+  // Configure sandbox for benchmark: allow localhost targets and all operation types
+  sandboxExecutor.setTenantConfig("benchmark", {
+    blockedTargetPatterns: [],  // Allow localhost for benchmarking
+    allowedOperations: [
+      "protocol_probe", "vulnerability_scan", "credential_test",
+      "network_scan", "port_scan", "payload_injection",
+      "exploit_execution", "data_exfiltration",
+    ],
+    requireApprovalForLiveMode: false,
+  });
 
   // Initialize chain orchestrator
   const orchestrator = new ChainOrchestrator({

@@ -248,28 +248,32 @@ export class ChainOrchestrator {
     
     this.activeChains.set(executionId, execContext);
     
-    // Log chain start
-    await auditService.logValidationAction(
-      "chain_executed",
-      currentMode,
-      {
-        organizationId: context.organizationId,
-        tenantId: context.tenantId,
-        evaluationId: context.evaluationId,
-        requestedBy: context.userId,
-      },
-      {
-        targetHost: target,
-        probeType: "exploit_chain",
-        resultStatus: "success",
-        metadata: {
-          playbookId: playbook.id,
-          playbookName: playbook.name,
-          stepCount: playbook.steps.length,
-          action: "chain_started",
+    // Log chain start (non-blocking — allows benchmark mode without DB)
+    try {
+      await auditService.logValidationAction(
+        "chain_executed",
+        currentMode,
+        {
+          organizationId: context.organizationId,
+          tenantId: context.tenantId,
+          evaluationId: context.evaluationId,
+          requestedBy: context.userId,
         },
-      }
-    );
+        {
+          targetHost: target,
+          probeType: "exploit_chain",
+          resultStatus: "success",
+          metadata: {
+            playbookId: playbook.id,
+            playbookName: playbook.name,
+            stepCount: playbook.steps.length,
+            action: "chain_started",
+          },
+        }
+      );
+    } catch {
+      // Audit logging is non-critical — continue without DB
+    }
     
     const stepResults: StepResult[] = [];
     let consecutiveFailures = 0;
@@ -337,31 +341,35 @@ export class ChainOrchestrator {
     // Build result
     const result = this.buildChainResult(playbook, execContext, stepResults, startTime);
     
-    // Log chain completion
-    await auditService.logValidationAction(
-      "chain_executed",
-      currentMode,
-      {
-        organizationId: context.organizationId,
-        tenantId: context.tenantId,
-        evaluationId: context.evaluationId,
-        requestedBy: context.userId,
-      },
-      {
-        targetHost: target,
-        probeType: "exploit_chain",
-        resultStatus: result.status === "completed" || result.status === "partial" ? "success" : "failure",
-        confidenceScore: result.overallConfidence,
-        metadata: {
-          playbookId: playbook.id,
-          status: result.status,
-          stepsExecuted: result.stepsExecuted,
-          stepsSucceeded: result.stepsSucceeded,
-          criticalFindings: result.criticalFindings,
-          action: "chain_completed",
+    // Log chain completion (non-blocking — allows benchmark mode without DB)
+    try {
+      await auditService.logValidationAction(
+        "chain_executed",
+        currentMode,
+        {
+          organizationId: context.organizationId,
+          tenantId: context.tenantId,
+          evaluationId: context.evaluationId,
+          requestedBy: context.userId,
         },
-      }
-    );
+        {
+          targetHost: target,
+          probeType: "exploit_chain",
+          resultStatus: result.status === "completed" || result.status === "partial" ? "success" : "failure",
+          confidenceScore: result.overallConfidence,
+          metadata: {
+            playbookId: playbook.id,
+            status: result.status,
+            stepsExecuted: result.stepsExecuted,
+            stepsSucceeded: result.stepsSucceeded,
+            criticalFindings: result.criticalFindings,
+            action: "chain_completed",
+          },
+        }
+      );
+    } catch {
+      // Audit logging is non-critical — continue without DB
+    }
     
     return result;
   }

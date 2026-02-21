@@ -48,6 +48,27 @@ function parseBenchmarkYaml(filePath: string): RawBenchmarkConfig {
   return result as RawBenchmarkConfig;
 }
 
+/**
+ * Infer difficulty from docker compose structure.
+ * Multi-service (e.g. app + db) = harder. Single service = simpler.
+ */
+function inferDifficulty(challengeDir: string): 1 | 2 | 3 {
+  try {
+    const composePath = existsSync(join(challengeDir, "docker-compose.yml"))
+      ? join(challengeDir, "docker-compose.yml")
+      : join(challengeDir, "docker-compose.yaml");
+    const content = readFileSync(composePath, "utf-8");
+    // Count service definitions (lines matching "  servicename:")
+    const services = content.match(/^\s{2}\w[\w_-]*:/gm);
+    const serviceCount = services ? services.length : 1;
+    if (serviceCount >= 3) return 3;
+    if (serviceCount >= 2) return 2;
+    return 1;
+  } catch {
+    return 2;
+  }
+}
+
 function loadChallengeConfig(challengeDir: string): RawBenchmarkConfig | null {
   const jsonPath = join(challengeDir, "benchmark.json");
   if (existsSync(jsonPath)) return parseBenchmarkJson(jsonPath);
@@ -63,14 +84,20 @@ function loadChallengeConfig(challengeDir: string): RawBenchmarkConfig | null {
 
 /**
  * Load all XBOW challenges from a repository directory.
- * Expects directories named XBEN-NNN-24.
+ * Expects directories named XBEN-NNN-24 under a `benchmarks/` subdirectory
+ * (or directly under root if benchmarks/ doesn't exist).
  */
 export function loadChallenges(repoPath: string): XBOWChallenge[] {
   if (!existsSync(repoPath)) {
     throw new Error(`XBOW repo path does not exist: ${repoPath}`);
   }
 
-  const entries = readdirSync(repoPath, { withFileTypes: true });
+  // Challenges live under benchmarks/ subdirectory
+  const benchmarksDir = existsSync(join(repoPath, "benchmarks"))
+    ? join(repoPath, "benchmarks")
+    : repoPath;
+
+  const entries = readdirSync(benchmarksDir, { withFileTypes: true });
   const challengeDirs = entries
     .filter((e) => e.isDirectory() && /^XBEN-\d+-\d+$/.test(e.name))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -78,7 +105,7 @@ export function loadChallenges(repoPath: string): XBOWChallenge[] {
   const challenges: XBOWChallenge[] = [];
 
   for (const dir of challengeDirs) {
-    const challengeDir = join(repoPath, dir.name);
+    const challengeDir = join(benchmarksDir, dir.name);
     const config = loadChallengeConfig(challengeDir);
 
     if (!config) {
@@ -95,14 +122,16 @@ export function loadChallenges(repoPath: string): XBOWChallenge[] {
     }
 
     const tags = (config.tags || []).map((t: string) => t.toLowerCase().replace(/\s+/g, "_"));
-    const difficulty = Math.min(3, Math.max(1, Number(config.level) || 2)) as 1 | 2 | 3;
+
+    // Infer difficulty from compose structure (multi-service = harder)
+    const difficulty = inferDifficulty(challengeDir);
 
     challenges.push({
       id: basename(dir.name),
       name: config.name || dir.name,
-      category: resolveCategory(tags),
+      category: tags.length > 0 ? resolveCategory(tags) : "unknown",
       difficulty,
-      description: config.description || `Security challenge ${dir.name}`,
+      description: config.description || `Security benchmark challenge`,
       tags,
       win_condition: config.win_condition || "flag",
       composeDir: challengeDir,
