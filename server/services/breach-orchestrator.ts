@@ -223,16 +223,29 @@ export async function runBreachChain(
         context = mergeContexts(context, phaseResult.outputContext);
       }
 
-      // Persist incremental progress
+      // Build incremental attack graph from all completed results so far
+      const incrementalGraph = buildUnifiedAttackGraph(phaseResults, context);
+
+      // Persist incremental progress with partial graph
       await storage.updateBreachChain(chainId, {
         phaseResults,
         currentContext: context,
         progress: phaseDef.progressRange[1],
+        unifiedAttackGraph: incrementalGraph,
       });
 
       broadcastBreachProgress(
         chainId, phaseName, phaseDef.progressRange[1],
         `${phaseDef.displayName} complete: ${phaseResult.findings.length} findings`
+      );
+
+      // Broadcast progressive graph update via WebSocket
+      wsService.sendBreachChainGraphUpdate(
+        chainId,
+        phaseName,
+        incrementalGraph,
+        enabledPhases.indexOf(phaseName),
+        enabledPhases.length
       );
 
       // Check pause-on-critical
@@ -271,6 +284,11 @@ export async function runBreachChain(
       durationMs: Date.now() - startTime,
     });
 
+    // Broadcast final graph update
+    wsService.sendBreachChainGraphUpdate(
+      chainId, "completed", unifiedGraph,
+      enabledPhases.length, enabledPhases.length
+    );
     broadcastBreachProgress(chainId, "completed", 100, "Breach chain complete");
 
     // Auto-generate Purple Team findings from completed breach chain

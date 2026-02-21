@@ -112,7 +112,17 @@ interface HITLApprovalEvent {
   timestamp: string;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent;
+interface BreachChainGraphUpdateEvent {
+  type: "breach_chain_graph_update";
+  chainId: string;
+  phase: string;
+  graph: Record<string, any>;
+  phaseIndex: number;
+  totalPhases: number;
+  timestamp: string;
+}
+
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent | BreachChainGraphUpdateEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -650,6 +660,26 @@ class WebSocketService {
     this.broadcastToChannel(`evaluation:${evaluationId}`, event);
 
     console.log(`[WS] HITL Approval Required: ${agentName} (${riskLevel}) - ${approvalId}`);
+  }
+
+  sendBreachChainGraphUpdate(
+    chainId: string,
+    phase: string,
+    graph: Record<string, any>,
+    phaseIndex: number,
+    totalPhases: number
+  ): void {
+    const event: BreachChainGraphUpdateEvent = {
+      type: "breach_chain_graph_update",
+      chainId,
+      phase,
+      graph,
+      phaseIndex,
+      totalPhases,
+      timestamp: new Date().toISOString(),
+    };
+
+    this.broadcastToChannel(`breach_chain:${chainId}`, event);
   }
 
   getStats(): {

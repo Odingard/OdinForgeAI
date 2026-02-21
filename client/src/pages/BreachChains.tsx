@@ -49,7 +49,8 @@ import {
   ArrowRight,
   FileBarChart,
 } from "lucide-react";
-import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName } from "@shared/schema";
+import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
+import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
 
 // Phase metadata for display
 const PHASE_META: Record<string, { label: string; icon: typeof Shield; color: string; description: string }> = {
@@ -434,10 +435,20 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const config = chain.config as any;
   const enabledPhases = config?.enabledPhases || [];
 
+  // Real-time graph updates via WebSocket
+  const { latestGraph } = useBreachChainUpdates({
+    enabled: chain.status === "running" || chain.status === "paused",
+    chainId: chain.id,
+  });
+
+  const displayGraph = latestGraph ?? (chain.unifiedAttackGraph as AttackGraph | null);
+  const hasGraph = displayGraph && displayGraph.nodes?.length > 0;
+
   return (
-    <Tabs defaultValue="overview" className="w-full">
+    <Tabs defaultValue={hasGraph ? "graph" : "overview"} className="w-full">
       <TabsList className="w-full flex-wrap h-auto justify-start gap-1 p-1">
         <TabsTrigger value="overview">Overview</TabsTrigger>
+        <TabsTrigger value="graph">Attack Graph</TabsTrigger>
         <TabsTrigger value="phases">Phase Results</TabsTrigger>
         <TabsTrigger value="context">Breach Context</TabsTrigger>
         {chain.executiveSummary && <TabsTrigger value="summary">Executive Summary</TabsTrigger>}
@@ -541,6 +552,17 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             <ContextSummary context={context} />
           </CardContent>
         </Card>
+      </TabsContent>
+
+      <TabsContent value="graph" className="mt-4">
+        <LiveBreachChainGraph
+          graph={displayGraph}
+          riskScore={chain.overallRiskScore ?? undefined}
+          assetsCompromised={chain.totalAssetsCompromised ?? undefined}
+          credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}
+          currentPhase={chain.currentPhase ?? undefined}
+          isRunning={chain.status === "running"}
+        />
       </TabsContent>
 
       {chain.executiveSummary && (

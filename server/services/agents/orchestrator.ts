@@ -25,6 +25,7 @@ import { synthesizeResults } from "./synthesizer";
 import { createFallbackGraph } from "./graph-synthesizer";
 import { generateEvidenceFromAnalysis } from "./evidence-collector";
 import { generateFallbackScore } from "./scoring-engine";
+import { parseCVSSVector } from "../cvss-parser";
 import { generateRemediationGuidance } from "./remediation-engine";
 import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 import { withCircuitBreaker } from "./circuit-breaker";
@@ -581,6 +582,23 @@ async function runPipeline(
     multiVectorFindings: memory.multiVector?.findings,
   });
 
+  // Look up CVSS data and asset criticality for contextual scoring
+  let cvssData: ReturnType<typeof parseCVSSVector> | undefined;
+  let assetCriticality: "critical" | "high" | "medium" | "low" | undefined;
+  try {
+    const discoveredAsset = await storage.getDiscoveredAssetByIdentifier(assetId);
+    assetCriticality = (discoveredAsset?.criticality as typeof assetCriticality) ?? undefined;
+    const vulnImports = await storage.getVulnerabilityImportsByAssetId(assetId);
+    const parsedVectors = vulnImports
+      .filter(v => v.cvssVector)
+      .map(v => parseCVSSVector(v.cvssVector!))
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+    // Use the highest-scored CVSS vector for primary scoring
+    cvssData = parsedVectors.sort((a, b) => b.baseScore - a.baseScore)[0] ?? undefined;
+  } catch {
+    // Non-fatal — scoring works without CVSS data
+  }
+
   const intelligentScore = generateFallbackScore({
     assetId,
     exposureType,
@@ -591,6 +609,8 @@ async function runPipeline(
     attackGraph,
     businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
     multiVectorFindings: memory.multiVector?.findings,
+    cvssData: cvssData ?? undefined,
+    assetCriticality,
   });
 
   onProgress?.("Remediation Engine", "remediation", 95, "Generating remediation guidance...");

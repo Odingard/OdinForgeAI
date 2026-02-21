@@ -10,6 +10,7 @@ import type {
   ComplianceFramework,
 } from "@shared/schema";
 import { openai } from "./openai-client";
+import type { ParsedCVSS } from "../cvss-parser";
 
 export interface ScoringContext {
   assetId: string;
@@ -34,6 +35,8 @@ export interface ScoringContext {
     userBase?: string;
     annualRevenue?: string;
   };
+  cvssData?: ParsedCVSS;
+  assetCriticality?: "critical" | "high" | "medium" | "low";
 }
 
 const SCORING_SYSTEM_PROMPT = `You are an advanced security risk scoring engine that provides contextual, business-aware risk assessments that go beyond traditional CVSS scoring.
@@ -89,6 +92,25 @@ ${context.businessContext ? `
 - User Base: ${context.businessContext.userBase || "Unknown"}
 - Annual Revenue: ${context.businessContext.annualRevenue || "Unknown"}
 ` : "No business context provided - estimate based on asset type"}
+
+## CVSS Data
+${context.cvssData ? `
+- CVSS Version: ${context.cvssData.version}
+- Vector: ${context.cvssData.vectorString}
+- Base Score: ${context.cvssData.baseScore}
+- Severity: ${context.cvssData.severity}
+- Attack Vector: ${context.cvssData.metrics.attackVector ?? "N/A"} (Network Exposure: ${context.cvssData.networkExposure})
+- Attack Complexity: ${context.cvssData.metrics.attackComplexity ?? "N/A"}
+- Privileges Required: ${context.cvssData.metrics.privilegesRequired ?? "N/A"} (Auth: ${context.cvssData.authRequired})
+- User Interaction: ${context.cvssData.metrics.userInteraction ?? "N/A"}
+- Scope: ${context.cvssData.metrics.scope ?? "N/A"}
+- Confidentiality Impact: ${context.cvssData.metrics.confidentialityImpact ?? "N/A"}
+- Integrity Impact: ${context.cvssData.metrics.integrityImpact ?? "N/A"}
+- Availability Impact: ${context.cvssData.metrics.availabilityImpact ?? "N/A"}
+` : "No CVSS data available — estimate exploitability from findings"}
+
+## Asset Criticality
+${context.assetCriticality ? `Business criticality: ${context.assetCriticality} — weight business impact accordingly` : "Unknown — assume medium criticality"}
 
 ## Attack Analysis Summary
 ### Attack Path Steps
@@ -251,7 +273,13 @@ export function generateFallbackScore(context: ScoringContext): IntelligentScore
     ...(context.multiVectorFindings?.filter((f) => f.severity === "high") || []),
   ].length;
 
-  const baseScore = context.exploitable ? 70 : 30;
+  // CVSS-aware base score: use CVSS base score if available, otherwise heuristic
+  const cvssBoost = context.cvssData
+    ? Math.round(context.cvssData.baseScore * 8) // 0-10 → 0-80 range
+    : 0;
+  const baseScore = context.exploitable
+    ? Math.max(70, cvssBoost)
+    : Math.max(30, Math.round(cvssBoost * 0.5));
   const exploitabilityScore = Math.min(100, baseScore + criticalCount * 10 + highCount * 5);
 
   const priorityMultiplier: Record<string, number> = {
@@ -261,9 +289,19 @@ export function generateFallbackScore(context: ScoringContext): IntelligentScore
     low: 0.4,
   };
 
-  const businessScore = Math.round(
-    exploitabilityScore * (priorityMultiplier[context.priority] || 0.5)
-  );
+  // Asset criticality amplifies business impact
+  const criticalityMultiplier: Record<string, number> = {
+    critical: 1.3,
+    high: 1.1,
+    medium: 1.0,
+    low: 0.7,
+  };
+
+  const businessScore = Math.min(100, Math.round(
+    exploitabilityScore
+    * (priorityMultiplier[context.priority] || 0.5)
+    * (criticalityMultiplier[context.assetCriticality ?? "medium"] ?? 1.0)
+  ));
 
   const overallScore = Math.round((exploitabilityScore * 0.6 + businessScore * 0.4));
 
@@ -289,20 +327,39 @@ export function generateFallbackScore(context: ScoringContext): IntelligentScore
       confidence: 60,
       factors: {
         attackComplexity: {
-          level: criticalCount > 0 ? "low" : "medium",
-          score: criticalCount > 0 ? 80 : 50,
-          rationale: "Estimated based on finding severity distribution",
+          level: context.cvssData?.metrics.attackComplexity === "low" ? "low"
+               : context.cvssData?.metrics.attackComplexity === "high" ? "high"
+               : criticalCount > 0 ? "low" : "medium",
+          score: context.cvssData?.metrics.attackComplexity === "low" ? 85
+               : context.cvssData?.metrics.attackComplexity === "high" ? 35
+               : criticalCount > 0 ? 80 : 50,
+          rationale: context.cvssData
+            ? `Based on CVSS AC:${context.cvssData.metrics.attackComplexity}`
+            : "Estimated based on finding severity distribution",
         },
         authenticationRequired: {
-          level: "single",
-          score: 60,
-          rationale: "Default assumption - requires authentication",
+          level: context.cvssData?.authRequired ?? "single",
+          score: context.cvssData?.metrics.privilegesRequired === "none" ? 90
+               : context.cvssData?.metrics.privilegesRequired === "low" ? 60
+               : context.cvssData?.metrics.privilegesRequired === "high" ? 25
+               : 60,
+          rationale: context.cvssData
+            ? `Based on CVSS PR:${context.cvssData.metrics.privilegesRequired}`
+            : "Default assumption - requires authentication",
         },
         environmentalContext: {
-          networkExposure: "dmz",
-          patchLevel: "behind",
-          compensatingControls: [],
-          score: 50,
+          networkExposure: context.cvssData?.networkExposure ?? "dmz",
+          patchLevel: context.environmentInfo?.patchStatus as any ?? "behind",
+          compensatingControls: [
+            ...(context.environmentInfo?.hasWaf ? ["WAF"] : []),
+            ...(context.environmentInfo?.hasEdr ? ["EDR"] : []),
+            ...(context.environmentInfo?.hasSiem ? ["SIEM"] : []),
+          ],
+          score: context.cvssData?.metrics.attackVector === "network" ? 80
+               : context.cvssData?.metrics.attackVector === "adjacent" ? 60
+               : context.cvssData?.metrics.attackVector === "local" ? 30
+               : context.cvssData?.metrics.attackVector === "physical" ? 15
+               : 50,
         },
         detectionLikelihood: {
           level: "possible",
@@ -368,12 +425,14 @@ export function generateFallbackScore(context: ScoringContext): IntelligentScore
         justification: `Based on ${criticalCount} critical and ${highCount} high severity findings`,
       },
       comparison: {
-        cvssEquivalent: Math.round((overallScore / 10) * 10) / 10,
+        cvssEquivalent: context.cvssData?.baseScore ?? Math.round((overallScore / 10) * 10) / 10,
       },
       trendIndicator: "new",
     },
     calculatedAt: new Date().toISOString(),
-    methodology: "OdinForge Fallback Scoring - Limited context assessment",
+    methodology: context.cvssData
+      ? `OdinForge CVSS-Enriched Scoring v2.0 - CVSS ${context.cvssData.version} vector + asset criticality (${context.assetCriticality ?? "medium"})`
+      : "OdinForge Fallback Scoring - Limited context assessment",
   };
 }
 

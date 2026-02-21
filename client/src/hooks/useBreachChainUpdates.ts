@@ -1,14 +1,18 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useWebSocket } from "./useWebSocket";
 import { queryClient } from "@/lib/queryClient";
+import type { AttackGraph } from "@shared/schema";
 
 export interface BreachChainUpdateMessage {
-  type: "breach_chain_progress" | "breach_chain_complete";
+  type: "breach_chain_progress" | "breach_chain_complete" | "breach_chain_graph_update";
   chainId: string;
   phase?: string;
   progress?: number;
   message?: string;
   status?: string;
+  graph?: AttackGraph;
+  phaseIndex?: number;
+  totalPhases?: number;
   timestamp?: string;
 }
 
@@ -17,6 +21,7 @@ export interface UseBreachChainUpdatesOptions {
   chainId?: string;
   onProgress?: (data: BreachChainUpdateMessage) => void;
   onComplete?: (data: BreachChainUpdateMessage) => void;
+  onGraphUpdate?: (data: BreachChainUpdateMessage) => void;
 }
 
 export function useBreachChainUpdates({
@@ -24,15 +29,16 @@ export function useBreachChainUpdates({
   chainId,
   onProgress,
   onComplete,
+  onGraphUpdate,
 }: UseBreachChainUpdatesOptions = {}) {
+  const [latestGraph, setLatestGraph] = useState<AttackGraph | null>(null);
+
   const { isConnected, subscribe, unsubscribe } = useWebSocket({
     enabled,
     onMessage: (data) => {
       if (data.type === "breach_chain_progress") {
-        // If filtering by chainId, only process matching events
         if (chainId && data.chainId !== chainId) return;
 
-        // Invalidate breach chain queries for live updates
         queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
         if (data.chainId) {
           queryClient.invalidateQueries({
@@ -52,6 +58,14 @@ export function useBreachChainUpdates({
         }
 
         onComplete?.(data as BreachChainUpdateMessage);
+      } else if (data.type === "breach_chain_graph_update") {
+        if (chainId && data.chainId !== chainId) return;
+
+        if (data.graph) {
+          setLatestGraph(data.graph as AttackGraph);
+        }
+
+        onGraphUpdate?.(data as BreachChainUpdateMessage);
       }
     },
   });
@@ -60,15 +74,18 @@ export function useBreachChainUpdates({
     if (isConnected && enabled) {
       subscribe("breach_chain_progress");
       subscribe("breach_chain_complete");
+      subscribe("breach_chain_graph_update");
 
       return () => {
         unsubscribe("breach_chain_progress");
         unsubscribe("breach_chain_complete");
+        unsubscribe("breach_chain_graph_update");
       };
     }
   }, [isConnected, enabled, subscribe, unsubscribe]);
 
   return {
     isConnected,
+    latestGraph,
   };
 }
