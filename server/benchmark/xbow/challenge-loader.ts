@@ -150,6 +150,7 @@ export function filterChallenges(
     category?: string;
     challengeId?: string;
     limit?: number;
+    offset?: number;
   }
 ): XBOWChallenge[] {
   let filtered = challenges;
@@ -161,6 +162,10 @@ export function filterChallenges(
   if (options.category) {
     const cat = options.category.toLowerCase();
     filtered = filtered.filter((c) => c.category === cat || c.tags.includes(cat));
+  }
+
+  if (options.offset && options.offset > 0) {
+    filtered = filtered.slice(options.offset);
   }
 
   if (options.limit && options.limit > 0) {

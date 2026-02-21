@@ -212,7 +212,7 @@ jobs:
         run: docker rm -f breach-chain-target || true
 
   benchmark-alloy:
-    if: github.event_name == 'push' || github.event.inputs.run_alloy == 'true'
+    if: github.event.inputs.run_alloy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

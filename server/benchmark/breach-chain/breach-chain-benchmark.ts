@@ -19,7 +19,8 @@
  *   npx tsx server/benchmark/breach-chain/breach-chain-benchmark.ts http://localhost:3002 simulation --target dvwa --scenario dvwa-sqli-chain
  */
 
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
+import { dirname } from "path";
 import { ChainOrchestrator } from "../../services/aev/chain-orchestrator";
 import { getPlaybook } from "../../services/aev/playbooks/index";
 import { executionModeEnforcer } from "../../services/validation/execution-modes";
@@ -230,6 +231,8 @@ async function main() {
 
   // Write report
   if (OUTPUT_PATH) {
+    const dir = dirname(OUTPUT_PATH);
+    if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
     writeFileSync(OUTPUT_PATH, JSON.stringify(report, null, 2));
     console.log(`\nReport written to ${OUTPUT_PATH}`);
   }

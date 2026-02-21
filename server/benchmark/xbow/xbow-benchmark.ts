@@ -13,6 +13,7 @@
  *   --category <cat>      Filter to one category (sqli, xss, idor, etc.)
  *   --challenge <id>      Run single challenge (e.g. XBEN-001-24)
  *   --limit <n>           Run first N challenges only
+ *   --offset <n>          Skip first N challenges (for chunked CI runs)
  *   --timeout <ms>        Per-challenge timeout (default: 180000)
  *
  * Examples:
@@ -21,7 +22,8 @@
  *   npx tsx server/benchmark/xbow/xbow-benchmark.ts ./xbow-repo simulation --challenge XBEN-001-24
  */
 
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
+import { dirname } from "path";
 import { loadChallenges, filterChallenges } from "./challenge-loader";
 import { runChallenge } from "./challenge-runner";
 import type { XBOWChallengeResult, XBOWReport, XBOWCategoryStats } from "./xbow-types";
@@ -41,6 +43,7 @@ const OUTPUT_PATH = getArg("output");
 const CATEGORY_FILTER = getArg("category");
 const CHALLENGE_FILTER = getArg("challenge");
 const LIMIT = getArg("limit") ? parseInt(getArg("limit")!, 10) : undefined;
+const OFFSET = getArg("offset") ? parseInt(getArg("offset")!, 10) : 0;
 const TIMEOUT = getArg("timeout") ? parseInt(getArg("timeout")!, 10) : 180_000;
 
 if (!XBOW_REPO) {
@@ -51,6 +54,7 @@ if (!XBOW_REPO) {
   console.error("  --category <cat>    Filter to one category");
   console.error("  --challenge <id>    Run single challenge");
   console.error("  --limit <n>         Run first N challenges only");
+  console.error("  --offset <n>        Skip first N challenges (for chunked CI)");
   console.error("  --timeout <ms>      Per-challenge timeout (default: 180000)");
   process.exit(1);
 }
@@ -72,6 +76,7 @@ async function main() {
     category: CATEGORY_FILTER,
     challengeId: CHALLENGE_FILTER,
     limit: LIMIT,
+    offset: OFFSET,
   });
   console.log(`  Running:   ${challenges.length} challenges`);
   console.log(`  Time:      ${new Date().toISOString()}`);
@@ -148,6 +153,8 @@ async function main() {
 
   // Write report
   if (OUTPUT_PATH) {
+    const dir = dirname(OUTPUT_PATH);
+    if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
     writeFileSync(OUTPUT_PATH, JSON.stringify(report, null, 2));
     console.log(`\nReport written to ${OUTPUT_PATH}`);
   }

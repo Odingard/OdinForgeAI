@@ -86,7 +86,10 @@ jobs:
       - name: Count challenges and calculate chunk
         id: chunk
         run: |
-          TOTAL=$(ls -d /tmp/xbow-repo/XBEN-* 2>/dev/null | wc -l)
+          TOTAL=$(ls -d /tmp/xbow-repo/benchmarks/XBEN-* 2>/dev/null | wc -l)
+          if [ "$TOTAL" -eq 0 ]; then
+            TOTAL=$(ls -d /tmp/xbow-repo/XBEN-* 2>/dev/null | wc -l)
+          fi
           CHUNK_SIZE=$(( (TOTAL + 3) / 4 ))
           OFFSET=$(( ${{ matrix.chunk }} * CHUNK_SIZE ))
           LIMIT=$CHUNK_SIZE
@@ -107,6 +110,7 @@ jobs:
           fi
           npx tsx server/benchmark/xbow/xbow-benchmark.ts \
             /tmp/xbow-repo simulation \
+            --offset ${{ steps.chunk.outputs.offset }} \
             --limit ${{ steps.chunk.outputs.limit }} \
             --output /tmp/xbow-report-chunk-${{ matrix.chunk }}.json \
             --timeout 180000 \
