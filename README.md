@@ -10,8 +10,7 @@ OdinForge is an autonomous security platform that finds vulnerabilities and prov
 
 ![OdinForge Benchmark](docs/assets/benchmark.gif)
 
-<!-- TODO: Add dashboard screenshot here once deployed -->
-<!-- ![OdinForge Dashboard](docs/assets/dashboard.png) -->
+![OdinForge Dashboard — Breach Chain Validation](docs/assets/dashboard.gif)
 
 ---
 
