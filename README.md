@@ -10,8 +10,6 @@ OdinForge is an autonomous security platform that finds vulnerabilities and prov
 
 ![OdinForge Benchmark](docs/assets/benchmark.gif)
 
-![OdinForge Dashboard — Breach Chain Validation](docs/assets/dashboard.gif)
-
 ---
 
 ## What It Does
@@ -28,7 +26,9 @@ Most security tools tell you something *might* be vulnerable. OdinForge shows yo
 
 ## OdinForge in Action
 
-This is real output from OdinForge's exploit agent running against OWASP Juice Shop (a deliberately vulnerable web app):
+![OdinForge Dashboard — Breach Chain Validation](docs/assets/dashboard.gif)
+
+Real output from OdinForge's exploit agent running against OWASP Juice Shop:
 
 ```
 ═══════════════════════════════════════════════════════════
