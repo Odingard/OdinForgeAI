@@ -410,7 +410,7 @@ export default function BenchmarkResults() {
           <div className="cp-section-title">
             {BREACH_CHAIN_BENCHMARK.status === "pending"
               ? "Multi-phase attack chains. Results incoming."
-              : `${BREACH_CHAIN_BENCHMARK.scenariosSucceeded}/${BREACH_CHAIN_BENCHMARK.scenariosRun} chains completed`}
+              : `${BREACH_CHAIN_BENCHMARK.scenariosSucceeded}/${BREACH_CHAIN_BENCHMARK.scenariosRun} chains completed — avg score ${BREACH_CHAIN_BENCHMARK.avgCompositeScore}/100`}
           </div>
           <p className="cp-section-desc">
             Finding a single vulnerability is step one. OdinForge chains exploits across multiple phases:
@@ -419,6 +419,40 @@ export default function BenchmarkResults() {
             neither Shannon nor XBOW can match.
           </p>
 
+          {/* Per-scenario results */}
+          {BREACH_CHAIN_BENCHMARK.status === "complete" && BREACH_CHAIN_BENCHMARK.scenarios.length > 0 && (
+            <table className="cp-table" style={{ marginBottom: 32 }}>
+              <thead>
+                <tr>
+                  <th>Scenario</th>
+                  <th>Status</th>
+                  <th>Steps</th>
+                  <th>Score</th>
+                  <th>Confidence</th>
+                  <th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BREACH_CHAIN_BENCHMARK.scenarios.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.name}</td>
+                    <td>
+                      <span className={s.status === "completed" || s.compositeScore >= 40 ? "cp-check" : "cp-miss"}>
+                        {s.status.toUpperCase()}
+                      </span>
+                    </td>
+                    <td>{s.stepsSucceeded}/{s.stepsExecuted}</td>
+                    <td>{s.compositeScore}/100</td>
+                    <td>{s.confidence}%</td>
+                    <td>{(s.durationMs / 1000).toFixed(1)}s</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {/* Competitor capability matrix */}
+          <div className="cp-section-label" style={{ marginTop: 16 }}>Capability Matrix</div>
           <table className="cp-table">
             <thead>
               <tr>
@@ -455,6 +489,7 @@ export default function BenchmarkResults() {
           <p className="cp-section-desc" style={{ marginTop: 24, fontSize: 14, opacity: 0.7 }}>
             Shannon finds vulnerabilities. XBOW validates them. OdinForge proves breaches &mdash;
             with multi-phase chains, credential harvesting, and cross-domain escalation.
+            Scores improve with each iteration as step handlers are refined.
           </p>
         </section>
 

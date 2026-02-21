@@ -28,6 +28,18 @@ export const XBOW_BENCHMARK: XBOWBenchmarkSummary = {
 
 // ─── Breach Chain Benchmark Types ─────────────────────────────────────
 
+export interface BreachChainScenarioResult {
+  id: string;
+  name: string;
+  playbookId: string;
+  status: "completed" | "partial" | "aborted" | "failed";
+  stepsExecuted: number;
+  stepsSucceeded: number;
+  compositeScore: number;
+  confidence: number;
+  durationMs: number;
+}
+
 export interface BreachChainBenchmarkSummary {
   avgCompositeScore: number;
   scenariosRun: number;
@@ -36,6 +48,7 @@ export interface BreachChainBenchmarkSummary {
   avgConfidence: number;
   runDate: string;
   status: "pending" | "complete";
+  scenarios: BreachChainScenarioResult[];
   competitorCapability: {
     capability: string;
     odinforge: "yes" | "partial" | "no";
@@ -45,13 +58,19 @@ export interface BreachChainBenchmarkSummary {
 }
 
 export const BREACH_CHAIN_BENCHMARK: BreachChainBenchmarkSummary = {
-  avgCompositeScore: 0,
-  scenariosRun: 9,
-  scenariosSucceeded: 0,
-  avgChainDepth: 0,
-  avgConfidence: 0,
-  runDate: "pending",
-  status: "pending",
+  avgCompositeScore: 28,
+  scenariosRun: 4,
+  scenariosSucceeded: 1,
+  avgChainDepth: 0.5,
+  avgConfidence: 33,
+  runDate: "2026-02-21",
+  status: "complete",
+  scenarios: [
+    { id: "js-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "partial", stepsExecuted: 1, stepsSucceeded: 1, compositeScore: 58, confidence: 60, durationMs: 283 },
+    { id: "js-auth-chain", name: "Auth Bypass to Privilege Escalation", playbookId: "auth-bypass-escalation", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 44, confidence: 70, durationMs: 1144 },
+    { id: "js-path-chain", name: "Path Traversal File Read Proof", playbookId: "path-traversal-proof", status: "aborted", stepsExecuted: 1, stepsSucceeded: 0, compositeScore: 5, confidence: 0, durationMs: 95 },
+    { id: "js-multi-vector", name: "Multi-Vector Attack Chain", playbookId: "multi-vector-chain", status: "aborted", stepsExecuted: 1, stepsSucceeded: 0, compositeScore: 5, confidence: 0, durationMs: 101 },
+  ],
   competitorCapability: [
     { capability: "Multi-step exploit chains",    odinforge: "yes",     shannon: "partial", xbow: "no" },
     { capability: "Confidence-gated progression",  odinforge: "yes",     shannon: "no",      xbow: "no" },
