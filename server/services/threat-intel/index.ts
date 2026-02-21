@@ -6,6 +6,7 @@
 
 import { storage } from "../../storage";
 import { syncCisaKevFeed } from "./cisa-kev";
+export { getEPSSScores, getEPSSScore, clearEPSSCache } from "./epss-client";
 
 /**
  * Sync a single threat intel feed based on its type.

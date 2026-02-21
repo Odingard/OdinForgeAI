@@ -149,6 +149,42 @@ export function IntelligentScorePanel({ score }: IntelligentScorePanelProps) {
               </div>
               <Progress value={score.exploitability.factors.exploitMaturity.score} className="mt-2 h-1.5" />
             </div>
+
+            {score.methodology && (
+              <div className="p-3 bg-muted/20 rounded-lg border border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-foreground">Threat Intelligence Signals</span>
+                  <Badge variant="outline" className="text-xs">
+                    {score.exploitability.confidence}/100 confidence
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {score.methodology.includes("EPSS") && (
+                    <Badge className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/30">
+                      {score.methodology.match(/EPSS [^|]*/)?.[0] || "EPSS"}
+                    </Badge>
+                  )}
+                  {score.methodology.includes("CVSS") && (
+                    <Badge className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
+                      {score.methodology.match(/CVSS [^|]*/)?.[0] || "CVSS"}
+                    </Badge>
+                  )}
+                  {score.methodology.includes("CISA KEV") && (
+                    <Badge className="text-xs bg-red-500/10 text-red-400 border-red-500/30">
+                      CISA KEV
+                    </Badge>
+                  )}
+                  {score.methodology.includes("[Ransomware]") && (
+                    <Badge className="text-xs bg-red-600/10 text-red-300 border-red-600/30">
+                      Known Ransomware
+                    </Badge>
+                  )}
+                  {!score.methodology.includes("EPSS") && !score.methodology.includes("CISA KEV") && (
+                    <span className="text-xs text-muted-foreground">No external threat intel enrichment</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </TabsContent>
 
@@ -276,8 +312,13 @@ export function IntelligentScorePanel({ score }: IntelligentScorePanelProps) {
         </div>
       )}
 
-      <div className="text-xs text-muted-foreground text-right">
-        Calculated: {new Date(score.calculatedAt).toLocaleString()}
+      <div className="text-xs text-muted-foreground text-right space-y-0.5">
+        <div>Calculated: {new Date(score.calculatedAt).toLocaleString()}</div>
+        {score.methodology && (
+          <div className="truncate max-w-md" title={score.methodology}>
+            {score.methodology}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -24,8 +24,9 @@ import { runImpactAgent } from "./impact";
 import { synthesizeResults } from "./synthesizer";
 import { createFallbackGraph } from "./graph-synthesizer";
 import { generateEvidenceFromAnalysis } from "./evidence-collector";
-import { generateFallbackScore } from "./scoring-engine";
+import { generateDeterministicScore } from "./scoring-engine";
 import { parseCVSSVector } from "../cvss-parser";
+import { getEPSSScores } from "../threat-intel/epss-client";
 import { generateRemediationGuidance } from "./remediation-engine";
 import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 import { withCircuitBreaker } from "./circuit-breaker";
@@ -582,9 +583,14 @@ async function runPipeline(
     multiVectorFindings: memory.multiVector?.findings,
   });
 
-  // Look up CVSS data and asset criticality for contextual scoring
+  // Look up CVSS data, asset criticality, EPSS, and KEV for deterministic scoring
   let cvssData: ReturnType<typeof parseCVSSVector> | undefined;
   let assetCriticality: "critical" | "high" | "medium" | "low" | undefined;
+  let epssScore: number | undefined;
+  let epssPercentile: number | undefined;
+  let isKevListed = false;
+  let kevRansomwareUse = false;
+
   try {
     const discoveredAsset = await storage.getDiscoveredAssetByIdentifier(assetId);
     assetCriticality = (discoveredAsset?.criticality as typeof assetCriticality) ?? undefined;
@@ -595,11 +601,41 @@ async function runPipeline(
       .filter((v): v is NonNullable<typeof v> => v !== null);
     // Use the highest-scored CVSS vector for primary scoring
     cvssData = parsedVectors.sort((a, b) => b.baseScore - a.baseScore)[0] ?? undefined;
+
+    // EPSS enrichment: batch fetch exploitation probability for all CVEs
+    const cveIds = vulnImports
+      .map(v => v.cveId)
+      .filter((id): id is string => !!id);
+    if (cveIds.length > 0) {
+      try {
+        const epssResults = await getEPSSScores(cveIds);
+        // Use highest EPSS score (most likely to be exploited)
+        const epssArray = Array.from(epssResults.values());
+        if (epssArray.length > 0) {
+          const best = epssArray.reduce((a, b) => a.epss > b.epss ? a : b);
+          epssScore = best.epss;
+          epssPercentile = best.percentile;
+        }
+      } catch { /* EPSS non-fatal */ }
+
+      // KEV enrichment: check if any CVE is on CISA KEV
+      try {
+        const orgId = options?.organizationId || "default";
+        for (const cveId of cveIds) {
+          const indicator = await storage.getThreatIntelIndicatorByValue(cveId, orgId);
+          if (indicator) {
+            isKevListed = true;
+            if (indicator.knownRansomwareCampaignUse) kevRansomwareUse = true;
+            break;
+          }
+        }
+      } catch { /* KEV non-fatal */ }
+    }
   } catch {
-    // Non-fatal — scoring works without CVSS data
+    // Non-fatal — scoring works without enrichment data
   }
 
-  const intelligentScore = generateFallbackScore({
+  const intelligentScore = generateDeterministicScore({
     assetId,
     exposureType,
     priority,
@@ -611,6 +647,10 @@ async function runPipeline(
     multiVectorFindings: memory.multiVector?.findings,
     cvssData: cvssData ?? undefined,
     assetCriticality,
+    epssScore,
+    epssPercentile,
+    isKevListed,
+    kevRansomwareUse,
   });
 
   onProgress?.("Remediation Engine", "remediation", 95, "Generating remediation guidance...");

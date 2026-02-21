@@ -8993,6 +8993,21 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
     }
   });
 
+  // GET /api/threat-intel/epss - Fetch EPSS scores for CVEs
+  app.get("/api/threat-intel/epss", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const cves = (req.query.cve as string)?.split(",").filter(Boolean) || [];
+      if (cves.length === 0) return res.status(400).json({ error: "cve query parameter required (comma-separated)" });
+      if (cves.length > 100) return res.status(400).json({ error: "Maximum 100 CVEs per request" });
+      const { getEPSSScores } = await import("./services/threat-intel/epss-client");
+      const results = await getEPSSScores(cves);
+      res.json(Object.fromEntries(results));
+    } catch (error: any) {
+      console.error("Failed to fetch EPSS scores:", error);
+      res.status(500).json({ error: "Failed to fetch EPSS scores" });
+    }
+  });
+
   // ============================================================================
   // SIEM/EDR INTEGRATION
   // ============================================================================

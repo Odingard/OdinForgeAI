@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, timestamp, jsonb, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, real, timestamp, jsonb, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -2382,7 +2382,13 @@ export const vulnerabilityImports = pgTable("vulnerability_imports", {
   solutionType: varchar("solution_type"), // patch, workaround, upgrade, configuration
   patchAvailable: boolean("patch_available"),
   exploitAvailable: boolean("exploit_available"),
-  
+
+  // EPSS & KEV enrichment
+  epssScore: real("epss_score"),               // 0.0-1.0 exploitation probability
+  epssPercentile: real("epss_percentile"),     // 0.0-1.0 rank among all CVEs
+  epssUpdatedAt: timestamp("epss_updated_at"),
+  isKevListed: boolean("is_kev_listed").default(false),
+
   // References
   references: jsonb("references").$type<Array<{
     type: string; // cve, cwe, url, vendor
@@ -3082,7 +3088,10 @@ export const agentFindings = pgTable("agent_findings", {
   // CVE info if applicable
   cveId: varchar("cve_id"),
   cvssScore: integer("cvss_score"),
-  
+  epssScore: real("epss_score"),               // 0.0-1.0 exploitation probability
+  epssPercentile: real("epss_percentile"),     // 0.0-1.0 rank among all CVEs
+  isKevListed: boolean("is_kev_listed").default(false),
+
   // AI Confidence & Verification - prevents false positives
   confidenceScore: integer("confidence_score").default(0), // 0-100, AI confidence in exploitability
   confidenceFactors: jsonb("confidence_factors").$type<{
