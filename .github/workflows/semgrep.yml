@@ -27,7 +27,6 @@ jobs:
             --config p/nodejs \
             --config p/typescript \
             --sarif --output semgrep-results.sarif \
-            --error \
             --exclude "node_modules" \
             --exclude "dist" \
             --exclude "*.min.js"

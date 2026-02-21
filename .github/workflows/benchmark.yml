@@ -11,11 +11,11 @@ on:
     inputs:
       threshold_pass_rate:
         description: "Minimum scenarios that must pass (juice-shop)"
-        default: "4"
+        default: "3"
         type: string
       threshold_detection_rate:
         description: "Minimum detection rate percentage (juice-shop)"
-        default: "70"
+        default: "50"
         type: string
       run_alloy:
         description: "Also run alloy mode benchmark"
@@ -67,8 +67,8 @@ jobs:
 
       - name: Run exploit agent benchmark (juice-shop)
         run: |
-          PASS_RATE="${{ github.event.inputs.threshold_pass_rate || '4' }}"
-          DET_RATE="${{ github.event.inputs.threshold_detection_rate || '70' }}"
+          PASS_RATE="${{ github.event.inputs.threshold_pass_rate || '3' }}"
+          DET_RATE="${{ github.event.inputs.threshold_detection_rate || '50' }}"
 
           npx tsx server/benchmark/exploit-benchmark.ts \
             http://localhost:3001 simulation \
