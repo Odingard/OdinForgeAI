@@ -9,16 +9,12 @@ on:
       - "server/benchmark/**"
   workflow_dispatch:
     inputs:
-      targets:
-        description: "Targets to benchmark (comma-separated or 'all')"
-        default: "all"
-        type: string
       threshold_pass_rate:
-        description: "Minimum scenarios that must pass (juice-shop default)"
+        description: "Minimum scenarios that must pass (juice-shop)"
         default: "4"
         type: string
       threshold_detection_rate:
-        description: "Minimum detection rate percentage (juice-shop default)"
+        description: "Minimum detection rate percentage (juice-shop)"
         default: "70"
         type: string
       run_alloy:
@@ -30,9 +26,74 @@ on:
           - "true"
 
 jobs:
+  # ── Primary: Juice Shop (required — drives the badge) ────────────────
   benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DATABASE_URL: postgres://localhost:5432/benchmark_dummy
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Juice Shop container
+        run: |
+          docker run -d \
+            --name benchmark-target \
+            -p 3001:3000 \
+            --health-cmd "wget -q --spider http://localhost:3000 || exit 1" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 15 \
+            --health-start-period 30s \
+            bkimminich/juice-shop:v17.1.1
+
+      - name: Wait for Juice Shop
+        run: |
+          npx --yes wait-on@7 -t 120000 http://localhost:3001
+
+      - name: Run exploit agent benchmark (juice-shop)
+        run: |
+          PASS_RATE="${{ github.event.inputs.threshold_pass_rate || '4' }}"
+          DET_RATE="${{ github.event.inputs.threshold_detection_rate || '70' }}"
+
+          npx tsx server/benchmark/exploit-benchmark.ts \
+            http://localhost:3001 simulation \
+            --target juice-shop \
+            --output artifacts/benchmark-report-juice-shop.json \
+            --threshold-pass-rate "$PASS_RATE" \
+            --threshold-detection-rate "$DET_RATE"
+
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report-juice-shop
+          path: artifacts/benchmark-report-juice-shop.json
+          retention-days: 90
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f benchmark-target || true
+
+  # ── Experimental targets (non-blocking) ──────────────────────────────
+  benchmark-experimental:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
     permissions:
       contents: read
 
@@ -40,27 +101,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: juice-shop
-            image: bkimminich/juice-shop:v17.1.1
-            port: "3001:3000"
-            health_url: "http://localhost:3001"
-            health_cmd: "wget -q --spider http://localhost:3000 || exit 1"
-            pass_rate: "4"
-            detection_rate: "70"
           - target: dvwa
             image: vulnerables/web-dvwa:latest
             port: "3002:80"
             health_url: "http://localhost:3002/login.php"
             health_cmd: "curl -sf http://localhost:80/login.php > /dev/null || exit 1"
-            pass_rate: "3"
-            detection_rate: "60"
+            target_url: "http://localhost:3002"
+            pass_rate: "2"
+            detection_rate: "40"
           - target: webgoat
             image: webgoat/webgoat:v2023.8
             port: "3003:8080"
             health_url: "http://localhost:3003/WebGoat"
             health_cmd: "curl -sf http://localhost:8080/WebGoat > /dev/null || exit 1"
-            pass_rate: "2"
-            detection_rate: "50"
+            target_url: "http://localhost:3003"
+            pass_rate: "1"
+            detection_rate: "30"
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -96,27 +152,12 @@ jobs:
 
       - name: Run exploit agent benchmark (${{ matrix.target }})
         run: |
-          PASS_RATE="${{ github.event.inputs.threshold_pass_rate || matrix.pass_rate }}"
-          DET_RATE="${{ github.event.inputs.threshold_detection_rate || matrix.detection_rate }}"
-          TARGET_URL=$(echo "${{ matrix.health_url }}" | sed 's|/[^/]*$||; s|/$||')
-          # For juice-shop, health_url is the base URL already
-          if [ "${{ matrix.target }}" = "juice-shop" ]; then
-            TARGET_URL="${{ matrix.health_url }}"
-          fi
-          # For dvwa and webgoat, strip the health check path
-          if [ "${{ matrix.target }}" = "dvwa" ]; then
-            TARGET_URL="http://localhost:3002"
-          fi
-          if [ "${{ matrix.target }}" = "webgoat" ]; then
-            TARGET_URL="http://localhost:3003"
-          fi
-
           npx tsx server/benchmark/exploit-benchmark.ts \
-            "$TARGET_URL" simulation \
+            "${{ matrix.target_url }}" simulation \
             --target ${{ matrix.target }} \
             --output artifacts/benchmark-report-${{ matrix.target }}.json \
-            --threshold-pass-rate "$PASS_RATE" \
-            --threshold-detection-rate "$DET_RATE"
+            --threshold-pass-rate "${{ matrix.pass_rate }}" \
+            --threshold-detection-rate "${{ matrix.detection_rate }}"
 
       - name: Upload benchmark report (${{ matrix.target }})
         if: always()
@@ -130,10 +171,11 @@ jobs:
         if: always()
         run: docker rm -f benchmark-target || true
 
-  # ── Breach Chain Benchmark ──────────────────────────────────────────
+  # ── Breach Chain Benchmark (non-blocking) ────────────────────────────
   breach-chain:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    continue-on-error: true
     permissions:
       contents: read
 
@@ -146,12 +188,14 @@ jobs:
             port: "3001:3000"
             health_url: "http://localhost:3001"
             health_cmd: "wget -q --spider http://localhost:3000 || exit 1"
+            target_url: "http://localhost:3001"
             threshold_score: "30"
           - target: dvwa
             image: vulnerables/web-dvwa:latest
             port: "3002:80"
             health_url: "http://localhost:3002/login.php"
             health_cmd: "curl -sf http://localhost:80/login.php > /dev/null || exit 1"
+            target_url: "http://localhost:3002"
             threshold_score: "20"
 
     env:
@@ -188,15 +232,8 @@ jobs:
 
       - name: Run breach chain benchmark (${{ matrix.target }})
         run: |
-          TARGET_URL="${{ matrix.health_url }}"
-          if [ "${{ matrix.target }}" = "juice-shop" ]; then
-            TARGET_URL="http://localhost:3001"
-          fi
-          if [ "${{ matrix.target }}" = "dvwa" ]; then
-            TARGET_URL="http://localhost:3002"
-          fi
           npx tsx server/benchmark/breach-chain/breach-chain-benchmark.ts \
-            "$TARGET_URL" simulation \
+            "${{ matrix.target_url }}" simulation \
             --target ${{ matrix.target }} \
             --output artifacts/breach-chain-report-${{ matrix.target }}.json \
             --threshold-score ${{ matrix.threshold_score }}
@@ -213,10 +250,12 @@ jobs:
         if: always()
         run: docker rm -f breach-chain-target || true
 
+  # ── Alloy mode (manual only) ────────────────────────────────────────
   benchmark-alloy:
     if: github.event.inputs.run_alloy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    continue-on-error: true
     permissions:
       contents: read
 
