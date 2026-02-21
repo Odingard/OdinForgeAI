@@ -507,6 +507,177 @@ export const multiVectorChainPlaybook: Playbook = {
 };
 
 // ============================================================================
+// IDOR ESCALATION CHAIN
+// ============================================================================
+
+export const idorEscalationPlaybook: Playbook = {
+  id: "idor-escalation-chain",
+  name: "IDOR to Privilege Escalation",
+  description: "Tests for IDOR vulnerabilities and attempts vertical privilege escalation",
+  version: "1.0.0",
+  category: "idor",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1078", "T1548"],
+  riskLevel: "high",
+
+  minimumMode: "simulation",
+  estimatedDuration: 45000,
+
+  steps: [
+    {
+      id: "idor-validate",
+      name: "IDOR Detection",
+      description: "Test common endpoints for insecure direct object references",
+      type: "validate",
+      category: "idor",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 2,
+      config: {},
+    },
+    {
+      id: "idor-horizontal",
+      name: "Horizontal IDOR Exploitation",
+      description: "Enumerate object IDs to access other users' data",
+      type: "exploit",
+      category: "idor",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["idor-validate"],
+      requiredConfidence: 50,
+      config: {},
+    },
+    {
+      id: "idor-vertical",
+      name: "Vertical Privilege Escalation",
+      description: "Attempt to access admin endpoints with regular user credentials",
+      type: "escalate",
+      category: "idor",
+      requiredMode: "simulation",
+      requiresApproval: true,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["idor-horizontal"],
+      requiredConfidence: 60,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 2,
+    confidenceBelow: 30,
+  },
+};
+
+// ============================================================================
+// RACE CONDITION CHAIN
+// ============================================================================
+
+export const raceConditionPlaybook: Playbook = {
+  id: "race-condition-chain",
+  name: "Race Condition to Double-Spend",
+  description: "Tests for race conditions including double-spend and limit bypass",
+  version: "1.0.0",
+  category: "race_condition",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1499"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 30000,
+
+  steps: [
+    {
+      id: "race-validate",
+      name: "Race Condition Detection",
+      description: "Run concurrent requests to detect timing-based vulnerabilities",
+      type: "validate",
+      category: "race_condition",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      config: { concurrentRequests: 10 },
+    },
+    {
+      id: "race-double-spend",
+      name: "Double-Spend Exploitation",
+      description: "Attempt double-spend via concurrent transaction requests",
+      type: "exploit",
+      category: "race_condition",
+      requiredMode: "simulation",
+      requiresApproval: true,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["race-validate"],
+      requiredConfidence: 50,
+      config: { concurrentRequests: 10 },
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 1,
+  },
+};
+
+// ============================================================================
+// WORKFLOW BYPASS CHAIN
+// ============================================================================
+
+export const workflowBypassPlaybook: Playbook = {
+  id: "workflow-bypass-chain",
+  name: "Workflow Bypass to Unauthorized Action",
+  description: "Tests whether business workflow steps can be skipped or state can be manipulated",
+  version: "1.0.0",
+  category: "workflow_bypass",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1548", "T1068"],
+  riskLevel: "high",
+
+  minimumMode: "simulation",
+  estimatedDuration: 40000,
+
+  steps: [
+    {
+      id: "wf-validate",
+      name: "Workflow Bypass Detection",
+      description: "Test default workflows for direct access, step skip, and state manipulation",
+      type: "validate",
+      category: "workflow_bypass",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 25000,
+      maxRetries: 1,
+      config: {},
+    },
+    {
+      id: "wf-exploit",
+      name: "Workflow Exploitation",
+      description: "Exploit confirmed workflow bypasses via step-skip and state manipulation",
+      type: "exploit",
+      category: "workflow_bypass",
+      requiredMode: "simulation",
+      requiresApproval: true,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["wf-validate"],
+      requiredConfidence: 50,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 1,
+  },
+};
+
+// ============================================================================
 // PLAYBOOK REGISTRY
 // ============================================================================
 
@@ -517,6 +688,9 @@ export const playbookRegistry: Map<string, Playbook> = new Map([
   [authBypassEscalationPlaybook.id, authBypassEscalationPlaybook],
   [ssrfPivotPlaybook.id, ssrfPivotPlaybook],
   [multiVectorChainPlaybook.id, multiVectorChainPlaybook],
+  [idorEscalationPlaybook.id, idorEscalationPlaybook],
+  [raceConditionPlaybook.id, raceConditionPlaybook],
+  [workflowBypassPlaybook.id, workflowBypassPlaybook],
 ]);
 
 export function getPlaybook(id: string): Playbook | undefined {

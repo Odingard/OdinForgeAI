@@ -230,6 +230,38 @@ async function runPipeline(
   };
 
   // ──────────────────────────────────────────────────────────────
+  // Tier 0.5: External Recon (real scanning, no LLM, ~10-15s)
+  // ──────────────────────────────────────────────────────────────
+  onProgress?.("External Recon", "external_recon", 3, "Running external reconnaissance...");
+
+  try {
+    const { fullRecon } = await import("../external-recon");
+    const target = assetId.startsWith("http") ? assetId : `https://${assetId}`;
+    const externalReconPromise = fullRecon(target, {
+      portScan: true,
+      sslCheck: true,
+      httpFingerprint: true,
+      dnsEnum: true,
+      authSurface: true,
+      generateSummary: true,
+    });
+
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000));
+    const result = await Promise.race([externalReconPromise, timeoutPromise]);
+
+    if (result) {
+      memory.externalRecon = result;
+      const openPorts = result.portScan?.filter((p: any) => p.state === "open").length || 0;
+      const score = result.attackReadiness?.overallScore || 0;
+      console.log(`[Orchestrator] External recon complete: ${openPorts} open ports, attack readiness ${score}/100`);
+    } else {
+      console.warn("[Orchestrator] External recon timed out (20s)");
+    }
+  } catch (err) {
+    console.warn("[Orchestrator] External recon failed (non-fatal):", err);
+  }
+
+  // ──────────────────────────────────────────────────────────────
   // Tier 1: Recon Agent (1 LLM call, max 30s)
   // ──────────────────────────────────────────────────────────────
   const reconStart = Date.now();
@@ -262,6 +294,32 @@ async function runPipeline(
     duration: Date.now() - reconStart, findingSummary: reconSummary,
   });
   wsService.sendSharedMemoryUpdate(evaluationId, "recon_agent", "ReconAgent", "recon", reconSummary);
+
+  // ──────────────────────────────────────────────────────────────
+  // Tier 1.5: Plan Agent (1 LLM call, max 15s)
+  // ──────────────────────────────────────────────────────────────
+  onProgress?.("Plan Agent", "plan", 22, "Building attack plan...");
+
+  try {
+    const { runPlanAgent } = await import("./plan");
+    const planResult = await withCircuitBreaker(
+      "openai",
+      () => runPlanAgent(memory),
+      () => ({
+        success: true,
+        findings: { prioritizedChains: [], totalTurnBudget: 12, skippedVectors: [] },
+        agentName: "Plan Agent",
+        processingTime: 0,
+      }),
+      15_000
+    );
+    memory.plan = planResult.findings;
+    if (planResult.findings.prioritizedChains.length > 0) {
+      console.log(`[Orchestrator] Plan agent produced ${planResult.findings.prioritizedChains.length} prioritized chains`);
+    }
+  } catch (err) {
+    console.warn("[Orchestrator] Plan agent failed (non-fatal):", err);
+  }
 
   // ──────────────────────────────────────────────────────────────
   // Tier 2: Parallel — Exploit + Business Logic + Multi-Vector (max 30s wall-clock)
@@ -359,7 +417,13 @@ async function runPipeline(
   let debateResult: DebateResult | undefined;
   let debatedExploitFindings = guardedExploitFindings;
 
-  if (guardedExploitFindings.exploitable && guardedExploitFindings.exploitChains.length > 0) {
+  // Skip debate when confidence is extreme (clearly confirmed or clearly weak)
+  const avgExploitConfidence = guardedExploitFindings.exploitChains.length > 0
+    ? guardedExploitFindings.exploitChains.reduce((sum, c) => sum + (c.validationConfidence || 50), 0) / guardedExploitFindings.exploitChains.length
+    : 0;
+  const skipDebate = avgExploitConfidence > 90 || avgExploitConfidence < 20;
+
+  if (guardedExploitFindings.exploitable && guardedExploitFindings.exploitChains.length > 0 && !skipDebate) {
     onProgress?.("Debate Module", "debate", 43, "Initiating adversarial validation...");
     wsService.sendReasoningTrace(evaluationId, "debate_module", "DebateModule",
       "CriticAgent (Llama 3.3 70B) challenging exploit findings for false positives");
@@ -396,6 +460,8 @@ async function runPipeline(
     } catch (err) {
       console.warn("[Orchestrator] Debate module failed (non-fatal, proceeding without):", err);
     }
+  } else if (skipDebate && guardedExploitFindings.exploitChains.length > 0) {
+    console.log(`[Orchestrator] Debate skipped: avg confidence ${avgExploitConfidence.toFixed(0)}% (${avgExploitConfidence > 90 ? "clearly confirmed" : "clearly weak"})`);
   }
 
   // ──────────────────────────────────────────────────────────────
@@ -443,8 +509,16 @@ async function runPipeline(
 
   const runEnhanced = shouldRunEnhancedEngine(exposureType);
 
+  // Skip lateral movement agent when no exploits were found (nothing to pivot from)
+  const skipLateral = !debatedExploitFindings.exploitable || debatedExploitFindings.exploitChains.length === 0;
+  if (skipLateral) {
+    console.log("[Orchestrator] Skipping lateral agent: no exploitable findings to pivot from");
+  }
+
   const [lateralSettled, impactSettled, enhancedSettled] = await Promise.allSettled([
-    withCircuitBreaker(
+    skipLateral
+      ? Promise.resolve({ success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 })
+      : withCircuitBreaker(
       "openai",
       () => runWithHeartbeat(evaluationId, "Lateral Movement Agent",
         () => runLateralAgent(memory, (stage: string, progress: number, message: string) => {

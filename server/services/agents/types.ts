@@ -227,6 +227,21 @@ export interface SafetyDecision {
   timestamp: Date;
 }
 
+export interface PlanFindings {
+  prioritizedChains: Array<{
+    rank: number;
+    attackVector: string;
+    targetEndpoint: string;
+    technique: string;
+    mitreId: string;
+    confidence: number;
+    rationale: string;
+    turnBudget: number;
+  }>;
+  totalTurnBudget: number;
+  skippedVectors: string[];
+}
+
 export interface AgentMemory {
   context: AgentContext;
   recon?: ReconFindings;
@@ -239,6 +254,10 @@ export interface AgentMemory {
   safetyDecisions?: SafetyDecision[];
   /** Ground-truth data from real scan handlers — used by all agents */
   groundTruth?: import("./scan-data-loader").RealScanData;
+  /** Structured external recon results from fullRecon() — real scan data */
+  externalRecon?: import("../external-recon").ReconResult;
+  /** Attack plan derived from recon findings — guides exploit agent */
+  plan?: PlanFindings;
 }
 
 export interface AgentResult<T> {

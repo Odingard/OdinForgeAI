@@ -18,18 +18,21 @@ import type { ValidationVerdict } from "@shared/schema";
 // PLAYBOOK SCHEMA TYPES
 // ============================================================================
 
-export type ExploitCategory = 
-  | "sqli" 
-  | "xss" 
-  | "command_injection" 
-  | "path_traversal" 
-  | "ssrf" 
+export type ExploitCategory =
+  | "sqli"
+  | "xss"
+  | "command_injection"
+  | "path_traversal"
+  | "ssrf"
   | "auth_bypass"
   | "jwt_attack"
   | "session_attack"
   | "business_logic"
   | "lateral_movement"
-  | "credential_attack";
+  | "credential_attack"
+  | "idor"
+  | "race_condition"
+  | "workflow_bypass";
 
 export type StepType = 
   | "validate"      // Initial vulnerability validation
@@ -385,7 +388,44 @@ export class ChainOrchestrator {
   ): Promise<StepResult> {
     const startTime = Date.now();
     let retryCount = 0;
-    
+
+    // PolicyGuardian per-step check
+    try {
+      const { checkAction } = await import("../../services/agents/policy-guardian");
+      const actionDesc = `${step.category}:${step.type} — ${step.description}`;
+      const guardResult = await Promise.race([
+        checkAction(actionDesc, "ChainOrchestrator", {
+          organizationId: context.organizationId,
+          executionMode: context.mode,
+          targetType: context.target,
+        }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+      ]);
+      if (guardResult && guardResult.decision === "DENY") {
+        return {
+          stepId: step.id,
+          stepName: step.name,
+          status: "blocked",
+          confidence: 0,
+          evidence: [],
+          startedAt: new Date(startTime),
+          completedAt: new Date(),
+          durationMs: Date.now() - startTime,
+          retryCount: 0,
+          blockedReason: `PolicyGuardian denied: ${guardResult.reasoning}`,
+        };
+      }
+    } catch {
+      // PolicyGuardian failure is non-fatal in simulation+ modes
+      if (context.mode === "safe") {
+        return {
+          stepId: step.id, stepName: step.name, status: "blocked", confidence: 0, evidence: [],
+          startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime,
+          retryCount: 0, blockedReason: "PolicyGuardian check failed in safe mode",
+        };
+      }
+    }
+
     while (retryCount <= step.maxRetries) {
       try {
         // Execute within sandbox
@@ -482,6 +522,19 @@ export class ChainOrchestrator {
     // SSRF handlers
     this.registerHandler("ssrf", "validate", new SsrfValidateHandler());
     this.registerHandler("ssrf", "pivot", new SsrfPivotHandler());
+
+    // IDOR handlers
+    this.registerHandler("idor", "validate", new IdorValidateHandler());
+    this.registerHandler("idor", "exploit", new IdorHorizontalHandler());
+    this.registerHandler("idor", "escalate", new IdorVerticalHandler());
+
+    // Race condition handlers
+    this.registerHandler("race_condition", "validate", new RaceConditionValidateHandler());
+    this.registerHandler("race_condition", "exploit", new RaceConditionExploitHandler());
+
+    // Workflow bypass handlers
+    this.registerHandler("workflow_bypass", "validate", new WorkflowBypassValidateHandler());
+    this.registerHandler("workflow_bypass", "exploit", new WorkflowBypassExploitHandler());
   }
   
   // ---------------------------------------------------------------------------
@@ -1108,19 +1161,214 @@ class SsrfPivotHandler implements StepHandler {
     try {
       const { SsrfPostExploitModule } = await import("./post-exploitation/ssrf-post-exploit");
       const module = new SsrfPostExploitModule();
+
+      // Extract lateral pivot paths as custom probe targets
+      const customUrls: string[] = [];
+      if (step.config?.lateralPivotPaths && Array.isArray(step.config.lateralPivotPaths)) {
+        for (const pivot of step.config.lateralPivotPaths) {
+          if (pivot.to && typeof pivot.to === "string") {
+            // Normalize to URL: "10.0.0.5:8080" → "http://10.0.0.5:8080"
+            const target = pivot.to.startsWith("http") ? pivot.to : `http://${pivot.to}`;
+            customUrls.push(target);
+          }
+        }
+      }
+
+      const options: Record<string, any> = { maxProbes: 10 };
+      if (customUrls.length > 0) {
+        options.customUrls = customUrls;
+      }
+
       const result = await module.runFullExploitation({
         targetUrl: context.target,
         parameterName: step.config.parameter || "url",
         parameterLocation: (step.config.parameterLocation || "url_param") as any,
         httpMethod: (step.config.method || "GET") as any,
         headers: step.config.headers,
-      }, { maxProbes: 10 });
+      }, options);
       const accessible = result.internalServices.filter((s) => s.accessible).length;
       return {
         stepId: step.id, stepName: step.name,
         status: result.success ? "success" : "failed",
         confidence: result.cloudMetadata?.credentialsExposed ? 95 : (accessible > 0 ? 80 : result.localhostAccess ? 60 : 0),
         evidence: result.proofArtifacts.map((pa) => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+// ============================================================================
+// BUSINESS LOGIC STEP HANDLERS
+// ============================================================================
+
+class IdorValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { IdorTestModule } = await import("./business-logic/idor-tests");
+      const module = new IdorTestModule();
+      const result = await module.runFullTest({
+        baseUrl: context.target,
+        targetUserId: step.config?.targetUserId || "2",
+        headers: step.config?.headers,
+      });
+      const exploitable = result.vulnerabilities.filter(v => v.exploitable);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: exploitable.length > 0 ? "success" : "failed",
+        confidence: exploitable.length > 0 ? 80 : 10,
+        evidence: result.proofArtifacts.map(pa => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IdorHorizontalHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { IdorTestModule } = await import("./business-logic/idor-tests");
+      const module = new IdorTestModule();
+      const endpoint = { path: step.config?.endpointPath || "/api/users/{id}", method: (step.config?.method || "GET") as any, idParam: "id", sensitiveFields: step.config?.sensitiveFields || ["email", "phone"] };
+      const result = await module.testIdEnumeration({ baseUrl: context.target, targetUserId: step.config?.targetUserId || "2", headers: step.config?.headers }, endpoint, parseInt(step.config?.startId || "1", 10), 5);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result?.exploitable ? "success" : "failed",
+        confidence: result?.exploitable ? 85 : 10,
+        evidence: result ? [{ type: "idor_enumeration", data: result.proof || "", capturedAt: new Date() }] : [],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IdorVerticalHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { IdorTestModule } = await import("./business-logic/idor-tests");
+      const module = new IdorTestModule();
+      const adminEndpoint = step.config?.adminEndpoint || "/api/admin/users";
+      const result = await module.testVerticalEscalation({ baseUrl: context.target, headers: step.config?.headers }, adminEndpoint);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result?.exploitable ? "success" : "failed",
+        confidence: result?.exploitable ? 90 : 10,
+        evidence: result ? [{ type: "idor_vertical", data: result.proof || "", capturedAt: new Date() }] : [],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class RaceConditionValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { RaceConditionModule } = await import("./business-logic/race-conditions");
+      const module = new RaceConditionModule();
+      const result = await module.runFullTest({
+        targetUrl: context.target,
+        endpoint: step.config?.endpoint,
+        method: step.config?.method || "POST",
+        concurrentRequests: step.config?.concurrentRequests || 10,
+        headers: step.config?.headers,
+      });
+      const exploitable = result.vulnerabilities.filter(v => v.exploitable);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: exploitable.length > 0 ? "success" : "failed",
+        confidence: exploitable.length > 0 ? 80 : 10,
+        evidence: result.proofArtifacts.map(pa => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class RaceConditionExploitHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { RaceConditionModule } = await import("./business-logic/race-conditions");
+      const module = new RaceConditionModule();
+      const result = await module.testDoubleSpend({
+        targetUrl: context.target,
+        endpoint: step.config?.endpoint || "/api/transactions",
+        method: "POST",
+        body: step.config?.body || { amount: 100, type: "transfer" },
+        concurrentRequests: step.config?.concurrentRequests || 10,
+        headers: step.config?.headers,
+      });
+      return {
+        stepId: step.id, stepName: step.name,
+        status: result.exploitable ? "success" : "failed",
+        confidence: result.exploitable ? 90 : 10,
+        evidence: result.exploitable ? [{ type: "race_double_spend", data: JSON.stringify(result.details), capturedAt: new Date() }] : [],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class WorkflowBypassValidateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { WorkflowBypassModule } = await import("./business-logic/workflow-bypass");
+      const module = new WorkflowBypassModule();
+      const result = await module.runFullTest({
+        baseUrl: context.target,
+        headers: step.config?.headers,
+      });
+      const exploitable = result.vulnerabilities.filter(v => v.exploitable);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: exploitable.length > 0 ? "success" : "failed",
+        confidence: exploitable.length > 0 ? 80 : 10,
+        evidence: result.proofArtifacts.map(pa => ({ type: pa.type, data: pa.data, hash: pa.hash, capturedAt: pa.capturedAt })),
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class WorkflowBypassExploitHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { WorkflowBypassModule } = await import("./business-logic/workflow-bypass");
+      const module = new WorkflowBypassModule();
+      // Run step-skip test on default workflows
+      const result = await module.runFullTest({
+        baseUrl: context.target,
+        headers: step.config?.headers,
+      });
+      // Filter to step_skip and state_manipulation specifically
+      const exploitable = result.vulnerabilities.filter(v => v.exploitable && (v.type === "step_skip" || v.type === "state_manipulation"));
+      return {
+        stepId: step.id, stepName: step.name,
+        status: exploitable.length > 0 ? "success" : "failed",
+        confidence: exploitable.length > 0 ? 85 : 10,
+        evidence: exploitable.length > 0
+          ? [{ type: "workflow_exploit", data: exploitable.map(v => `${v.type} in ${v.workflowId}: ${v.proof}`).join("; "), capturedAt: new Date() }]
+          : [],
         startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
       };
     } catch (error: any) {

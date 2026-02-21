@@ -7,14 +7,20 @@ import type {
   StateTransitionViolation,
   InferredWorkflow
 } from "./types";
+import type OpenAI from "openai";
 import type { BusinessLogicFinding, WorkflowStateMachine, BusinessLogicCategory } from "@shared/schema";
 import { businessLogicCategories } from "@shared/schema";
 import { wrapAgentError } from "./error-classifier";
 import { formatExecutionModeConstraints } from "./policy-context";
 import { openai } from "./openai-client";
+import { createExploitModelRouter } from "./model-router";
+import { BUSINESS_LOGIC_TOOLS, executeBusinessLogicTool, type BusinessLogicToolEvidence, type BusinessLogicToolContext } from "./business-logic-tools";
 
 
 type ProgressCallback = (stage: string, progress: number, message: string) => void;
+
+const BL_MAX_TURNS = 8;
+const BL_LOOP_TIMEOUT_MS = 60_000; // 60s
 
 const BUSINESS_LOGIC_EXPOSURE_TYPES = [
   "api_sequence_abuse",
@@ -30,15 +36,234 @@ function isBusinessLogicExposure(exposureType: string): boolean {
   return BUSINESS_LOGIC_EXPOSURE_TYPES.includes(exposureType);
 }
 
+/**
+ * AGENTIC Business Logic Agent — multi-turn tool-calling loop.
+ *
+ * Uses test_idor, test_race_condition, test_workflow_bypass tools
+ * to gather real evidence, then produces structured findings.
+ * Falls back to legacy single-call analysis if tool loop fails.
+ */
 export async function runBusinessLogicAgent(
   memory: AgentMemory,
   onProgress?: ProgressCallback
 ): Promise<AgentResult<BusinessLogicFindings>> {
   const startTime = Date.now();
-  
-  onProgress?.("business_logic", 70, "Analyzing business logic flaws...");
+  const executionMode = memory.context.executionMode || "safe";
 
-  const previousContext = `
+  // In safe mode, tools are blocked — use legacy single-call analysis
+  if (executionMode === "safe") {
+    return runBusinessLogicAgentLegacy(memory, onProgress);
+  }
+
+  onProgress?.("business_logic", 70, "Initializing agentic business logic analysis...");
+
+  const previousContext = buildPreviousContext(memory);
+  const policyContext = memory.context.policyContext || "";
+  const executionModeConstraints = formatExecutionModeConstraints(executionMode);
+
+  const systemPrompt = `You are the BUSINESS LOGIC AGENT, a specialized AI system for OdinForge AI with access to real business logic testing tools.
+
+You have tools to test for:
+- IDOR (Insecure Direct Object Reference) — horizontal/vertical access control
+- Race conditions — double-spend, TOCTOU, limit bypass
+- Workflow bypass — step skipping, state manipulation, parameter tampering
+
+Your workflow:
+1. Analyze the target from recon data and previous findings
+2. Use tools to test for business logic vulnerabilities
+3. Analyze results and chain findings
+4. Produce final structured analysis
+
+RULES:
+- You are in ${executionMode} mode. Tools require simulation or live mode.
+- Use tools strategically — test the most likely vulnerability types first.
+- When a tool confirms a vulnerability, note it and test related vectors.
+- After testing (or when tools are exhausted), produce your final JSON analysis.
+${executionModeConstraints}
+${policyContext}`;
+
+  const userPrompt = `Analyze business logic vulnerabilities for:
+
+Asset ID: ${memory.context.assetId}
+Exposure Type: ${memory.context.exposureType}
+Priority: ${memory.context.priority}
+Description: ${memory.context.description}
+${previousContext}
+
+Begin by calling the most relevant tool(s) based on the exposure type and recon data.`;
+
+  const finalTurnInstruction = `Produce your final business logic analysis as a JSON object:
+{
+  "workflowAbuse": ["list of workflow bypass opportunities found"],
+  "stateManipulation": ["list of state manipulation vulnerabilities found"],
+  "raceConditions": ["list of race condition opportunities found"],
+  "authorizationBypass": ["list of authorization bypass methods found"],
+  "criticalFlows": ["list of critical business flows that could be abused"]
+}
+Include evidence from tool results in your descriptions.`;
+
+  const router = createExploitModelRouter();
+  const toolCtx: BusinessLogicToolContext = {
+    executionMode,
+    organizationId: memory.context.organizationId,
+    evaluationId: memory.context.evaluationId,
+    assetId: memory.context.assetId,
+  };
+
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  const allEvidence: BusinessLogicToolEvidence[] = [];
+
+  try {
+    for (let turn = 0; turn < BL_MAX_TURNS; turn++) {
+      if (Date.now() - startTime > BL_LOOP_TIMEOUT_MS) {
+        onProgress?.("business_logic", 78, "Timeout approaching — finalizing...");
+        break;
+      }
+
+      const isFinalTurn = turn === BL_MAX_TURNS - 1;
+      const progressPct = 70 + Math.floor((turn / BL_MAX_TURNS) * 10);
+
+      if (isFinalTurn) {
+        messages.push({ role: "system", content: finalTurnInstruction });
+      }
+
+      const { client, model } = router.getForTurn(turn);
+
+      onProgress?.(
+        "business_logic",
+        progressPct,
+        turn === 0 ? "Analyzing business logic vectors..." : `Turn ${turn + 1}: testing...`
+      );
+
+      const response = await client.chat.completions.create({
+        model,
+        messages,
+        tools: isFinalTurn ? undefined : BUSINESS_LOGIC_TOOLS,
+        tool_choice: isFinalTurn ? undefined : "auto",
+        max_completion_tokens: 2048,
+      });
+
+      const choice = response.choices[0];
+      if (!choice) throw new Error("No response from Business Logic Agent");
+
+      const assistantMsg = choice.message;
+      messages.push(assistantMsg as OpenAI.ChatCompletionMessageParam);
+
+      if (!assistantMsg.tool_calls || assistantMsg.tool_calls.length === 0) {
+        break;
+      }
+
+      for (const toolCall of assistantMsg.tool_calls) {
+        if (toolCall.type !== "function") continue;
+        let fnArgs: Record<string, unknown> = {};
+        try {
+          fnArgs = JSON.parse(toolCall.function.arguments);
+        } catch {
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ error: "Invalid JSON arguments" }),
+          });
+          continue;
+        }
+
+        onProgress?.("business_logic", progressPct + 1, `Executing ${toolCall.function.name}...`);
+
+        const { result, evidence } = await executeBusinessLogicTool(toolCall.function.name, fnArgs, toolCtx);
+
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: result,
+        });
+
+        if (evidence) {
+          allEvidence.push(evidence);
+        }
+      }
+    }
+
+    // Force final JSON if needed
+    const lastMessage = messages[messages.length - 1];
+    const needsFinalCall = (lastMessage as any)?.role === "tool" ||
+      ((lastMessage as any)?.role === "assistant" && (lastMessage as any)?.tool_calls?.length > 0);
+
+    if (needsFinalCall && Date.now() - startTime < BL_LOOP_TIMEOUT_MS) {
+      messages.push({ role: "system", content: finalTurnInstruction });
+      const { client, model } = router.getForTurn();
+      const finalResponse = await client.chat.completions.create({
+        model,
+        messages,
+        max_completion_tokens: 2048,
+      });
+      const finalMsg = finalResponse.choices[0]?.message;
+      if (finalMsg) {
+        messages.push(finalMsg as OpenAI.ChatCompletionMessageParam);
+      }
+    }
+
+    onProgress?.("business_logic", 80, "Parsing business logic findings...");
+
+    const findings = extractBLFindings(messages);
+    return {
+      success: true,
+      findings,
+      agentName: "Business Logic Agent",
+      processingTime: Date.now() - startTime,
+    };
+  } catch (error) {
+    // Fall back to legacy analysis on any loop failure
+    console.warn("[BusinessLogicAgent] Agentic loop failed, falling back to legacy:", error);
+    return runBusinessLogicAgentLegacy(memory, onProgress);
+  }
+}
+
+/** Extract BusinessLogicFindings from the last assistant message. */
+function extractBLFindings(messages: OpenAI.ChatCompletionMessageParam[]): BusinessLogicFindings {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as any;
+    if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim()) {
+      const content = msg.content.trim();
+      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
+      try {
+        const parsed = JSON.parse(jsonMatch[1]!.trim());
+        return {
+          workflowAbuse: Array.isArray(parsed.workflowAbuse) ? parsed.workflowAbuse : [],
+          stateManipulation: Array.isArray(parsed.stateManipulation) ? parsed.stateManipulation : [],
+          raceConditions: Array.isArray(parsed.raceConditions) ? parsed.raceConditions : [],
+          authorizationBypass: Array.isArray(parsed.authorizationBypass) ? parsed.authorizationBypass : [],
+          criticalFlows: Array.isArray(parsed.criticalFlows) ? parsed.criticalFlows : [],
+        };
+      } catch {
+        try {
+          const parsed = JSON.parse(content);
+          return {
+            workflowAbuse: Array.isArray(parsed.workflowAbuse) ? parsed.workflowAbuse : [],
+            stateManipulation: Array.isArray(parsed.stateManipulation) ? parsed.stateManipulation : [],
+            raceConditions: Array.isArray(parsed.raceConditions) ? parsed.raceConditions : [],
+            authorizationBypass: Array.isArray(parsed.authorizationBypass) ? parsed.authorizationBypass : [],
+            criticalFlows: Array.isArray(parsed.criticalFlows) ? parsed.criticalFlows : [],
+          };
+        } catch { /* continue searching */ }
+      }
+    }
+  }
+
+  return {
+    workflowAbuse: [],
+    stateManipulation: [],
+    raceConditions: [],
+    authorizationBypass: [],
+    criticalFlows: [],
+  };
+}
+
+function buildPreviousContext(memory: AgentMemory): string {
+  return `
 Recon Findings:
 ${memory.recon ? `- API Endpoints: ${memory.recon.apiEndpoints.join(", ")}
 - Auth Mechanisms: ${memory.recon.authMechanisms.join(", ")}` : "None"}
@@ -50,7 +275,18 @@ ${memory.exploit ? `- Exploitable: ${memory.exploit.exploitable}
 Lateral Movement Findings:
 ${memory.lateral ? `- Privilege Escalation: ${memory.lateral.privilegeEscalation.map((p) => p.target).join(", ")}` : "None"}
 `;
+}
 
+/** Legacy single-call analysis (fallback for safe mode or loop failures). */
+async function runBusinessLogicAgentLegacy(
+  memory: AgentMemory,
+  onProgress?: ProgressCallback
+): Promise<AgentResult<BusinessLogicFindings>> {
+  const startTime = Date.now();
+
+  onProgress?.("business_logic", 70, "Analyzing business logic flaws...");
+
+  const previousContext = buildPreviousContext(memory);
   const policyContext = memory.context.policyContext || "";
   const executionModeConstraints = formatExecutionModeConstraints(memory.context.executionMode || "safe");
 
@@ -105,7 +341,7 @@ Provide your business logic analysis as a JSON object with this structure:
     }
 
     const findings = JSON.parse(content) as BusinessLogicFindings;
-    
+
     const validatedFindings: BusinessLogicFindings = {
       workflowAbuse: Array.isArray(findings.workflowAbuse) ? findings.workflowAbuse : [],
       stateManipulation: Array.isArray(findings.stateManipulation) ? findings.stateManipulation : [],

@@ -93,20 +93,25 @@ Not cherry-picked. This is the same benchmark that runs in CI on every push. [Se
 
 OdinForge runs an **agentic exploit loop** — not a single prompt-and-pray LLM call. The agent reasons about what to test, picks the right tool, analyzes the result, and decides what to do next. Up to 12 turns per engagement.
 
-**6 tools the agent can use:**
+**9 tools across 2 agentic agents:**
 
-| Tool | What it does |
-|------|-------------|
-| `validate_vulnerability` | Tests for SQLi, XSS, SSRF, command injection, path traversal, auth bypass |
-| `fuzz_endpoint` | Smart payload fuzzing with type mutation and encoding tricks |
-| `http_fingerprint` | Tech stack detection, security headers, auth surface mapping |
-| `port_scan` | TCP port scanning with service identification |
-| `check_ssl_tls` | Certificate, protocol, and cipher analysis |
-| `run_protocol_probe` | SMTP relay, DNS misconfig, LDAP anonymous bind, default creds |
+| Agent | Tool | What it does |
+|-------|------|-------------|
+| Exploit | `validate_vulnerability` | Tests for SQLi, XSS, SSRF, command injection, path traversal, auth bypass |
+| Exploit | `fuzz_endpoint` | Smart payload fuzzing with type mutation and encoding tricks |
+| Exploit | `http_fingerprint` | Tech stack detection, security headers, auth surface mapping |
+| Exploit | `port_scan` | TCP port scanning with service identification |
+| Exploit | `check_ssl_tls` | Certificate, protocol, and cipher analysis |
+| Exploit | `run_protocol_probe` | SMTP relay, DNS misconfig, LDAP anonymous bind, default creds |
+| Business Logic | `test_idor` | Horizontal/vertical IDOR with ID enumeration and admin endpoint probing |
+| Business Logic | `test_race_condition` | Double-spend, TOCTOU, limit bypass via concurrent requests |
+| Business Logic | `test_workflow_bypass` | Step skipping, state manipulation, parameter tampering |
+
+**Pipeline:** External recon (real scanning) → LLM recon → Plan agent (prioritized attack plan) → Exploit + Business Logic + Multi-Vector (parallel) → Debate (adversarial validation) → Lateral + Impact → Synthesis. Conditional gates skip unnecessary stages.
 
 **Alloy mode:** The agent can rotate between GPT-4o, Claude, and Gemini per-turn for exploit diversity. Same approach XBOW uses. Configurable — single model by default.
 
-**Breach chains:** After finding individual vulns, OdinForge chains them: app compromise → credential extraction → cloud IAM escalation → container breakout → lateral movement → impact assessment. Each phase passes context to the next. Real-time visualization via WebSocket.
+**Breach chains:** 9 playbooks across 8 exploit categories (SQLi, path traversal, command injection, auth bypass, SSRF, IDOR, race conditions, workflow bypass). Each playbook chains multi-step attacks: detection → exploitation → data extraction → privilege escalation → lateral movement. Real-time visualization via WebSocket.
 
 ---
 
@@ -198,7 +203,8 @@ OdinForge is in active development. Here's what's where:
 
 | Area | Status |
 |------|--------|
-| Exploit agent (agentic loop, 6 tools, validation) | Production — benchmarked in CI |
+| Exploit agent (agentic loop, 6 tools, plan phase, validation) | Production — benchmarked in CI |
+| Business logic agent (agentic loop, 3 tools: IDOR, race conditions, workflow bypass) | Production |
 | Threat intel scoring (EPSS, CVSS, KEV) | Production |
 | Breach chain orchestration | Production — real-time visualization |
 | Dashboard, evaluations, reporting | Production |

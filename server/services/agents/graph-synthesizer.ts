@@ -339,6 +339,43 @@ function calculateTimeToCompromise(edges: AttackEdge[]): { minimum: number; expe
 }
 
 export function createFallbackGraph(memory: AgentMemory): AttackGraph {
+  // Detect "no findings" scenario — return clean assessment-complete graph
+  const hasExploits = memory.exploit?.exploitable && memory.exploit.exploitChains.length > 0;
+  const hasLateral = memory.lateral && memory.lateral.pivotPaths.length > 0;
+  const hasBL = memory.businessLogic && (
+    memory.businessLogic.workflowAbuse.length > 0 ||
+    memory.businessLogic.raceConditions.length > 0 ||
+    memory.businessLogic.authorizationBypass.length > 0
+  );
+
+  if (!hasExploits && !hasLateral && !hasBL) {
+    const assessmentNode: AttackNode = {
+      id: "node-assessment",
+      label: "Assessment Complete",
+      description: `Security assessment of ${memory.context.assetId} found no exploitable vulnerabilities`,
+      nodeType: "entry",
+      tactic: "reconnaissance",
+      compromiseLevel: "none",
+      discoveredBy: "recon",
+    };
+
+    return {
+      nodes: [assessmentNode],
+      edges: [],
+      entryNodeId: "node-assessment",
+      objectiveNodeIds: [],
+      criticalPath: ["node-assessment"],
+      killChainCoverage: ["reconnaissance"],
+      complexityScore: 0,
+      timeToCompromise: {
+        minimum: 0,
+        expected: 0,
+        maximum: 0,
+        unit: "hours",
+      },
+    };
+  }
+
   const entryNode: AttackNode = {
     id: "node-entry",
     label: "Initial Access Point",

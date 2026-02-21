@@ -42,13 +42,18 @@ ${policyContext}`;
     ? [buildReconGroundTruth(memory.groundTruth), buildTelemetryGroundTruth(memory.groundTruth)].filter(Boolean).join("\n\n")
     : "";
 
+  // Inject structured external recon data when available
+  const externalReconContext = memory.externalRecon
+    ? formatExternalRecon(memory.externalRecon)
+    : "";
+
   const userPrompt = `Perform reconnaissance analysis on this security exposure:
 
 Asset ID: ${memory.context.assetId}
 Exposure Type: ${memory.context.exposureType}
 Priority: ${memory.context.priority}
 Description: ${memory.context.description}
-${groundTruthContext ? `\n${groundTruthContext}\n` : ""}
+${groundTruthContext ? `\n${groundTruthContext}\n` : ""}${externalReconContext ? `\n${externalReconContext}\n` : ""}
 Provide your reconnaissance findings as a JSON object with this structure:
 {
   "attackSurface": ["list of attack surface elements discovered"],
@@ -99,4 +104,42 @@ Provide your reconnaissance findings as a JSON object with this structure:
   } catch (error) {
     throw wrapAgentError("Recon Agent", error);
   }
+}
+
+export function formatExternalRecon(recon: import("../external-recon").ReconResult): string {
+  const sections: string[] = [];
+
+  if (recon.portScan) {
+    const open = recon.portScan.filter(p => p.state === "open");
+    if (open.length > 0) {
+      sections.push(`Network: ${open.length} open ports — ${open.map(p => `${p.port}/${p.service || "unknown"}${p.banner ? ` (${p.banner.slice(0, 50)})` : ""}`).join(", ")}`);
+    }
+  }
+  if (recon.sslCheck) {
+    const issues = recon.sslCheck.vulnerabilities?.length || 0;
+    sections.push(`TLS: ${recon.sslCheck.protocol || "unknown"}, ${issues} issues, expires in ${recon.sslCheck.daysUntilExpiry ?? "unknown"} days`);
+  }
+  if (recon.httpFingerprint) {
+    sections.push(`Server: ${recon.httpFingerprint.server || "unknown"}, Technologies: ${recon.httpFingerprint.technologies?.join(", ") || "none detected"}`);
+    const missing = recon.httpFingerprint.securityHeaders?.missing;
+    if (missing?.length) sections.push(`Missing security headers: ${missing.join(", ")}`);
+  }
+  if (recon.authenticationSurface) {
+    const auth = recon.authenticationSurface;
+    const loginCount = auth.loginPages?.length || 0;
+    const adminCount = auth.adminPanels?.length || 0;
+    const unprotected = auth.adminPanels?.filter(p => !p.protected).length || 0;
+    const oauthCount = auth.oauthEndpoints?.length || 0;
+    sections.push(`Auth surface: ${loginCount} login pages, ${adminCount} admin panels (${unprotected} unprotected), ${oauthCount} OAuth endpoints`);
+  }
+  if (recon.attackReadiness) {
+    sections.push(`Attack readiness score: ${recon.attackReadiness.overallScore}/100 (${recon.attackReadiness.riskLevel})`);
+    const actions = recon.attackReadiness.aevNextActions;
+    if (actions?.length) {
+      sections.push(`Priority actions: ${actions.slice(0, 5).map(a => `[P${a.priority}] ${a.action} (${a.exploitType})`).join("; ")}`);
+    }
+  }
+
+  if (sections.length === 0) return "";
+  return `REAL EXTERNAL RECON DATA (from live scanning):\n${sections.join("\n")}`;
 }
