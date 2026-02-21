@@ -23,6 +23,7 @@ on:
 
 env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  DATABASE_URL: postgres://localhost:5432/benchmark_dummy
 
 jobs:
   # ── Tier 1: Quick CI check (10 challenges) ──────────────────────────

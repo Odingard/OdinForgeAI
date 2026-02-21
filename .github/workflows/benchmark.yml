@@ -64,6 +64,7 @@ jobs:
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DATABASE_URL: postgres://localhost:5432/benchmark_dummy
       NODE_ENV: test
 
     steps:
@@ -155,6 +156,7 @@ jobs:
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DATABASE_URL: postgres://localhost:5432/benchmark_dummy
       NODE_ENV: test
 
     steps:
@@ -221,6 +223,7 @@ jobs:
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       AI_INTEGRATIONS_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      DATABASE_URL: postgres://localhost:5432/benchmark_dummy
       EXPLOIT_AGENT_ALLOY: "true"
       NODE_ENV: test
 
