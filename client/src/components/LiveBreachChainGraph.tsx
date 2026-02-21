@@ -27,6 +27,10 @@ interface LayoutNode {
   description: string;
   compromiseLevel: string;
   assets: string[];
+  isSpine: boolean;         // true = phase node on main path
+  isSatellite: boolean;     // true = finding node shown as small satellite
+  collapsedCount: number;   // number of hidden children (for "+N" badge)
+  radius: number;           // render size
 }
 
 interface LayoutEdge {
@@ -91,8 +95,15 @@ const KILL_CHAIN_DISPLAY_IDS = [
   "lateral-movement", "privilege-escalation", "collection", "impact",
 ];
 
+// Max satellite (finding) nodes shown per phase node
+const MAX_SATELLITES_PER_PHASE = 2;
+
 // ============================================================================
-// LAYOUT
+// LAYOUT — Spine + Satellite approach
+//
+// Industry standard: phase nodes flow along a clean arc (the "spine"),
+// individual findings collapse into their parent phase with a "+N" badge.
+// Only the top 2 critical findings per phase are shown as small satellites.
 // ============================================================================
 
 function layoutGraph(
@@ -102,81 +113,165 @@ function layoutGraph(
   width: number,
   height: number
 ): { layoutNodes: LayoutNode[]; layoutEdges: LayoutEdge[] } {
-  // Group nodes by tactic column
-  const tacticGroups: Record<string, AttackNode[]> = {};
-  for (const node of nodes) {
-    const tactic = node.tactic || "execution";
-    if (!tacticGroups[tactic]) tacticGroups[tactic] = [];
-    tacticGroups[tactic].push(node);
+  const criticalSet = new Set(criticalPath);
+  const layoutNodes: LayoutNode[] = [];
+  const layoutEdges: LayoutEdge[] = [];
+
+  // Build adjacency: parent → children (edges from spine node to finding nodes)
+  const childrenOf = new Map<string, AttackNode[]>();
+  const edgeByPair = new Map<string, AttackEdge>();
+  for (const edge of edges) {
+    edgeByPair.set(`${edge.source}->${edge.target}`, edge);
+  }
+  for (const edge of edges) {
+    const sourceOnSpine = criticalSet.has(edge.source);
+    const targetOnSpine = criticalSet.has(edge.target);
+    // A satellite is a node connected FROM a spine node but not itself on the spine
+    if (sourceOnSpine && !targetOnSpine) {
+      const targetNode = nodes.find(n => n.id === edge.target);
+      if (targetNode) {
+        if (!childrenOf.has(edge.source)) childrenOf.set(edge.source, []);
+        childrenOf.get(edge.source)!.push(targetNode);
+      }
+    }
   }
 
-  // Sort tactics by kill chain order
-  const activeTactics = TACTIC_ORDER.filter(t => tacticGroups[t]);
-  const colCount = Math.max(activeTactics.length, 1);
-  const colWidth = (width - 120) / (colCount + 1);
+  // Separate spine nodes from finding nodes
+  const spineNodes = nodes.filter(n => criticalSet.has(n.id));
+  // Maintain critical path order
+  const orderedSpine = criticalPath
+    .map(id => spineNodes.find(n => n.id === id))
+    .filter((n): n is AttackNode => !!n);
 
-  const layoutNodes: LayoutNode[] = [];
-  const positions = new Map<string, { x: number; y: number }>();
-
-  // Place critical path nodes on the main spine first
-  const criticalSet = new Set(criticalPath);
-  const placedNodes = new Set<string>();
-
-  // Place by tactic column
-  activeTactics.forEach((tactic, colIdx) => {
-    const nodesInCol = tacticGroups[tactic];
-    // Sort: critical path nodes first
-    nodesInCol.sort((a, b) => {
-      const aOnPath = criticalSet.has(a.id) ? 0 : 1;
-      const bOnPath = criticalSet.has(b.id) ? 0 : 1;
-      return aOnPath - bOnPath;
+  // If spine is empty, fall back to showing all nodes (shouldn't happen)
+  if (orderedSpine.length === 0) {
+    // Fallback: show up to 10 nodes in a simple row
+    const shown = nodes.slice(0, 10);
+    const spacing = (width - 160) / (shown.length + 1);
+    shown.forEach((node, i) => {
+      const x = 80 + (i + 1) * spacing;
+      const y = height / 2;
+      layoutNodes.push(makeLayoutNode(node, x, y, true, false, 0, 26));
     });
+    for (const edge of edges) {
+      if (shown.some(n => n.id === edge.source) && shown.some(n => n.id === edge.target)) {
+        layoutEdges.push(makeLayoutEdge(edge));
+      }
+    }
+    return { layoutNodes, layoutEdges };
+  }
 
-    const x = 80 + (colIdx + 1) * colWidth;
-    const rowHeight = (height - 160) / (nodesInCol.length + 1);
+  // ---- Lay out spine nodes along a flowing arc ----
+  const cx = width / 2;
+  const cy = height / 2;
+  const radiusX = Math.min(width * 0.38, 460);
+  const radiusY = Math.min(height * 0.34, 280);
+  const spineCount = orderedSpine.length;
 
-    nodesInCol.forEach((node, rowIdx) => {
-      const y = 100 + (rowIdx + 1) * rowHeight;
-      positions.set(node.id, { x, y });
-      placedNodes.add(node.id);
+  // Arc from top-left to bottom-right (like DemoBreachChain)
+  const spinePositions = new Map<string, { x: number; y: number }>();
 
-      layoutNodes.push({
-        id: node.id,
-        label: node.label,
-        tactic: node.tactic || "execution",
-        nodeType: node.nodeType,
-        x, y,
-        targetX: x,
-        targetY: y,
-        opacity: 1,
-        description: node.description,
-        compromiseLevel: node.compromiseLevel || "none",
-        assets: node.assets || [],
-      });
-    });
+  orderedSpine.forEach((node, i) => {
+    // Distribute along an S-curve from top-left to bottom-right
+    const t = spineCount <= 1 ? 0.5 : i / (spineCount - 1);
+    // S-curve: smooth left-to-right with vertical wave
+    const x = cx + (t - 0.5) * 2 * radiusX;
+    const waveY = Math.sin(t * Math.PI) * radiusY * 0.4; // gentle arc upward in the middle
+    const y = cy - radiusY * 0.3 + t * radiusY * 0.6 - waveY;
+
+    spinePositions.set(node.id, { x, y });
+
+    // Count total children and determine how many are collapsed
+    const children = childrenOf.get(node.id) || [];
+    const collapsedCount = Math.max(0, children.length - MAX_SATELLITES_PER_PHASE);
+
+    layoutNodes.push(makeLayoutNode(node, x, y, true, false, collapsedCount, 28));
   });
 
-  // Place any unplaced nodes (shouldn't happen, but safety)
-  for (const node of nodes) {
-    if (!placedNodes.has(node.id)) {
-      const x = width / 2;
-      const y = height / 2;
-      positions.set(node.id, { x, y });
-      layoutNodes.push({
-        id: node.id,
-        label: node.label,
-        tactic: node.tactic || "execution",
-        nodeType: node.nodeType,
-        x, y, targetX: x, targetY: y, opacity: 1,
-        description: node.description,
-        compromiseLevel: node.compromiseLevel || "none",
-        assets: node.assets || [],
+  // ---- Lay out spine-to-spine edges ----
+  for (let i = 0; i < orderedSpine.length - 1; i++) {
+    const from = orderedSpine[i];
+    const to = orderedSpine[i + 1];
+    const edge = edgeByPair.get(`${from.id}->${to.id}`);
+    if (edge) {
+      layoutEdges.push(makeLayoutEdge(edge));
+    } else {
+      // Synthesize a spine edge if none exists (phases are always connected sequentially)
+      layoutEdges.push({
+        from: from.id,
+        to: to.id,
+        technique: "",
+        probability: 80,
+        edgeType: "primary",
+        description: "",
       });
     }
   }
 
-  // Map edges
-  const layoutEdges: LayoutEdge[] = edges.map(edge => ({
+  // ---- Lay out satellite nodes (top N findings per phase) ----
+  for (const spineNode of orderedSpine) {
+    const children = childrenOf.get(spineNode.id) || [];
+    if (children.length === 0) continue;
+
+    // Sort by severity: critical first, then high
+    const sorted = [...children].sort((a, b) => {
+      const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      return (sevOrder[a.compromiseLevel === "admin" ? "critical" : "high"] ?? 2)
+           - (sevOrder[b.compromiseLevel === "admin" ? "critical" : "high"] ?? 2);
+    });
+
+    const shown = sorted.slice(0, MAX_SATELLITES_PER_PHASE);
+    const parentPos = spinePositions.get(spineNode.id)!;
+
+    shown.forEach((child, j) => {
+      // Position satellites below and slightly to the side of their parent
+      const angleOffset = (j - (shown.length - 1) / 2) * 0.6;
+      const satX = parentPos.x + Math.sin(angleOffset) * 70;
+      const satY = parentPos.y + 75 + j * 50;
+
+      layoutNodes.push(makeLayoutNode(child, satX, satY, false, true, 0, 16));
+
+      // Edge from parent to satellite
+      const edge = edgeByPair.get(`${spineNode.id}->${child.id}`);
+      if (edge) {
+        layoutEdges.push(makeLayoutEdge(edge));
+      }
+    });
+  }
+
+  return { layoutNodes, layoutEdges };
+}
+
+function makeLayoutNode(
+  node: AttackNode,
+  x: number,
+  y: number,
+  isSpine: boolean,
+  isSatellite: boolean,
+  collapsedCount: number,
+  radius: number,
+): LayoutNode {
+  return {
+    id: node.id,
+    label: node.label,
+    tactic: node.tactic || "execution",
+    nodeType: node.nodeType,
+    x, y,
+    targetX: x,
+    targetY: y,
+    opacity: 1,
+    description: node.description,
+    compromiseLevel: node.compromiseLevel || "none",
+    assets: node.assets || [],
+    isSpine,
+    isSatellite,
+    collapsedCount,
+    radius,
+  };
+}
+
+function makeLayoutEdge(edge: AttackEdge): LayoutEdge {
+  return {
     from: edge.source,
     to: edge.target,
     technique: edge.techniqueId || edge.technique,
@@ -184,9 +279,7 @@ function layoutGraph(
     probability: edge.successProbability ?? 75,
     edgeType: edge.edgeType || "primary",
     description: edge.description,
-  }));
-
-  return { layoutNodes, layoutEdges };
+  };
 }
 
 // ============================================================================
@@ -268,7 +361,8 @@ export function LiveBreachChainGraph({
     for (const node of nodes) {
       const dx = mx - node.x;
       const dy = my - node.y;
-      if (dx * dx + dy * dy < 900) {
+      const hitR = node.radius + 6; // generous hit area
+      if (dx * dx + dy * dy < hitR * hitR) {
         found = node.id;
         break;
       }
@@ -333,30 +427,38 @@ export function LiveBreachChainGraph({
         const fromOpacity = nodeOpacitiesRef.current.get(edge.from) ?? 1;
         const toOpacity = nodeOpacitiesRef.current.get(edge.to) ?? 1;
         const edgeOpacity = Math.min(fromOpacity, toOpacity);
+        const isSpineEdge = from.isSpine && to.isSpine;
+        const isSatEdge = from.isSatellite || to.isSatellite;
 
         const dashOffset = -t * 40 + i * 20;
 
-        // Curved midpoint
-        const mx = (from.x + to.x) / 2 + (i % 2 === 0 ? 30 : -30);
-        const my = (from.y + to.y) / 2 + (i % 3 === 0 ? -20 : 20);
+        // Curved midpoint — subtle for satellite edges, pronounced for spine
+        const curveAmount = isSatEdge ? 10 : 30;
+        const mx = (from.x + to.x) / 2 + (i % 2 === 0 ? curveAmount : -curveAmount);
+        const my = (from.y + to.y) / 2 + (i % 3 === 0 ? -(curveAmount * 0.7) : curveAmount * 0.7);
 
-        // Edge glow
-        ctx!.save();
-        ctx!.globalAlpha = edgeOpacity;
-        ctx!.strokeStyle = `rgba(56, 189, 248, ${0.08 + Math.sin(t + i) * 0.03})`;
-        ctx!.lineWidth = 6;
-        ctx!.beginPath();
-        ctx!.moveTo(from.x, from.y);
-        ctx!.quadraticCurveTo(mx, my, to.x, to.y);
-        ctx!.stroke();
-        ctx!.restore();
+        // Edge glow (spine edges only)
+        if (isSpineEdge) {
+          ctx!.save();
+          ctx!.globalAlpha = edgeOpacity;
+          ctx!.strokeStyle = `rgba(56, 189, 248, ${0.08 + Math.sin(t + i) * 0.03})`;
+          ctx!.lineWidth = 6;
+          ctx!.beginPath();
+          ctx!.moveTo(from.x, from.y);
+          ctx!.quadraticCurveTo(mx, my, to.x, to.y);
+          ctx!.stroke();
+          ctx!.restore();
+        }
 
         // Edge line
         ctx!.save();
-        ctx!.globalAlpha = edgeOpacity;
-        ctx!.strokeStyle = `rgba(56, 189, 248, ${0.25 + (edge.probability / 100) * 0.2})`;
-        ctx!.lineWidth = edge.edgeType === "primary" ? 1.5 : 1;
-        if (edge.edgeType === "alternative") {
+        ctx!.globalAlpha = edgeOpacity * (isSatEdge ? 0.4 : 1);
+        const baseAlpha = isSatEdge ? 0.12 : 0.25;
+        ctx!.strokeStyle = `rgba(56, 189, 248, ${baseAlpha + (edge.probability / 100) * 0.2})`;
+        ctx!.lineWidth = isSatEdge ? 0.8 : (edge.edgeType === "primary" ? 1.5 : 1);
+        if (isSatEdge) {
+          ctx!.setLineDash([3, 6]);
+        } else if (edge.edgeType === "alternative") {
           ctx!.setLineDash([5, 5]);
         } else if (edge.edgeType === "fallback") {
           ctx!.setLineDash([2, 4]);
@@ -370,63 +472,133 @@ export function LiveBreachChainGraph({
         ctx!.stroke();
         ctx!.restore();
 
-        // Animated particle
-        const particleT = ((t * 0.3 + i * 0.15) % 1);
-        const pt = 1 - particleT;
-        const px = pt * pt * from.x + 2 * pt * particleT * mx + particleT * particleT * to.x;
-        const py = pt * pt * from.y + 2 * pt * particleT * my + particleT * particleT * to.y;
+        // Animated particle (spine edges only)
+        if (isSpineEdge) {
+          const particleT = ((t * 0.3 + i * 0.15) % 1);
+          const pt = 1 - particleT;
+          const px = pt * pt * from.x + 2 * pt * particleT * mx + particleT * particleT * to.x;
+          const py = pt * pt * from.y + 2 * pt * particleT * my + particleT * particleT * to.y;
+
+          ctx!.save();
+          ctx!.globalAlpha = edgeOpacity;
+          ctx!.beginPath();
+          ctx!.arc(px, py, 3, 0, Math.PI * 2);
+          ctx!.fillStyle = `rgba(56, 189, 248, ${0.7 + Math.sin(t * 3) * 0.3})`;
+          ctx!.fill();
+          ctx!.beginPath();
+          ctx!.arc(px, py, 8, 0, Math.PI * 2);
+          ctx!.fillStyle = "rgba(56, 189, 248, 0.15)";
+          ctx!.fill();
+          ctx!.restore();
+        }
+
+        // Arrow head (spine edges only)
+        if (isSpineEdge) {
+          const arrowT = 0.85;
+          const apt = 1 - arrowT;
+          const ax = apt * apt * from.x + 2 * apt * arrowT * mx + arrowT * arrowT * to.x;
+          const ay = apt * apt * from.y + 2 * apt * arrowT * my + arrowT * arrowT * to.y;
+          const adx = to.x - mx;
+          const ady = to.y - my;
+          const angle = Math.atan2(ady, adx);
+
+          ctx!.save();
+          ctx!.globalAlpha = edgeOpacity;
+          ctx!.translate(ax, ay);
+          ctx!.rotate(angle);
+          ctx!.fillStyle = "rgba(56, 189, 248, 0.5)";
+          ctx!.beginPath();
+          ctx!.moveTo(6, 0);
+          ctx!.lineTo(-4, -4);
+          ctx!.lineTo(-4, 4);
+          ctx!.closePath();
+          ctx!.fill();
+          ctx!.restore();
+        }
+
+        // Technique label (spine edges only — reduces clutter)
+        if (isSpineEdge && edge.technique) {
+          ctx!.save();
+          ctx!.globalAlpha = edgeOpacity * 0.6;
+          ctx!.font = "10px 'IBM Plex Mono', monospace";
+          ctx!.fillStyle = "rgba(148, 163, 184, 0.5)";
+          ctx!.textAlign = "center";
+          ctx!.fillText(edge.technique, mx, my - 8);
+          ctx!.restore();
+        }
+      });
+
+      // Draw nodes — satellites first (behind), then spine nodes (in front)
+      const satellites = nodes.filter(n => n.isSatellite);
+      const spines = nodes.filter(n => n.isSpine);
+
+      // Satellite nodes (small, subtle)
+      satellites.forEach((node, idx) => {
+        const colors = NODE_COLORS[node.nodeType] || NODE_COLORS.pivot;
+        const isHovered = hoveredNode === node.id;
+        const nodeOpacity = nodeOpacitiesRef.current.get(node.id) ?? 1;
+        const r = isHovered ? node.radius + 4 : node.radius;
 
         ctx!.save();
-        ctx!.globalAlpha = edgeOpacity;
-        ctx!.beginPath();
-        ctx!.arc(px, py, 3, 0, Math.PI * 2);
-        ctx!.fillStyle = `rgba(56, 189, 248, ${0.7 + Math.sin(t * 3) * 0.3})`;
-        ctx!.fill();
-        ctx!.beginPath();
-        ctx!.arc(px, py, 8, 0, Math.PI * 2);
-        ctx!.fillStyle = "rgba(56, 189, 248, 0.15)";
-        ctx!.fill();
-        ctx!.restore();
+        ctx!.globalAlpha = nodeOpacity * 0.8;
 
-        // Arrow head
-        const arrowT = 0.85;
-        const apt = 1 - arrowT;
-        const ax = apt * apt * from.x + 2 * apt * arrowT * mx + arrowT * arrowT * to.x;
-        const ay = apt * apt * from.y + 2 * apt * arrowT * my + arrowT * arrowT * to.y;
-        const adx = to.x - mx;
-        const ady = to.y - my;
-        const angle = Math.atan2(ady, adx);
-
-        ctx!.save();
-        ctx!.globalAlpha = edgeOpacity;
-        ctx!.translate(ax, ay);
-        ctx!.rotate(angle);
-        ctx!.fillStyle = "rgba(56, 189, 248, 0.5)";
+        // Subtle glow
+        const gradient = ctx!.createRadialGradient(node.x, node.y, r * 0.3, node.x, node.y, r * 1.8);
+        gradient.addColorStop(0, colors.glow);
+        gradient.addColorStop(1, "transparent");
+        ctx!.fillStyle = gradient;
         ctx!.beginPath();
-        ctx!.moveTo(6, 0);
-        ctx!.lineTo(-4, -4);
-        ctx!.lineTo(-4, 4);
-        ctx!.closePath();
+        ctx!.arc(node.x, node.y, r * 1.8, 0, Math.PI * 2);
         ctx!.fill();
-        ctx!.restore();
 
-        // Technique label
-        ctx!.save();
-        ctx!.globalAlpha = edgeOpacity * 0.6;
-        ctx!.font = "10px 'IBM Plex Mono', monospace";
-        ctx!.fillStyle = "rgba(148, 163, 184, 0.5)";
+        // Node circle
+        ctx!.beginPath();
+        ctx!.arc(node.x, node.y, r, 0, Math.PI * 2);
+        ctx!.fillStyle = colors.bg;
+        ctx!.fill();
+        ctx!.strokeStyle = colors.border;
+        ctx!.lineWidth = isHovered ? 1.5 : 0.8;
+        ctx!.stroke();
+
+        // Small dot icon
+        ctx!.fillStyle = colors.border;
+        ctx!.font = "8px sans-serif";
         ctx!.textAlign = "center";
-        ctx!.fillText(edge.technique, mx, my - 8);
+        ctx!.textBaseline = "middle";
+        ctx!.fillText("\u25CF", node.x, node.y);
+
+        // Label (only when hovered)
+        if (isHovered) {
+          ctx!.font = "bold 10px 'Sora', sans-serif";
+          ctx!.fillStyle = "#f1f5f9";
+          ctx!.textBaseline = "top";
+          const label = node.label.length > 24 ? node.label.slice(0, 22) + "..." : node.label;
+          ctx!.fillText(label, node.x, node.y + r + 6, 140);
+
+          ctx!.font = "10px 'IBM Plex Mono', monospace";
+          ctx!.fillStyle = "rgba(56, 189, 248, 0.7)";
+          ctx!.textBaseline = "bottom";
+          ctx!.fillText(
+            node.assets.length > 0 ? node.assets[0] : "",
+            node.x,
+            node.y - r - 12,
+            200
+          );
+          ctx!.fillStyle = "rgba(148, 163, 184, 0.6)";
+          const detail = node.description.length > 60 ? node.description.slice(0, 58) + "..." : node.description;
+          ctx!.fillText(detail, node.x, node.y - r - 2, 250);
+        }
+
         ctx!.restore();
       });
 
-      // Draw nodes
-      nodes.forEach((node, idx) => {
+      // Spine nodes (large, prominent)
+      spines.forEach((node, idx) => {
         const colors = NODE_COLORS[node.nodeType] || NODE_COLORS.pivot;
         const isHovered = hoveredNode === node.id;
         const nodeOpacity = nodeOpacitiesRef.current.get(node.id) ?? 1;
         const pulse = 1 + Math.sin(t * 2 + idx) * 0.04;
-        const r = (isHovered ? 32 : 26) * pulse;
+        const r = (isHovered ? node.radius + 6 : node.radius) * pulse;
 
         ctx!.save();
         ctx!.globalAlpha = nodeOpacity;
@@ -451,7 +623,7 @@ export function LiveBreachChainGraph({
 
         // Node icon
         ctx!.fillStyle = colors.border;
-        ctx!.font = `${isHovered ? 14 : 12}px sans-serif`;
+        ctx!.font = `${isHovered ? 16 : 14}px sans-serif`;
         ctx!.textAlign = "center";
         ctx!.textBaseline = "middle";
         ctx!.fillText(NODE_ICONS[node.nodeType] || "\u25CF", node.x, node.y);
@@ -461,8 +633,8 @@ export function LiveBreachChainGraph({
         ctx!.fillStyle = isHovered ? "#f1f5f9" : "#cbd5e1";
         ctx!.textAlign = "center";
         ctx!.textBaseline = "top";
-        const maxLabelWidth = 100;
-        const label = node.label.length > 18 ? node.label.slice(0, 16) + "..." : node.label;
+        const maxLabelWidth = 120;
+        const label = node.label.length > 20 ? node.label.slice(0, 18) + "..." : node.label;
         ctx!.fillText(label, node.x, node.y + r + 8, maxLabelWidth);
 
         // Tactic label
@@ -475,6 +647,28 @@ export function LiveBreachChainGraph({
           node.y + r + 22,
           maxLabelWidth
         );
+
+        // "+N findings" badge for collapsed children
+        if (node.collapsedCount > 0) {
+          const badgeX = node.x + r * 0.75;
+          const badgeY = node.y - r * 0.75;
+          const badgeText = `+${node.collapsedCount}`;
+          const badgeR = 11;
+
+          ctx!.beginPath();
+          ctx!.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
+          ctx!.fillStyle = "rgba(245, 158, 11, 0.9)";
+          ctx!.fill();
+          ctx!.strokeStyle = "#06090f";
+          ctx!.lineWidth = 2;
+          ctx!.stroke();
+
+          ctx!.font = "bold 9px 'IBM Plex Mono', monospace";
+          ctx!.fillStyle = "#fff";
+          ctx!.textAlign = "center";
+          ctx!.textBaseline = "middle";
+          ctx!.fillText(badgeText, badgeX, badgeY);
+        }
 
         // Hover detail
         if (isHovered) {
