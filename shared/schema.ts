@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, real, timestamp, jsonb, customType } from "drizzle-orm/pg-core";
+import { pgTable, pgSchema, text, varchar, boolean, integer, real, timestamp, jsonb, customType, uuid, decimal, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -5246,3 +5246,192 @@ export const insertBreachChainSchema = createInsertSchema(breachChains).omit({
 
 export type InsertBreachChain = z.infer<typeof insertBreachChainSchema>;
 export type BreachChain = typeof breachChains.$inferSelect;
+
+// ============================================================================
+// ENTITY GRAPH — Shared Intelligence Layer
+// Lives in entity_graph Postgres schema namespace
+// Both OdinForge (Drizzle) and Mimir (SQLAlchemy) read/write these tables
+// ============================================================================
+
+export const entityGraphSchema = pgSchema("entity_graph");
+
+// Enums
+export const egEntityTypeEnum = entityGraphSchema.enum("entity_type", [
+  "domain", "subdomain", "ip_address", "organization", "credential",
+  "technology", "cloud_resource", "email", "repository", "certificate",
+  "port_service", "person",
+]);
+
+export const egSourceProductEnum = entityGraphSchema.enum("source_product", [
+  "odinforge", "mimir", "manual", "threat_intel",
+]);
+
+export const egSeverityLevelEnum = entityGraphSchema.enum("severity_level", [
+  "critical", "high", "medium", "low", "info",
+]);
+
+export const egFindingCategoryEnum = entityGraphSchema.enum("finding_category", [
+  "exposed_infrastructure", "credential_exposure", "data_breach",
+  "misconfiguration", "vulnerable_software", "email_security",
+  "code_leak", "supply_chain", "cloud_exposure", "certificate_issue",
+  "active_exploit", "breach_path", "business_logic",
+]);
+
+export const egRelationshipTypeEnum = entityGraphSchema.enum("relationship_type", [
+  "subdomain_of", "resolves_to", "hosts", "owned_by", "credential_for",
+  "exposes", "leads_to", "found_in", "depends_on", "similar_to",
+]);
+
+export const egAssessmentTypeEnum = entityGraphSchema.enum("assessment_type", [
+  "osint_recon", "exploit_validation", "breach_chain", "cloud_audit", "endpoint_audit",
+]);
+
+// Tables
+
+export const egEntities = entityGraphSchema.table("entities", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  organizationId:   uuid("organization_id").notNull(),
+  entityType:       egEntityTypeEnum("entity_type").notNull(),
+  canonicalKey:     text("canonical_key").notNull(),
+  displayName:      text("display_name").notNull(),
+  description:      text("description"),
+  metadata:         jsonb("metadata").notNull().default({}),
+  tags:             text("tags").array().notNull().default(sql`'{}'::text[]`),
+
+  firstSeenBy:      egSourceProductEnum("first_seen_by").notNull(),
+  firstSeenAt:      timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenBy:       egSourceProductEnum("last_seen_by").notNull(),
+  lastSeenAt:       timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  seenByProducts:   text("seen_by_products").array().notNull().default(sql`'{}'::text[]`),
+
+  riskScore:        decimal("risk_score", { precision: 5, scale: 2 }),
+  criticality:      text("criticality"),
+  embedding:        vector("embedding"),
+
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx:           index("idx_eg_entities_org").on(t.organizationId),
+  typeIdx:          index("idx_eg_entities_type").on(t.entityType),
+  canonicalIdx:     index("idx_eg_entities_canonical_key").on(t.canonicalKey),
+  uniqueEntity:     uniqueIndex("uidx_eg_entities_org_type_key")
+                      .on(t.organizationId, t.entityType, t.canonicalKey),
+}));
+
+export const egSourceRefs = entityGraphSchema.table("source_refs", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  entityId:       uuid("entity_id").notNull().references(() => egEntities.id, { onDelete: "cascade" }),
+  sourceProduct:  egSourceProductEnum("source_product").notNull(),
+  sourceTable:    text("source_table").notNull(),
+  sourceId:       uuid("source_id").notNull(),
+  syncedAt:       timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  entityIdx:      index("idx_eg_source_refs_entity").on(t.entityId),
+  uniqueRef:      uniqueIndex("uidx_eg_source_refs")
+                    .on(t.sourceProduct, t.sourceTable, t.sourceId),
+}));
+
+export const egRelationships = entityGraphSchema.table("relationships", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  organizationId:   uuid("organization_id").notNull(),
+  fromEntityId:     uuid("from_entity_id").notNull().references(() => egEntities.id, { onDelete: "cascade" }),
+  toEntityId:       uuid("to_entity_id").notNull().references(() => egEntities.id, { onDelete: "cascade" }),
+  relationshipType: egRelationshipTypeEnum("relationship_type").notNull(),
+  confidence:       decimal("confidence", { precision: 3, scale: 2 }).notNull().default("1.00"),
+  metadata:         jsonb("metadata").notNull().default({}),
+  sourceProduct:    egSourceProductEnum("source_product").notNull(),
+  createdAt:        timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  fromIdx:        index("idx_eg_relationships_from").on(t.fromEntityId),
+  toIdx:          index("idx_eg_relationships_to").on(t.toEntityId),
+  uniqueEdge:     uniqueIndex("uidx_eg_relationships_edge")
+                    .on(t.fromEntityId, t.toEntityId, t.relationshipType),
+}));
+
+export const egFindings = entityGraphSchema.table("findings", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull(),
+  entityId:       uuid("entity_id").references(() => egEntities.id, { onDelete: "set null" }),
+
+  sourceProduct:  egSourceProductEnum("source_product").notNull(),
+  category:       egFindingCategoryEnum("category").notNull(),
+  severity:       egSeverityLevelEnum("severity").notNull(),
+  title:          text("title").notNull(),
+  description:    text("description"),
+
+  cveId:          text("cve_id"),
+  cvssScore:      decimal("cvss_score", { precision: 4, scale: 2 }),
+  epssScore:      decimal("epss_score", { precision: 6, scale: 5 }),
+  isKevListed:    boolean("is_kev_listed").notNull().default(false),
+
+  riskScore:      decimal("risk_score", { precision: 5, scale: 2 }),
+  confidence:     decimal("confidence", { precision: 3, scale: 2 }),
+
+  evidence:       jsonb("evidence").notNull().default({}),
+  remediation:    jsonb("remediation").notNull().default({}),
+
+  sourceId:       uuid("source_id"),
+  sourceTable:    text("source_table"),
+
+  firstSeenAt:    timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt:     timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt:     timestamp("resolved_at", { withTimezone: true }),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx:         index("idx_eg_findings_org").on(t.organizationId),
+  entityIdx:      index("idx_eg_findings_entity").on(t.entityId),
+  severityIdx:    index("idx_eg_findings_severity").on(t.severity),
+  sourceIdx:      index("idx_eg_findings_source").on(t.sourceProduct, t.sourceId),
+}));
+
+export const egAssessments = entityGraphSchema.table("assessments", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id").notNull(),
+  entityId:       uuid("entity_id").references(() => egEntities.id, { onDelete: "set null" }),
+
+  assessmentType: egAssessmentTypeEnum("assessment_type").notNull(),
+  sourceProduct:  egSourceProductEnum("source_product").notNull(),
+  sourceId:       uuid("source_id").notNull(),
+  sourceTable:    text("source_table").notNull(),
+
+  status:         text("status").notNull().default("pending"),
+  riskScore:      decimal("risk_score", { precision: 5, scale: 2 }),
+  dealRiskGrade:  text("deal_risk_grade"),
+  summary:        jsonb("summary").notNull().default({}),
+
+  startedAt:      timestamp("started_at", { withTimezone: true }),
+  completedAt:    timestamp("completed_at", { withTimezone: true }),
+  createdAt:      timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  orgIdx:         index("idx_eg_assessments_org").on(t.organizationId),
+  entityIdx:      index("idx_eg_assessments_entity").on(t.entityId),
+  uniqueSource:   uniqueIndex("uidx_eg_assessments_source")
+                    .on(t.sourceProduct, t.sourceTable, t.sourceId),
+}));
+
+export const egRiskSnapshots = entityGraphSchema.table("risk_snapshots", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  entityId:       uuid("entity_id").notNull().references(() => egEntities.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id").notNull(),
+  riskScore:      decimal("risk_score", { precision: 5, scale: 2 }).notNull(),
+  dealRiskGrade:  text("deal_risk_grade"),
+  findingCounts:  jsonb("finding_counts").notNull().default({}),
+  snapshotSource: egSourceProductEnum("snapshot_source").notNull(),
+  snapshottedAt:  timestamp("snapshotted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  entityTimeIdx:  index("idx_eg_risk_snapshots_entity").on(t.entityId, t.snapshottedAt),
+}));
+
+// Type exports
+export type EgEntity          = typeof egEntities.$inferSelect;
+export type NewEgEntity       = typeof egEntities.$inferInsert;
+export type EgSourceRef       = typeof egSourceRefs.$inferSelect;
+export type EgRelationship    = typeof egRelationships.$inferSelect;
+export type NewEgRelationship = typeof egRelationships.$inferInsert;
+export type EgFinding         = typeof egFindings.$inferSelect;
+export type NewEgFinding      = typeof egFindings.$inferInsert;
+export type EgAssessment      = typeof egAssessments.$inferSelect;
+export type NewEgAssessment   = typeof egAssessments.$inferInsert;
+export type EgRiskSnapshot    = typeof egRiskSnapshots.$inferSelect;
