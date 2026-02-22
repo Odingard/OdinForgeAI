@@ -31,8 +31,8 @@ export const AGENT_RELEASE: AgentRelease = {
       arch: "amd64",
       filename: "odinforge-agent-linux-amd64",
       downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.1.0/odinforge-agent-linux-amd64",
-      fileSize: "9.2 MB",
-      sha256: "pending-build",
+      fileSize: "9.1 MB",
+      sha256: "92d8277bab7bc2d9c3f43724630dd5c00ad84f61ab541f93fec003c0145375f7",
       icon: "linux"
     },
     {
@@ -42,8 +42,8 @@ export const AGENT_RELEASE: AgentRelease = {
       arch: "arm64",
       filename: "odinforge-agent-linux-arm64",
       downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.1.0/odinforge-agent-linux-arm64",
-      fileSize: "8.6 MB",
-      sha256: "pending-build",
+      fileSize: "8.5 MB",
+      sha256: "6524a3bf15681d92dd79f03fe2d1022aac21dd75e2aa85e919e728929a3a056f",
       icon: "linux"
     },
     {
@@ -53,8 +53,8 @@ export const AGENT_RELEASE: AgentRelease = {
       arch: "amd64",
       filename: "odinforge-agent-darwin-amd64",
       downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.1.0/odinforge-agent-darwin-amd64",
-      fileSize: "9.3 MB",
-      sha256: "pending-build",
+      fileSize: "9.2 MB",
+      sha256: "a50d98e832c5fc988ec6a88a15e448ec7246a97a2858e4d0746c526b0582fbdb",
       icon: "apple"
     },
     {
@@ -64,8 +64,8 @@ export const AGENT_RELEASE: AgentRelease = {
       arch: "arm64",
       filename: "odinforge-agent-darwin-arm64",
       downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.1.0/odinforge-agent-darwin-arm64",
-      fileSize: "8.7 MB",
-      sha256: "pending-build",
+      fileSize: "8.6 MB",
+      sha256: "25139bbd4ad69de0764c80da1b668aaecab25c214c62ce173fb01470af16a1ac",
       icon: "apple"
     },
     {
@@ -75,8 +75,8 @@ export const AGENT_RELEASE: AgentRelease = {
       arch: "amd64",
       filename: "odinforge-agent-windows-amd64.exe",
       downloadUrl: "https://github.com/Odingard/OdinForgeAI/releases/download/agent-v1.1.0/odinforge-agent-windows-amd64.exe",
-      fileSize: "9.5 MB",
-      sha256: "pending-build",
+      fileSize: "9.4 MB",
+      sha256: "74d0bb705f3e5551b967780ee4bb06b43b969970ab36a389fa2cf48f6bdf09cc",
       icon: "windows"
     }
   ]
