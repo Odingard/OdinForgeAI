@@ -66,18 +66,26 @@ export interface BreachChainBenchmarkSummary {
 }
 
 export const BREACH_CHAIN_BENCHMARK: BreachChainBenchmarkSummary = {
-  avgCompositeScore: 47,
-  scenariosRun: 4,
-  scenariosSucceeded: 2,
+  avgCompositeScore: 37,
+  scenariosRun: 9,
+  scenariosSucceeded: 4,
   avgChainDepth: 1,
-  avgConfidence: 66,
+  avgConfidence: 45,
   runDate: "2026-02-21",
   status: "complete",
   scenarios: [
-    { id: "js-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "partial", stepsExecuted: 1, stepsSucceeded: 1, compositeScore: 58, confidence: 60, durationMs: 400 },
-    { id: "js-auth-chain", name: "Auth Bypass to Privilege Escalation", playbookId: "auth-bypass-escalation", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 44, confidence: 70, durationMs: 1200 },
-    { id: "js-path-chain", name: "Path Traversal File Read Proof", playbookId: "path-traversal-proof", status: "partial", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 45, confidence: 75, durationMs: 1100 },
+    // Juice Shop (4 scenarios, 2 succeeded)
+    { id: "js-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "partial", stepsExecuted: 1, stepsSucceeded: 1, compositeScore: 58, confidence: 60, durationMs: 2018 },
+    { id: "js-auth-chain", name: "Auth Bypass to Privilege Escalation", playbookId: "auth-bypass-escalation", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 44, confidence: 70, durationMs: 1958 },
+    { id: "js-path-chain", name: "Path Traversal File Read Proof", playbookId: "path-traversal-proof", status: "partial", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 45, confidence: 75, durationMs: 2305 },
     { id: "js-multi-vector", name: "Multi-Vector Attack Chain", playbookId: "multi-vector-chain", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 41, confidence: 60, durationMs: 1200 },
+    // DVWA (3 scenarios, 2 succeeded)
+    { id: "dvwa-cmdi-chain", name: "Command Injection to RCE", playbookId: "cmd-injection-rce", status: "partial", stepsExecuted: 2, stepsSucceeded: 2, compositeScore: 77, confidence: 73, durationMs: 1143 },
+    { id: "dvwa-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "partial", stepsExecuted: 1, stepsSucceeded: 1, compositeScore: 58, confidence: 60, durationMs: 327 },
+    { id: "dvwa-ssrf-chain", name: "SSRF Internal Pivot", playbookId: "ssrf-internal-pivot", status: "aborted", stepsExecuted: 2, stepsSucceeded: 1, compositeScore: 45, confidence: 75, durationMs: 1853 },
+    // WebGoat (2 scenarios, 0 succeeded)
+    { id: "wg-sqli-chain", name: "SQLi to Data Exfiltration", playbookId: "sqli-exfil-chain", status: "aborted", stepsExecuted: 1, stepsSucceeded: 0, compositeScore: 5, confidence: 0, durationMs: 1434 },
+    { id: "wg-auth-chain", name: "Auth Bypass to Privilege Escalation", playbookId: "auth-bypass-escalation", status: "aborted", stepsExecuted: 1, stepsSucceeded: 0, compositeScore: 5, confidence: 0, durationMs: 505 },
   ],
   competitorCapability: [
     { capability: "Multi-step exploit chains",    odinforge: "yes",     shannon: "partial", xbow: "no" },

@@ -428,17 +428,18 @@ export default function BenchmarkResults() {
             <table className="cp-table" style={{ marginBottom: 32 }}>
               <thead>
                 <tr>
+                  <th>Target</th>
                   <th>Scenario</th>
                   <th>Status</th>
                   <th>Steps</th>
                   <th>Score</th>
                   <th>Confidence</th>
-                  <th>Time</th>
                 </tr>
               </thead>
               <tbody>
                 {BREACH_CHAIN_BENCHMARK.scenarios.map((s) => (
                   <tr key={s.id}>
+                    <td>{s.id.startsWith("js-") ? "Juice Shop" : s.id.startsWith("dvwa-") ? "DVWA" : "WebGoat"}</td>
                     <td>{s.name}</td>
                     <td>
                       <span className={s.status === "completed" || s.compositeScore >= 40 ? "cp-check" : "cp-miss"}>
@@ -448,7 +449,6 @@ export default function BenchmarkResults() {
                     <td>{s.stepsSucceeded}/{s.stepsExecuted}</td>
                     <td>{s.compositeScore}/100</td>
                     <td>{s.confidence}%</td>
-                    <td>{(s.durationMs / 1000).toFixed(1)}s</td>
                   </tr>
                 ))}
               </tbody>
