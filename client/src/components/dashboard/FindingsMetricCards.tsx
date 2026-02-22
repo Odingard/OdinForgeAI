@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { GlowCard } from "@/components/ui/glow-card";
 
 interface Evaluation {
   status: string;
@@ -15,21 +16,74 @@ export function FindingsMetricCards() {
   const exploitable = evaluations.filter((e) => e.exploitable === true).length;
 
   return (
-    <div className="glass border border-border/50 rounded-lg p-5">
-      <div className="grid grid-cols-3 gap-4">
-        <MetricItem label="Findings" value={total} color="text-foreground" />
-        <MetricItem label="Resolved" value={resolved} color="text-emerald-400" />
-        <MetricItem label="Exploitable" value={exploitable} color="text-red-400" />
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
+      <div className="flex items-center gap-2 mb-4">
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
+          style={{ boxShadow: "0 0 4px #38bdf8" }}
+        />
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: "'IBM Plex Mono', monospace",
+            color: "#475569",
+            letterSpacing: 1.5,
+            textTransform: "uppercase",
+          }}
+        >
+          Evaluation Metrics
+        </span>
       </div>
-    </div>
+      <div className="space-y-3">
+        <MetricRow label="Total Findings" value={total} color="#38bdf8" borderColor="rgba(56,189,248,0.4)" />
+        <MetricRow label="Resolved" value={resolved} color="#22c55e" borderColor="rgba(34,197,94,0.4)" />
+        <MetricRow label="Exploitable" value={exploitable} color="#ef4444" borderColor="rgba(239,68,68,0.4)" />
+      </div>
+    </GlowCard>
   );
 }
 
-function MetricItem({ label, value, color }: { label: string; value: number; color: string }) {
+function MetricRow({
+  label,
+  value,
+  color,
+  borderColor,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  borderColor: string;
+}) {
   return (
-    <div className="text-center">
-      <p className={`text-2xl font-bold tabular-nums ${color}`}>{value}</p>
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mt-1">{label}</p>
+    <div
+      className="flex items-center justify-between py-2 px-3 rounded"
+      style={{
+        background: "rgba(6,9,15,0.5)",
+        borderLeft: `2px solid ${borderColor}`,
+      }}
+    >
+      <span
+        style={{
+          fontSize: 9,
+          fontFamily: "'IBM Plex Mono', monospace",
+          color: "#64748b",
+          letterSpacing: 1,
+          textTransform: "uppercase",
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 18,
+          fontWeight: 800,
+          color,
+          fontFamily: "'Inter', system-ui",
+          textShadow: `0 0 10px ${color}40`,
+        }}
+      >
+        {value}
+      </span>
     </div>
   );
 }

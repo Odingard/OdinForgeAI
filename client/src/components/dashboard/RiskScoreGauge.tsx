@@ -1,5 +1,7 @@
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { computeRiskScore, riskScoreColor, riskScoreLabel } from "@/lib/dashboard-transforms";
+import { GlowCard } from "@/components/ui/glow-card";
 
 export function RiskScoreGauge() {
   const { data: posture } = useQuery<any>({
@@ -10,72 +12,199 @@ export function RiskScoreGauge() {
   const color = riskScoreColor(score);
   const label = riskScoreLabel(score);
 
-  // SVG arc gauge
-  const radius = 52;
-  const stroke = 8;
-  const circumference = Math.PI * radius; // half circle
-  const progress = (score / 100) * circumference;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
+  const timeRef = useRef(0);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const size = 180;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    ctx.scale(dpr, dpr);
+
+    const cx = size / 2;
+    const cy = size / 2;
+    const outerR = 72;
+    const ringW = 8;
+    const sweepLen = 0.15;
+
+    function draw() {
+      timeRef.current += 0.008;
+      const t = timeRef.current;
+      ctx!.clearRect(0, 0, size, size);
+
+      // Grid dots
+      ctx!.save();
+      ctx!.fillStyle = "rgba(56,189,248,0.04)";
+      for (let gx = 0; gx < size; gx += 16) {
+        for (let gy = 0; gy < size; gy += 16) {
+          ctx!.fillRect(gx, gy, 1, 1);
+        }
+      }
+      ctx!.restore();
+
+      // Background ring
+      ctx!.save();
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, outerR, 0, Math.PI * 2);
+      ctx!.strokeStyle = "rgba(56,189,248,0.06)";
+      ctx!.lineWidth = ringW;
+      ctx!.stroke();
+      ctx!.restore();
+
+      // Inner ring
+      ctx!.save();
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, outerR - 16, 0, Math.PI * 2);
+      ctx!.strokeStyle = "rgba(56,189,248,0.03)";
+      ctx!.lineWidth = 1;
+      ctx!.stroke();
+      ctx!.restore();
+
+      // Progress arc
+      const startAngle = -Math.PI / 2;
+      const progress = (score / 100) * Math.PI * 2;
+
+      // Glow pass
+      ctx!.save();
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, outerR, startAngle, startAngle + progress);
+      ctx!.strokeStyle = color;
+      ctx!.lineWidth = ringW + 6;
+      ctx!.lineCap = "round";
+      ctx!.globalAlpha = 0.15;
+      ctx!.stroke();
+      ctx!.restore();
+
+      // Sharp pass
+      ctx!.save();
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, outerR, startAngle, startAngle + progress);
+      ctx!.strokeStyle = color;
+      ctx!.lineWidth = ringW;
+      ctx!.lineCap = "round";
+      ctx!.globalAlpha = 0.85;
+      ctx!.stroke();
+      ctx!.restore();
+
+      // Radar sweep line
+      const sweepAngle = (t * 1.05) % (Math.PI * 2);
+      ctx!.save();
+      const grad = ctx!.createConicGradient(
+        sweepAngle - sweepLen,
+        cx,
+        cy,
+      );
+      grad.addColorStop(0, "transparent");
+      grad.addColorStop(0.7, `${color}15`);
+      grad.addColorStop(1, `${color}30`);
+      ctx!.beginPath();
+      ctx!.moveTo(cx, cy);
+      ctx!.arc(cx, cy, outerR - 2, sweepAngle - sweepLen, sweepAngle);
+      ctx!.closePath();
+      ctx!.fillStyle = grad;
+      ctx!.fill();
+      ctx!.restore();
+
+      // Sweep line
+      ctx!.save();
+      ctx!.beginPath();
+      ctx!.moveTo(cx, cy);
+      ctx!.lineTo(
+        cx + Math.cos(sweepAngle) * (outerR - 2),
+        cy + Math.sin(sweepAngle) * (outerR - 2),
+      );
+      ctx!.strokeStyle = color;
+      ctx!.globalAlpha = 0.4 + Math.sin(t * 3) * 0.1;
+      ctx!.lineWidth = 1;
+      ctx!.stroke();
+      ctx!.restore();
+
+      // Center score
+      ctx!.save();
+      ctx!.font = "bold 36px 'Inter', system-ui";
+      ctx!.fillStyle = color;
+      ctx!.textAlign = "center";
+      ctx!.textBaseline = "middle";
+      ctx!.shadowColor = color;
+      ctx!.shadowBlur = 16;
+      ctx!.fillText(String(score), cx, cy - 4);
+      ctx!.restore();
+
+      // Label
+      ctx!.save();
+      ctx!.font = "600 9px 'IBM Plex Mono', monospace";
+      ctx!.fillStyle = color;
+      ctx!.globalAlpha = 0.7;
+      ctx!.textAlign = "center";
+      ctx!.textBaseline = "middle";
+      ctx!.letterSpacing = "1.5px";
+      ctx!.fillText(label.toUpperCase(), cx, cy + 20);
+      ctx!.restore();
+
+      // Outer tick marks
+      ctx!.save();
+      for (let i = 0; i < 36; i++) {
+        const angle = (i / 36) * Math.PI * 2 - Math.PI / 2;
+        const isMajor = i % 9 === 0;
+        const innerTick = outerR + (isMajor ? 4 : 6);
+        const outerTick = outerR + (isMajor ? 10 : 8);
+        ctx!.beginPath();
+        ctx!.moveTo(
+          cx + Math.cos(angle) * innerTick,
+          cy + Math.sin(angle) * innerTick,
+        );
+        ctx!.lineTo(
+          cx + Math.cos(angle) * outerTick,
+          cy + Math.sin(angle) * outerTick,
+        );
+        ctx!.strokeStyle = isMajor ? "rgba(56,189,248,0.2)" : "rgba(56,189,248,0.07)";
+        ctx!.lineWidth = isMajor ? 1.5 : 0.5;
+        ctx!.stroke();
+      }
+      ctx!.restore();
+
+      animRef.current = requestAnimationFrame(draw);
+    }
+
+    draw();
+    return () => cancelAnimationFrame(animRef.current);
+  }, [score, color, label]);
 
   return (
-    <div className="glass border border-border/50 rounded-lg p-5">
-      <h3 className="text-xs uppercase tracking-wider text-muted-foreground/80 font-medium mb-4">
-        Risk Score
-      </h3>
-      <div className="flex flex-col items-center">
-        <svg width="130" height="75" viewBox="0 0 130 75">
-          {/* Background arc */}
-          <path
-            d="M 13 70 A 52 52 0 0 1 117 70"
-            fill="none"
-            stroke="hsl(220 15% 14%)"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-          />
-          {/* Progress arc */}
-          <path
-            d="M 13 70 A 52 52 0 0 1 117 70"
-            fill="none"
-            stroke={color}
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={`${progress} ${circumference}`}
-            style={{
-              filter: `drop-shadow(0 0 6px ${color}40)`,
-              transition: "stroke-dasharray 0.8s ease-out",
-            }}
-          />
-          {/* Score text */}
-          <text
-            x="65"
-            y="58"
-            textAnchor="middle"
-            fill={color}
-            fontSize="28"
-            fontWeight="800"
-            fontFamily="Inter, system-ui"
-          >
-            {score}
-          </text>
-          <text
-            x="65"
-            y="72"
-            textAnchor="middle"
-            fill="hsl(215 10% 60%)"
-            fontSize="10"
-            fontFamily="'IBM Plex Mono', monospace"
-            style={{ textTransform: "uppercase" }}
-          >
-            {label}
-          </text>
-        </svg>
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{
+            backgroundColor: color,
+            boxShadow: `0 0 4px ${color}`,
+          }}
+        />
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: "'IBM Plex Mono', monospace",
+            color: "#475569",
+            letterSpacing: 1.5,
+            textTransform: "uppercase",
+          }}
+        >
+          Threat Level
+        </span>
       </div>
-      {/* Severity mini bar */}
-      <div className="flex gap-0.5 mt-3 rounded-full overflow-hidden h-1.5">
-        <div className="bg-red-500 flex-[2]" />
-        <div className="bg-orange-500 flex-[3]" />
-        <div className="bg-yellow-500 flex-[3]" />
-        <div className="bg-green-500 flex-[2]" />
+      <div className="flex justify-center">
+        <canvas
+          ref={canvasRef}
+          style={{ width: 180, height: 180 }}
+        />
       </div>
-    </div>
+    </GlowCard>
   );
 }

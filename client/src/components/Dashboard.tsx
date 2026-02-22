@@ -169,17 +169,47 @@ export function Dashboard() {
 
   // ── Main dashboard: three-panel analytics layout ─────────────────────
   return (
-    <div className="space-y-4 relative">
-      {/* Grid background */}
-      <div
-        className="absolute inset-0 grid-bg opacity-20 pointer-events-none"
-        style={{ maskImage: "linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)" }}
-      />
+    <div
+      className="relative rounded-lg overflow-hidden"
+      style={{ background: "#06090f", minHeight: "calc(100vh - 80px)" }}
+    >
+      {/* Particle background */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="grid-bg opacity-10 absolute inset-0" />
+        {/* Scan line */}
+        <div className="scan-line absolute inset-0 opacity-30" />
+        {/* Gradient orbs */}
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: 400,
+            height: 400,
+            top: "10%",
+            left: "-5%",
+            background: "radial-gradient(circle, rgba(56,189,248,0.03) 0%, transparent 70%)",
+            filter: "blur(60px)",
+            animation: "pulse-glow 8s ease-in-out infinite",
+          }}
+        />
+        <div
+          className="absolute rounded-full"
+          style={{
+            width: 300,
+            height: 300,
+            bottom: "5%",
+            right: "-3%",
+            background: "radial-gradient(circle, rgba(139,92,246,0.03) 0%, transparent 70%)",
+            filter: "blur(60px)",
+            animation: "pulse-glow 10s ease-in-out infinite 2s",
+          }}
+        />
+      </div>
 
-      <DashboardTopBar />
+      <div className="relative z-10 space-y-0">
+        <DashboardTopBar />
 
       {/* Three-panel layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr_280px] gap-4 relative">
+      <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr_280px] gap-3 relative p-3">
         {/* Left panel — metrics & charts */}
         <div className="hidden xl:block">
           <DashboardLeftPanel />
@@ -227,6 +257,7 @@ export function Dashboard() {
         open={showOnboarding}
         onClose={() => setShowOnboarding(false)}
       />
+      </div>
     </div>
   );
 }

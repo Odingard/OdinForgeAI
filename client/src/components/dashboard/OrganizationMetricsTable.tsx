@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { buildOrgMetrics } from "@/lib/dashboard-transforms";
+import { GlowCard } from "@/components/ui/glow-card";
 
 export function OrganizationMetricsTable() {
   const { data: assets = [] } = useQuery<any[]>({
@@ -16,44 +17,108 @@ export function OrganizationMetricsTable() {
   );
 
   return (
-    <div className="glass border border-border/50 rounded-lg p-5">
-      <h3 className="text-xs uppercase tracking-wider text-muted-foreground/80 font-medium mb-3">
-        Organization Metrics
-      </h3>
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
+          style={{ boxShadow: "0 0 4px #38bdf8" }}
+        />
+        <span
+          style={{
+            fontSize: 9,
+            fontFamily: "'IBM Plex Mono', monospace",
+            color: "#475569",
+            letterSpacing: 1.5,
+            textTransform: "uppercase",
+          }}
+        >
+          Org Metrics
+        </span>
+      </div>
       {rows.length === 0 ? (
-        <p className="text-xs text-muted-foreground/50 text-center py-4">No data</p>
+        <p
+          style={{
+            fontSize: 10,
+            fontFamily: "'IBM Plex Mono', monospace",
+            color: "#334155",
+            textAlign: "center",
+            padding: "12px 0",
+          }}
+        >
+          NO DATA
+        </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
             <thead>
-              <tr className="text-muted-foreground/60 uppercase tracking-wider text-[10px]">
-                <th className="text-left py-1.5 font-medium">Type</th>
-                <th className="text-right py-1.5 font-medium">Assets</th>
-                <th className="text-right py-1.5 font-medium">Critical</th>
-                <th className="text-right py-1.5 font-medium">Open</th>
+              <tr>
+                {["Type", "Assets", "Crit", "Open"].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      fontSize: 8,
+                      color: "#38bdf8",
+                      letterSpacing: 1.5,
+                      textTransform: "uppercase",
+                      fontWeight: 600,
+                      textAlign: h === "Type" ? "left" : "right",
+                      paddingBottom: 6,
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr
                   key={row.type}
-                  className="border-t border-border/20 hover:bg-muted/10 transition-colors"
+                  style={{ borderTop: "1px solid rgba(56,189,248,0.04)" }}
                 >
-                  <td className="py-2 font-medium">{row.name}</td>
-                  <td className="py-2 text-right tabular-nums">{row.total}</td>
-                  <td className="py-2 text-right tabular-nums">
-                    {row.critical > 0 ? (
-                      <span className="text-red-400">{row.critical}</span>
-                    ) : (
-                      <span className="text-muted-foreground/40">0</span>
-                    )}
+                  <td
+                    style={{
+                      fontSize: 10,
+                      color: "#94a3b8",
+                      padding: "5px 0",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {row.name}
                   </td>
-                  <td className="py-2 text-right tabular-nums">
-                    {row.open > 0 ? (
-                      <span className="text-amber-400">{row.open}</span>
-                    ) : (
-                      <span className="text-muted-foreground/40">0</span>
-                    )}
+                  <td
+                    style={{
+                      fontSize: 10,
+                      color: "#64748b",
+                      textAlign: "right",
+                      padding: "5px 0",
+                    }}
+                  >
+                    {row.total}
+                  </td>
+                  <td
+                    style={{
+                      fontSize: 10,
+                      color: row.critical > 0 ? "#ef4444" : "#1e293b",
+                      textAlign: "right",
+                      padding: "5px 0",
+                      fontWeight: row.critical > 0 ? 700 : 400,
+                      textShadow: row.critical > 0 ? "0 0 6px rgba(239,68,68,0.3)" : undefined,
+                    }}
+                  >
+                    {row.critical}
+                  </td>
+                  <td
+                    style={{
+                      fontSize: 10,
+                      color: row.open > 0 ? "#f59e0b" : "#1e293b",
+                      textAlign: "right",
+                      padding: "5px 0",
+                      fontWeight: row.open > 0 ? 700 : 400,
+                      textShadow: row.open > 0 ? "0 0 6px rgba(245,158,11,0.3)" : undefined,
+                    }}
+                  >
+                    {row.open}
                   </td>
                 </tr>
               ))}
@@ -61,6 +126,6 @@ export function OrganizationMetricsTable() {
           </table>
         </div>
       )}
-    </div>
+    </GlowCard>
   );
 }

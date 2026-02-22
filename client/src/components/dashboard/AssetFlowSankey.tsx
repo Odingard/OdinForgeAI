@@ -62,6 +62,36 @@ export function AssetFlowSankey() {
       const t = timeRef.current;
       ctx!.clearRect(0, 0, dims.w, dims.h);
 
+      // Grid dots background
+      ctx!.save();
+      ctx!.fillStyle = "rgba(56,189,248,0.03)";
+      for (let gx = 0; gx < dims.w; gx += 20) {
+        for (let gy = 0; gy < dims.h; gy += 20) {
+          ctx!.fillRect(gx, gy, 1, 1);
+        }
+      }
+      ctx!.restore();
+
+      // Header label
+      ctx!.save();
+      ctx!.font = "600 9px 'IBM Plex Mono', monospace";
+      ctx!.fillStyle = "rgba(56,189,248,0.15)";
+      ctx!.textAlign = "left";
+      ctx!.letterSpacing = "1.5px";
+      ctx!.fillText("ASSET EXPOSURE MAP", 12, 18);
+      ctx!.restore();
+
+      // Scan line
+      const scanY = (t * 40) % dims.h;
+      ctx!.save();
+      const scanGrad = ctx!.createLinearGradient(0, scanY - 2, 0, scanY + 2);
+      scanGrad.addColorStop(0, "transparent");
+      scanGrad.addColorStop(0.5, "rgba(56,189,248,0.06)");
+      scanGrad.addColorStop(1, "transparent");
+      ctx!.fillStyle = scanGrad;
+      ctx!.fillRect(0, scanY - 2, dims.w, 4);
+      ctx!.restore();
+
       if (layout.leftNodes.length === 0) {
         drawEmptyState(ctx!, dims.w, dims.h);
         animRef.current = requestAnimationFrame(draw);
