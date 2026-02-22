@@ -3,7 +3,7 @@ import { AssetFlowSankey } from "./AssetFlowSankey";
 export function DashboardCenterPanel() {
   return (
     <div
-      className="rounded-lg overflow-hidden h-full min-h-[400px]"
+      className="rounded-lg overflow-hidden h-full min-h-[320px]"
       style={{
         background: "#06090f",
         border: "1px solid rgba(56,189,248,0.08)",

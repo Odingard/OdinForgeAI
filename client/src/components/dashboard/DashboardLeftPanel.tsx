@@ -7,7 +7,7 @@ import { OrganizationMetricsTable } from "./OrganizationMetricsTable";
 export function DashboardLeftPanel() {
   return (
     <div
-      className="space-y-3 overflow-y-auto max-h-[calc(100vh-140px)] pr-1"
+      className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-100px)] pr-1"
       style={{
         borderLeft: "1px solid rgba(56,189,248,0.06)",
         paddingLeft: 4,

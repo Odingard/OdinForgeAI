@@ -209,7 +209,7 @@ export function Dashboard() {
         <DashboardTopBar />
 
       {/* Three-panel layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr_280px] gap-3 relative p-3">
+      <div className="grid grid-cols-1 xl:grid-cols-[220px_1fr_220px] gap-2 relative px-2 py-1">
         {/* Left panel — metrics & charts */}
         <div className="hidden xl:block">
           <DashboardLeftPanel />

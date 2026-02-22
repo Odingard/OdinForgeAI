@@ -17,8 +17,8 @@ export function OrganizationMetricsTable() {
   );
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
-      <div className="flex items-center gap-2 mb-3">
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
+      <div className="flex items-center gap-2 mb-2">
         <span
           className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
           style={{ boxShadow: "0 0 4px #38bdf8" }}

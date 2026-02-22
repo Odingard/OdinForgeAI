@@ -20,8 +20,8 @@ export function FindingsVsResolvedChart() {
   const series = useMemo(() => buildTimeseries(evaluations, 30), [evaluations]);
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
-      <div className="flex items-center justify-between mb-4">
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
@@ -77,7 +77,7 @@ export function FindingsVsResolvedChart() {
           </div>
         </div>
       </div>
-      <div className="h-[140px]">
+      <div className="h-[100px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
             <CartesianGrid

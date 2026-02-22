@@ -124,7 +124,7 @@ export function AssetFlowSankey() {
     <div
       ref={containerRef}
       className="w-full h-full relative"
-      style={{ minHeight: 400 }}
+      style={{ minHeight: 300 }}
     >
       <canvas
         ref={canvasRef}

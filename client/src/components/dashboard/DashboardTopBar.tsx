@@ -31,7 +31,7 @@ export function DashboardTopBar() {
         borderBottom: "1px solid rgba(56,189,248,0.08)",
         fontFamily: "'Sora', 'DM Sans', sans-serif",
       }}
-      className="rounded-t-lg px-5 py-3"
+      className="rounded-t-lg px-4 py-2"
     >
       <div className="flex items-center justify-between">
         {/* Left: Branding + Status */}
@@ -162,7 +162,7 @@ function MetricBox({ label, value, color }: { label: string; value: number; colo
       </div>
       <div
         style={{
-          fontSize: 20,
+          fontSize: 16,
           fontWeight: 800,
           color,
           letterSpacing: -1,

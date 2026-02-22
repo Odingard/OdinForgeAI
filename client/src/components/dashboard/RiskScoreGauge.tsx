@@ -22,7 +22,7 @@ export function RiskScoreGauge() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const size = 180;
+    const size = 120;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
@@ -30,8 +30,8 @@ export function RiskScoreGauge() {
 
     const cx = size / 2;
     const cy = size / 2;
-    const outerR = 72;
-    const ringW = 8;
+    const outerR = 48;
+    const ringW = 6;
     const sweepLen = 0.15;
 
     function draw() {
@@ -42,8 +42,8 @@ export function RiskScoreGauge() {
       // Grid dots
       ctx!.save();
       ctx!.fillStyle = "rgba(56,189,248,0.04)";
-      for (let gx = 0; gx < size; gx += 16) {
-        for (let gy = 0; gy < size; gy += 16) {
+      for (let gx = 0; gx < size; gx += 14) {
+        for (let gy = 0; gy < size; gy += 14) {
           ctx!.fillRect(gx, gy, 1, 1);
         }
       }
@@ -61,7 +61,7 @@ export function RiskScoreGauge() {
       // Inner ring
       ctx!.save();
       ctx!.beginPath();
-      ctx!.arc(cx, cy, outerR - 16, 0, Math.PI * 2);
+      ctx!.arc(cx, cy, outerR - 12, 0, Math.PI * 2);
       ctx!.strokeStyle = "rgba(56,189,248,0.03)";
       ctx!.lineWidth = 1;
       ctx!.stroke();
@@ -76,7 +76,7 @@ export function RiskScoreGauge() {
       ctx!.beginPath();
       ctx!.arc(cx, cy, outerR, startAngle, startAngle + progress);
       ctx!.strokeStyle = color;
-      ctx!.lineWidth = ringW + 6;
+      ctx!.lineWidth = ringW + 4;
       ctx!.lineCap = "round";
       ctx!.globalAlpha = 0.15;
       ctx!.stroke();
@@ -93,14 +93,10 @@ export function RiskScoreGauge() {
       ctx!.stroke();
       ctx!.restore();
 
-      // Radar sweep line
+      // Radar sweep
       const sweepAngle = (t * 1.05) % (Math.PI * 2);
       ctx!.save();
-      const grad = ctx!.createConicGradient(
-        sweepAngle - sweepLen,
-        cx,
-        cy,
-      );
+      const grad = ctx!.createConicGradient(sweepAngle - sweepLen, cx, cy);
       grad.addColorStop(0, "transparent");
       grad.addColorStop(0.7, `${color}15`);
       grad.addColorStop(1, `${color}30`);
@@ -128,44 +124,38 @@ export function RiskScoreGauge() {
 
       // Center score
       ctx!.save();
-      ctx!.font = "bold 36px 'Inter', system-ui";
+      ctx!.font = "bold 26px 'Inter', system-ui";
       ctx!.fillStyle = color;
       ctx!.textAlign = "center";
       ctx!.textBaseline = "middle";
       ctx!.shadowColor = color;
-      ctx!.shadowBlur = 16;
-      ctx!.fillText(String(score), cx, cy - 4);
+      ctx!.shadowBlur = 12;
+      ctx!.fillText(String(score), cx, cy - 2);
       ctx!.restore();
 
       // Label
       ctx!.save();
-      ctx!.font = "600 9px 'IBM Plex Mono', monospace";
+      ctx!.font = "600 7px 'IBM Plex Mono', monospace";
       ctx!.fillStyle = color;
       ctx!.globalAlpha = 0.7;
       ctx!.textAlign = "center";
       ctx!.textBaseline = "middle";
-      ctx!.letterSpacing = "1.5px";
-      ctx!.fillText(label.toUpperCase(), cx, cy + 20);
+      ctx!.letterSpacing = "1px";
+      ctx!.fillText(label.toUpperCase(), cx, cy + 14);
       ctx!.restore();
 
-      // Outer tick marks
+      // Tick marks
       ctx!.save();
-      for (let i = 0; i < 36; i++) {
-        const angle = (i / 36) * Math.PI * 2 - Math.PI / 2;
-        const isMajor = i % 9 === 0;
-        const innerTick = outerR + (isMajor ? 4 : 6);
-        const outerTick = outerR + (isMajor ? 10 : 8);
+      for (let i = 0; i < 24; i++) {
+        const angle = (i / 24) * Math.PI * 2 - Math.PI / 2;
+        const isMajor = i % 6 === 0;
+        const innerTick = outerR + (isMajor ? 2 : 4);
+        const outerTick = outerR + (isMajor ? 7 : 6);
         ctx!.beginPath();
-        ctx!.moveTo(
-          cx + Math.cos(angle) * innerTick,
-          cy + Math.sin(angle) * innerTick,
-        );
-        ctx!.lineTo(
-          cx + Math.cos(angle) * outerTick,
-          cy + Math.sin(angle) * outerTick,
-        );
+        ctx!.moveTo(cx + Math.cos(angle) * innerTick, cy + Math.sin(angle) * innerTick);
+        ctx!.lineTo(cx + Math.cos(angle) * outerTick, cy + Math.sin(angle) * outerTick);
         ctx!.strokeStyle = isMajor ? "rgba(56,189,248,0.2)" : "rgba(56,189,248,0.07)";
-        ctx!.lineWidth = isMajor ? 1.5 : 0.5;
+        ctx!.lineWidth = isMajor ? 1 : 0.5;
         ctx!.stroke();
       }
       ctx!.restore();
@@ -178,18 +168,15 @@ export function RiskScoreGauge() {
   }, [score, color, label]);
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
-      <div className="flex items-center gap-2 mb-2">
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
+      <div className="flex items-center gap-2 mb-1">
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{
-            backgroundColor: color,
-            boxShadow: `0 0 4px ${color}`,
-          }}
+          style={{ backgroundColor: color, boxShadow: `0 0 4px ${color}` }}
         />
         <span
           style={{
-            fontSize: 9,
+            fontSize: 8,
             fontFamily: "'IBM Plex Mono', monospace",
             color: "#475569",
             letterSpacing: 1.5,
@@ -200,10 +187,7 @@ export function RiskScoreGauge() {
         </span>
       </div>
       <div className="flex justify-center">
-        <canvas
-          ref={canvasRef}
-          style={{ width: 180, height: 180 }}
-        />
+        <canvas ref={canvasRef} style={{ width: 120, height: 120 }} />
       </div>
     </GlowCard>
   );

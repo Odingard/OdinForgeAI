@@ -22,8 +22,8 @@ export function ScannedAppsSummary() {
     .slice(0, 4);
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
-      <div className="flex items-center justify-between mb-3">
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
@@ -43,7 +43,7 @@ export function ScannedAppsSummary() {
         </div>
         <span
           style={{
-            fontSize: 22,
+            fontSize: 16,
             fontWeight: 800,
             color: "#f1f5f9",
             fontFamily: "'Inter', system-ui",
@@ -53,7 +53,7 @@ export function ScannedAppsSummary() {
           {total}
         </span>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1">
         {entries.map(([type, count]) => {
           const accentColor = TYPE_COLORS[type] || "#64748b";
           const label = type
@@ -62,7 +62,7 @@ export function ScannedAppsSummary() {
           return (
             <div
               key={type}
-              className="flex items-center justify-between py-2 px-3 rounded"
+              className="flex items-center justify-between py-1 px-2 rounded"
               style={{
                 background: "rgba(6,9,15,0.5)",
                 borderLeft: `2px solid ${accentColor}40`,

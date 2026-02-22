@@ -7,7 +7,7 @@ export function DashboardRightPanel() {
 
   return (
     <div
-      className="space-y-3 overflow-y-auto max-h-[calc(100vh-140px)] pl-1"
+      className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-100px)] pl-1"
       style={{
         borderRight: "1px solid rgba(56,189,248,0.06)",
         paddingRight: 4,

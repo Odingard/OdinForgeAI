@@ -14,8 +14,8 @@ export function FindingsSeverityBreakdown() {
   const total = evaluations.length || 1;
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-4">
-      <div className="flex items-center justify-between mb-4">
+    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full bg-red-400"
@@ -45,7 +45,7 @@ export function FindingsSeverityBreakdown() {
           {evaluations.length}
         </span>
       </div>
-      <div className="space-y-3">
+      <div className="space-y-2">
         {SEVERITY_LABELS.map((sev) => {
           const count = counts[sev];
           const pct = Math.round((count / total) * 100);
@@ -53,7 +53,7 @@ export function FindingsSeverityBreakdown() {
           const isCritical = sev === "critical" && count > 0;
           return (
             <div key={sev}>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between mb-1">
                 <span
                   style={{
                     fontSize: 9,
