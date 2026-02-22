@@ -1,28 +1,21 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import {
-  Zap,
-  Target,
-  ShieldCheck,
-  AlertTriangle,
-  Activity,
-  RefreshCw,
-  Loader2,
-  Link2,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { StatCard } from "./StatCard";
-import { FilterBar } from "./FilterBar";
-import { EvaluationTable, Evaluation } from "./EvaluationTable";
-import { NewEvaluationModal, EvaluationFormData } from "./NewEvaluationModal";
-import { ProgressModal } from "./ProgressModal";
-import { EvaluationDetail } from "./EvaluationDetail";
-import { EvaluationWizard } from "./EvaluationWizard";
+import { Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getStoredTokens } from "@/lib/uiAuth";
-import { SetupChecklist } from "./SetupChecklist";
+import { EvaluationDetail } from "./EvaluationDetail";
+import { NewEvaluationModal, EvaluationFormData } from "./NewEvaluationModal";
+import { ProgressModal } from "./ProgressModal";
+import { EvaluationWizard } from "./EvaluationWizard";
 import { OnboardingWizard } from "./OnboardingWizard";
+import { Evaluation } from "./EvaluationTable";
+import {
+  DashboardTopBar,
+  DashboardLeftPanel,
+  DashboardCenterPanel,
+  DashboardRightPanel,
+} from "./dashboard/index";
 
 interface EvaluationDetailData {
   id: string;
@@ -65,25 +58,25 @@ interface ProgressEvent {
 
 export function Dashboard() {
   const [, navigate] = useLocation();
-  const [filter, setFilter] = useState("all");
   const [showNewModal, setShowNewModal] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [activeEvaluation, setActiveEvaluation] = useState<{ assetId: string; id: string } | null>(null);
   const [selectedEvaluationId, setSelectedEvaluationId] = useState<string | null>(null);
-  const [progressData, setProgressData] = useState<{ agentName?: string; stage: string; progress: number; message: string } | null>(null);
+  const [progressData, setProgressData] = useState<{
+    agentName?: string;
+    stage: string;
+    progress: number;
+    message: string;
+  } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  const { data: evaluations = [], isLoading, error, refetch } = useQuery<Evaluation[]>({
+  const { data: evaluations = [], isLoading } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],
   });
 
-  const { data: breachChains = [] } = useQuery<any[]>({
-    queryKey: ["/api/breach-chains"],
-  });
-
-  // Show onboarding for new users (no evaluations)
+  // Show onboarding for new users
   useEffect(() => {
     if (!isLoading && evaluations.length === 0) {
       const hasSeenOnboarding = localStorage.getItem("hasSeenOnboarding");
@@ -110,6 +103,7 @@ export function Dashboard() {
     },
   });
 
+  // WebSocket for progress updates
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const { accessToken } = getStoredTokens();
@@ -120,7 +114,6 @@ export function Dashboard() {
     ws.onmessage = (event) => {
       try {
         const data: ProgressEvent = JSON.parse(event.data);
-
         if (data.type === "aev_progress" && data.evaluationId === activeEvaluation?.id) {
           setProgressData({
             agentName: data.agentName,
@@ -129,7 +122,6 @@ export function Dashboard() {
             message: data.message || "",
           });
         }
-
         if (data.type === "aev_complete") {
           if (data.evaluationId === activeEvaluation?.id) {
             setTimeout(() => {
@@ -147,79 +139,22 @@ export function Dashboard() {
       }
     };
 
-    ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-
     return () => {
       ws.close();
     };
   }, [activeEvaluation?.id]);
-
-  const filteredEvaluations = evaluations.filter((e) => {
-    if (filter === "all") return true;
-    if (filter === "pending") return e.status === "pending" || e.status === "in_progress";
-    if (filter === "completed") return e.status === "completed";
-    if (filter === "exploitable") return e.exploitable === true;
-    if (filter === "safe") return e.exploitable === false;
-    return true;
-  });
-
-  const stats = {
-    total: evaluations.length,
-    active: evaluations.filter((e) => e.status === "pending" || e.status === "in_progress").length,
-    exploitable: evaluations.filter((e) => e.exploitable).length,
-    safe: evaluations.filter((e) => e.exploitable === false).length,
-    avgConfidence: evaluations.filter(e => e.confidence).length > 0
-      ? Math.round(
-          evaluations.filter(e => e.confidence).reduce((sum, e) => sum + (e.confidence || 0), 0) / 
-          evaluations.filter(e => e.confidence).length * 100
-        )
-      : 0,
-  };
-
-  const filterOptions = [
-    { value: "all", label: "All", count: evaluations.length },
-    { value: "pending", label: "Active", count: stats.active },
-    { value: "completed", label: "Completed", count: evaluations.filter(e => e.status === "completed").length },
-    { value: "exploitable", label: "Exploitable", count: stats.exploitable },
-    { value: "safe", label: "Safe", count: stats.safe },
-  ];
 
   const handleNewEvaluation = (data: EvaluationFormData) => {
     setShowNewModal(false);
     createEvaluationMutation.mutate(data);
   };
 
-  const handleViewDetails = (evaluation: Evaluation) => {
-    setSelectedEvaluationId(evaluation.id);
-  };
-
-  const handleRunEvaluation = (evaluation: Evaluation) => {
-    createEvaluationMutation.mutate({
-      assetId: evaluation.assetId,
-      exposureType: evaluation.exposureType,
-      priority: evaluation.priority,
-      description: evaluation.description || "",
-      adversaryProfile: evaluation.adversaryProfile,
-    });
-  };
-
-  const handleStartSimulation = (evaluation: Evaluation) => {
-    const params = new URLSearchParams({
-      assetId: evaluation.assetId,
-      exposureType: evaluation.exposureType,
-      priority: evaluation.priority,
-      fromEvaluation: evaluation.id,
-    });
-    navigate(`/simulations?${params.toString()}`);
-  };
-
+  // Detail view mode
   if (selectedEvaluationId && selectedEvaluation) {
     return (
-      <EvaluationDetail 
-        evaluation={selectedEvaluation} 
-        onBack={() => setSelectedEvaluationId(null)} 
+      <EvaluationDetail
+        evaluation={selectedEvaluation}
+        onBack={() => setSelectedEvaluationId(null)}
       />
     );
   }
@@ -232,127 +167,41 @@ export function Dashboard() {
     );
   }
 
+  // ── Main dashboard: three-panel analytics layout ─────────────────────
   return (
-    <div className="space-y-6 relative">
-      {/* Subtle grid background */}
-      <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" style={{ maskImage: 'linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)' }} />
-
-      <div className="flex items-center justify-between flex-wrap gap-4 relative">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-3 flex-wrap">
-            <span className="text-neon-red">Odin</span>
-            <span className="text-neon-cyan">Forge</span>
-            <span className="text-xs font-medium px-3 py-1 rounded glass glow-cyan-sm text-cyan-400 border border-cyan-500/30 uppercase tracking-wider">
-              Autonomous Validation
-            </span>
-          </h1>
-          <p className="text-sm text-muted-foreground/90 mt-2 font-medium">
-            AI-powered adversarial exposure validation with autonomous exploit chaining
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            size="sm"
-            className="glass hover:glow-cyan-sm transition-all"
-            data-testid="button-refresh"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button
-            size="sm"
-            className="bg-gradient-to-r from-cyan-600 to-blue-600 glow-cyan-sm hover:glow-cyan transition-all"
-            data-testid="button-start-assessment"
-            onClick={() => navigate("/assess")}
-          >
-            <Zap className="h-3.5 w-3.5 mr-2" />
-            New Assessment
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 relative">
-        <StatCard
-          label="Total Evaluations"
-          value={stats.total}
-          icon={Target}
-          colorClass="text-foreground"
-        />
-        <StatCard
-          label="Active"
-          value={stats.active}
-          icon={Activity}
-          colorClass="text-amber-400"
-        />
-        <StatCard
-          label="Exploitable"
-          value={stats.exploitable}
-          icon={AlertTriangle}
-          colorClass="text-red-400"
-          critical={stats.exploitable > 0}
-        />
-        <StatCard
-          label="Safe"
-          value={stats.safe}
-          icon={ShieldCheck}
-          colorClass="text-emerald-400"
-        />
-        <StatCard
-          label="Breach Chains"
-          value={breachChains.length}
-          icon={Link2}
-          colorClass="text-purple-400"
-          critical={breachChains.some((c: any) => c.status === "running")}
-        />
-        <StatCard
-          label="Avg Confidence"
-          value={`${stats.avgConfidence}%`}
-          icon={Zap}
-          colorClass="text-cyan-400"
-        />
-      </div>
-
-      {/* Error banner */}
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
-          <div className="text-sm">
-            <span className="font-medium text-red-400">Failed to load evaluations: </span>
-            <span className="text-muted-foreground">{error.message}</span>
-          </div>
-          <Button variant="outline" size="sm" className="ml-auto" onClick={() => refetch()}>
-            Retry
-          </Button>
-        </div>
-      )}
-
-      {/* Setup Checklist for new users */}
-      <SetupChecklist />
-
-      <FilterBar
-        options={filterOptions}
-        activeFilter={filter}
-        onFilterChange={setFilter}
+    <div className="space-y-4 relative">
+      {/* Grid background */}
+      <div
+        className="absolute inset-0 grid-bg opacity-20 pointer-events-none"
+        style={{ maskImage: "linear-gradient(to bottom, transparent, black 10%, black 90%, transparent)" }}
       />
 
-      {isLoading ? (
-        <div className="flex items-center justify-center h-32">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <EvaluationTable 
-          evaluations={filteredEvaluations}
-          onViewDetails={handleViewDetails}
-          onRunEvaluation={handleRunEvaluation}
-          onStartSimulation={handleStartSimulation}
-          isRunning={createEvaluationMutation.isPending}
-        />
-      )}
+      <DashboardTopBar />
 
-      <NewEvaluationModal 
+      {/* Three-panel layout */}
+      <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr_280px] gap-4 relative">
+        {/* Left panel — metrics & charts */}
+        <div className="hidden xl:block">
+          <DashboardLeftPanel />
+        </div>
+
+        {/* Center panel — Sankey hero visualization */}
+        <DashboardCenterPanel />
+
+        {/* Right panel — severity breakdown & exploitability */}
+        <div className="hidden xl:block">
+          <DashboardRightPanel />
+        </div>
+
+        {/* Mobile: stack panels below */}
+        <div className="xl:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <DashboardLeftPanel />
+          <DashboardRightPanel />
+        </div>
+      </div>
+
+      {/* Modals */}
+      <NewEvaluationModal
         isOpen={showNewModal}
         onClose={() => setShowNewModal(false)}
         onSubmit={handleNewEvaluation}

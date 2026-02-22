@@ -2,44 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-/* DARK/RED CYBERSECURITY THEME WITH AFTERGLOW - DEFAULT */
+/* DARK NAVY/TEAL CYBERSECURITY THEME WITH AFTERGLOW */
 :root {
   --button-outline: rgba(255,255,255, .12);
   --badge-outline: rgba(255,255,255, .08);
   --opaque-button-border-intensity: 10;
-  --elevate-1: rgba(239, 68, 68, .06);
-  --elevate-2: rgba(239, 68, 68, .12);
-  --background: 0 0% 3%;
-  --foreground: 0 0% 95%;
-  --border: 0 10% 16%;
-  --card: 0 8% 8%;
-  --card-foreground: 0 0% 95%;
-  --card-border: 0 12% 12%;
-  --sidebar: 0 12% 10%;
-  --sidebar-foreground: 0 0% 90%;
-  --sidebar-border: 0 15% 14%;
-  --sidebar-primary: 0 84% 50%;
+  --elevate-1: rgba(6, 182, 212, .06);
+  --elevate-2: rgba(6, 182, 212, .12);
+  --background: 220 30% 4%;
+  --foreground: 210 20% 95%;
+  --border: 220 15% 14%;
+  --card: 220 25% 7%;
+  --card-foreground: 210 20% 95%;
+  --card-border: 220 20% 12%;
+  --sidebar: 220 25% 8%;
+  --sidebar-foreground: 210 15% 90%;
+  --sidebar-border: 220 20% 12%;
+  --sidebar-primary: 189 94% 43%;
   --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 0 10% 16%;
-  --sidebar-accent-foreground: 0 0% 95%;
-  --sidebar-ring: 0 84% 60%;
-  --popover: 0 10% 12%;
-  --popover-foreground: 0 0% 95%;
-  --popover-border: 0 12% 18%;
-  --primary: 0 84% 50%;
+  --sidebar-accent: 220 15% 14%;
+  --sidebar-accent-foreground: 210 20% 95%;
+  --sidebar-ring: 189 94% 50%;
+  --popover: 220 20% 10%;
+  --popover-foreground: 210 20% 95%;
+  --popover-border: 220 18% 16%;
+  --primary: 189 94% 43%;
   --primary-foreground: 0 0% 98%;
-  --secondary: 0 8% 18%;
-  --secondary-foreground: 0 0% 95%;
-  --muted: 0 8% 14%;
-  --muted-foreground: 0 0% 70%;
-  --accent: 0 60% 35%;
+  --secondary: 220 15% 16%;
+  --secondary-foreground: 210 20% 95%;
+  --muted: 220 15% 12%;
+  --muted-foreground: 215 10% 60%;
+  --accent: 189 60% 35%;
   --accent-foreground: 0 0% 98%;
   --destructive: 0 84% 45%;
   --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 75%;
-  --ring: 0 84% 60%;
+  --input: 215 10% 65%;
+  --ring: 189 94% 50%;
 
-  /* Expanded chart colors for cybersecurity */
+  /* Chart colors — severity palette unchanged */
   --chart-1: 0 84% 55%;      /* Red - Critical */
   --chart-2: 25 95% 55%;     /* Orange - High */
   --chart-3: 45 95% 55%;     /* Yellow - Medium */
@@ -50,6 +50,7 @@
   /* Afterglow colors */
   --glow-red: 0 84% 50%;
   --glow-cyan: 189 94% 43%;
+  --glow-teal: 189 94% 43%;
   --glow-green: 142 76% 45%;
   --glow-purple: 271 81% 56%;
   --glow-orange: 25 95% 53%;
@@ -58,14 +59,14 @@
   --font-serif: Georgia, serif;
   --font-mono: JetBrains Mono, monospace;
   --radius: .5rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(0 84% 50% / 0.02);
-  --shadow-xs: 0px 2px 0px 0px hsl(0 84% 50% / 0.03);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 84% 50% / 0.04), 0px 1px 2px -1px hsl(0 84% 50% / 0.06);
-  --shadow: 0px 2px 0px 0px hsl(0 84% 50% / 0.05), 0px 1px 2px -1px hsl(0 84% 50% / 0.08);
-  --shadow-md: 0px 2px 0px 0px hsl(0 84% 50% / 0.06), 0px 2px 4px -1px hsl(0 84% 50% / 0.10);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 84% 50% / 0.08), 0px 4px 6px -1px hsl(0 84% 50% / 0.12);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 84% 50% / 0.10), 0px 8px 10px -1px hsl(0 84% 50% / 0.15);
-  --shadow-2xl: 0px 2px 0px 0px hsl(0 84% 50% / 0.12);
+  --shadow-2xs: 0px 2px 0px 0px hsl(220 30% 5% / 0.02);
+  --shadow-xs: 0px 2px 0px 0px hsl(220 30% 5% / 0.03);
+  --shadow-sm: 0px 2px 0px 0px hsl(220 30% 5% / 0.04), 0px 1px 2px -1px hsl(220 30% 5% / 0.06);
+  --shadow: 0px 2px 0px 0px hsl(220 30% 5% / 0.05), 0px 1px 2px -1px hsl(220 30% 5% / 0.08);
+  --shadow-md: 0px 2px 0px 0px hsl(220 30% 5% / 0.06), 0px 2px 4px -1px hsl(220 30% 5% / 0.10);
+  --shadow-lg: 0px 2px 0px 0px hsl(220 30% 5% / 0.08), 0px 4px 6px -1px hsl(220 30% 5% / 0.12);
+  --shadow-xl: 0px 2px 0px 0px hsl(220 30% 5% / 0.10), 0px 8px 10px -1px hsl(220 30% 5% / 0.15);
+  --shadow-2xl: 0px 2px 0px 0px hsl(220 30% 5% / 0.12);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -99,37 +100,37 @@
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
   --opaque-button-border-intensity: -8;
-  --elevate-1: rgba(239, 68, 68, .03);
-  --elevate-2: rgba(239, 68, 68, .06);
-  --background: 0 0% 98%;
-  --foreground: 0 0% 10%;
-  --border: 0 10% 90%;
-  --card: 0 0% 96%;
-  --card-foreground: 0 0% 10%;
-  --card-border: 0 10% 92%;
-  --sidebar: 0 8% 94%;
-  --sidebar-foreground: 0 0% 12%;
-  --sidebar-border: 0 10% 88%;
-  --sidebar-primary: 0 84% 50%;
+  --elevate-1: rgba(6, 182, 212, .03);
+  --elevate-2: rgba(6, 182, 212, .06);
+  --background: 210 20% 98%;
+  --foreground: 220 20% 10%;
+  --border: 220 10% 90%;
+  --card: 210 15% 96%;
+  --card-foreground: 220 20% 10%;
+  --card-border: 220 10% 92%;
+  --sidebar: 220 15% 94%;
+  --sidebar-foreground: 220 15% 12%;
+  --sidebar-border: 220 10% 88%;
+  --sidebar-primary: 189 94% 38%;
   --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 0 8% 86%;
-  --sidebar-accent-foreground: 0 0% 12%;
-  --sidebar-ring: 0 84% 50%;
-  --popover: 0 0% 90%;
-  --popover-foreground: 0 0% 10%;
-  --popover-border: 0 10% 84%;
-  --primary: 0 84% 45%;
+  --sidebar-accent: 220 10% 86%;
+  --sidebar-accent-foreground: 220 15% 12%;
+  --sidebar-ring: 189 94% 43%;
+  --popover: 210 15% 90%;
+  --popover-foreground: 220 20% 10%;
+  --popover-border: 220 10% 84%;
+  --primary: 189 94% 35%;
   --primary-foreground: 0 0% 98%;
-  --secondary: 0 8% 82%;
-  --secondary-foreground: 0 0% 12%;
-  --muted: 0 8% 84%;
-  --muted-foreground: 0 0% 30%;
-  --accent: 0 60% 40%;
+  --secondary: 220 10% 82%;
+  --secondary-foreground: 220 15% 12%;
+  --muted: 220 10% 84%;
+  --muted-foreground: 220 10% 30%;
+  --accent: 189 60% 35%;
   --accent-foreground: 0 0% 98%;
   --destructive: 0 84% 40%;
   --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 30%;
-  --ring: 0 84% 50%;
+  --input: 220 10% 30%;
+  --ring: 189 94% 43%;
   --chart-1: 0 84% 45%;
   --chart-2: 15 95% 48%;
   --chart-3: 142 76% 42%;
@@ -227,6 +228,17 @@
   .glow-purple-sm {
     box-shadow: 0 0 10px hsl(var(--glow-purple) / 0.4),
                 0 0 20px hsl(var(--glow-purple) / 0.2);
+  }
+
+  .glow-teal {
+    box-shadow: 0 0 20px hsl(var(--glow-teal) / 0.3),
+                0 0 40px hsl(var(--glow-teal) / 0.15),
+                0 0 60px hsl(var(--glow-teal) / 0.05);
+  }
+
+  .glow-teal-sm {
+    box-shadow: 0 0 10px hsl(var(--glow-teal) / 0.4),
+                0 0 20px hsl(var(--glow-teal) / 0.2);
   }
 
   /* Glassmorphism */
