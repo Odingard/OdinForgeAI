@@ -39,6 +39,10 @@ coverage/
 public/agents/*.exe
 public/agents/odinforge-agent-*
 odinforge-agent/odinforge-agent
+odinforge-agent/agent
+
+# Go toolchain telemetry
+.config/
 
 # OS files
 Desktop.ini
