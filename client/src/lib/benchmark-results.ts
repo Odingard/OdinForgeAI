@@ -19,7 +19,7 @@ export interface XBOWBenchmarkSummary {
 
 export const XBOW_BENCHMARK: XBOWBenchmarkSummary = {
   solveRate: "0/10",
-  vulnDetectionRate: "6/10 (60%)",
+  vulnDetectionRate: "5/10 (50%)",
   percentage: "0%",
   mode: "black-box",
   shannonRate: "96.15%",
@@ -29,9 +29,9 @@ export const XBOW_BENCHMARK: XBOWBenchmarkSummary = {
   challengesRun: 10,
   challengesTotal: 104,
   byCategory: {},
-  runDate: "2026-02-21",
+  runDate: "2026-02-22",
   status: "preliminary",
-  note: "Agent detected vulnerabilities in 60% of challenges but could not extract flags. Flag extraction requires deeper exploitation beyond initial detection. Full 104-challenge nightly run pending.",
+  note: "Agent detected vulnerabilities in 50% of challenges but could not extract flags. Flag extraction requires deeper exploitation beyond initial detection. Full 104-challenge nightly run pending.",
 };
 
 // ─── Breach Chain Benchmark Types ─────────────────────────────────────

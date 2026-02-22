@@ -297,10 +297,19 @@ async function scanPort(host: string, port: number, timeout: number = 3000): Pro
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let banner = '';
+    let resolved = false;
+    let connected = false;
+
+    function done(result: PortScanResult) {
+      if (resolved) return;
+      resolved = true;
+      resolve(result);
+    }
 
     socket.setTimeout(timeout);
 
     socket.on('connect', () => {
+      connected = true;
       // Try to grab banner
       socket.write('HEAD / HTTP/1.0\r\n\r\n');
     });
@@ -308,20 +317,28 @@ async function scanPort(host: string, port: number, timeout: number = 3000): Pro
     socket.on('data', (data) => {
       banner = data.toString().substring(0, 200);
       socket.destroy();
-      resolve({ port, state: 'open', service, banner: banner || undefined });
     });
 
     socket.on('timeout', () => {
       socket.destroy();
-      resolve({ port, state: 'filtered', service });
     });
 
     socket.on('error', (err: NodeJS.ErrnoException) => {
+      if (!connected && err.code === 'ECONNREFUSED') {
+        done({ port, state: 'closed', service });
+      }
       socket.destroy();
-      if (err.code === 'ECONNREFUSED') {
-        resolve({ port, state: 'closed', service });
+    });
+
+    // Resolve on 'close' to ensure the socket is fully cleaned up
+    // before the promise settles — prevents event loop drain
+    socket.on('close', () => {
+      if (banner) {
+        done({ port, state: 'open', service, banner });
+      } else if (connected) {
+        done({ port, state: 'open', service });
       } else {
-        resolve({ port, state: 'filtered', service });
+        done({ port, state: 'filtered', service });
       }
     });
 
