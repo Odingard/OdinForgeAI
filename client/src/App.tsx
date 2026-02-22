@@ -51,13 +51,6 @@ const Simulations = lazy(() => import("@/pages/Simulations"));
 const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
 const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
-const CompareShannon = lazy(() => import("@/pages/CompareShannon"));
-const ComparePentera = lazy(() => import("@/pages/ComparePentera"));
-const CompareNodeZero = lazy(() => import("@/pages/CompareNodeZero"));
-const CompareAttackIQ = lazy(() => import("@/pages/CompareAttackIQ"));
-const CompareXBOW = lazy(() => import("@/pages/CompareXBOW"));
-const BenchmarkResults = lazy(() => import("@/pages/BenchmarkResults"));
-const DemoBreachChain = lazy(() => import("@/pages/DemoBreachChain"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 // Loading fallback component
@@ -247,24 +240,6 @@ function AuthenticatedApp() {
   const handleAuthSuccess = useCallback(() => {
     forceUpdate(x => x + 1);
   }, []);
-
-  // Public pages that don't require authentication
-  if (location.startsWith("/compare/") || location.startsWith("/demo/") || location === "/benchmark") {
-    return (
-      <Suspense fallback={<PageLoader />}>
-        <Switch>
-          <Route path="/compare/shannon" component={CompareShannon} />
-          <Route path="/compare/pentera" component={ComparePentera} />
-          <Route path="/compare/nodezero" component={CompareNodeZero} />
-          <Route path="/compare/attackiq" component={CompareAttackIQ} />
-          <Route path="/compare/xbow" component={CompareXBOW} />
-          <Route path="/benchmark" component={BenchmarkResults} />
-          <Route path="/demo/breach-chain" component={DemoBreachChain} />
-          <Route component={NotFound} />
-        </Switch>
-      </Suspense>
-    );
-  }
 
   if (isLoading) {
     return (
