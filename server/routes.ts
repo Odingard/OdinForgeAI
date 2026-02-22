@@ -684,6 +684,50 @@ export async function registerRoutes(
     }
   });
 
+  // ── Recon Scan — kicks off the Phase 1 recon engine via BullMQ ──────────
+  app.post("/api/aev/recon-scan", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const { target, evaluationId, options } = req.body;
+      if (!target || typeof target !== "string") {
+        return res.status(400).json({ error: "target is required (hostname or URL)" });
+      }
+
+      const orgId = (req as any).uiUser?.organizationId || "default";
+      const tenantId = orgId;
+      const scanId = randomUUID();
+
+      // Link to existing evaluation or create one
+      let linkedEvaluationId = evaluationId;
+      if (!linkedEvaluationId) {
+        const evaluation = await storage.createEvaluation({
+          assetId: target,
+          exposureType: "network_vulnerability",
+          priority: "medium",
+          description: `Recon scan of ${target}`,
+          organizationId: orgId,
+        });
+        linkedEvaluationId = evaluation.id;
+      }
+
+      // Queue the job
+      const { queueService } = await import("./services/queue/queue-service");
+      await queueService.addJob("recon_scan", {
+        type: "recon_scan" as const,
+        scanId,
+        evaluationId: linkedEvaluationId,
+        target,
+        options: options || {},
+        tenantId,
+        organizationId: orgId,
+      }, { priority: "high" });
+
+      res.json({ scanId, evaluationId: linkedEvaluationId, status: "queued" });
+    } catch (error) {
+      console.error("[AEV] Failed to queue recon scan:", error);
+      res.status(500).json({ error: "Failed to start recon scan" });
+    }
+  });
+
   app.get("/api/aev/evaluations", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;

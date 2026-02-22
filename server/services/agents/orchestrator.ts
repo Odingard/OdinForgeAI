@@ -232,35 +232,68 @@ async function runPipeline(
   };
 
   // ──────────────────────────────────────────────────────────────
-  // Tier 0.5: External Recon (real scanning, no LLM, ~10-15s)
+  // Tier 0.5: Phase 1 Recon Engine (real scanning, no LLM, ~30s)
   // ──────────────────────────────────────────────────────────────
-  onProgress?.("External Recon", "external_recon", 3, "Running external reconnaissance...");
+  onProgress?.("Recon Engine", "recon_engine", 3, "Running Phase 1 reconnaissance...");
 
   try {
-    const { fullRecon } = await import("../external-recon");
-    const target = assetId.startsWith("http") ? assetId : `https://${assetId}`;
-    const externalReconPromise = fullRecon(target, {
-      portScan: true,
-      sslCheck: true,
-      httpFingerprint: true,
-      dnsEnum: true,
-      authSurface: true,
-      generateSummary: true,
-    });
+    const { analyzeDns, analyzeSubdomains, analyzePorts, analyzeSslTls, analyzeHeaders, analyzeTech, analyzeWaf } = await import("../recon/index");
+    const { mapReconToAgentMemory } = await import("../recon/aev-mapper");
+    const host = assetId.replace(/^https?:\/\//, "").split("/")[0];
 
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000));
-    const result = await Promise.race([externalReconPromise, timeoutPromise]);
+    // Run 7 infrastructure modules in parallel with 30s timeout
+    const infraPromise = Promise.all([
+      analyzeDns(host),
+      analyzeSubdomains(host),
+      analyzePorts(host),
+      analyzeSslTls(host),
+      analyzeHeaders(assetId.startsWith("http") ? assetId : `https://${host}`),
+      analyzeTech(assetId.startsWith("http") ? assetId : `https://${host}`),
+      analyzeWaf(assetId.startsWith("http") ? assetId : `https://${host}`),
+    ]);
 
-    if (result) {
-      memory.externalRecon = result;
-      const openPorts = result.portScan?.filter((p: any) => p.state === "open").length || 0;
-      const score = result.attackReadiness?.overallScore || 0;
-      console.log(`[Orchestrator] External recon complete: ${openPorts} open ports, attack readiness ${score}/100`);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000));
+    const infraResult = await Promise.race([infraPromise, timeoutPromise]);
+
+    if (infraResult) {
+      const [dns, subdomains, ports, ssl, headers, tech, waf] = infraResult;
+      // Store partial recon result for downstream agents
+      const partialRecon = { dns, subdomains, ports, ssl, headers, tech, waf };
+      memory.reconScan = { fullRecon: partialRecon as any };
+      // Map to ReconFindings shape so downstream agents see real data
+      const mappedFindings = mapReconToAgentMemory({
+        target: { host },
+        timestamp: new Date().toISOString(),
+        duration: 0,
+        ...partialRecon,
+        apiDiscovery: { baseUrl: host, endpoints: [], totalDiscovered: 0, hasSwagger: false, hasOpenApi: false },
+        endpointChecks: [],
+        summary: { totalEndpoints: 0, totalIssues: 0, criticalIssues: 0, highIssues: 0, mediumIssues: 0, lowIssues: 0, topIssues: [] },
+      });
+      // Pre-populate recon findings so Tier 1 LLM agent has real data to work with
+      if (!memory.recon) memory.recon = mappedFindings;
+      else Object.assign(memory.recon, mappedFindings);
+
+      const openPorts = ports.openPorts?.length || 0;
+      const aliveSubdomains = subdomains.aliveCount || 0;
+      console.log(`[Orchestrator] Phase 1 recon complete: ${openPorts} open ports, ${aliveSubdomains} live subdomains, ${tech.technologies?.length || 0} technologies`);
     } else {
-      console.warn("[Orchestrator] External recon timed out (20s)");
+      console.warn("[Orchestrator] Phase 1 recon timed out (30s)");
     }
   } catch (err) {
-    console.warn("[Orchestrator] External recon failed (non-fatal):", err);
+    console.warn("[Orchestrator] Phase 1 recon failed (non-fatal), falling back to legacy external-recon:", err);
+    // Fall back to the old external-recon module
+    try {
+      const { fullRecon } = await import("../external-recon");
+      const target = assetId.startsWith("http") ? assetId : `https://${assetId}`;
+      const fallbackResult = await Promise.race([
+        fullRecon(target, { portScan: true, sslCheck: true, httpFingerprint: true, dnsEnum: true, authSurface: true, generateSummary: true }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+      ]);
+      if (fallbackResult) memory.externalRecon = fallbackResult;
+    } catch (fallbackErr) {
+      console.warn("[Orchestrator] Legacy external recon also failed:", fallbackErr);
+    }
   }
 
   // ──────────────────────────────────────────────────────────────

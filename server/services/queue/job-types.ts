@@ -14,6 +14,7 @@ export const jobTypes = [
   "api_scan",
   "auth_scan",
   "protocol_probe",
+  "recon_scan",
 ] as const;
 
 export type JobType = typeof jobTypes[number];
@@ -162,6 +163,22 @@ export const protocolProbeJobDataSchema = baseJobDataSchema.extend({
   timeout: z.number().optional(),
 });
 
+export const reconScanJobDataSchema = baseJobDataSchema.extend({
+  type: z.literal("recon_scan"),
+  scanId: z.string(),
+  evaluationId: z.string().optional(),
+  target: z.string(),
+  options: z.object({
+    skipSubdomains: z.boolean().optional(),
+    skipPorts: z.boolean().optional(),
+    endpointCheckConcurrency: z.number().optional(),
+    maxEndpointsToCheck: z.number().optional(),
+    agentConcurrency: z.number().optional(),
+    agentMaxFindings: z.number().optional(),
+    priorityFilter: z.array(z.enum(["critical", "high", "medium", "low"])).optional(),
+  }).optional(),
+});
+
 export type EvaluationJobData = z.infer<typeof evaluationJobDataSchema>;
 export type FullAssessmentJobData = z.infer<typeof fullAssessmentJobDataSchema>;
 export type NetworkScanJobData = z.infer<typeof networkScanJobDataSchema>;
@@ -175,8 +192,9 @@ export type AuthScanJobData = z.infer<typeof authScanJobDataSchema>;
 export type RemediationJobData = z.infer<typeof remediationJobDataSchema>;
 export type AgentDeploymentJobData = z.infer<typeof agentDeploymentJobDataSchema>;
 export type ProtocolProbeJobData = z.infer<typeof protocolProbeJobDataSchema>;
+export type ReconScanJobData = z.infer<typeof reconScanJobDataSchema>;
 
-export type AnyJobData = 
+export type AnyJobData =
   | EvaluationJobData
   | FullAssessmentJobData
   | NetworkScanJobData
@@ -189,7 +207,8 @@ export type AnyJobData =
   | AuthScanJobData
   | RemediationJobData
   | AgentDeploymentJobData
-  | ProtocolProbeJobData;
+  | ProtocolProbeJobData
+  | ReconScanJobData;
 
 export interface JobResult {
   success: boolean;

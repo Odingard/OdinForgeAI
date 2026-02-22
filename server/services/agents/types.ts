@@ -256,6 +256,11 @@ export interface AgentMemory {
   groundTruth?: import("./scan-data-loader").RealScanData;
   /** Structured external recon results from fullRecon() — real scan data */
   externalRecon?: import("../external-recon").ReconResult;
+  /** Phase 1 recon engine results — real infrastructure scanning */
+  reconScan?: {
+    fullRecon: import("../recon/index").FullReconResult;
+    agentReport?: import("../recon/agents/orchestrator").AgentRunReport;
+  };
   /** Attack plan derived from recon findings — guides exploit agent */
   plan?: PlanFindings;
   /** Threat intel enrichment — CISA KEV + EPSS data for plan agent prioritization */

@@ -12,10 +12,11 @@ import { handleAuthScanJob } from "./auth-scan-handler";
 import { handleRemediationJob } from "./remediation-handler";
 import { handleAgentDeploymentJob } from "./agent-deployment-handler";
 import { handleProtocolProbeJob } from "./protocol-probe-handler";
+import { handleReconScanJob } from "./recon-handler";
 
 export function registerJobHandlers(): void {
   console.log("[Queue] Registering job handlers...");
-  
+
   queueService.registerHandler("network_scan", handleNetworkScanJob as JobHandler);
   queueService.registerHandler("cloud_discovery", handleCloudDiscoveryJob as JobHandler);
   queueService.registerHandler("external_recon", handleExternalReconJob as JobHandler);
@@ -29,8 +30,9 @@ export function registerJobHandlers(): void {
   queueService.registerHandler("remediation", handleRemediationJob as JobHandler);
   queueService.registerHandler("agent_deployment", handleAgentDeploymentJob as JobHandler);
   queueService.registerHandler("protocol_probe", handleProtocolProbeJob as JobHandler);
-  
-  console.log("[Queue] Job handlers registered (13 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment, protocol_probe");
+  queueService.registerHandler("recon_scan", handleReconScanJob as JobHandler);
+
+  console.log("[Queue] Job handlers registered (14 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment, protocol_probe, recon_scan");
   
   // Start the shared worker after all handlers are registered
   queueService.startWorker();
@@ -50,4 +52,5 @@ export {
   handleRemediationJob,
   handleAgentDeploymentJob,
   handleProtocolProbeJob,
+  handleReconScanJob,
 };
