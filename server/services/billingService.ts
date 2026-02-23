@@ -12,9 +12,23 @@ import Stripe from "stripe";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "", {
-  apiVersion: "2024-06-20" as any,
-});
+// Lazy-init Stripe — avoids crash when STRIPE_SECRET_KEY is not set (dev, self-hosted)
+let _stripe: Stripe | null = null;
+
+export function getStripeClient(): Stripe {
+  if (!_stripe) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) {
+      throw new Error("STRIPE_SECRET_KEY is not set — billing features are unavailable");
+    }
+    _stripe = new Stripe(key, { apiVersion: "2024-06-20" as any });
+  }
+  return _stripe;
+}
+
+export const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" as any })
+  : (null as unknown as Stripe);
 
 // —— Types ———————————————————————————————————————————————————————
 
