@@ -1,6 +1,6 @@
 # OdinForge Documentation
 
-Welcome to the OdinForge AI documentation. This guide covers installation, configuration, and operation of the OdinForge Adversarial Exposure Validation platform.
+Welcome to the OdinForge AI documentation. This covers installation, configuration, and operation of the OdinForge Adversarial Exposure Validation platform.
 
 ## Table of Contents
 
@@ -29,6 +29,17 @@ Welcome to the OdinForge AI documentation. This guide covers installation, confi
 ### Benchmarks
 - [Benchmark System](BENCHMARKS.md) - Multi-target benchmark harness, CI workflow, adding new targets
 
+### Cloud & Endpoint Security
+- [Cloud Scanners & Endpoint Agents](cloud-endpoint/README.md) - 100 security checks across AWS, Azure, GCP, K8s, Linux, macOS, Windows
+
+### Billing & Subscriptions
+- [Billing System](billing/README.md) - Stripe integration, subscription plans, usage metering, quota enforcement
+
+### Six Sense AI Core (Integration Layer)
+- [Entity Graph & Mimir](entity-graph-mimir/) - Shared intelligence layer, entity models, cross-product correlation
+- [Stream Publisher](stream-publisher/) - Redis Streams event publisher for cross-service communication
+- [Intelligence Engine](intelligence-engine/) - 3-tier ML scoring engine (schemas, templates, retraining pipeline)
+
 ### Architecture & Design
 - [Design System](DESIGN_SYSTEM.md) - Afterglow UI design system and patterns
 - [Testing Guide](TESTING_GUIDE.md) - Vitest integration testing
@@ -52,19 +63,25 @@ OdinForge AI is an enterprise security platform that automates exploit validatio
 | **Threat Intel Scoring** | Deterministic scoring with EPSS, CVSS, CISA KEV, and asset criticality |
 | **Attack Path Mapping** | Generate MITRE ATT&CK aligned attack graphs with live visualization |
 | **Breach Chain Orchestration** | Cross-domain attack chains with real-time WebSocket progress |
+| **Cloud Security Scanning** | 67 checks across AWS, Azure, GCP, and Kubernetes |
+| **Endpoint Security** | 33 checks across Linux, macOS, and Windows plus Go-based agents |
+| **Entity Graph** | Shared intelligence layer connecting assets, findings, and relationships |
 | **AI Simulations** | Run AI vs AI purple team exercises |
-| **Endpoint Monitoring** | Deploy agents for real-time security telemetry |
-| **Benchmark Testing** | Continuous exploit agent validation against OWASP targets |
-| **Executive Reporting** | Generate PDF reports with business impact analysis |
+| **Billing & Subscriptions** | Stripe-powered plans with usage-metered evaluations |
+| **Executive Reporting** | Generate PDF reports with business impact analysis and SARIF export |
 
 ### Architecture Components
 
-1. **Web Application** - React frontend with Express backend, live breach chain visualization
+1. **Web Application** - React frontend with Express backend, live breach chain visualization, CISO dashboard
 2. **AI Engine** - 8-agent pipeline with multi-model alloy rotation (GPT-4o, Claude, Gemini)
 3. **Threat Intel** - EPSS, CVSS v2/v3.x, CISA KEV, deterministic scoring v3.0
 4. **Exploit Agent** - Multi-turn tool-calling loop with 6 security tools and HTTP evidence
-5. **Database** - PostgreSQL 15+ with 50+ tables, RLS, pgvector embeddings
-6. **Endpoint Agents** - Go-based agents for Linux, macOS, Windows
+5. **Cloud Scanners** - AWS, Azure, GCP, K8s with abstract base, retry/backoff, entity graph integration
+6. **Endpoint Agents** - TypeScript agents for Linux, macOS, Windows plus Go agent (v1.1.0) with systemd
+7. **Entity Graph** - PostgreSQL-backed shared intelligence layer with cross-product correlation
+8. **Database** - PostgreSQL 15+ with 50+ tables, RLS, pgvector embeddings
+9. **Job Queue** - BullMQ with 17 job types, Redis-backed, in-memory fallback for development
+10. **Billing** - Stripe integration with subscription plans, usage metering, and quota enforcement
 
 ---
 
@@ -157,6 +174,13 @@ docs/
 ├── ENTERPRISE_AGENT_DEPLOYMENT.md # Enterprise agent provisioning
 ├── TESTING_GUIDE.md               # Integration testing guide
 ├── ADVERSARY_SIMULATION_ENHANCEMENT.md  # Future: ATT&CK execution engine
+├── billing/
+│   └── README.md                  # Stripe billing, plans, quotas
+├── cloud-endpoint/
+│   └── README.md                  # Cloud scanners + endpoint agents
+├── entity-graph-mimir/            # Entity graph models + writer
+├── stream-publisher/              # Redis Streams event publisher
+├── intelligence-engine/           # 3-tier ML scoring engine
 ├── server/
 │   ├── installation.md            # Server setup guide
 │   ├── configuration.md           # Environment and settings
