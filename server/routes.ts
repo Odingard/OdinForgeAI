@@ -56,6 +56,17 @@ import { generateAgentFindings } from "./services/telemetry-analyzer";
 import { AuditLogger } from "./services/audit-logger";
 import { runtimeGuard } from "./services/runtime-guard";
 import { storageService } from "./services/storage";
+import {
+  stripe as stripeClient,
+  getPlans,
+  getSubscription,
+  getCurrentUsage,
+  createCheckoutSession,
+  createPortalSession,
+  syncSubscriptionFromStripe,
+  handleCheckoutCompleted,
+} from "./services/billingService";
+import type Stripe from "stripe";
 
 // Helper function to normalize platform strings for comparison
 function normalizePlatform(platform: string): string {
@@ -12245,4 +12256,399 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
 
   // Note: Object storage routes removed - using standard S3-compatible storage via storageService
   // File uploads now handled via presigned URLs from storageService.getUploadURL()
+
+  // ============================================================================
+  // CISO DASHBOARD — Intelligence Summary + Entity Graph Snapshots (Task 04)
+  // ============================================================================
+
+  // GET /api/intelligence/summary — aggregated intelligence output for CISO dashboard
+  app.get("/api/intelligence/summary", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = (req as UIAuthenticatedRequest).uiUser?.organizationId || "default";
+
+      // Pull recent completed evaluations
+      const recentEvals = await db
+        .select({
+          id: aevEvaluations.id,
+          score: sql<number>`aev_results.score`,
+          exploitable: sql<boolean>`aev_results.exploitable`,
+          exposureType: aevEvaluations.exposureType,
+          intelligentScore: sql<any>`aev_results.intelligent_score`,
+          completedAt: aevEvaluations.updatedAt,
+        })
+        .from(aevEvaluations)
+        .leftJoin(sql`aev_results`, sql`aev_results.evaluation_id = ${aevEvaluations.id}`)
+        .where(
+          and(
+            eq(aevEvaluations.organizationId, organizationId),
+            eq(aevEvaluations.status, "completed"),
+          ),
+        )
+        .orderBy(sql`${aevEvaluations.updatedAt} DESC`)
+        .limit(50);
+
+      // Pull entity graph findings (graceful if not set up)
+      let egFindingRows: Array<{
+        severity: string;
+        category: string;
+        isKevListed: boolean;
+        riskScore: string | null;
+        cveId: string | null;
+        title: string;
+      }> = [];
+
+      try {
+        const egResult = await db.execute(
+          sql`
+            SELECT severity, category, is_kev_listed as "isKevListed",
+                   risk_score as "riskScore", cve_id as "cveId", title
+            FROM entity_graph.findings
+            WHERE organization_id = ${organizationId}::uuid
+              AND resolved_at IS NULL
+            ORDER BY risk_score DESC NULLS LAST
+            LIMIT 100
+          `,
+        );
+        egFindingRows = (egResult as any).rows ?? [];
+      } catch {
+        // entity_graph not yet set up
+      }
+
+      // Compute composite score
+      const scoredEvals = recentEvals.filter(e => e.score !== null);
+      const rawScore = scoredEvals.length
+        ? scoredEvals.reduce((s, e) => s + Number(e.score), 0) / scoredEvals.length
+        : 0;
+
+      const kevCount = egFindingRows.filter(f => f.isKevListed).length;
+      const criticalCount = egFindingRows.filter(f => f.severity === "critical").length;
+      const highCount = egFindingRows.filter(f => f.severity === "high").length;
+
+      const kevBoost = kevCount > 0 ? Math.min(kevCount * 5, 20) : 0;
+      const compositeScore = Math.min(rawScore + kevBoost, 100);
+
+      const grade =
+        compositeScore >= 85 ? "F" :
+        compositeScore >= 70 ? "D" :
+        compositeScore >= 50 ? "C" :
+        compositeScore >= 30 ? "B" : "A";
+
+      // Try Intelligence Engine for narrative
+      let executiveSummary = "";
+      let riskHeadline = "";
+      let remediationSteps: unknown[] = [];
+
+      const intelligenceUrl = process.env.INTELLIGENCE_SERVICE_URL;
+      const intelligenceSecret = process.env.INTELLIGENCE_INTERNAL_SECRET;
+
+      if (intelligenceUrl && intelligenceSecret && egFindingRows.length > 0) {
+        try {
+          const ieRequest = {
+            request_id: randomUUID(),
+            organization_id: organizationId,
+            source_product: "odinforge",
+            mode: "narrative",
+            tone: "executive",
+            findings: egFindingRows.slice(0, 20).map((f, i) => ({
+              id: String(i),
+              source_product: "odinforge",
+              title: f.title,
+              category: f.category,
+              severity: f.severity,
+              cve_id: f.cveId,
+              is_kev_listed: f.isKevListed,
+              risk_score: f.riskScore ? Number(f.riskScore) : undefined,
+            })),
+          };
+
+          const ieRes = await fetch(`${intelligenceUrl}/analyze/narrative`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Internal-Secret": intelligenceSecret,
+            },
+            body: JSON.stringify(ieRequest),
+            signal: AbortSignal.timeout(10_000),
+          });
+
+          if (ieRes.ok) {
+            const ieData = await ieRes.json();
+            executiveSummary = ieData.narrative?.executive_summary ?? "";
+            riskHeadline = ieData.narrative?.risk_headline ?? "";
+            remediationSteps = ieData.narrative?.remediation_steps ?? [];
+          }
+        } catch {
+          // Intelligence Engine unavailable
+        }
+      }
+
+      // Fallback narrative from intelligent_score on most recent evaluation
+      if (!riskHeadline) {
+        const latestWithScore = recentEvals.find(e => e.intelligentScore);
+        if (latestWithScore?.intelligentScore) {
+          const is = latestWithScore.intelligentScore as Record<string, unknown>;
+          riskHeadline = String(is.riskHeadline ?? "");
+          executiveSummary = String(is.executiveSummary ?? "");
+        }
+      }
+
+      // Final fallback: generated from data
+      if (!riskHeadline) {
+        riskHeadline = kevCount > 0
+          ? `${kevCount} CISA Known Exploited Vulnerabilit${kevCount > 1 ? "ies" : "y"} require immediate remediation.`
+          : grade === "F" || grade === "D"
+          ? `Risk grade ${grade} \u2014 significant vulnerabilities require urgent attention.`
+          : `Current risk grade: ${grade} \u2014 ${compositeScore.toFixed(0)}/100.`;
+      }
+
+      // Outcome predictions (rule-based fallback)
+      const outcomePredictions: Array<{ outcome_label: string; probability: number }> = [];
+      if (kevCount > 0 || criticalCount > 0) {
+        outcomePredictions.push({
+          outcome_label: "full_compromise",
+          probability: kevCount > 0 ? 0.78 : 0.55,
+        });
+      }
+      if (egFindingRows.some(f => f.category === "credential_exposure")) {
+        outcomePredictions.push({ outcome_label: "credential_theft", probability: 0.71 });
+      }
+
+      res.json({
+        risk_grade: grade,
+        calibrated_score: Math.round(compositeScore * 10) / 10,
+        executive_summary: executiveSummary,
+        risk_headline: riskHeadline,
+        remediation_steps: remediationSteps,
+        outcome_predictions: outcomePredictions,
+        anomaly_signals: [],
+        kev_count: kevCount,
+        critical_count: criticalCount,
+        high_count: highCount,
+        total_findings: egFindingRows.length,
+        severity_distribution: {
+          critical: criticalCount,
+          high: highCount,
+          medium: egFindingRows.filter(f => f.severity === "medium").length,
+          low: egFindingRows.filter(f => f.severity === "low").length,
+          info: egFindingRows.filter(f => f.severity === "info").length,
+        },
+      });
+    } catch (err) {
+      console.error("[/api/intelligence/summary]", err);
+      res.status(500).json({ error: "Failed to compute intelligence summary" });
+    }
+  });
+
+  // GET /api/entity-graph/snapshots — risk score trajectory for CISO dashboard sparkline
+  app.get("/api/entity-graph/snapshots", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const organizationId = (req as UIAuthenticatedRequest).uiUser?.organizationId || "default";
+
+      const result = await db.execute(
+        sql`
+          SELECT
+            snapshotted_at,
+            risk_score,
+            deal_risk_grade,
+            finding_counts
+          FROM entity_graph.risk_snapshots
+          WHERE organization_id = ${organizationId}::uuid
+          ORDER BY snapshotted_at ASC
+          LIMIT 50
+        `,
+      );
+
+      const snapshots = ((result as any).rows ?? []).map((row: any) => ({
+        snapshotted_at: row.snapshotted_at,
+        risk_score: parseFloat(row.risk_score),
+        deal_risk_grade: row.deal_risk_grade,
+        finding_counts: row.finding_counts ?? {},
+      }));
+
+      res.json(snapshots);
+    } catch {
+      // entity_graph not yet set up — return empty array, dashboard degrades gracefully
+      res.json([]);
+    }
+  });
+
+  // ===========================================================================
+  // BILLING & SUBSCRIPTIONS (Task 05)
+  // ===========================================================================
+
+  // GET /api/billing/plans — all active plans (public within auth)
+  app.get("/api/billing/plans", apiRateLimiter, uiAuthMiddleware, async (_req, res) => {
+    try {
+      const plans = await getPlans();
+      res.json({ plans });
+    } catch (err) {
+      console.error("[billing] Failed to fetch plans:", err);
+      res.status(500).json({ error: "Failed to fetch plans" });
+    }
+  });
+
+  // GET /api/billing/subscription — current org subscription + usage
+  app.get("/api/billing/subscription", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
+    const orgId = (req as UIAuthenticatedRequest).uiUser?.organizationId;
+    if (!orgId) return res.status(401).json({ error: "Authentication required" });
+
+    try {
+      const [subscription, usage] = await Promise.all([
+        getSubscription(orgId),
+        getCurrentUsage(orgId),
+      ]);
+
+      if (!subscription) {
+        return res.status(404).json({ error: "No subscription found" });
+      }
+
+      res.json({ subscription, usage });
+    } catch (err) {
+      console.error("[billing] Failed to fetch subscription:", err);
+      res.status(500).json({ error: "Failed to fetch subscription" });
+    }
+  });
+
+  // POST /api/billing/checkout — create Stripe Checkout session
+  app.post("/api/billing/checkout", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
+    const orgId = (req as UIAuthenticatedRequest).uiUser?.organizationId;
+    if (!orgId) return res.status(401).json({ error: "Authentication required" });
+
+    const parsed = z.object({ planId: z.enum(["starter", "pro", "enterprise"]) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid plan", details: parsed.error.flatten() });
+    }
+
+    try {
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const checkoutUrl = await createCheckoutSession(orgId, parsed.data.planId, baseUrl);
+      res.json({ url: checkoutUrl });
+    } catch (err) {
+      console.error("[billing] Failed to create checkout session:", err);
+      res.status(500).json({ error: (err as Error).message || "Failed to create checkout session" });
+    }
+  });
+
+  // POST /api/billing/portal — create Stripe Customer Portal session
+  app.post("/api/billing/portal", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
+    const orgId = (req as UIAuthenticatedRequest).uiUser?.organizationId;
+    if (!orgId) return res.status(401).json({ error: "Authentication required" });
+
+    try {
+      const returnUrl = `${req.protocol}://${req.get("host")}/billing`;
+      const portalUrl = await createPortalSession(orgId, returnUrl);
+      res.json({ url: portalUrl });
+    } catch (err) {
+      console.error("[billing] Failed to create portal session:", err);
+      res.status(500).json({ error: (err as Error).message || "Failed to create portal session" });
+    }
+  });
+
+  // GET /api/billing/usage — current period evaluation usage
+  app.get("/api/billing/usage", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
+    const orgId = (req as UIAuthenticatedRequest).uiUser?.organizationId;
+    if (!orgId) return res.status(401).json({ error: "Authentication required" });
+
+    try {
+      const usage = await getCurrentUsage(orgId);
+      res.json({ usage });
+    } catch (err) {
+      console.error("[billing] Failed to fetch usage:", err);
+      res.status(500).json({ error: "Failed to fetch usage" });
+    }
+  });
+
+  // POST /api/billing/webhook — Stripe webhook handler
+  // Uses req.rawBody captured by express.json({ verify }) in server/index.ts
+  app.post("/api/billing/webhook", async (req, res) => {
+    const sig    = req.headers["stripe-signature"];
+    const secret = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!secret) {
+      console.error("[billing/webhook] STRIPE_WEBHOOK_SECRET not set");
+      return res.status(500).send("Webhook secret not configured");
+    }
+
+    let event: Stripe.Event;
+    try {
+      // rawBody is captured by the verify callback in express.json() (server/index.ts:110)
+      event = stripeClient.webhooks.constructEvent(req.rawBody as Buffer, sig!, secret);
+    } catch (err: unknown) {
+      console.warn("[billing/webhook] Signature verification failed:", (err as Error).message);
+      return res.status(400).send(`Webhook Error: ${(err as Error).message}`);
+    }
+
+    // Idempotency: skip if already processed
+    try {
+      const existing = await db.execute(sql`
+        SELECT id FROM stripe_events WHERE id = ${event.id} LIMIT 1
+      `);
+      if (((existing as any).rows ?? []).length > 0) {
+        return res.json({ received: true, skipped: "already_processed" });
+      }
+    } catch {
+      // stripe_events table may not exist yet — continue
+    }
+
+    try {
+      // Process event
+      switch (event.type) {
+        case "checkout.session.completed": {
+          const session = event.data.object as Stripe.Checkout.Session;
+          await handleCheckoutCompleted(session);
+          break;
+        }
+        case "customer.subscription.created":
+        case "customer.subscription.updated": {
+          const sub = event.data.object as Stripe.Subscription;
+          await syncSubscriptionFromStripe(sub);
+          break;
+        }
+        case "customer.subscription.deleted": {
+          const sub = event.data.object as Stripe.Subscription;
+          await db.execute(sql`
+            UPDATE subscriptions
+            SET status = 'canceled', canceled_at = NOW()
+            WHERE stripe_subscription_id = ${sub.id}
+          `);
+          console.log(`[billing] Subscription canceled: ${sub.id}`);
+          break;
+        }
+        case "invoice.payment_succeeded": {
+          const invoice = event.data.object as any;
+          if (invoice.subscription) {
+            const sub = await stripeClient.subscriptions.retrieve(invoice.subscription as string);
+            await syncSubscriptionFromStripe(sub);
+          }
+          break;
+        }
+        case "invoice.payment_failed": {
+          const invoice = event.data.object as any;
+          if (invoice.subscription) {
+            await db.execute(sql`
+              UPDATE subscriptions SET status = 'past_due'
+              WHERE stripe_subscription_id = ${invoice.subscription as string}
+            `);
+            console.warn(`[billing] Payment failed for subscription: ${invoice.subscription}`);
+          }
+          break;
+        }
+        default:
+          break;
+      }
+
+      // Log processed event
+      await db.execute(sql`
+        INSERT INTO stripe_events (id, type, payload)
+        VALUES (${event.id}, ${event.type}, ${JSON.stringify(event)}::jsonb)
+        ON CONFLICT (id) DO NOTHING
+      `);
+
+      res.json({ received: true });
+    } catch (err: unknown) {
+      console.error(`[billing/webhook] Error processing ${event.type}:`, err);
+      // Return 200 anyway — Stripe retries on 4xx/5xx, avoid retry loops
+      res.json({ received: true, error: "processing_failed" });
+    }
+  });
 }

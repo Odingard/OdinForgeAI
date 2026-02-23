@@ -338,6 +338,74 @@ export class EntityGraphWriter {
   }
 
   // ---------------------------------------------------------------------------
+  // writeFinding — generic finding writer for cloud scanners + endpoint agents
+  // ---------------------------------------------------------------------------
+  async writeFinding(opts: {
+    organizationId: string;
+    evaluationId:   string;
+    source:         string;
+    checkId:        string;
+    title:          string;
+    description:    string;
+    severity:       string;
+    cvssScore:      number;
+    isKev:          boolean;
+    resource:       string;
+    resourceType:   string;
+    evidence:       Record<string, unknown>;
+    remediation:    { title: string; steps: string[]; effort: string };
+    mitreAttackIds: string[];
+  }): Promise<string> {
+    // Best-effort entity lookup — use resource as canonical key
+    const entityType = opts.source.startsWith("cloud:") ? "cloud_resource" : "ip_address";
+
+    let entityId: string;
+    try {
+      const result = await this.dbInstance.execute<{ id: string }>(
+        sql`SELECT entity_graph.upsert_entity(
+          ${this.organizationId}::uuid,
+          ${entityType}::entity_graph.entity_type,
+          ${opts.resource},
+          ${opts.resource},
+          ${JSON.stringify({ source: opts.source, resourceType: opts.resourceType })}::jsonb,
+          ARRAY['production']::text[],
+          'odinforge'::entity_graph.source_product,
+          NULL,
+          NULL
+        ) AS id`
+      );
+      entityId = (result as any).rows[0].id as string;
+    } catch {
+      // If entity creation fails (e.g. unsupported type), skip this finding
+      return "";
+    }
+
+    const [finding] = await this.withEgTenantContext((tx) =>
+      tx
+        .insert(egFindings)
+        .values({
+          organizationId: this.organizationId,
+          entityId,
+          sourceProduct: "odinforge",
+          category: opts.source.startsWith("cloud:") ? "cloud_misconfiguration" as any : "endpoint_misconfiguration" as any,
+          severity: normalizeSeverity(opts.severity),
+          title: opts.title,
+          description: opts.description,
+          cvssScore: opts.cvssScore?.toString(),
+          isKevListed: opts.isKev,
+          evidence: opts.evidence,
+          remediation: opts.remediation,
+          sourceId: opts.checkId,
+          sourceTable: opts.source,
+        })
+        .onConflictDoNothing()
+        .returning({ id: egFindings.id })
+    );
+
+    return finding?.id ?? "";
+  }
+
+  // ---------------------------------------------------------------------------
   // addRelationship — write a directed edge between two entity graph nodes
   // ---------------------------------------------------------------------------
   async addRelationship(

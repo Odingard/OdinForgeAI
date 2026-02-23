@@ -203,6 +203,17 @@ export async function handleEvaluationJob(
           console.error("[SIEM] Post-evaluation validation failed:", err.message);
         });
       }
+
+      // Intelligence Engine narrative generation (non-blocking)
+      if (organizationId) {
+        const { runPostEvaluationIntelligence } = await import("../../intelligence-client");
+        const dbResult = await storage.getResultByEvaluationId(evaluationId);
+        if (dbResult) {
+          runPostEvaluationIntelligence(evaluation, dbResult, organizationId).catch(err => {
+            console.error("[Intelligence] Post-evaluation hook failed:", (err as Error).message);
+          });
+        }
+      }
     } catch (hookErr) {
       // Hooks should never break evaluation completion
       console.error("[PostEvalHooks] Error:", hookErr);

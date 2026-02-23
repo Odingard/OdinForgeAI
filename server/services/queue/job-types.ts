@@ -15,6 +15,9 @@ export const jobTypes = [
   "auth_scan",
   "protocol_probe",
   "recon_scan",
+  "mimir_triggered_evaluation",
+  "cloud_scan",
+  "endpoint_scan",
 ] as const;
 
 export type JobType = typeof jobTypes[number];
@@ -179,6 +182,51 @@ export const reconScanJobDataSchema = baseJobDataSchema.extend({
   }).optional(),
 });
 
+// Mimir-triggered evaluation — cross-product job from Redis Stream
+export const mimirFindingSchema = z.object({
+  finding_id:    z.string(),
+  title:         z.string(),
+  category:      z.string(),
+  severity:      z.enum(["critical", "high", "medium", "low", "info"]),
+  risk_score:    z.number().nullable(),
+  cve_id:        z.string().nullable(),
+  is_kev_listed: z.boolean(),
+  entity_id:     z.string().nullable(),
+});
+
+export const mimirTriggeredEvaluationSchema = baseJobDataSchema.extend({
+  type: z.literal("mimir_triggered_evaluation"),
+  stream_event_id:      z.string(),
+  mimir_event_id:       z.string(),
+  mimir_assessment_id:  z.string(),
+  target_domain:        z.string(),
+  entity_id:            z.string(),
+  risk_grade:           z.enum(["A", "B", "C", "D", "F"]),
+  risk_score:           z.number().min(0).max(100),
+  kev_count:            z.number().int().min(0),
+  critical_count:       z.number().int().min(0),
+  top_risk_findings:    z.array(mimirFindingSchema).max(10),
+  industry:             z.string().nullable(),
+  company_name:         z.string().nullable(),
+  execution_mode:       z.enum(["safe", "aggressive"]).default("safe"),
+});
+
+export type MimirTriggeredEvaluationJobData = z.infer<typeof mimirTriggeredEvaluationSchema>;
+
+export const cloudScanJobDataSchema = baseJobDataSchema.extend({
+  type: z.literal("cloud_scan"),
+  evaluationId: z.string(),
+  provider: z.enum(["aws", "azure", "gcp", "k8s"]),
+  credentials: z.any(),
+});
+
+export const endpointScanJobDataSchema = baseJobDataSchema.extend({
+  type: z.literal("endpoint_scan"),
+  evaluationId: z.string(),
+  os: z.enum(["linux", "macos", "windows"]),
+  hostname: z.string().optional(),
+});
+
 export type EvaluationJobData = z.infer<typeof evaluationJobDataSchema>;
 export type FullAssessmentJobData = z.infer<typeof fullAssessmentJobDataSchema>;
 export type NetworkScanJobData = z.infer<typeof networkScanJobDataSchema>;
@@ -193,6 +241,8 @@ export type RemediationJobData = z.infer<typeof remediationJobDataSchema>;
 export type AgentDeploymentJobData = z.infer<typeof agentDeploymentJobDataSchema>;
 export type ProtocolProbeJobData = z.infer<typeof protocolProbeJobDataSchema>;
 export type ReconScanJobData = z.infer<typeof reconScanJobDataSchema>;
+export type CloudScanJobData = z.infer<typeof cloudScanJobDataSchema>;
+export type EndpointScanJobData = z.infer<typeof endpointScanJobDataSchema>;
 
 export type AnyJobData =
   | EvaluationJobData
@@ -208,7 +258,10 @@ export type AnyJobData =
   | RemediationJobData
   | AgentDeploymentJobData
   | ProtocolProbeJobData
-  | ReconScanJobData;
+  | ReconScanJobData
+  | MimirTriggeredEvaluationJobData
+  | CloudScanJobData
+  | EndpointScanJobData;
 
 export interface JobResult {
   success: boolean;

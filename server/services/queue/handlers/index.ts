@@ -13,6 +13,9 @@ import { handleRemediationJob } from "./remediation-handler";
 import { handleAgentDeploymentJob } from "./agent-deployment-handler";
 import { handleProtocolProbeJob } from "./protocol-probe-handler";
 import { handleReconScanJob } from "./recon-handler";
+import { handleMimirTriggeredEvaluation } from "./mimir-triggered-evaluation-handler";
+import { handleCloudScanJobHandler } from "./cloud-scan-handler";
+import { handleEndpointScanJobHandler } from "./endpoint-scan-handler";
 
 export function registerJobHandlers(): void {
   console.log("[Queue] Registering job handlers...");
@@ -31,8 +34,11 @@ export function registerJobHandlers(): void {
   queueService.registerHandler("agent_deployment", handleAgentDeploymentJob as JobHandler);
   queueService.registerHandler("protocol_probe", handleProtocolProbeJob as JobHandler);
   queueService.registerHandler("recon_scan", handleReconScanJob as JobHandler);
+  queueService.registerHandler("mimir_triggered_evaluation", handleMimirTriggeredEvaluation as JobHandler);
+  queueService.registerHandler("cloud_scan", handleCloudScanJobHandler as JobHandler);
+  queueService.registerHandler("endpoint_scan", handleEndpointScanJobHandler as JobHandler);
 
-  console.log("[Queue] Job handlers registered (14 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment, protocol_probe, recon_scan");
+  console.log("[Queue] Job handlers registered (17 total): network_scan, cloud_discovery, external_recon, report_generation, ai_simulation, evaluation, full_assessment, exploit_validation, api_scan, auth_scan, remediation, agent_deployment, protocol_probe, recon_scan, mimir_triggered_evaluation, cloud_scan, endpoint_scan");
   
   // Start the shared worker after all handlers are registered
   queueService.startWorker();
@@ -53,4 +59,7 @@ export {
   handleAgentDeploymentJob,
   handleProtocolProbeJob,
   handleReconScanJob,
+  handleMimirTriggeredEvaluation,
+  handleCloudScanJobHandler,
+  handleEndpointScanJobHandler,
 };

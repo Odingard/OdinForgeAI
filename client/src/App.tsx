@@ -50,6 +50,8 @@ const Sandbox = lazy(() => import("@/pages/Sandbox"));
 const Simulations = lazy(() => import("@/pages/Simulations"));
 const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
+const CisoDashboard = lazy(() => import("@/pages/CisoDashboard"));
+const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -113,6 +115,7 @@ function Router() {
         <Route path="/login"><Redirect to="/" /></Route>
         <Route path="/signup"><Redirect to="/" /></Route>
         <Route path="/risk" component={RiskDashboard} />
+        <Route path="/dashboard/ciso" component={CisoDashboard} />
         <Route path="/assets" component={Assets} />
         <Route path="/infrastructure" component={Infrastructure} />
         <Route path="/reports" component={Reports} />
@@ -133,6 +136,7 @@ function Router() {
         <Route path="/simulations" component={Simulations} />
         <Route path="/breach-chains" component={BreachChains} />
         <Route path="/assess" component={AssessmentWizard} />
+        <Route path="/billing" component={BillingPage} />
         <Route path="/admin/users" component={UserManagement} />
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />
