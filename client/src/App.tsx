@@ -30,6 +30,7 @@ const Assets = lazy(() => import("@/pages/Assets"));
 const Infrastructure = lazy(() => import("@/pages/Infrastructure"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const Governance = lazy(() => import("@/pages/Governance"));
+const Advanced = lazy(() => import("@/pages/Advanced"));
 const Agents = lazy(() => import("@/pages/Agents"));
 const UserManagement = lazy(() => import("@/pages/UserManagement"));
 const Settings = lazy(() => import("@/pages/Settings"));
@@ -46,8 +47,11 @@ const Sessions = lazy(() => import("@/pages/Sessions"));
 const LiveScans = lazy(() => import("@/pages/LiveScans"));
 const ScheduledScans = lazy(() => import("@/pages/ScheduledScans"));
 const Sandbox = lazy(() => import("@/pages/Sandbox"));
+const Simulations = lazy(() => import("@/pages/Simulations"));
 const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
+const CisoDashboard = lazy(() => import("@/pages/CisoDashboard"));
+const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -111,6 +115,7 @@ function Router() {
         <Route path="/login"><Redirect to="/" /></Route>
         <Route path="/signup"><Redirect to="/" /></Route>
         <Route path="/risk" component={RiskDashboard} />
+        <Route path="/dashboard/ciso" component={CisoDashboard} />
         <Route path="/assets" component={Assets} />
         <Route path="/infrastructure" component={Infrastructure} />
         <Route path="/reports" component={Reports} />
@@ -118,6 +123,7 @@ function Router() {
         <Route path="/agents" component={Agents} />
         <Route path="/full-assessment" component={FullAssessment} />
         <Route path="/recon" component={ExternalRecon} />
+        <Route path="/advanced" component={Advanced} />
         <Route path="/approvals" component={Approvals} />
         <Route path="/approvals/history" component={ApprovalHistory} />
         <Route path="/jobs" component={Jobs} />
@@ -127,8 +133,10 @@ function Router() {
         <Route path="/scans" component={LiveScans} />
         <Route path="/scheduled-scans" component={ScheduledScans} />
         <Route path="/sandbox" component={Sandbox} />
+        <Route path="/simulations" component={Simulations} />
         <Route path="/breach-chains" component={BreachChains} />
         <Route path="/assess" component={AssessmentWizard} />
+        <Route path="/billing" component={BillingPage} />
         <Route path="/admin/users" component={UserManagement} />
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />

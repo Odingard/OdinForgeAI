@@ -7,6 +7,7 @@ import {
   FileText,
   Shield,
   Bot,
+  Brain,
   ChevronDown,
   Settings,
   Users,
@@ -63,6 +64,7 @@ const systemItems = [
   { title: "Approvals", href: "/approvals", icon: ShieldAlert },
   { title: "Approval History", href: "/approvals/history", icon: History },
   { title: "Governance", href: "/governance", icon: Shield },
+  { title: "Advanced", href: "/advanced", icon: Brain },
 ];
 
 const operationsItems = [
