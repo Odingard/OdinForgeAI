@@ -22,6 +22,13 @@ import {
   Radar,
   Calendar,
   Link2,
+  CreditCard,
+  ClipboardCheck,
+  GitBranch,
+  Wrench,
+  ShieldCheck,
+  PieChart,
+  Zap,
 } from "lucide-react";
 import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
@@ -47,6 +54,7 @@ import { roleMetadata } from "@shared/schema";
 
 const mainNavItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "CISO Dashboard", href: "/dashboard/ciso", icon: PieChart },
   { title: "Assets", href: "/assets", icon: Server },
   { title: "Integrations", href: "/infrastructure", icon: Building2 },
   { title: "Risk Dashboard", href: "/risk", icon: BarChart3 },
@@ -56,6 +64,10 @@ const assessItems = [
   { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
   { title: "Live Recon", href: "/recon", icon: Globe },
+  { title: "Simulations", href: "/simulations", icon: Zap },
+  { title: "Security Testing", href: "/security-testing", icon: ShieldCheck },
+  { title: "Lateral Movement", href: "/lateral-movement", icon: GitBranch },
+  { title: "Remediation", href: "/remediation", icon: Wrench },
   { title: "Reports", href: "/reports", icon: FileText },
 ];
 
@@ -64,6 +76,7 @@ const systemItems = [
   { title: "Approvals", href: "/approvals", icon: ShieldAlert },
   { title: "Approval History", href: "/approvals/history", icon: History },
   { title: "Governance", href: "/governance", icon: Shield },
+  { title: "Compliance", href: "/compliance", icon: ClipboardCheck },
   { title: "Advanced", href: "/advanced", icon: Brain },
 ];
 
@@ -269,6 +282,14 @@ export function AppSidebar() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )}
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/billing")}>
+                    <Link href="/billing" data-testid="nav-billing">
+                      <CreditCard className="h-4 w-4" />
+                      <span>Billing</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

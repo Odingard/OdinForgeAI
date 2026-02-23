@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Read(//Users/dre/prod/OdinForge-AI/**)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(/tmp/check_pages.txt:*)",
+      "Read(//Users/dre/prod/OdinForge-AI/client/src/pages/**)",
+      "Bash(git revert:*)",
+      "Bash(git stash:*)"
     ]
   }
 }

@@ -52,6 +52,10 @@ const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
 const CisoDashboard = lazy(() => import("@/pages/CisoDashboard"));
 const BillingPage = lazy(() => import("@/pages/BillingPage"));
+const Compliance = lazy(() => import("@/pages/Compliance"));
+const LateralMovement = lazy(() => import("@/pages/LateralMovement"));
+const Remediation = lazy(() => import("@/pages/Remediation"));
+const SecurityTesting = lazy(() => import("@/pages/SecurityTesting"));
 const Dashboard = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -137,6 +141,10 @@ function Router() {
         <Route path="/breach-chains" component={BreachChains} />
         <Route path="/assess" component={AssessmentWizard} />
         <Route path="/billing" component={BillingPage} />
+        <Route path="/compliance" component={Compliance} />
+        <Route path="/lateral-movement" component={LateralMovement} />
+        <Route path="/remediation" component={Remediation} />
+        <Route path="/security-testing" component={SecurityTesting} />
         <Route path="/admin/users" component={UserManagement} />
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />
