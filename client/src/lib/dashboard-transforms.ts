@@ -12,19 +12,6 @@ export interface SeverityCounts {
   low: number;
 }
 
-export interface SankeyLink {
-  source: string;       // asset group label
-  target: string;       // severity label
-  value: number;        // finding count
-  severity: "critical" | "high" | "medium" | "low";
-}
-
-export interface SankeyData {
-  leftNodes: { label: string; count: number }[];
-  rightNodes: { label: string; count: number; severity: "critical" | "high" | "medium" | "low" }[];
-  links: SankeyLink[];
-}
-
 export interface TimeseriesPoint {
   date: string;       // ISO date (YYYY-MM-DD)
   findings: number;
@@ -146,56 +133,6 @@ function formatAssetType(type: string): string {
   return type
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-// ── Sankey Transforms ──────────────────────────────────────────────────
-
-export function buildSankeyData(assets: any[], evaluations: any[]): SankeyData {
-  const assetMap = new Map<string, any>();
-  for (const a of assets) assetMap.set(a.id, a);
-
-  // Count: assetType × severity
-  const matrix = new Map<string, Map<string, number>>();
-
-  for (const e of evaluations) {
-    const asset = assetMap.get(e.assetId);
-    const type = formatAssetType(asset?.assetType || asset?.type || "unknown");
-    const sev = (e.priority || e.severity || "medium").toLowerCase();
-
-    if (!matrix.has(type)) matrix.set(type, new Map());
-    const row = matrix.get(type)!;
-    row.set(sev, (row.get(sev) || 0) + 1);
-  }
-
-  // Build nodes
-  const leftNodes: SankeyData["leftNodes"] = [];
-  const sevTotals: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
-  const links: SankeyLink[] = [];
-
-  for (const [type, sevMap] of Array.from(matrix.entries())) {
-    let typeTotal = 0;
-    for (const [sev, count] of Array.from(sevMap.entries())) {
-      if (sev in sevTotals) {
-        sevTotals[sev as keyof typeof sevTotals] += count;
-        typeTotal += count;
-        links.push({ source: type, target: sev, value: count, severity: sev as any });
-      }
-    }
-    leftNodes.push({ label: type, count: typeTotal });
-  }
-
-  // Sort left nodes by count desc
-  leftNodes.sort((a, b) => b.count - a.count);
-
-  const allRightNodes: SankeyData["rightNodes"] = [
-    { label: "Critical", count: sevTotals.critical, severity: "critical" as const },
-    { label: "High", count: sevTotals.high, severity: "high" as const },
-    { label: "Medium", count: sevTotals.medium, severity: "medium" as const },
-    { label: "Low", count: sevTotals.low, severity: "low" as const },
-  ];
-  const rightNodes = allRightNodes.filter(n => n.count > 0);
-
-  return { leftNodes, rightNodes, links };
 }
 
 // ── Risk Score ─────────────────────────────────────────────────────────

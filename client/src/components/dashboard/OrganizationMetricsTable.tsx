@@ -1,15 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { buildOrgMetrics } from "@/lib/dashboard-transforms";
 import { GlowCard } from "@/components/ui/glow-card";
 
-export function OrganizationMetricsTable() {
-  const { data: assets = [] } = useQuery<any[]>({
-    queryKey: ["/api/assets"],
-  });
-  const { data: evaluations = [] } = useQuery<any[]>({
-    queryKey: ["/api/aev/evaluations"],
-  });
+export const OrganizationMetricsTable = memo(function OrganizationMetricsTable({ assets = [], evaluations = [] }: { assets: any[]; evaluations: any[] }) {
 
   const rows = useMemo(
     () => buildOrgMetrics(assets, evaluations),
@@ -128,4 +121,4 @@ export function OrganizationMetricsTable() {
       )}
     </GlowCard>
   );
-}
+});

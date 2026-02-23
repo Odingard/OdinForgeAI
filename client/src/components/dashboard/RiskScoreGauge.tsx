@@ -1,13 +1,8 @@
-import { useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, memo, useMemo } from "react";
 import { computeRiskScore, riskScoreColor, riskScoreLabel } from "@/lib/dashboard-transforms";
 import { GlowCard } from "@/components/ui/glow-card";
 
-export function RiskScoreGauge() {
-  const { data: posture } = useQuery<any>({
-    queryKey: ["/api/defensive-posture/default"],
-  });
-
+export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { posture: any }) {
   const score = computeRiskScore(posture);
   const color = riskScoreColor(score);
   const label = riskScoreLabel(score);
@@ -15,6 +10,9 @@ export function RiskScoreGauge() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
   const timeRef = useRef(0);
+  const lastFrameRef = useRef(0);
+  const TARGET_FPS = 20;
+  const FRAME_INTERVAL = 1000 / TARGET_FPS;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,7 +32,13 @@ export function RiskScoreGauge() {
     const ringW = 6;
     const sweepLen = 0.15;
 
-    function draw() {
+    function draw(now: number = 0) {
+      animRef.current = requestAnimationFrame(draw);
+      if (document.hidden) return;
+      const elapsed = now - lastFrameRef.current;
+      if (elapsed < FRAME_INTERVAL) return;
+      lastFrameRef.current = now;
+
       timeRef.current += 0.008;
       const t = timeRef.current;
       ctx!.clearRect(0, 0, size, size);
@@ -160,10 +164,9 @@ export function RiskScoreGauge() {
       }
       ctx!.restore();
 
-      animRef.current = requestAnimationFrame(draw);
     }
 
-    draw();
+    animRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(animRef.current);
   }, [score, color, label]);
 
@@ -191,4 +194,4 @@ export function RiskScoreGauge() {
       </div>
     </GlowCard>
   );
-}
+});

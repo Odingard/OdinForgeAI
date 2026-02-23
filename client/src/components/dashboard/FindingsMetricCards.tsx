@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { memo } from "react";
 import { GlowCard } from "@/components/ui/glow-card";
 
 interface Evaluation {
@@ -6,10 +6,7 @@ interface Evaluation {
   exploitable?: boolean;
 }
 
-export function FindingsMetricCards() {
-  const { data: evaluations = [] } = useQuery<Evaluation[]>({
-    queryKey: ["/api/aev/evaluations"],
-  });
+export const FindingsMetricCards = memo(function FindingsMetricCards({ evaluations = [] }: { evaluations: Evaluation[] }) {
 
   const total = evaluations.length;
   const resolved = evaluations.filter((e) => e.status === "completed").length;
@@ -41,7 +38,7 @@ export function FindingsMetricCards() {
       </div>
     </GlowCard>
   );
-}
+});
 
 function MetricRow({
   label,

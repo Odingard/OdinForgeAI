@@ -1,19 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { memo } from "react";
 import { useLocation } from "wouter";
 import { Zap } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
-import { Evaluation } from "../EvaluationTable";
+import type { DashboardData } from "../Dashboard";
 
-export function DashboardTopBar() {
+export const DashboardTopBar = memo(function DashboardTopBar({ data }: { data: DashboardData }) {
   const [, navigate] = useLocation();
 
-  const { data: evaluations = [] } = useQuery<Evaluation[]>({
-    queryKey: ["/api/aev/evaluations"],
-  });
-  const { data: assets = [] } = useQuery<any[]>({
-    queryKey: ["/api/assets"],
-  });
-
+  const { evaluations, assets } = data;
   const active = evaluations.filter((e) => e.status === "pending" || e.status === "in_progress").length;
   const exploitable = evaluations.filter((e) => e.exploitable === true).length;
 
@@ -144,7 +138,7 @@ export function DashboardTopBar() {
       </div>
     </div>
   );
-}
+});
 
 function MetricBox({ label, value, color }: { label: string; value: number; color: string }) {
   return (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
@@ -12,10 +12,22 @@ import { OnboardingWizard } from "./OnboardingWizard";
 import { Evaluation } from "./EvaluationTable";
 import {
   DashboardTopBar,
-  DashboardLeftPanel,
-  DashboardCenterPanel,
-  DashboardRightPanel,
+  RiskScoreGauge,
+  FindingsMetricCards,
+  FindingsSeverityBreakdown,
+  ReachabilityExploitabilityMatrix,
+  RecentEvaluations,
+  FindingsVsResolvedChart,
+  ScannedAppsSummary,
+  OrganizationMetricsTable,
 } from "./dashboard/index";
+
+/** Shared data shape passed to all dashboard panels */
+export interface DashboardData {
+  evaluations: Evaluation[];
+  assets: any[];
+  posture: any;
+}
 
 interface EvaluationDetailData {
   id: string;
@@ -75,6 +87,13 @@ export function Dashboard() {
   const { data: evaluations = [], isLoading } = useQuery<Evaluation[]>({
     queryKey: ["/api/aev/evaluations"],
   });
+  const { data: assets = [] } = useQuery<any[]>({ queryKey: ["/api/assets"] });
+  const { data: posture } = useQuery<any>({ queryKey: ["/api/defensive-posture/default"] });
+
+  const dashboardData = useMemo<DashboardData>(
+    () => ({ evaluations, assets, posture }),
+    [evaluations, assets, posture],
+  );
 
   // Show onboarding for new users
   useEffect(() => {
@@ -206,28 +225,28 @@ export function Dashboard() {
       </div>
 
       <div className="relative z-10 space-y-0">
-        <DashboardTopBar />
+        <DashboardTopBar data={dashboardData} />
 
-      {/* Three-panel layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-[220px_1fr_220px] gap-2 relative px-2 py-1">
-        {/* Left panel — metrics & charts */}
-        <div className="hidden xl:block">
-          <DashboardLeftPanel />
+      {/* Row 1: Key metric cards */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 px-2 pt-2">
+        <RiskScoreGauge posture={posture} />
+        <FindingsMetricCards evaluations={evaluations} />
+        <FindingsSeverityBreakdown evaluations={evaluations} />
+        <ReachabilityExploitabilityMatrix evaluations={evaluations} />
+      </div>
+
+      {/* Row 2: Recent evaluations + sidebar */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-2 px-2 pt-2">
+        <RecentEvaluations evaluations={evaluations} />
+        <div className="space-y-2">
+          <ScannedAppsSummary assets={assets} />
+          <OrganizationMetricsTable assets={assets} evaluations={evaluations} />
         </div>
+      </div>
 
-        {/* Center panel — Sankey hero visualization */}
-        <DashboardCenterPanel />
-
-        {/* Right panel — severity breakdown & exploitability */}
-        <div className="hidden xl:block">
-          <DashboardRightPanel />
-        </div>
-
-        {/* Mobile: stack panels below */}
-        <div className="xl:hidden grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <DashboardLeftPanel />
-          <DashboardRightPanel />
-        </div>
+      {/* Row 3: Timeline chart */}
+      <div className="px-2 pt-2 pb-2">
+        <FindingsVsResolvedChart evaluations={evaluations} />
       </div>
 
       {/* Modals */}

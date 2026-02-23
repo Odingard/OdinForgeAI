@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { groupAssetsByType } from "@/lib/dashboard-transforms";
 import { GlowCard } from "@/components/ui/glow-card";
 
@@ -10,10 +9,7 @@ const TYPE_COLORS: Record<string, string> = {
   network: "#f59e0b",
 };
 
-export function ScannedAppsSummary() {
-  const { data: assets = [] } = useQuery<any[]>({
-    queryKey: ["/api/assets"],
-  });
+export const ScannedAppsSummary = memo(function ScannedAppsSummary({ assets = [] }: { assets: any[] }) {
 
   const groups = useMemo(() => groupAssetsByType(assets), [assets]);
   const total = assets.length;
@@ -108,4 +104,4 @@ export function ScannedAppsSummary() {
       </div>
     </GlowCard>
   );
-}
+});

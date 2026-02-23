@@ -1,7 +1,4 @@
 export { DashboardTopBar } from "./DashboardTopBar";
-export { DashboardLeftPanel } from "./DashboardLeftPanel";
-export { DashboardCenterPanel } from "./DashboardCenterPanel";
-export { DashboardRightPanel } from "./DashboardRightPanel";
 export { RiskScoreGauge } from "./RiskScoreGauge";
 export { FindingsVsResolvedChart } from "./FindingsVsResolvedChart";
 export { FindingsMetricCards } from "./FindingsMetricCards";
@@ -9,4 +6,4 @@ export { ScannedAppsSummary } from "./ScannedAppsSummary";
 export { FindingsSeverityBreakdown } from "./FindingsSeverityBreakdown";
 export { ReachabilityExploitabilityMatrix } from "./ReachabilityExploitabilityMatrix";
 export { OrganizationMetricsTable } from "./OrganizationMetricsTable";
-export { AssetFlowSankey } from "./AssetFlowSankey";
+export { RecentEvaluations } from "./RecentEvaluations";

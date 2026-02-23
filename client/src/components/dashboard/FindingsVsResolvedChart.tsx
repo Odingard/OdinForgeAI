@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import {
   LineChart,
   Line,
@@ -12,10 +11,7 @@ import {
 import { buildTimeseries } from "@/lib/dashboard-transforms";
 import { GlowCard } from "@/components/ui/glow-card";
 
-export function FindingsVsResolvedChart() {
-  const { data: evaluations = [] } = useQuery<any[]>({
-    queryKey: ["/api/aev/evaluations"],
-  });
+export const FindingsVsResolvedChart = memo(function FindingsVsResolvedChart({ evaluations = [] }: { evaluations: any[] }) {
 
   const series = useMemo(() => buildTimeseries(evaluations, 30), [evaluations]);
 
@@ -134,4 +130,4 @@ export function FindingsVsResolvedChart() {
       </div>
     </GlowCard>
   );
-}
+});

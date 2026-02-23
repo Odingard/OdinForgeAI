@@ -1,14 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { countBySeverity, severityColor } from "@/lib/dashboard-transforms";
 import { GlowCard } from "@/components/ui/glow-card";
 
 const SEVERITY_LABELS = ["critical", "high", "medium", "low"] as const;
 
-export function FindingsSeverityBreakdown() {
-  const { data: evaluations = [] } = useQuery<any[]>({
-    queryKey: ["/api/aev/evaluations"],
-  });
+export const FindingsSeverityBreakdown = memo(function FindingsSeverityBreakdown({ evaluations = [] }: { evaluations: any[] }) {
 
   const counts = useMemo(() => countBySeverity(evaluations), [evaluations]);
   const total = evaluations.length || 1;
@@ -108,4 +104,4 @@ export function FindingsSeverityBreakdown() {
       </div>
     </GlowCard>
   );
-}
+});
