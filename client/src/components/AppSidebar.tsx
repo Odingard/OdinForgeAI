@@ -23,12 +23,7 @@ import {
   Calendar,
   Link2,
   CreditCard,
-  ClipboardCheck,
-  GitBranch,
-  Wrench,
-  ShieldCheck,
   PieChart,
-  Zap,
 } from "lucide-react";
 import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
@@ -64,10 +59,6 @@ const assessItems = [
   { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
   { title: "Live Recon", href: "/recon", icon: Globe },
-  { title: "Simulations", href: "/simulations", icon: Zap },
-  { title: "Security Testing", href: "/security-testing", icon: ShieldCheck },
-  { title: "Lateral Movement", href: "/lateral-movement", icon: GitBranch },
-  { title: "Remediation", href: "/remediation", icon: Wrench },
   { title: "Reports", href: "/reports", icon: FileText },
 ];
 
@@ -76,7 +67,6 @@ const systemItems = [
   { title: "Approvals", href: "/approvals", icon: ShieldAlert },
   { title: "Approval History", href: "/approvals/history", icon: History },
   { title: "Governance", href: "/governance", icon: Shield },
-  { title: "Compliance", href: "/compliance", icon: ClipboardCheck },
   { title: "Advanced", href: "/advanced", icon: Brain },
 ];
 
@@ -231,7 +221,6 @@ export function AppSidebar() {
           </SidebarGroup>
         </Collapsible>
 
-
         <Collapsible defaultOpen className="group/collapsible">
           <SidebarGroup>
             <CollapsibleTrigger asChild>
@@ -265,7 +254,7 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild isActive={isActive("/admin/users")}>
                     <Link href="/admin/users" data-testid="nav-admin-users">
                       <Users className="h-4 w-4" />
                       <span>User Management</span>
@@ -274,7 +263,7 @@ export function AppSidebar() {
                 </SidebarMenuItem>
                 {hasPermission("org:manage_settings") && (
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
+                    <SidebarMenuButton asChild isActive={isActive("/admin/settings")}>
                       <Link href="/admin/settings" data-testid="nav-admin-settings">
                         <Settings className="h-4 w-4" />
                         <span>Settings</span>
