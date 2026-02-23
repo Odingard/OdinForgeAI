@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
@@ -29,8 +29,26 @@ import {
   KeyRound,
   Webhook,
   Activity,
-  Gauge
+  Gauge,
+  Users,
+  CreditCard,
+  Plug,
+  ShieldAlert,
+  FileText,
+  Loader2
 } from "lucide-react";
+
+const UserManagementPanel = lazy(() => import("@/pages/UserManagement"));
+const BillingPanel = lazy(() => import("@/pages/BillingPage"));
+const IntegrationsPanel = lazy(() => import("@/pages/Infrastructure"));
+const GovernancePanel = lazy(() => import("@/pages/Governance"));
+const AuditLogsPanel = lazy(() => import("@/pages/AuditLogs"));
+
+const PanelFallback = () => (
+  <div className="flex items-center justify-center h-64">
+    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+  </div>
+);
 
 interface OrganizationSettings {
   organizationName: string;
@@ -67,8 +85,12 @@ export default function Settings() {
   const { toast } = useToast();
   const { hasPermission } = useAuth();
   const canManageSettings = hasPermission("org:manage_settings");
-  
-  const [activeTab, setActiveTab] = useState("organization");
+  const canManageUsers = hasPermission("org:manage_users");
+
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") || "organization";
+  });
 
   const { data: settings, isLoading } = useQuery<OrganizationSettings>({
     queryKey: ["/api/organization/settings"],
@@ -120,7 +142,7 @@ export default function Settings() {
 
   const hasUnsavedChanges = Object.keys(localSettings).length > 0;
 
-  if (!canManageSettings) {
+  if (!canManageSettings && !canManageUsers) {
     return (
       <div className="space-y-6">
         <Alert variant="destructive">
@@ -176,7 +198,7 @@ export default function Settings() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 max-w-xl">
+        <TabsList className="flex w-full overflow-x-auto">
           <TabsTrigger value="organization" className="flex items-center gap-2" data-testid="tab-organization">
             <Building2 className="h-4 w-4" />
             <span className="hidden sm:inline">Organization</span>
@@ -192,6 +214,28 @@ export default function Settings() {
           <TabsTrigger value="api" className="flex items-center gap-2" data-testid="tab-api">
             <Key className="h-4 w-4" />
             <span className="hidden sm:inline">API</span>
+          </TabsTrigger>
+          {canManageUsers && (
+            <TabsTrigger value="users" className="flex items-center gap-2" data-testid="tab-users">
+              <Users className="h-4 w-4" />
+              <span className="hidden sm:inline">Users</span>
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="billing" className="flex items-center gap-2" data-testid="tab-billing">
+            <CreditCard className="h-4 w-4" />
+            <span className="hidden sm:inline">Billing</span>
+          </TabsTrigger>
+          <TabsTrigger value="integrations" className="flex items-center gap-2" data-testid="tab-integrations">
+            <Plug className="h-4 w-4" />
+            <span className="hidden sm:inline">Integrations</span>
+          </TabsTrigger>
+          <TabsTrigger value="governance" className="flex items-center gap-2" data-testid="tab-governance">
+            <ShieldAlert className="h-4 w-4" />
+            <span className="hidden sm:inline">Governance</span>
+          </TabsTrigger>
+          <TabsTrigger value="audit-logs" className="flex items-center gap-2" data-testid="tab-audit-logs">
+            <FileText className="h-4 w-4" />
+            <span className="hidden sm:inline">Audit Logs</span>
           </TabsTrigger>
         </TabsList>
 
@@ -768,6 +812,38 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {canManageUsers && (
+          <TabsContent value="users" className="mt-6">
+            <Suspense fallback={<PanelFallback />}>
+              <UserManagementPanel />
+            </Suspense>
+          </TabsContent>
+        )}
+
+        <TabsContent value="billing" className="mt-6">
+          <Suspense fallback={<PanelFallback />}>
+            <BillingPanel />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="integrations" className="mt-6">
+          <Suspense fallback={<PanelFallback />}>
+            <IntegrationsPanel />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="governance" className="mt-6">
+          <Suspense fallback={<PanelFallback />}>
+            <GovernancePanel />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="audit-logs" className="mt-6">
+          <Suspense fallback={<PanelFallback />}>
+            <AuditLogsPanel />
+          </Suspense>
         </TabsContent>
       </Tabs>
     </div>

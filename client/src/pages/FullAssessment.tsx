@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -28,6 +28,10 @@ import {
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FullAssessment } from "@shared/schema";
+
+const ApprovalsPanel = lazy(() => import("@/pages/Approvals"));
+const SandboxPanel = lazy(() => import("@/pages/Sandbox"));
+const ExternalReconPanel = lazy(() => import("@/components/ExternalRecon").then(m => ({ default: m.ExternalRecon })));
 
 const statusColors: Record<string, string> = {
   pending: "bg-muted text-muted-foreground",
@@ -790,6 +794,10 @@ export default function FullAssessmentPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [selectedAssessment, setSelectedAssessment] = useState<FullAssessment | null>(null);
+  const [pageTab, setPageTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") || "assessments";
+  });
 
   const { data: assessments = [], isLoading, refetch } = useQuery<FullAssessment[]>({
     queryKey: ["/api/full-assessments"],
@@ -828,6 +836,15 @@ export default function FullAssessmentPage() {
         </div>
       </div>
 
+      <Tabs value={pageTab} onValueChange={setPageTab}>
+        <TabsList>
+          <TabsTrigger value="assessments">Assessments</TabsTrigger>
+          <TabsTrigger value="live-recon">Live Recon</TabsTrigger>
+          <TabsTrigger value="approvals">Approvals</TabsTrigger>
+          <TabsTrigger value="sandbox">Sandbox</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="assessments" className="space-y-6 mt-4">
       {selectedAssessment ? (
         <div className="space-y-4">
           <Button 
@@ -894,6 +911,26 @@ export default function FullAssessmentPage() {
           )}
         </>
       )}
+        </TabsContent>
+
+        <TabsContent value="live-recon" className="mt-4">
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>}>
+            <ExternalReconPanel />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="approvals" className="mt-4">
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>}>
+            <ApprovalsPanel />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="sandbox" className="mt-4">
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-muted-foreground" /></div>}>
+            <SandboxPanel />
+          </Suspense>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

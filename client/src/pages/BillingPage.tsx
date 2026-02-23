@@ -5,7 +5,6 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription,
 } from "@/components/ui/card";
@@ -68,7 +67,7 @@ function StatusBadge({ status }: { status: string }) {
     past_due:   { label: "Past Due",   className: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
     canceled:   { label: "Canceled",   className: "bg-red-500/10 text-red-400 border-red-500/20" },
     unpaid:     { label: "Unpaid",     className: "bg-red-500/10 text-red-400 border-red-500/20" },
-    incomplete: { label: "Incomplete", className: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20" },
+    incomplete: { label: "Incomplete", className: "bg-zinc-500/10 text-muted-foreground border-zinc-500/20" },
   };
   const c = config[status] ?? config.incomplete!;
   return (
@@ -81,7 +80,7 @@ function StatusBadge({ status }: { status: string }) {
 function UsageMeter({ usage, limit }: { usage: number; limit: number | null }) {
   if (limit === null) {
     return (
-      <div className="flex items-center gap-2 text-sm text-zinc-400">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Zap className="h-4 w-4 text-cyan-400" />
         <span>Unlimited evaluations</span>
       </div>
@@ -94,14 +93,14 @@ function UsageMeter({ usage, limit }: { usage: number; limit: number | null }) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
-        <span className="text-zinc-400">Evaluations this period</span>
-        <span className={maxed ? "text-red-400 font-medium" : near ? "text-amber-400 font-medium" : "text-zinc-300"}>
+        <span className="text-muted-foreground">Evaluations this period</span>
+        <span className={maxed ? "text-red-400 font-medium" : near ? "text-amber-400 font-medium" : "text-foreground"}>
           {usage} / {limit}
         </span>
       </div>
       <Progress
         value={pct}
-        className="h-2 bg-zinc-800"
+        className="h-2 bg-muted"
       />
       {near && !maxed && (
         <p className="text-xs text-amber-400">
@@ -124,7 +123,7 @@ const PLAN_ICONS: Record<string, React.ReactNode> = {
 };
 
 const PLAN_COLORS: Record<string, string> = {
-  starter:    "border-zinc-700 hover:border-zinc-600",
+  starter:    "border-border hover:border-zinc-600",
   pro:        "border-cyan-700 hover:border-cyan-600 ring-1 ring-cyan-700/30",
   enterprise: "border-purple-700 hover:border-purple-600",
 };
@@ -153,8 +152,8 @@ function PlanFeatureList({ features }: { features: Record<string, unknown> }) {
         <li key={item.label} className="flex items-center gap-2 text-sm">
           {item.available
             ? <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
-            : <XCircle className="h-4 w-4 text-zinc-600 shrink-0" />}
-          <span className={item.available ? "text-zinc-300" : "text-zinc-600"}>
+            : <XCircle className="h-4 w-4 text-muted-foreground shrink-0" />}
+          <span className={item.available ? "text-foreground" : "text-muted-foreground"}>
             {item.label}
           </span>
         </li>
@@ -166,7 +165,6 @@ function PlanFeatureList({ features }: { features: Record<string, unknown> }) {
 // —— Main component ———————————————————————————————————————————————
 
 export default function BillingPage() {
-  const [, navigate] = useLocation();
   const { toast }    = useToast();
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
@@ -175,15 +173,15 @@ export default function BillingPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("success") === "true") {
       toast({ title: "Subscription activated!", description: "Welcome to OdinForge." });
-      window.history.replaceState({}, "", "/billing");
+      window.history.replaceState({}, "", "/admin/settings?tab=billing");
     }
     if (params.get("canceled") === "true") {
       toast({ title: "Checkout canceled", description: "No charges were made.", variant: "destructive" });
-      window.history.replaceState({}, "", "/billing");
+      window.history.replaceState({}, "", "/admin/settings?tab=billing");
     }
     if (params.get("upgrade") === "true") {
       toast({ title: "Upgrade needed", description: "You've reached your plan limit.", variant: "destructive" });
-      window.history.replaceState({}, "", "/billing");
+      window.history.replaceState({}, "", "/admin/settings?tab=billing");
     }
   }, [toast]);
 
@@ -238,7 +236,7 @@ export default function BillingPage() {
   // —— Loading state ———————————————————————————————————————————
   if (subLoading || plansLoading) {
     return (
-      <div className="min-h-screen bg-[hsl(220_30%_4%)] flex items-center justify-center">
+      <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 text-cyan-400 animate-spin" />
       </div>
     );
@@ -246,10 +244,10 @@ export default function BillingPage() {
 
   if (subError) {
     return (
-      <div className="min-h-screen bg-[hsl(220_30%_4%)] flex items-center justify-center">
+      <div className="flex items-center justify-center h-64">
         <div className="text-center space-y-3">
           <AlertTriangle className="h-10 w-10 text-red-400 mx-auto" />
-          <p className="text-zinc-400">Failed to load billing information</p>
+          <p className="text-muted-foreground">Failed to load billing information</p>
           <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Retry
@@ -271,13 +269,12 @@ export default function BillingPage() {
     : 0;
 
   return (
-    <div className="min-h-screen bg-[hsl(220_30%_4%)] text-zinc-100">
-      <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
+    <div className="space-y-8">
 
         {/* Page header */}
         <div>
-          <h1 className="text-2xl font-bold text-white">Billing & Subscription</h1>
-          <p className="text-zinc-400 mt-1 text-sm">Manage your OdinForge plan and usage</p>
+          <h1 className="text-2xl font-bold text-foreground">Billing & Subscription</h1>
+          <p className="text-muted-foreground mt-1 text-sm">Manage your OdinForge plan and usage</p>
         </div>
 
         {/* Status alerts */}
@@ -309,8 +306,8 @@ export default function BillingPage() {
         )}
 
         {isCanceled && (
-          <Alert className="border-zinc-600/30 bg-zinc-800/30">
-            <AlertDescription className="text-zinc-400">
+          <Alert className="border-zinc-600/30 bg-muted/30">
+            <AlertDescription className="text-muted-foreground">
               Your subscription has been canceled. Access expires at end of billing period.
             </AlertDescription>
           </Alert>
@@ -318,10 +315,10 @@ export default function BillingPage() {
 
         {/* Current plan summary */}
         {sub && (
-          <Card className="bg-[hsl(220_25%_7%)] border-zinc-800">
+          <Card className="bg-card border-border">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold text-white">
+                <CardTitle className="text-base font-semibold text-foreground">
                   Current Plan
                 </CardTitle>
                 <StatusBadge status={sub.status} />
@@ -330,8 +327,8 @@ export default function BillingPage() {
             <CardContent className="space-y-5">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-2xl font-bold text-white">{sub.planName}</p>
-                  <p className="text-zinc-400 text-sm mt-0.5">
+                  <p className="text-2xl font-bold text-foreground">{sub.planName}</p>
+                  <p className="text-muted-foreground text-sm mt-0.5">
                     {sub.priceMonthlyCents === 0
                       ? "Free trial"
                       : `$${(sub.priceMonthlyCents / 100).toFixed(0)}/month`}
@@ -339,7 +336,7 @@ export default function BillingPage() {
                 </div>
                 {isOnTrial && trialDaysLeft > 0 && (
                   <div className="text-right">
-                    <p className="text-sm text-zinc-400">Trial ends</p>
+                    <p className="text-sm text-muted-foreground">Trial ends</p>
                     <p className="text-sm font-medium text-cyan-400">
                       {trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""} remaining
                     </p>
@@ -347,8 +344,8 @@ export default function BillingPage() {
                 )}
                 {sub.currentPeriodEnd && sub.status === "active" && (
                   <div className="text-right">
-                    <p className="text-sm text-zinc-400">Next billing</p>
-                    <p className="text-sm font-medium text-zinc-300">
+                    <p className="text-sm text-muted-foreground">Next billing</p>
+                    <p className="text-sm font-medium text-foreground">
                       {new Date(sub.currentPeriodEnd).toLocaleDateString("en-US", {
                         month: "short", day: "numeric", year: "numeric",
                       })}
@@ -364,11 +361,11 @@ export default function BillingPage() {
 
               {/* Portal button */}
               {sub.stripeSubscriptionId && (
-                <div className="pt-2 border-t border-zinc-800">
+                <div className="pt-2 border-t border-border">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="border-zinc-700 text-zinc-400 hover:text-zinc-100"
+                    className="border-border text-muted-foreground hover:text-foreground"
                     onClick={() => portalMutation.mutate()}
                     disabled={portalMutation.isPending}
                   >
@@ -386,7 +383,7 @@ export default function BillingPage() {
 
         {/* Plan cards */}
         <div>
-          <h2 className="text-base font-semibold text-white mb-4">
+          <h2 className="text-base font-semibold text-foreground mb-4">
             {sub?.status === "active" && sub?.planId !== "trial" ? "Switch Plan" : "Choose a Plan"}
           </h2>
 
@@ -399,7 +396,7 @@ export default function BillingPage() {
               return (
                 <Card
                   key={plan.id}
-                  className={`bg-[hsl(220_25%_7%)] transition-colors relative ${PLAN_COLORS[plan.id] ?? "border-zinc-700"}`}
+                  className={`bg-card transition-colors relative ${PLAN_COLORS[plan.id] ?? "border-border"}`}
                 >
                   {badge && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -412,15 +409,15 @@ export default function BillingPage() {
                   <CardHeader className="pb-2 pt-5">
                     <div className="flex items-center gap-2 text-cyan-400 mb-1">
                       {PLAN_ICONS[plan.id]}
-                      <CardTitle className="text-base text-white">{plan.displayName}</CardTitle>
+                      <CardTitle className="text-base text-foreground">{plan.displayName}</CardTitle>
                     </div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-bold text-white">
+                      <span className="text-3xl font-bold text-foreground">
                         ${(plan.priceMonthlyCents / 100).toFixed(0)}
                       </span>
-                      <span className="text-zinc-500 text-sm">/month</span>
+                      <span className="text-muted-foreground text-sm">/month</span>
                     </div>
-                    <CardDescription className="text-zinc-500 text-xs mt-1">
+                    <CardDescription className="text-muted-foreground text-xs mt-1">
                       {plan.evaluationLimit !== null
                         ? `${plan.evaluationLimit} evaluations/mo · ${plan.userLimit} users`
                         : `Unlimited evaluations · ${plan.userLimit} users`}
@@ -433,10 +430,10 @@ export default function BillingPage() {
                     <Button
                       className={`w-full mt-2 ${
                         isCurrent
-                          ? "bg-zinc-800 text-zinc-500 cursor-default"
+                          ? "bg-muted text-muted-foreground cursor-default"
                           : plan.id === "pro"
                             ? "bg-cyan-600 hover:bg-cyan-500 text-black font-semibold"
-                            : "bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                            : "bg-muted hover:bg-zinc-700 text-zinc-200"
                       }`}
                       disabled={isCurrent || isLoading}
                       onClick={() => !isCurrent && handleUpgrade(plan.id)}
@@ -461,13 +458,12 @@ export default function BillingPage() {
             })}
           </div>
 
-          <p className="text-xs text-zinc-600 text-center mt-4">
+          <p className="text-xs text-muted-foreground text-center mt-4">
             All plans include a 14-day free trial. Cancel anytime. No contracts.
             Enterprise customers can request an annual invoice.
           </p>
         </div>
 
-      </div>
     </div>
   );
 }

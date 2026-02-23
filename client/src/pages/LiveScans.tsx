@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { DataTable, DataTableColumn, DataTableAction } from "@/components/shared/DataTable";
@@ -18,6 +18,8 @@ import {
   AlertTriangle,
   FileText,
 } from "lucide-react";
+
+const SessionsPanel = lazy(() => import("@/pages/Sessions"));
 
 interface LiveScan {
   id: string;
@@ -47,6 +49,10 @@ interface ScanFinding {
 }
 
 export default function LiveScans() {
+  const [pageTab, setPageTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") || "active-scans";
+  });
   const [selectedScan, setSelectedScan] = useState<LiveScan | null>(null);
 
   const { data: scans = [], isLoading } = useQuery<LiveScan[]>({
@@ -270,6 +276,13 @@ export default function LiveScans() {
         </p>
       </div>
 
+      <Tabs value={pageTab} onValueChange={setPageTab}>
+        <TabsList>
+          <TabsTrigger value="active-scans">Active Scans</TabsTrigger>
+          <TabsTrigger value="sessions">Sessions</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="active-scans" className="space-y-6 mt-4">
       {/* Metrics */}
       <MetricsGrid metrics={metrics} />
 
@@ -338,6 +351,15 @@ export default function LiveScans() {
           />
         </CardContent>
       </Card>
+
+        </TabsContent>
+
+        <TabsContent value="sessions" className="mt-4">
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
+            <SessionsPanel />
+          </Suspense>
+        </TabsContent>
+      </Tabs>
 
       {/* Scan Details Dialog */}
       <Dialog open={!!selectedScan} onOpenChange={() => setSelectedScan(null)}>

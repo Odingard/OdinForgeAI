@@ -2,28 +2,12 @@ import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
   Server,
-  Building2,
-  BarChart3,
-  FileText,
-  Shield,
-  Bot,
-  Brain,
-  ChevronDown,
-  Settings,
-  Users,
   ScanSearch,
-  Globe,
-  FlaskConical,
-  ShieldAlert,
-  History,
-  ListChecks,
-  Activity,
-  UserCheck,
+  Link2,
   Radar,
   Calendar,
-  Link2,
-  CreditCard,
-  PieChart,
+  FileText,
+  Settings,
 } from "lucide-react";
 import { OdinForgeLogo } from "./OdinForgeLogo";
 import {
@@ -31,63 +15,34 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { roleMetadata } from "@shared/schema";
 
-const mainNavItems = [
+const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
-  { title: "CISO Dashboard", href: "/dashboard/ciso", icon: PieChart },
   { title: "Assets", href: "/assets", icon: Server },
-  { title: "Integrations", href: "/infrastructure", icon: Building2 },
-  { title: "Risk Dashboard", href: "/risk", icon: BarChart3 },
-];
-
-const assessItems = [
   { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
-  { title: "Live Recon", href: "/recon", icon: Globe },
-  { title: "Reports", href: "/reports", icon: FileText },
-];
-
-const systemItems = [
-  { title: "Agents", href: "/agents", icon: Bot },
-  { title: "Approvals", href: "/approvals", icon: ShieldAlert },
-  { title: "Approval History", href: "/approvals/history", icon: History },
-  { title: "Governance", href: "/governance", icon: Shield },
-  { title: "Advanced", href: "/advanced", icon: Brain },
-];
-
-const operationsItems = [
-  { title: "Jobs", href: "/jobs", icon: ListChecks },
-  { title: "System Health", href: "/health", icon: Activity },
-  { title: "Audit Logs", href: "/audit", icon: FileText },
-];
-
-const advancedItems = [
-  { title: "Sessions", href: "/sessions", icon: UserCheck },
   { title: "Live Scans", href: "/scans", icon: Radar },
   { title: "Scheduled Scans", href: "/scheduled-scans", icon: Calendar },
-  { title: "Sandbox", href: "/sandbox", icon: FlaskConical },
+  { title: "Reports", href: "/reports", icon: FileText },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, hasPermission } = useAuth();
 
-  const isActive = (href: string) => location === href;
+  const isActive = (href: string) => {
+    if (href === "/admin/settings") return location.startsWith("/admin/settings");
+    return location === href;
+  };
 
   const getRoleBadgeStyle = (role: string) => {
     switch (role) {
@@ -123,10 +78,9 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {navItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={isActive(item.href)}>
                     <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -136,153 +90,19 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {(hasPermission("org:manage_settings") || hasPermission("org:manage_users")) && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/admin/settings")}>
+                    <Link href="/admin/settings" data-testid="nav-settings">
+                      <Settings className="h-4 w-4" />
+                      <span>Settings</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-
-        <Collapsible defaultOpen className="group/collapsible">
-          <SidebarGroup>
-            <CollapsibleTrigger asChild>
-              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
-                Assess
-                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-              </SidebarGroupLabel>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {assessItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
-                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </CollapsibleContent>
-          </SidebarGroup>
-        </Collapsible>
-
-        <Collapsible defaultOpen className="group/collapsible">
-          <SidebarGroup>
-            <CollapsibleTrigger asChild>
-              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
-                System
-                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-              </SidebarGroupLabel>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {systemItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
-                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </CollapsibleContent>
-          </SidebarGroup>
-        </Collapsible>
-
-        <Collapsible defaultOpen className="group/collapsible">
-          <SidebarGroup>
-            <CollapsibleTrigger asChild>
-              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
-                Operations
-                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-              </SidebarGroupLabel>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {operationsItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
-                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </CollapsibleContent>
-          </SidebarGroup>
-        </Collapsible>
-
-        <Collapsible defaultOpen className="group/collapsible">
-          <SidebarGroup>
-            <CollapsibleTrigger asChild>
-              <SidebarGroupLabel className="cursor-pointer hover-elevate rounded-md">
-                Advanced
-                <ChevronDown className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-180" />
-              </SidebarGroupLabel>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {advancedItems.map((item) => (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton asChild isActive={isActive(item.href)}>
-                        <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </CollapsibleContent>
-          </SidebarGroup>
-        </Collapsible>
-
-        {hasPermission("org:manage_users") && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Administration</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={isActive("/admin/users")}>
-                    <Link href="/admin/users" data-testid="nav-admin-users">
-                      <Users className="h-4 w-4" />
-                      <span>User Management</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                {hasPermission("org:manage_settings") && (
-                  <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={isActive("/admin/settings")}>
-                      <Link href="/admin/settings" data-testid="nav-admin-settings">
-                        <Settings className="h-4 w-4" />
-                        <span>Settings</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )}
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={isActive("/billing")}>
-                    <Link href="/billing" data-testid="nav-billing">
-                      <CreditCard className="h-4 w-4" />
-                      <span>Billing</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-border p-4">
