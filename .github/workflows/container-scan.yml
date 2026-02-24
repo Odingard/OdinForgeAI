@@ -29,7 +29,7 @@ jobs:
 
       - name: Trivy scan (fail on critical)
         if: steps.dockerfile.outputs.found == 'true'
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: odinforge-aev:ci
           severity: CRITICAL
@@ -40,7 +40,7 @@ jobs:
 
       - name: Trivy scan (report high — advisory)
         if: steps.dockerfile.outputs.found == 'true'
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: odinforge-aev:ci
           severity: HIGH
@@ -51,7 +51,7 @@ jobs:
 
       - name: Trivy scan (write report)
         if: steps.dockerfile.outputs.found == 'true'
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: odinforge-aev:ci
           vuln-type: os,library
