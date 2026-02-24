@@ -61,7 +61,7 @@ jobs:
 
       - name: Upload Trivy report
         if: always() && steps.dockerfile.outputs.found == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: trivy-report
           path: trivy.sarif

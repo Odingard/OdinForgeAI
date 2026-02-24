@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload benchmark report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-report-juice-shop
           path: artifacts/benchmark-report-juice-shop.json
@@ -162,7 +162,7 @@ jobs:
 
       - name: Upload benchmark report (${{ matrix.target }})
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-report-${{ matrix.target }}
           path: artifacts/benchmark-report-${{ matrix.target }}.json
@@ -242,7 +242,7 @@ jobs:
 
       - name: Upload breach chain report (${{ matrix.target }})
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: breach-chain-report-${{ matrix.target }}
           path: artifacts/breach-chain-report-${{ matrix.target }}.json
@@ -306,7 +306,7 @@ jobs:
 
       - name: Upload alloy benchmark report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-report-alloy
           path: artifacts/benchmark-report-alloy.json
