@@ -1,30 +1,26 @@
 import { useMemo, memo } from "react";
-import { computeRiskScore, riskScoreLabel } from "@/lib/dashboard-transforms";
 
 export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { posture: any }) {
-  const score = computeRiskScore(posture);
-  const label = riskScoreLabel(score);
-  const isHot = score >= 70;
-  const displayScore = (score / 10).toFixed(1);
+  const score = useMemo(() => {
+    const raw = posture?.overallScore ?? posture?.score ?? 0;
+    return Math.min(10, Math.max(0, raw / 10));
+  }, [posture]);
+
+  const isHot = score >= 7;
 
   return (
-    <div className={`falcon-kpi ${isHot ? "hot" : ""}`}>
-      <div className="flex items-center gap-[7px] text-[10px] font-medium tracking-wider uppercase" style={{ color: "var(--falcon-t3)" }}>
-        <span className="w-[5px] h-[5px] rounded-full" style={{ background: isHot ? "var(--falcon-red)" : "var(--falcon-t4)" }} />
-        Risk Score
+    <div className={`f-kpi ${isHot ? "hot" : ""}`}>
+      <div className="f-kpi-lbl">
+        <span className={`f-kpi-dot ${isHot ? "r" : "b"}`} />
+        Threat Level
       </div>
-      <div
-        className="font-mono text-[32px] font-medium leading-none tracking-tight"
-        style={{ color: isHot ? "var(--falcon-red)" : "var(--falcon-t1)", letterSpacing: "-0.02em" }}
-      >
-        {displayScore}
+      <div className={`f-kpi-val ${isHot ? "r" : "b"}`}>
+        {score.toFixed(1)}
       </div>
-      <div className="text-[10px]" style={{ color: "var(--falcon-t3)" }}>
-        {isHot ? (
-          <span className="sev-chip sc-crit">{label.toUpperCase()}</span>
-        ) : (
-          <span>{label}</span>
-        )}
+      <div className="f-kpi-foot">
+        <span className={`f-kpi-tag ${isHot ? "r" : "g"}`}>
+          {isHot ? "Critical" : "Normal"}
+        </span>
       </div>
     </div>
   );

@@ -16,7 +16,6 @@ import { DemoDataBanner } from "./components/DemoDataBanner";
 import { TrialBanner } from "./components/TrialBanner";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
-import { roleMetadata } from "@shared/schema";
 import {
   LayoutDashboard,
   Zap,
@@ -24,7 +23,6 @@ import {
   Shield,
   Activity,
   FileText,
-  Search,
   Server,
   Settings,
   Calendar,
@@ -32,7 +30,7 @@ import {
   Link2,
   ChevronRight,
   LogOut,
-  User,
+  Bell,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -42,7 +40,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-// Lazy load pages for code splitting
+// Lazy load pages
 const Assets = lazy(() => import("@/pages/Assets"));
 const Reports = lazy(() => import("@/pages/Reports"));
 const Agents = lazy(() => import("@/pages/Agents"));
@@ -63,15 +61,12 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
     super(props);
     this.state = { hasError: false, error: null };
   }
-
   static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
-
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("[AppErrorBoundary]", error, errorInfo);
   }
-
   render() {
     if (this.state.hasError) {
       return (
@@ -79,14 +74,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
           <div className="max-w-lg w-full space-y-4">
             <h1 className="text-2xl font-bold text-destructive">Something went wrong</h1>
             <pre className="text-sm bg-muted p-4 rounded-lg overflow-auto max-h-64 text-foreground">
-              {this.state.error?.message}
-              {"\n\n"}
-              {this.state.error?.stack}
+              {this.state.error?.message}{"\n\n"}{this.state.error?.stack}
             </pre>
-            <button
-              onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
-            >
+            <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }} className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm">
               Reload Page
             </button>
           </div>
@@ -110,7 +100,6 @@ function PageLoader() {
 
 function Router() {
   const isAevOnly = useAevOnlyMode();
-
   return (
     <AppErrorBoundary>
     <Suspense fallback={<PageLoader />}>
@@ -150,7 +139,7 @@ function Router() {
   );
 }
 
-/* ── Page name from route ── */
+/* ── Route labels ── */
 const ROUTE_LABELS: Record<string, [string, string]> = {
   "/": ["Operations", "Dashboard"],
   "/assets": ["Intelligence", "Assets"],
@@ -173,55 +162,67 @@ function TopBar() {
 
   const handleLogout = async () => { await logout(); window.location.reload(); };
 
-  const [group, page] = ROUTE_LABELS[location] || ["Operations", "Page"];
+  const [, page] = ROUTE_LABELS[location] || ["Operations", "Page"];
   const critCount = evaluations.filter((e: any) => (e.priority || e.severity || "").toLowerCase() === "critical").length;
   const activeCount = evaluations.filter((e: any) => e.status === "in_progress").length;
+  const breachCount = evaluations.filter((e: any) => e.exploitable).length;
 
   return (
-    <div className="col-span-full h-[52px] flex items-center" style={{ background: "var(--falcon-panel)", borderBottom: "1px solid var(--falcon-border)" }}>
-      {/* Logo */}
-      <div className="w-[268px] h-full flex items-center gap-[10px] px-4 shrink-0" style={{ borderRight: "1px solid var(--falcon-border)" }}>
-        <div className="w-7 h-7 shrink-0 rounded-[5px] flex items-center justify-center" style={{ background: "var(--falcon-red)" }}>
+    <div
+      className="col-span-full h-[52px] flex items-center"
+      style={{ background: "var(--falcon-panel)", borderBottom: "1px solid var(--falcon-border)" }}
+    >
+      {/* Logo block — matches sidebar width */}
+      <div
+        className="w-[248px] h-full flex items-center gap-[11px] px-[18px] shrink-0"
+        style={{ borderRight: "1px solid var(--falcon-border)" }}
+      >
+        <div className="w-[30px] h-[30px] shrink-0 rounded-[6px] flex items-center justify-center" style={{ background: "var(--falcon-red)" }}>
           <ShieldValknut className="w-4 h-4 text-white" />
         </div>
-        <div>
-          <div className="text-sm font-bold tracking-tight leading-none" style={{ color: "var(--falcon-t1)" }}>
+        <div className="flex flex-col gap-px">
+          <div className="text-[14px] font-bold tracking-[-0.01em] leading-none" style={{ color: "var(--falcon-t1)" }}>
             Odin<span style={{ color: "var(--falcon-red)" }}>Forge</span>
           </div>
-          <div className="font-mono text-[8px] font-light tracking-[0.2em] mt-0.5" style={{ color: "var(--falcon-t3)" }}>
+          <div className="font-mono text-[8px] font-light tracking-[0.2em]" style={{ color: "var(--falcon-t4)" }}>
             AEV PLATFORM
           </div>
         </div>
       </div>
 
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 px-4 text-xs" style={{ color: "var(--falcon-t3)" }}>
-        <span>{group}</span>
-        <ChevronRight className="w-3 h-3" style={{ color: "var(--falcon-t4)" }} />
-        <span className="font-medium" style={{ color: "var(--falcon-t2)" }}>{page}</span>
+      {/* Page info */}
+      <div className="flex flex-col gap-[2px] px-5">
+        <div className="text-[13px] font-semibold" style={{ color: "var(--falcon-t1)" }}>{page}</div>
+        <div className="text-[10px] font-mono tracking-[0.06em]" style={{ color: "var(--falcon-t3)" }}>
+          Threat Operations Center
+        </div>
       </div>
 
       {/* Alert badge */}
-      {critCount > 0 && (
+      {breachCount > 0 && (
         <div
-          className="flex items-center gap-[7px] py-[5px] px-3 rounded cursor-pointer ml-2 transition-colors"
+          className="flex items-center gap-[7px] py-[5px] px-3 rounded cursor-pointer ml-4"
           style={{ background: "var(--falcon-red-dim)", border: "1px solid var(--falcon-red-border)" }}
         >
-          <div className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--falcon-red)", animation: "alert-pip 1.8s ease-in-out infinite" }} />
-          <span className="font-mono text-[10px] font-medium tracking-wider" style={{ color: "var(--falcon-red)" }}>
-            {critCount} CRITICAL FINDING{critCount !== 1 ? "S" : ""}
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--falcon-red)", animation: "f-blink 1.8s ease-in-out infinite" }} />
+          <span className="font-mono text-[9.5px] font-medium tracking-[0.08em]" style={{ color: "var(--falcon-red)" }}>
+            {breachCount} BREACH PATH{breachCount !== 1 ? "S" : ""} DETECTED
           </span>
         </div>
       )}
 
-      {/* Right stats */}
+      {/* Right stats + user */}
       <div className="ml-auto flex items-stretch h-full">
-        <TopBarStat value={String(activeCount)} label="Active Ops" color="var(--falcon-blue)" />
-        <TopBarStat value={String(critCount)} label="Critical" color="var(--falcon-red)" />
-        <TopBarStat value={String(evaluations.length)} label="Evaluations" color="var(--falcon-t1)" />
+        <TopBarStat value={String(activeCount)} label="Active Ops" color="var(--falcon-blue-hi)" />
+        <TopBarStat value={String(critCount)} label="Critical" color={critCount > 0 ? "var(--falcon-red)" : "var(--falcon-t1)"} />
+        <TopBarStat value={String(evaluations.length)} label="Exploits" color="var(--falcon-t1)" />
+        <TopBarStat value="NOMINAL" label="Engine" color="var(--falcon-green)" />
 
         {/* Notifications */}
-        <div className="flex items-center px-3" style={{ borderLeft: "1px solid var(--falcon-border)" }}>
+        <div
+          className="flex items-center justify-center w-12 cursor-pointer relative transition-colors"
+          style={{ borderLeft: "1px solid var(--falcon-border)", color: "var(--falcon-t3)" }}
+        >
           <NotificationsPopover />
         </div>
 
@@ -229,21 +230,21 @@ function TopBar() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <div
-              className="flex items-center gap-[9px] px-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
+              className="flex items-center gap-[10px] px-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
               style={{ borderLeft: "1px solid var(--falcon-border)" }}
               data-testid="button-user-menu"
             >
               <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold"
-                style={{ background: "var(--falcon-blue-dim)", border: "1px solid rgba(59,130,246,0.3)", color: "var(--falcon-blue)" }}
+                className="w-[30px] h-[30px] rounded-full flex items-center justify-center text-[11px] font-bold"
+                style={{ background: "var(--falcon-red)", color: "#fff" }}
               >
                 {(uiUser?.displayName?.charAt(0) || uiUser?.email?.charAt(0) || "U").toUpperCase()}
               </div>
               <div>
-                <div className="text-xs font-medium" style={{ color: "var(--falcon-t1)" }}>
+                <div className="text-[12px] font-medium" style={{ color: "var(--falcon-t1)" }}>
                   {uiUser?.displayName || uiUser?.email || "User"}
                 </div>
-                <div className="font-mono text-[9px] tracking-wider" style={{ color: "var(--falcon-t3)" }}>
+                <div className="font-mono text-[9px] tracking-[0.08em]" style={{ color: "var(--falcon-t3)" }}>
                   {(uiUser?.role?.name || "OPERATOR").toUpperCase()}
                 </div>
               </div>
@@ -263,8 +264,7 @@ function TopBar() {
             <DropdownMenuItem data-testid="menu-settings">Settings</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} data-testid="menu-logout" className="text-red-400 focus:text-red-400">
-              <LogOut className="h-4 w-4 mr-2" />
-              Log out
+              <LogOut className="h-4 w-4 mr-2" />Log out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -276,64 +276,8 @@ function TopBar() {
 function TopBarStat({ value, label, color }: { value: string; label: string; color: string }) {
   return (
     <div className="flex flex-col items-center justify-center px-4 gap-px" style={{ borderLeft: "1px solid var(--falcon-border)" }}>
-      <div className="font-mono text-[15px] font-medium leading-none" style={{ color }}>{value}</div>
-      <div className="text-[9px] font-normal tracking-[0.15em] uppercase" style={{ color: "var(--falcon-t3)" }}>{label}</div>
-    </div>
-  );
-}
-
-/* ══════════════════════════
-   ICON RAIL
-══════════════════════════ */
-interface RailItem {
-  icon: typeof LayoutDashboard;
-  href: string;
-  label: string;
-}
-
-const RAIL_ITEMS: RailItem[] = [
-  { icon: LayoutDashboard, href: "/", label: "Dashboard" },
-  { icon: Zap, href: "/full-assessment", label: "Assessments" },
-  { icon: AlertCircle, href: "/breach-chains", label: "Findings" },
-  { icon: Shield, href: "/breach-chains", label: "Breach Chains" },
-  { icon: Activity, href: "/scans", label: "Live Scans" },
-  { icon: FileText, href: "/reports", label: "Reports" },
-];
-
-function IconRail() {
-  const [location] = useLocation();
-
-  const isActive = (href: string) => {
-    if (href === "/") return location === "/";
-    return location.startsWith(href);
-  };
-
-  return (
-    <div
-      className="flex flex-col items-center py-2 gap-0.5"
-      style={{ background: "var(--falcon-nav)", borderRight: "1px solid var(--falcon-border)" }}
-    >
-      {RAIL_ITEMS.map((item) => (
-        <Link key={item.href + item.label} href={item.href}>
-          <div
-            className={`w-9 h-9 flex items-center justify-center rounded-md cursor-pointer transition-all ${
-              isActive(item.href) ? "text-falcon-t1 bg-white/[0.07]" : "text-falcon-t3 hover:text-falcon-t2 hover:bg-white/[0.04]"
-            }`}
-            title={item.label}
-          >
-            <item.icon className="w-4 h-4" />
-          </div>
-        </Link>
-      ))}
-      <div className="flex-1" />
-      <Link href="/admin/settings">
-        <div
-          className="w-9 h-9 flex items-center justify-center rounded-md cursor-pointer transition-all text-falcon-t3 hover:text-falcon-t2 hover:bg-white/[0.04]"
-          title="Settings"
-        >
-          <Settings className="w-4 h-4" />
-        </div>
-      </Link>
+      <div className="font-mono text-[14px] font-medium leading-none" style={{ color }}>{value}</div>
+      <div className="text-[9px] font-normal tracking-[0.14em] uppercase" style={{ color: "var(--falcon-t3)" }}>{label}</div>
     </div>
   );
 }
@@ -345,7 +289,7 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   title: string;
   href: string;
-  badge?: { count: number; style: string };
+  badge?: { count: number; style: "r" | "d" };
   aevHidden?: boolean;
 }
 
@@ -353,7 +297,9 @@ function FalconSidebar() {
   const [location] = useLocation();
   const isAevOnly = useAevOnlyMode();
   const { hasPermission } = useAuth();
+  const { user: uiUser } = useUIAuth();
   const { data: evaluations = [] } = useQuery<any[]>({ queryKey: ["/api/aev/evaluations"] });
+  const { data: assets = [] } = useQuery<any[]>({ queryKey: ["/api/assets"] });
 
   const critCount = evaluations.filter((e: any) => (e.priority || e.severity || "").toLowerCase() === "critical").length;
   const activeCount = evaluations.filter((e: any) => e.status === "in_progress" || e.status === "pending").length;
@@ -364,18 +310,16 @@ function FalconSidebar() {
     return location.startsWith(href);
   };
 
-  const opsItems: NavItem[] = [
+  const coreItems: NavItem[] = [
     { icon: LayoutDashboard, title: "Dashboard", href: "/" },
-    { icon: Zap, title: "Assessments", href: "/full-assessment", badge: activeCount > 0 ? { count: activeCount, style: "nb-d" } : undefined },
-    { icon: AlertCircle, title: "Findings", href: "/full-assessment", badge: critCount > 0 ? { count: critCount, style: "nb-r" } : undefined },
-    { icon: Shield, title: "Breach Chains", href: "/breach-chains", badge: breachCount > 0 ? { count: breachCount, style: "nb-r" } : undefined },
-    { icon: Radar, title: "Live Scans", href: "/scans" },
-    { icon: Calendar, title: "Scheduled Scans", href: "/scheduled-scans", aevHidden: true },
+    { icon: Server, title: "Assets", href: "/assets", badge: assets.length > 0 ? { count: assets.length, style: "d" } : undefined },
+    { icon: Shield, title: "Assessments", href: "/full-assessment", badge: activeCount > 0 ? { count: activeCount, style: "d" } : undefined },
+    { icon: Link2, title: "Breach Chains", href: "/breach-chains", badge: breachCount > 0 ? { count: breachCount, style: "r" } : undefined },
   ];
 
-  const intelItems: NavItem[] = [
-    { icon: Server, title: "Assets", href: "/assets" },
-    { icon: Link2, title: "Lateral Movement", href: "/breach-chains" },
+  const opsItems: NavItem[] = [
+    { icon: Radar, title: "Live Scans", href: "/scans", badge: activeCount > 0 ? { count: activeCount, style: "d" } : undefined },
+    { icon: Calendar, title: "Scheduled Scans", href: "/scheduled-scans", aevHidden: true },
     { icon: FileText, title: "Reports", href: "/reports" },
   ];
 
@@ -383,27 +327,24 @@ function FalconSidebar() {
 
   const renderItem = (item: NavItem) => {
     if (isAevOnly && item.aevHidden) return null;
+    const active = isActive(item.href);
     return (
       <Link key={item.href + item.title} href={item.href}>
         <div
-          className={`flex items-center gap-[9px] py-2 px-[14px] cursor-pointer text-[12.5px] transition-all ${
-            isActive(item.href)
-              ? "font-medium border-l-2"
-              : "border-l-2 border-transparent hover:bg-white/[0.03]"
-          }`}
-          style={
-            isActive(item.href)
-              ? { color: "var(--falcon-t1)", background: "rgba(255,255,255,0.05)", borderLeftColor: "var(--falcon-red)" }
-              : { color: "var(--falcon-t2)" }
-          }
+          className="flex items-center gap-[11px] py-[9px] px-[18px] cursor-pointer text-[13px] transition-all select-none"
+          style={{
+            color: active ? "var(--falcon-t1)" : "var(--falcon-t2)",
+            background: active ? "rgba(255,255,255,0.05)" : undefined,
+            borderLeft: active ? "2px solid var(--falcon-red)" : "2px solid transparent",
+            fontWeight: active ? 500 : 400,
+          }}
+          onMouseEnter={(e) => { if (!active) { e.currentTarget.style.color = "var(--falcon-t1)"; e.currentTarget.style.background = "var(--falcon-hover)"; }}}
+          onMouseLeave={(e) => { if (!active) { e.currentTarget.style.color = "var(--falcon-t2)"; e.currentTarget.style.background = ""; }}}
         >
-          <item.icon className="w-[14px] h-[14px] shrink-0" />
+          <item.icon className="w-4 h-4 shrink-0" />
           {item.title}
           {item.badge && (
-            <span className={`ml-auto font-mono text-[9px] font-medium py-px px-1.5 rounded-[3px] ${item.badge.style === "nb-r"
-              ? "text-falcon-red border border-[rgba(232,56,79,0.25)] bg-falcon-red-dim"
-              : "text-falcon-t2 border border-falcon-border bg-white/5"
-            }`}>
+            <span className={`f-nav-badge ${item.badge.style === "r" ? "f-nb-r" : "f-nb-d"}`}>
               {item.badge.count}
             </span>
           )}
@@ -414,64 +355,91 @@ function FalconSidebar() {
 
   return (
     <div
-      className="flex flex-col py-3 overflow-hidden"
+      className="flex flex-col pt-4 overflow-hidden"
       style={{ background: "var(--falcon-nav)", borderRight: "1px solid var(--falcon-border)" }}
     >
-      <div className="mb-0.5">
-        <div className="font-mono text-[9px] font-normal tracking-[0.22em] uppercase px-[14px] py-2 pb-1" style={{ color: "var(--falcon-t4)" }}>
+      {/* Core section */}
+      <div className="mb-1">
+        <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
+          Core
+        </div>
+        {coreItems.map(renderItem)}
+      </div>
+
+      {/* Operations section */}
+      <div className="mb-1">
+        <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
           Operations
         </div>
         {opsItems.map(renderItem)}
       </div>
 
-      <div className="mt-1">
-        <div className="font-mono text-[9px] font-normal tracking-[0.22em] uppercase px-[14px] py-2 pb-1" style={{ color: "var(--falcon-t4)" }}>
-          Intelligence
-        </div>
-        {intelItems.map(renderItem)}
-      </div>
-
-      <div className="flex-1" />
-
+      {/* Admin section */}
       {showSettings && (
-        <>
-          <div className="mx-0 my-2" style={{ borderTop: "1px solid var(--falcon-border)" }} />
+        <div className="mb-1">
+          <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
+            Admin
+          </div>
           <Link href="/admin/settings">
             <div
-              className={`flex items-center gap-[9px] py-2 px-[14px] cursor-pointer text-[12.5px] transition-all border-l-2 ${
-                location.startsWith("/admin/settings")
-                  ? "font-medium"
-                  : "border-transparent hover:bg-white/[0.03]"
-              }`}
-              style={
-                location.startsWith("/admin/settings")
-                  ? { color: "var(--falcon-t1)", background: "rgba(255,255,255,0.05)", borderLeftColor: "var(--falcon-red)" }
-                  : { color: "var(--falcon-t2)" }
-              }
+              className="flex items-center gap-[11px] py-[9px] px-[18px] cursor-pointer text-[13px] transition-all select-none"
+              style={{
+                color: location.startsWith("/admin/settings") ? "var(--falcon-t1)" : "var(--falcon-t2)",
+                background: location.startsWith("/admin/settings") ? "rgba(255,255,255,0.05)" : undefined,
+                borderLeft: location.startsWith("/admin/settings") ? "2px solid var(--falcon-red)" : "2px solid transparent",
+                fontWeight: location.startsWith("/admin/settings") ? 500 : 400,
+              }}
+              onMouseEnter={(e) => { if (!location.startsWith("/admin/settings")) { e.currentTarget.style.color = "var(--falcon-t1)"; e.currentTarget.style.background = "var(--falcon-hover)"; }}}
+              onMouseLeave={(e) => { if (!location.startsWith("/admin/settings")) { e.currentTarget.style.color = "var(--falcon-t2)"; e.currentTarget.style.background = ""; }}}
             >
-              <Settings className="w-[14px] h-[14px] shrink-0" />
+              <Settings className="w-4 h-4 shrink-0" />
               Settings
             </div>
           </Link>
-        </>
+        </div>
       )}
+
+      <div className="flex-1" />
+
+      {/* User footer */}
+      <div
+        className="flex items-center gap-[11px] px-[18px] py-3 cursor-pointer transition-colors"
+        style={{ borderTop: "1px solid var(--falcon-border)" }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--falcon-hover)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+      >
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
+          style={{ background: "var(--falcon-red)", color: "#fff" }}
+        >
+          {(uiUser?.displayName?.charAt(0) || uiUser?.email?.charAt(0) || "U").toUpperCase()}
+        </div>
+        <div>
+          <div className="text-[12px] font-semibold" style={{ color: "var(--falcon-t1)" }}>
+            {uiUser?.displayName || uiUser?.email || "User"}
+          </div>
+          <div className="font-mono text-[9px] tracking-[0.06em]" style={{ color: "var(--falcon-t3)" }}>
+            {(uiUser?.role?.name || "OPERATOR").toUpperCase()}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 /* ══════════════════════════
-   FOOTER
+   STATUS BAR
 ══════════════════════════ */
-function AppFooter() {
+function StatusBar() {
   return (
     <div
-      className="col-span-full h-[26px] flex items-center px-4 gap-4 font-mono text-[9px] font-light tracking-wider"
+      className="col-span-full h-[26px] flex items-center px-[18px] gap-[14px] font-mono text-[9px] font-light tracking-[0.08em]"
       style={{ background: "var(--falcon-panel)", borderTop: "1px solid var(--falcon-border)", color: "var(--falcon-t4)" }}
     >
-      <span>ENGINE <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>Mjolnir v4.2</em></span>
+      <span className="sb">ENGINE <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>Mjolnir v4.2</em></span>
       <span style={{ color: "var(--falcon-border-2)" }}>&middot;</span>
-      <span>BUILD <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>2026.02.26</em></span>
-      <div className="ml-auto flex gap-3.5">
+      <span className="sb">BUILD <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>2026.02.26</em></span>
+      <div className="ml-auto flex gap-3">
         <span style={{ color: "var(--falcon-green)" }}>&#9679; SYSTEMS NOMINAL</span>
       </div>
     </div>
@@ -487,20 +455,21 @@ function AppLayout() {
       className="h-screen w-full overflow-hidden"
       style={{
         display: "grid",
-        gridTemplateColumns: "48px 220px 1fr",
+        gridTemplateColumns: "248px 1fr",
         gridTemplateRows: "52px 1fr 26px",
         background: "var(--falcon-bg)",
       }}
     >
       <TopBar />
-      <IconRail />
       <FalconSidebar />
-      <main className="flex flex-col gap-3 overflow-auto" style={{ padding: "18px 20px", background: "var(--falcon-bg)" }}>
-        <TrialBanner />
-        <DemoDataBanner />
-        <Router />
+      <main className="flex flex-col overflow-hidden" style={{ background: "var(--falcon-bg)" }}>
+        <div className="flex flex-col gap-[14px] p-5 flex-1 overflow-auto">
+          <TrialBanner />
+          <DemoDataBanner />
+          <Router />
+        </div>
       </main>
-      <AppFooter />
+      <StatusBar />
     </div>
   );
 }

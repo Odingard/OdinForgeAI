@@ -1,4 +1,5 @@
 import { memo, useMemo } from "react";
+import { useLocation } from "wouter";
 
 interface Evaluation {
   id: string;
@@ -19,141 +20,143 @@ function timeAgo(iso: string): string {
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function sevClass(sev: string) {
-  if (sev === "critical") return "sev-chip sc-crit";
-  if (sev === "high") return "sev-chip sc-high";
-  if (sev === "medium") return "sev-chip sc-med";
-  return "sev-chip sc-low";
+function chipClass(sev: string) {
+  if (sev === "critical") return "f-chip f-chip-crit";
+  if (sev === "high") return "f-chip f-chip-high";
+  if (sev === "medium") return "f-chip f-chip-med";
+  return "f-chip f-chip-low";
 }
 
-function statusDot(status: string) {
-  if (status === "in_progress") return "sp-dot sp-live";
-  if (status === "pending") return "sp-dot sp-queue";
-  return "sp-dot sp-done";
+function statusDotClass(status: string) {
+  if (status === "in_progress") return "f-s-dot f-sd-live";
+  if (status === "pending") return "f-s-dot f-sd-queue";
+  if (status === "failed") return "f-s-dot f-sd-err";
+  return "f-s-dot f-sd-done";
 }
 
-function statusText(status: string) {
-  if (status === "in_progress") return "spt-live";
-  if (status === "pending") return "spt-queue";
-  return "spt-done";
+function statusTextClass(status: string) {
+  if (status === "in_progress") return "f-st-live";
+  if (status === "pending") return "f-st-queue";
+  if (status === "failed") return "f-st-err";
+  return "f-st-done";
 }
+
+function statusLabel(status: string) {
+  if (status === "in_progress") return "LIVE";
+  if (status === "pending") return "QUEUED";
+  return status.toUpperCase();
+}
+
+const GRID_COLS = "1.8fr 90px 110px 70px 90px";
 
 export const RecentEvaluations = memo(function RecentEvaluations({
   evaluations = [],
 }: {
   evaluations: Evaluation[];
 }) {
+  const [, navigate] = useLocation();
+
   const recent = useMemo(
     () =>
       [...evaluations]
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-        .slice(0, 12),
+        .slice(0, 10),
     [evaluations],
   );
 
   return (
-    <div className="falcon-panel flex flex-col min-h-0" style={{ overflow: "hidden" }}>
-      {/* Header */}
-      <div className="falcon-panel-head flex items-center justify-between">
-        <span className="font-mono text-[9px] font-normal tracking-[0.18em] uppercase" style={{ color: "var(--falcon-t3)" }}>
+    <div className="f-panel" style={{ flex: 1, minHeight: 0 }}>
+      {/* Panel header */}
+      <div className="f-panel-head">
+        <div className="f-panel-title">
+          <span className="f-panel-dot" />
           Recent Evaluations
-        </span>
-        <span className="font-mono text-[10px]" style={{ color: "var(--falcon-t4)" }}>
-          {evaluations.length} total
+        </div>
+        <span
+          className="f-panel-link"
+          onClick={() => navigate("/full-assessment")}
+        >
+          View all →
         </span>
       </div>
 
-      {/* Table head */}
-      <div
-        className="grid items-center px-4 py-2 flex-shrink-0"
-        style={{
-          gridTemplateColumns: "1.8fr 88px 130px 68px 90px",
-          background: "var(--falcon-bg)",
-          borderBottom: "1px solid var(--falcon-border)",
-        }}
-      >
-        {["Exposure", "Severity", "Status", "Exploit", "When"].map((h) => (
-          <span
-            key={h}
-            className="font-mono text-[9px] font-normal tracking-[0.18em] uppercase flex items-center gap-[5px]"
-            style={{ color: "var(--falcon-t3)" }}
-          >
-            {h}
-          </span>
-        ))}
-      </div>
+      {/* Table */}
+      <div className="f-tbl" style={{ flex: 1 }}>
+        {/* Header row */}
+        <div className="f-tbl-head" style={{ gridTemplateColumns: GRID_COLS }}>
+          <span className="f-th">Target</span>
+          <span className="f-th">Severity</span>
+          <span className="f-th">Phase</span>
+          <span className="f-th">Findings</span>
+          <span className="f-th">Status</span>
+        </div>
 
-      {/* Table body */}
-      <div className="flex-1 overflow-y-auto">
-        {recent.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10">
-            <span className="text-[11px]" style={{ color: "var(--falcon-t4)" }}>No evaluations yet</span>
-            <span className="text-[10px] mt-1" style={{ color: "var(--falcon-t4)" }}>Run an assessment to see results</span>
-          </div>
-        ) : (
-          recent.map((e) => {
-            const sev = (e.priority || e.severity || "medium").toLowerCase();
-            return (
-              <div
-                key={e.id}
-                className="grid items-center px-4 py-[10px] cursor-pointer transition-colors"
-                style={{
-                  gridTemplateColumns: "1.8fr 88px 130px 68px 90px",
-                  borderBottom: "1px solid rgba(30,45,69,0.5)",
-                }}
-                onMouseEnter={(ev) => { (ev.currentTarget as HTMLDivElement).style.background = "var(--falcon-panel-2)"; }}
-                onMouseLeave={(ev) => { (ev.currentTarget as HTMLDivElement).style.background = "transparent"; }}
-              >
-                {/* Exposure type */}
-                <div>
-                  <div className="text-[12px] font-semibold truncate" style={{ color: "var(--falcon-t1)" }}>
-                    {(e.exposureType || "assessment")
-                      .replace(/_/g, " ")
-                      .replace(/\b\w/g, (c) => c.toUpperCase())}
+        {/* Body */}
+        <div className="f-tbl-body">
+          {recent.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10">
+              <span className="text-[11px]" style={{ color: "var(--falcon-t4)" }}>No evaluations yet</span>
+              <span className="text-[10px] mt-1" style={{ color: "var(--falcon-t4)" }}>Run an assessment to see results</span>
+            </div>
+          ) : (
+            recent.map((e) => {
+              const sev = (e.priority || e.severity || "medium").toLowerCase();
+              const exposureLabel = (e.exposureType || "assessment")
+                .replace(/_/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase());
+
+              return (
+                <div
+                  key={e.id}
+                  className="f-tbl-row"
+                  style={{ gridTemplateColumns: GRID_COLS }}
+                >
+                  {/* Target */}
+                  <div>
+                    <div className="f-td n">{exposureLabel}</div>
+                    {e.assetId && (
+                      <div className="f-td sub">{e.assetId.slice(0, 16)}</div>
+                    )}
                   </div>
-                  {e.assetId && (
-                    <div className="font-mono text-[10px] mt-[2px]" style={{ color: "var(--falcon-t3)" }}>
-                      {e.assetId.slice(0, 12)}
-                    </div>
-                  )}
-                </div>
 
-                {/* Severity chip */}
-                <div>
-                  <span className={sevClass(sev)}>{sev.toUpperCase()}</span>
-                </div>
+                  {/* Severity chip */}
+                  <div>
+                    <span className={chipClass(sev)}>{sev.toUpperCase()}</span>
+                  </div>
 
-                {/* Status pill */}
-                <div className="status-pill">
-                  <span className={statusDot(e.status)} />
-                  <span className={`font-mono text-[10px] tracking-[0.08em] ${statusText(e.status)}`}>
-                    {e.status === "in_progress" ? "RUNNING" : e.status === "pending" ? "QUEUED" : e.status.toUpperCase()}
-                  </span>
-                </div>
+                  {/* Phase */}
+                  <div className="f-td">
+                    {e.status === "in_progress" ? "Exploitation" :
+                     e.status === "pending" ? "Queued" :
+                     e.status === "completed" ? "Complete" : "Reporting"}
+                  </div>
 
-                {/* Exploitable */}
-                <div className="font-mono text-[11px]">
-                  {e.status === "completed" ? (
-                    <span style={{ color: e.exploitable ? "var(--falcon-red)" : "var(--falcon-green)", fontWeight: 500 }}>
-                      {e.exploitable ? "YES" : "NO"}
+                  {/* Findings count */}
+                  <div className="f-td m" style={{
+                    color: e.exploitable ? "var(--falcon-red)" :
+                           sev === "critical" ? "var(--falcon-red)" :
+                           sev === "high" ? "var(--falcon-orange)" : undefined
+                  }}>
+                    {e.exploitable ? "YES" : "—"}
+                  </div>
+
+                  {/* Status */}
+                  <div>
+                    <span className="f-status">
+                      <span className={statusDotClass(e.status)} />
+                      <span className={statusTextClass(e.status)}>
+                        {statusLabel(e.status)}
+                      </span>
                     </span>
-                  ) : (
-                    <span style={{ color: "var(--falcon-t4)" }}>—</span>
-                  )}
+                  </div>
                 </div>
-
-                {/* When */}
-                <div className="font-mono text-[10px]" style={{ color: "var(--falcon-t3)" }}>
-                  {e.createdAt ? timeAgo(e.createdAt) : "—"}
-                </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
