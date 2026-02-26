@@ -344,3 +344,46 @@ export type ProgressCallback = (
   progress: number,
   message: string
 ) => void;
+
+// ── Persistent Exploit State ────────────────────────────────────────────
+
+export interface ExploitStateObjective {
+  id: string;
+  description: string;
+  achieved: boolean;
+}
+
+export interface ExploitState {
+  /** Endpoints discovered during exploitation */
+  discoveredEndpoints: string[];
+  /** Confirmed vulnerabilities with technique + confidence */
+  confirmedVulns: Array<{
+    type: string;
+    endpoint: string;
+    technique: string;
+    confidence: number;
+  }>;
+  /** Credentials or tokens obtained */
+  credentials: Array<{
+    type: string;
+    value: string;
+    scope: string;
+  }>;
+  /** Current privilege level (none → user → admin → root) */
+  privilegeLevel: "none" | "user" | "admin" | "root";
+  /** Capabilities gained (e.g., "file_read", "rce", "db_access") */
+  capabilities: string[];
+  /** Raw artifacts extracted (hashes, tokens, config snippets) */
+  extractedArtifacts: string[];
+  /** Constraints on further exploitation */
+  constraints: {
+    blockedEndpoints: string[];
+    maxRequests: number;
+    remainingBudget: number;
+  };
+  /** Objectives tracked across iterations */
+  objectives: ExploitStateObjective[];
+  /** Current chain iteration (0-indexed) */
+  iteration: number;
+  lastUpdatedAt: string;
+}

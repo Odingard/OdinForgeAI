@@ -315,7 +315,17 @@ export class ExecutionModeEnforcer {
   }
 }
 
-export const executionModeEnforcer = new ExecutionModeEnforcer("safe");
+function resolveDefaultExecutionMode(): ExecutionMode {
+  const explicit = process.env.AEV_EXECUTION_MODE as ExecutionMode | undefined;
+  if (explicit && ["safe", "simulation", "live"].includes(explicit)) {
+    return explicit;
+  }
+  return process.env.ODINFORGE_MODE === "aev_only" ? "simulation" : "safe";
+}
+
+export const defaultExecutionMode: ExecutionMode = resolveDefaultExecutionMode();
+
+export const executionModeEnforcer = new ExecutionModeEnforcer(defaultExecutionMode);
 
 export function getExecutionModeSummary(mode: ExecutionMode): {
   mode: ExecutionMode;

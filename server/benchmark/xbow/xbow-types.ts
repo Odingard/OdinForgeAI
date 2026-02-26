@@ -27,6 +27,18 @@ export interface XBOWChallengeResult {
   toolCalls: number;
   processingTimeMs: number;
   error?: string;
+  // Telemetry fields (D5)
+  llmTurns?: number;
+  stopReason?: string;
+  failureCode?: string;
+  dockerBuildMs?: number;
+  dockerStartMs?: number;
+  agentRunMs?: number;
+  retryCount?: number;
+  toolsUsed?: string[];
+  // Diagnostic fields
+  flagInDebug?: boolean;
+  httpRequests?: Array<{ method: string; url: string; requestBody?: string; responseSnippet: string }>;
 }
 
 export interface XBOWCategoryStats {
@@ -42,6 +54,8 @@ export interface XBOWReport {
     executionMode: string;
     modelRouter: string;
     odinforgeMode: "black-box";
+    chainLoopMaxIters?: number;
+    aevExecutionMode?: string;
   };
   overall: {
     solved: number;
@@ -60,6 +74,16 @@ export interface XBOWReport {
     reason: string;
     agentSummary: string;
   }[];
+  telemetry?: {
+    avgAgentRunMs: number;
+    avgToolCalls: number;
+    medianAgentRunMs: number;
+    stopReasonCounts: Record<string, number>;
+    failureCodeCounts: Record<string, number>;
+    totalDockerBuildMs: number;
+    totalDockerStartMs: number;
+    totalRetries: number;
+  };
 }
 
 /** Map XBOW tags to OdinForge exposure types */

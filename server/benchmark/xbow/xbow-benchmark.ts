@@ -25,7 +25,7 @@
 import { writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { loadChallenges, filterChallenges } from "./challenge-loader";
-import { runChallenge } from "./challenge-runner";
+import { runChallengeWithRetry, checkDockerPreflight } from "./challenge-runner";
 import type { XBOWChallengeResult, XBOWReport, XBOWCategoryStats } from "./xbow-types";
 
 // ─── CLI Parsing ──────────────────────────────────────────────────────
@@ -45,6 +45,9 @@ const CHALLENGE_FILTER = getArg("challenge");
 const LIMIT = getArg("limit") ? parseInt(getArg("limit")!, 10) : undefined;
 const OFFSET = getArg("offset") ? parseInt(getArg("offset")!, 10) : 0;
 const TIMEOUT = getArg("timeout") ? parseInt(getArg("timeout")!, 10) : 180_000;
+const CHAIN_LOOP_MAX_ITERS = process.env.CHAIN_LOOP_MAX_ITERS
+  ? parseInt(process.env.CHAIN_LOOP_MAX_ITERS, 10)
+  : 3;
 
 if (!XBOW_REPO) {
   console.error("Usage: npx tsx server/benchmark/xbow/xbow-benchmark.ts <xbow-repo-path> [mode] [options]");
@@ -67,6 +70,11 @@ async function main() {
   console.log("═══════════════════════════════════════════════════════════");
   console.log(`  Repo:      ${XBOW_REPO}`);
   console.log(`  Mode:      ${EXECUTION_MODE} (black-box)`);
+  console.log(`  ChainIter: ${CHAIN_LOOP_MAX_ITERS}`);
+
+  // Docker pre-flight
+  checkDockerPreflight();
+  console.log("  Docker:    OK");
 
   // Load challenges
   const allChallenges = loadChallenges(XBOW_REPO!);
@@ -97,7 +105,7 @@ async function main() {
     console.log(`▶ [${i + 1}/${challenges.length}] ${challenge.name}`);
     console.log(`  Category: ${challenge.category} | Difficulty: ${challenge.difficulty}`);
 
-    const result = await runChallenge(challenge, {
+    const result = await runChallengeWithRetry(challenge, {
       executionMode: EXECUTION_MODE,
       timeoutMs: TIMEOUT,
     });
@@ -142,6 +150,22 @@ async function main() {
   console.log(`    OdinForge (black-box):  ${report.overall.percentage}`);
   console.log(`    Shannon (white-box):    ${report.overall.shannonRate}`);
   console.log(`    XBOW official (bb):     ${report.overall.xbowRate}`);
+  if (report.telemetry) {
+    console.log("");
+    console.log("  Telemetry:");
+    console.log(`    Avg agent run:   ${(report.telemetry.avgAgentRunMs / 1000).toFixed(1)}s`);
+    console.log(`    Median run:      ${(report.telemetry.medianAgentRunMs / 1000).toFixed(1)}s`);
+    console.log(`    Avg tool calls:  ${report.telemetry.avgToolCalls}`);
+    console.log(`    Docker build:    ${(report.telemetry.totalDockerBuildMs / 1000).toFixed(1)}s total`);
+    console.log(`    Docker start:    ${(report.telemetry.totalDockerStartMs / 1000).toFixed(1)}s total`);
+    console.log(`    Retries:         ${report.telemetry.totalRetries}`);
+    if (Object.keys(report.telemetry.failureCodeCounts).length > 0) {
+      console.log("    Failure codes:");
+      for (const [code, count] of Object.entries(report.telemetry.failureCodeCounts)) {
+        console.log(`      ${code}: ${count}`);
+      }
+    }
+  }
   console.log("═══════════════════════════════════════════════════════════");
 
   if (report.failures.length > 0) {
@@ -209,6 +233,32 @@ function buildReport(results: XBOWChallengeResult[]): XBOWReport {
         : `No detection (${r.toolCalls} tool calls, ${(r.processingTimeMs / 1000).toFixed(1)}s)`,
     }));
 
+  // Aggregate telemetry
+  const agentRunTimes = results.map(r => r.agentRunMs).filter((t): t is number => t != null && t > 0);
+  const toolCallCounts = results.map(r => r.toolCalls);
+  const sortedTimes = [...agentRunTimes].sort((a, b) => a - b);
+
+  const stopReasonCounts: Record<string, number> = {};
+  const failureCodeCounts: Record<string, number> = {};
+  let totalRetries = 0;
+
+  for (const r of results) {
+    if (r.stopReason) stopReasonCounts[r.stopReason] = (stopReasonCounts[r.stopReason] || 0) + 1;
+    if (r.failureCode) failureCodeCounts[r.failureCode] = (failureCodeCounts[r.failureCode] || 0) + 1;
+    totalRetries += r.retryCount || 0;
+  }
+
+  const telemetry = {
+    avgAgentRunMs: agentRunTimes.length > 0 ? Math.round(agentRunTimes.reduce((a, b) => a + b, 0) / agentRunTimes.length) : 0,
+    avgToolCalls: total > 0 ? Math.round(toolCallCounts.reduce((a, b) => a + b, 0) / total) : 0,
+    medianAgentRunMs: sortedTimes.length > 0 ? sortedTimes[Math.floor(sortedTimes.length / 2)] : 0,
+    stopReasonCounts,
+    failureCodeCounts,
+    totalDockerBuildMs: results.reduce((sum, r) => sum + (r.dockerBuildMs || 0), 0),
+    totalDockerStartMs: results.reduce((sum, r) => sum + (r.dockerStartMs || 0), 0),
+    totalRetries,
+  };
+
   return {
     meta: {
       timestamp: new Date().toISOString(),
@@ -216,6 +266,8 @@ function buildReport(results: XBOWChallengeResult[]): XBOWReport {
       executionMode: EXECUTION_MODE,
       modelRouter: process.env.EXPLOIT_AGENT_ALLOY === "true" ? "alloy" : "single",
       odinforgeMode: "black-box",
+      chainLoopMaxIters: CHAIN_LOOP_MAX_ITERS,
+      aevExecutionMode: process.env.AEV_EXECUTION_MODE || undefined,
     },
     overall: {
       solved,
@@ -230,6 +282,7 @@ function buildReport(results: XBOWChallengeResult[]): XBOWReport {
     byDifficulty,
     results,
     failures,
+    telemetry,
   };
 }
 

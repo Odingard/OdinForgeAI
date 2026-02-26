@@ -1818,6 +1818,92 @@ export const insertEvaluationHistorySchema = createInsertSchema(evaluationHistor
 export type InsertEvaluationHistory = z.infer<typeof insertEvaluationHistorySchema>;
 export type EvaluationHistory = typeof evaluationHistory.$inferSelect;
 
+// ============================================================================
+// AEV TELEMETRY — Run-level observability for exploit agent and chain execution
+// ============================================================================
+
+export const aevRunStopReasons = [
+  "completed", "max_turns_reached", "timeout", "no_progress",
+  "confidence_drop", "budget_exceeded", "mode_blocked",
+  "policy_denied", "error", "aborted",
+] as const;
+export type AevRunStopReason = typeof aevRunStopReasons[number];
+
+export const aevFailureCodes = [
+  "llm_rate_limit", "llm_context_exceeded", "llm_no_response", "llm_malformed_json",
+  "tool_parse_error", "tool_network_error", "tool_timeout", "tool_permission_denied",
+  "chain_mode_blocked", "chain_dependency_failed", "chain_confidence_too_low", "chain_policy_denied",
+  "docker_build_failed", "docker_health_failed", "rate_limited",
+  "db_write_failed", "orchestrator_timeout", "circuit_breaker_open",
+  "none",
+] as const;
+export type AevFailureCode = typeof aevFailureCodes[number];
+
+export const aevRuns = pgTable("aev_runs", {
+  id: varchar("id").primaryKey(),
+  evaluationId: varchar("evaluation_id"),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  runType: varchar("run_type").notNull(), // "exploit_agent" | "chain_playbook" | "xbow_challenge"
+  playbookId: varchar("playbook_id"),
+  challengeId: varchar("challenge_id"),
+  executionMode: varchar("execution_mode").notNull().default("safe"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  durationMs: integer("duration_ms"),
+  stopReason: varchar("stop_reason"),
+  exploitable: boolean("exploitable"),
+  overallConfidence: integer("overall_confidence"),
+  findingCount: integer("finding_count").default(0),
+  failureCode: varchar("failure_code").default("none"),
+  errorMessage: text("error_message"),
+  totalTurns: integer("total_turns").default(0),
+  totalToolCalls: integer("total_tool_calls").default(0),
+  exploitState: jsonb("exploit_state"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const aevToolCalls = pgTable("aev_tool_calls", {
+  id: varchar("id").primaryKey(),
+  runId: varchar("run_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  turn: integer("turn").notNull(),
+  toolName: varchar("tool_name").notNull(),
+  arguments: jsonb("arguments"),
+  resultSummary: text("result_summary"),
+  vulnerable: boolean("vulnerable"),
+  confidence: integer("confidence"),
+  executionTimeMs: integer("execution_time_ms"),
+  failureCode: varchar("failure_code").default("none"),
+  calledAt: timestamp("called_at").defaultNow(),
+});
+
+export const aevLlmTurns = pgTable("aev_llm_turns", {
+  id: varchar("id").primaryKey(),
+  runId: varchar("run_id").notNull(),
+  turn: integer("turn").notNull(),
+  model: varchar("model").notNull(),
+  hadToolCalls: boolean("had_tool_calls").default(false),
+  toolCallCount: integer("tool_call_count").default(0),
+  durationMs: integer("duration_ms"),
+  failureCode: varchar("failure_code").default("none"),
+  calledAt: timestamp("called_at").defaultNow(),
+});
+
+export const aevFailures = pgTable("aev_failures", {
+  id: varchar("id").primaryKey(),
+  runId: varchar("run_id").notNull(),
+  evaluationId: varchar("evaluation_id"),
+  failureCode: varchar("failure_code").notNull(),
+  context: varchar("context"),
+  message: text("message"),
+  occurredAt: timestamp("occurred_at").defaultNow(),
+});
+
+export type AevRun = typeof aevRuns.$inferSelect;
+export type AevToolCall = typeof aevToolCalls.$inferSelect;
+export type AevLlmTurn = typeof aevLlmTurns.$inferSelect;
+export type AevFailure = typeof aevFailures.$inferSelect;
+
 // ========== GOVERNANCE, SAFETY & TRUST CONTROLS ==========
 
 // Organization Governance Settings
@@ -3922,7 +4008,11 @@ export const validationEvidenceArtifacts = pgTable("validation_evidence_artifact
   
   // Size tracking (for cleanup policies)
   artifactSizeBytes: integer("artifact_size_bytes"),
-  
+
+  // Object storage (MinIO)
+  storageKey: varchar("storage_key"),
+  objectStorageUrl: varchar("object_storage_url"),
+
   // Timestamps
   capturedAt: timestamp("captured_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),

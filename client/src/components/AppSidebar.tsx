@@ -24,6 +24,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
 import { roleMetadata } from "@shared/schema";
+import { useQuery } from "@tanstack/react-query";
 
 const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -35,9 +36,27 @@ const navItems = [
   { title: "Reports", href: "/reports", icon: FileText },
 ];
 
+const aevOnlyNavItems = [
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Assets", href: "/assets", icon: Server },
+  { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
+  { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
+  { title: "Live Scans", href: "/scans", icon: Radar },
+  { title: "Reports", href: "/reports", icon: FileText },
+];
+
+export function useAevOnlyMode() {
+  const { data } = useQuery<{ aevOnly: boolean }>({
+    queryKey: ["/api/mode"],
+    staleTime: Infinity,
+  });
+  return data?.aevOnly === true;
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, hasPermission } = useAuth();
+  const isAevOnly = useAevOnlyMode();
 
   const isActive = (href: string) => {
     if (href === "/admin/settings") return location.startsWith("/admin/settings");
@@ -65,6 +84,8 @@ export function AppSidebar() {
     }
   };
 
+  const displayNavItems = isAevOnly ? aevOnlyNavItems : navItems;
+
   return (
     <Sidebar>
       <SidebarHeader className="border-b border-border p-4">
@@ -76,11 +97,19 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
 
+      {isAevOnly && (
+        <div className="mx-3 mt-3 px-2 py-1.5 rounded border border-red-500/30 bg-red-500/10 text-center">
+          <span className="text-[10px] uppercase tracking-widest font-semibold text-red-400">
+            AEV-ONLY MODE
+          </span>
+        </div>
+      )}
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navItems.map((item) => (
+              {displayNavItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={isActive(item.href)}>
                     <Link href={item.href} data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}>

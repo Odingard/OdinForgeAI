@@ -12,7 +12,8 @@ import { ValidatingHttpClient, type ValidationContext } from "../validation/vali
 import { executionModeEnforcer, type ExecutionMode } from "../validation/execution-modes";
 import { executeSandboxed, type SandboxedOperationType } from "../validation/sandbox-executor";
 import { auditService } from "../validation/audit-service";
-import type { ValidationVerdict } from "@shared/schema";
+import type { ValidationVerdict, AevRunStopReason } from "@shared/schema";
+import { AevTelemetryRecorder } from "../aev-telemetry";
 
 // ============================================================================
 // PLAYBOOK SCHEMA TYPES
@@ -228,11 +229,22 @@ export class ChainOrchestrator {
   ): Promise<ChainExecutionResult> {
     const executionId = `chain-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
-    
+
+    const telemetry = new AevTelemetryRecorder({
+      evaluationId: context.evaluationId,
+      organizationId: context.organizationId,
+      runType: "chain_playbook",
+      playbookId: playbook.id,
+      executionMode: executionModeEnforcer.getMode(context.tenantId),
+    });
+    void telemetry.start();
+
     // Check execution mode
     const currentMode = executionModeEnforcer.getMode(context.tenantId);
     if (this.getModeLevel(currentMode) < this.getModeLevel(playbook.minimumMode)) {
-      return this.createBlockedResult(playbook, currentMode, 
+      void telemetry.recordFailure("chain_mode_blocked", "executePlaybook", `Requires ${playbook.minimumMode}, got ${currentMode}`);
+      void telemetry.finish({ stopReason: "mode_blocked", totalTurns: 0, totalToolCalls: 0 });
+      return this.createBlockedResult(playbook, currentMode,
         `Playbook requires ${playbook.minimumMode} mode, current mode is ${currentMode}`);
     }
     
@@ -307,17 +319,33 @@ export class ChainOrchestrator {
         
         // Check mode requirements
         if (this.getModeLevel(currentMode) < this.getModeLevel(step.requiredMode)) {
-          const blockedResult = this.createBlockedResult2(step, 
+          const blockedResult = this.createBlockedResult2(step,
             `Step requires ${step.requiredMode} mode`);
           stepResults.push(blockedResult);
           execContext.stepResults.set(step.id, blockedResult);
+          void telemetry.recordToolCall({
+            turn: i, toolName: `${step.category}:${step.type}`,
+            arguments: step.config, resultSummary: `blocked: mode ${currentMode} < ${step.requiredMode}`,
+            vulnerable: false, confidence: 0, executionTimeMs: 0, failureCode: "chain_mode_blocked",
+          });
           continue;
         }
-        
+
         // Execute step with sandboxing
         const stepResult = await this.executeStep(step, execContext, onProgress);
         stepResults.push(stepResult);
         execContext.stepResults.set(step.id, stepResult);
+
+        void telemetry.recordToolCall({
+          turn: i,
+          toolName: `${step.category}:${step.type}`,
+          arguments: step.config,
+          resultSummary: `${stepResult.status} (confidence: ${stepResult.confidence})`,
+          vulnerable: stepResult.status === "success" && stepResult.confidence >= 50,
+          confidence: stepResult.confidence,
+          executionTimeMs: stepResult.durationMs,
+          failureCode: stepResult.status === "failed" ? "chain_dependency_failed" : undefined,
+        });
         
         // Track failures for abort condition
         if (stepResult.status === "failed") {
@@ -346,7 +374,20 @@ export class ChainOrchestrator {
     
     // Build result
     const result = this.buildChainResult(playbook, execContext, stepResults, startTime);
-    
+
+    // Record telemetry
+    const chainStopReason: AevRunStopReason = execContext.aborted ? "aborted"
+      : result.status === "failed" ? "no_progress"
+      : "completed";
+    void telemetry.finish({
+      stopReason: chainStopReason,
+      exploitable: result.overallVerdict === "confirmed" || result.overallVerdict === "likely",
+      overallConfidence: result.overallConfidence,
+      findingCount: result.criticalFindings.length,
+      totalTurns: result.stepsExecuted,
+      totalToolCalls: stepResults.length,
+    });
+
     // Log chain completion (non-blocking — allows benchmark mode without DB)
     try {
       await auditService.logValidationAction(

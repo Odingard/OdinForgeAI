@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { storage } from "./storage";
 import { db } from "./db";
+import { AEV_ONLY_MODE } from "./feature-flags";
 import { endpointAgents, aevEvaluations } from "@shared/schema";
 import { sql, and, eq } from "drizzle-orm";
 import { insertEvaluationSchema, insertReportSchema, insertScheduledScanSchema, complianceFrameworks, getPermissionsForDbRole, exposureTypes, type BreachPhaseResult, type BreachPhaseContext } from "@shared/schema";
@@ -200,7 +201,12 @@ export async function registerRoutes(
       ts: new Date().toISOString(),
     });
   });
-  
+
+  // Platform mode (always available, no auth)
+  app.get("/api/mode", (_req, res) => {
+    res.json({ aevOnly: AEV_ONLY_MODE });
+  });
+
   // ========== AGENT BINARY DOWNLOADS ==========
   // Serve agent binaries from public/agents directory (no auth required for download)
   // Rate limited to prevent bandwidth abuse on large binary downloads
@@ -736,6 +742,60 @@ export async function registerRoutes(
     } catch (error) {
       console.error("[AEV] Failed to queue recon scan:", error);
       res.status(500).json({ error: "Failed to start recon scan" });
+    }
+  });
+
+  // ── AEV Chain Loop — multi-iteration exploit with persistent state ────
+  app.post("/api/aev/chain-loop", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const { evaluationId, assetId, description, exposureType, executionMode } = req.body;
+      if (!evaluationId) {
+        return res.status(400).json({ error: "evaluationId is required" });
+      }
+      const orgId = (req as any).uiUser?.organizationId || "default";
+      const { runChainLoop } = await import("./services/agents/orchestrator");
+      // Fire and forget — return immediately, run in background
+      const context = {
+        assetId: assetId || evaluationId,
+        evaluationId,
+        exposureType: exposureType || "network_vulnerability",
+        priority: "high" as const,
+        description: description || "Chain loop evaluation",
+        organizationId: orgId,
+        executionMode: executionMode || "simulation",
+      };
+      // Start async — don't await
+      runChainLoop(context).catch(err => {
+        console.error("[AEV] Chain loop failed:", err);
+      });
+      res.json({ evaluationId, status: "started", mode: "chain_loop" });
+    } catch (error) {
+      console.error("[AEV] Failed to start chain loop:", error);
+      res.status(500).json({ error: "Failed to start chain loop" });
+    }
+  });
+
+  // ── AEV Telemetry — query run data for an evaluation ──────────────────
+  app.get("/api/aev/runs/:evaluationId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const { evaluationId } = req.params;
+      const { aevRuns, aevToolCalls, aevLlmTurns, aevFailures } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const runs = await db.select().from(aevRuns).where(eq(aevRuns.evaluationId, evaluationId));
+      if (runs.length === 0) {
+        return res.json({ runs: [], toolCalls: [], llmTurns: [], failures: [] });
+      }
+      const runIds = runs.map(r => r.id);
+      const { inArray } = await import("drizzle-orm");
+      const [toolCalls, llmTurns, failures] = await Promise.all([
+        db.select().from(aevToolCalls).where(inArray(aevToolCalls.runId, runIds)),
+        db.select().from(aevLlmTurns).where(inArray(aevLlmTurns.runId, runIds)),
+        db.select().from(aevFailures).where(inArray(aevFailures.runId, runIds)),
+      ]);
+      res.json({ runs, toolCalls, llmTurns, failures });
+    } catch (error) {
+      console.error("[AEV] Failed to fetch telemetry:", error);
+      res.status(500).json({ error: "Failed to fetch telemetry data" });
     }
   });
 
@@ -2747,6 +2807,7 @@ export async function registerRoutes(
   });
 
   // ========== ADVANCED AI ENDPOINTS ==========
+  if (!AEV_ONLY_MODE) {
 
   // Adversary Profiles
   app.get("/api/adversary-profiles", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
@@ -3033,6 +3094,8 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch infrastructure stats" });
     }
   });
+
+  } // end !AEV_ONLY_MODE gate (Advanced AI + Infrastructure)
 
   // ========== DISCOVERED ASSETS ==========
 
@@ -3370,6 +3433,7 @@ export async function registerRoutes(
   });
 
   // ========== CLOUD CONNECTIONS ==========
+  if (!AEV_ONLY_MODE) {
 
   app.get("/api/cloud-connections", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req, res) => {
     try {
@@ -4369,7 +4433,7 @@ export async function registerRoutes(
 
   // ========== AI VS AI SIMULATION API ==========
 
-  // Import the AI simulation runner
+  // Import the AI simulation runner - dynamic import to avoid load when gated
   const { runAISimulation } = await import("./services/agents/ai-simulation");
 
   // Validation schema for simulation creation
@@ -4508,7 +4572,7 @@ export async function registerRoutes(
   });
 
   // Helper function to run simulation asynchronously
-  async function runSimulation(
+  const runSimulation = async (
     simulationId: string,
     assetId: string,
     exposureType: string,
@@ -4516,7 +4580,7 @@ export async function registerRoutes(
     description: string,
     rounds: number,
     liveScanData?: import("./services/agents/ai-simulation").LiveScanInput
-  ) {
+  ): Promise<void> => {
     try {
       wsService.sendProgress(simulationId, "AI Simulation", "starting", 0,
         liveScanData ? "Starting AI vs AI simulation with live scan data..." : "Starting AI vs AI simulation...");
@@ -4678,25 +4742,28 @@ export async function registerRoutes(
     }
   }
 
+  } // end !AEV_ONLY_MODE gate (Cloud, SSH, Auto-Deploy, AI Simulation)
+
   // ========== ENDPOINT AGENT API ==========
+  if (!AEV_ONLY_MODE) {
 
   // Generate API key for agent
-  function generateApiKey(): string {
+  const generateApiKey = (): string => {
     return `odin-${randomUUID().replace(/-/g, "")}`;
-  }
+  };
 
   // Hash API key for storage
-  async function hashApiKey(apiKey: string): Promise<string> {
+  const hashApiKey = async (apiKey: string): Promise<string> => {
     return bcrypt.hash(apiKey, 10);
-  }
+  };
 
   // Verify API key against hash
-  async function verifyApiKey(apiKey: string, hash: string): Promise<boolean> {
+  const verifyApiKey = async (apiKey: string, hash: string): Promise<boolean> => {
     return bcrypt.compare(apiKey, hash);
-  }
+  };
 
   // Agent authentication middleware - supports API key, mTLS, and JWT
-  async function authenticateAgent(req: any, res: any, next: any) {
+  const authenticateAgent = async (req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
     const clientCertHeader = req.headers["x-client-cert-fingerprint"] || req.headers["x-ssl-client-cert"];
     const certSecretHeader = req.headers["x-cert-secret"];
@@ -4744,7 +4811,7 @@ export async function registerRoutes(
       console.error("[Auth] Agent authentication error:", error);
       return res.status(500).json({ error: "Internal authentication error" });
     }
-  }
+  };
 
   // Get registration token for display in UI
   app.get("/api/agents/registration-token", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:manage"), async (req, res) => {
@@ -5565,7 +5632,7 @@ export async function registerRoutes(
   });
 
   // Helper function to calculate real-time agent status based on last heartbeat
-  function calculateAgentStatus(lastHeartbeat: Date | null, storedStatus: string): string {
+  const calculateAgentStatus = (lastHeartbeat: Date | null, storedStatus: string): string => {
     if (!lastHeartbeat) {
       return "offline";
     }
@@ -5583,7 +5650,7 @@ export async function registerRoutes(
     }
     // Offline: no heartbeat for more than 10 minutes
     return "offline";
-  }
+  };
 
   // Get all agents (for dashboard)
   app.get("/api/agents", apiRateLimiter, uiAuthMiddleware, requirePermission("agents:read"), async (req, res) => {
@@ -6783,6 +6850,8 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to delete user" });
     }
   });
+
+  } // end !AEV_ONLY_MODE gate (Endpoint Agent + mTLS + Cleanup + User Management)
 
   // ========== EXTERNAL RECONNAISSANCE ENDPOINTS ==========
   // These routes perform external scanning of internet-facing assets
@@ -9111,6 +9180,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
   // SIEM/EDR INTEGRATION
   // ============================================================================
+  if (!AEV_ONLY_MODE) {
 
   // GET /api/siem-connections - List SIEM connections
   app.get("/api/siem-connections", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
@@ -9202,6 +9272,8 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.status(500).json({ error: "Failed to get validations" });
     }
   });
+
+  } // end !AEV_ONLY_MODE gate (SIEM/EDR + Defensive Validations)
 
   // ============================================================================
   // CONTINUOUS VALIDATION
@@ -9737,6 +9809,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   }
 
   // GET /api/compliance/frameworks - List available compliance frameworks
+  if (!AEV_ONLY_MODE) {
   app.get("/api/compliance/frameworks", apiRateLimiter, uiAuthMiddleware, requirePermission("governance:read"), async (req, res) => {
     try {
       const frameworks = Object.entries(frameworkIdMap).map(([id, meta]) => ({
@@ -10461,8 +10534,10 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   });
 
   // ============================================================================
-  // PHASE 3: EXPLOIT EXECUTION SANDBOX API
+  // PHASE 3: EXPLOIT EXECUTION SANDBOX API (AEV-relevant — keep)
   // ============================================================================
+
+  } // end !AEV_ONLY_MODE gate (Compliance + Container Security + K8s)
 
   // POST /api/sandbox/sessions - Create a new sandbox session
   app.post("/api/sandbox/sessions", apiRateLimiter, uiAuthMiddleware, requirePermission("simulations:run"), async (req, res) => {
@@ -10746,6 +10821,7 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // ============================================================================
   // PHASE 3: LIVE LATERAL MOVEMENT API
   // ============================================================================
+  if (!AEV_ONLY_MODE) {
 
   // GET /api/lateral-movement/techniques - Get available lateral movement techniques
   app.get("/api/lateral-movement/techniques", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:execute_simulation"), async (_req, res) => {
@@ -12476,6 +12552,9 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
   // BILLING & SUBSCRIPTIONS (Task 05)
   // ===========================================================================
 
+  } // end !AEV_ONLY_MODE gate (Lateral Movement, Cloud Pentest, Session Replay, RAG Policy)
+
+  if (!AEV_ONLY_MODE) {
   // GET /api/billing/plans — all active plans (public within auth)
   app.get("/api/billing/plans", apiRateLimiter, uiAuthMiddleware, async (_req, res) => {
     try {
@@ -12651,4 +12730,6 @@ curl -sSL '${serverUrl}/api/agents/install.sh' | bash -s -- --server-url "${serv
       res.json({ received: true, error: "processing_failed" });
     }
   });
+
+  } // end !AEV_ONLY_MODE gate (Billing)
 }

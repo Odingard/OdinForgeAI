@@ -369,6 +369,122 @@ function AssessmentCard({ assessment, onView, onDelete }: {
   );
 }
 
+function RunDebugPanel({ evaluationId }: { evaluationId: string }) {
+  const { data, isLoading } = useQuery<{
+    runs: Array<{
+      id: string; runType: string; executionMode: string; stopReason: string | null;
+      failureCode: string | null; exploitable: boolean | null; overallConfidence: number | null;
+      totalTurns: number | null; totalToolCalls: number | null; durationMs: number | null;
+      startedAt: string | null; completedAt: string | null; errorMessage: string | null;
+    }>;
+    toolCalls: Array<{
+      id: string; runId: string; turn: number; toolName: string;
+      vulnerable: boolean | null; confidence: number | null; executionTimeMs: number | null;
+      resultSummary: string | null; failureCode: string | null;
+    }>;
+    llmTurns: Array<{
+      id: string; runId: string; turn: number; model: string;
+      hadToolCalls: boolean | null; toolCallCount: number | null; durationMs: number | null;
+    }>;
+    failures: Array<{
+      id: string; runId: string; failureCode: string; context: string | null;
+      message: string | null; occurredAt: string | null;
+    }>;
+  }>({
+    queryKey: [`/api/aev/runs/${evaluationId}`],
+    enabled: Boolean(evaluationId),
+  });
+
+  if (isLoading) return <div className="flex items-center gap-2 p-4"><Loader2 className="h-4 w-4 animate-spin" /> Loading telemetry...</div>;
+  if (!data || data.runs.length === 0) return <Card><CardContent className="p-6"><p className="text-sm text-muted-foreground">No telemetry data recorded for this assessment.</p></CardContent></Card>;
+
+  return (
+    <div className="space-y-4">
+      {data.runs.map((run) => {
+        const runToolCalls = data.toolCalls.filter(tc => tc.runId === run.id);
+        const runLlmTurns = data.llmTurns.filter(lt => lt.runId === run.id);
+        const runFailures = data.failures.filter(f => f.runId === run.id);
+
+        return (
+          <Card key={run.id}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-medium">
+                  {run.runType === "exploit_agent" ? "Exploit Agent Run" : run.runType === "chain_playbook" ? "Chain Playbook" : run.runType}
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant={run.stopReason === "completed" ? "default" : run.stopReason === "error" ? "destructive" : "secondary"}>
+                    {run.stopReason || "unknown"}
+                  </Badge>
+                  {run.exploitable && <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Exploitable</Badge>}
+                  {run.durationMs != null && <span className="text-xs text-muted-foreground">{(run.durationMs / 1000).toFixed(1)}s</span>}
+                </div>
+              </div>
+              <CardDescription className="text-xs">
+                Mode: {run.executionMode} | Turns: {run.totalTurns ?? 0} | Tool calls: {run.totalToolCalls ?? 0}
+                {run.overallConfidence != null && ` | Confidence: ${run.overallConfidence}%`}
+                {run.failureCode && run.failureCode !== "none" && <span className="text-red-400 ml-2">Failure: {run.failureCode}</span>}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {runFailures.length > 0 && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded p-2 space-y-1">
+                  {runFailures.map(f => (
+                    <div key={f.id} className="text-xs text-red-400">
+                      <span className="font-mono">{f.failureCode}</span> in {f.context}: {f.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {run.errorMessage && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded p-2 text-xs text-red-400 font-mono">{run.errorMessage}</div>
+              )}
+
+              {/* LLM turn timeline */}
+              {runLlmTurns.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">LLM Turns</p>
+                  <div className="flex flex-wrap gap-1">
+                    {runLlmTurns.sort((a, b) => a.turn - b.turn).map(lt => (
+                      <div key={lt.id} className="text-[10px] bg-muted rounded px-1.5 py-0.5" title={`Model: ${lt.model}, Duration: ${lt.durationMs}ms`}>
+                        T{lt.turn}: {lt.model?.split("/").pop()?.slice(0, 15)} ({lt.durationMs}ms){lt.hadToolCalls ? ` → ${lt.toolCallCount} calls` : " → final"}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tool call badges */}
+              {runToolCalls.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Tool Calls</p>
+                  <div className="space-y-1">
+                    {runToolCalls.sort((a, b) => a.turn - b.turn).map(tc => (
+                      <div key={tc.id} className="flex items-center gap-2 text-xs">
+                        <span className="text-[10px] text-muted-foreground w-6">T{tc.turn}</span>
+                        <Badge variant="outline" className="text-[10px] h-5">{tc.toolName}</Badge>
+                        {tc.vulnerable ? (
+                          <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-[10px] h-5">vuln ({tc.confidence}%)</Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-[10px]">clean</span>
+                        )}
+                        {tc.executionTimeMs != null && <span className="text-[10px] text-muted-foreground">{tc.executionTimeMs}ms</span>}
+                        {tc.failureCode && tc.failureCode !== "none" && (
+                          <Badge variant="destructive" className="text-[10px] h-5">{tc.failureCode}</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
   const attackGraph = assessment.unifiedAttackGraph;
   const recommendations = assessment.recommendations || [];
@@ -387,6 +503,7 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
         <TabsTrigger value="recommendations">Recommendations</TabsTrigger>
         <TabsTrigger value="lateral">Lateral Movement</TabsTrigger>
         <TabsTrigger value="impact">Business Impact</TabsTrigger>
+        <TabsTrigger value="run-debug">Run Debug</TabsTrigger>
       </TabsList>
       
       <TabsContent value="summary" className="mt-4 space-y-4">
@@ -785,6 +902,10 @@ function AssessmentDetail({ assessment }: { assessment: FullAssessment }) {
             )}
           </CardContent>
         </Card>
+      </TabsContent>
+
+      <TabsContent value="run-debug" className="mt-4">
+        <RunDebugPanel evaluationId={assessment.id} />
       </TabsContent>
     </Tabs>
   );

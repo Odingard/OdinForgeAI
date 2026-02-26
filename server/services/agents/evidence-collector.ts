@@ -214,6 +214,49 @@ export class EvidenceCollector {
     return this.sanitizeBody(message);
   }
 
+  /**
+   * Convert tool call log entries from the exploit agent into evidence artifacts.
+   */
+  captureFromToolCallLog(
+    toolCallLog: Array<{
+      turn: number;
+      toolName: string;
+      arguments: Record<string, unknown>;
+      resultSummary: string;
+      vulnerable: boolean;
+      confidence: number;
+      executionTimeMs: number;
+    }>
+  ): EvidenceArtifact[] {
+    const captured: EvidenceArtifact[] = [];
+    for (const tc of toolCallLog) {
+      const artifact: EvidenceArtifact = {
+        id: `artifact-tc-${tc.turn}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        type: "request_response",
+        timestamp: new Date().toISOString(),
+        title: `Tool Call: ${tc.toolName} (turn ${tc.turn})`,
+        description: tc.resultSummary,
+        data: {
+          request: this.sanitizeRequest({
+            method: "TOOL_CALL",
+            url: String(tc.arguments.url || tc.arguments.target || ""),
+            body: JSON.stringify(tc.arguments),
+          }),
+          response: {
+            statusCode: tc.vulnerable ? 200 : 0,
+            body: `[${tc.toolName}] ${tc.vulnerable ? "VULNERABLE" : "clean"} (confidence: ${tc.confidence}%) — ${tc.resultSummary}`,
+            timing: tc.executionTimeMs,
+          },
+        },
+        isSanitized: true,
+      };
+      this.artifacts.push(artifact);
+      captured.push(artifact);
+      this.addTimelineEvent(`Tool ${tc.toolName}: ${tc.vulnerable ? "VULNERABLE" : "clean"} (${tc.confidence}%)`, artifact.id);
+    }
+    return captured;
+  }
+
   getArtifacts(): EvidenceArtifact[] {
     return this.artifacts;
   }
@@ -289,11 +332,25 @@ export class EvidenceCollector {
 
 export function generateEvidenceFromAnalysis(
   context: EvidenceContext,
-  aiAnalysisSteps?: Array<{ action: string; observation: string; duration?: number }>
+  aiAnalysisSteps?: Array<{ action: string; observation: string; duration?: number }>,
+  toolCallLog?: Array<{
+    turn: number;
+    toolName: string;
+    arguments: Record<string, unknown>;
+    resultSummary: string;
+    vulnerable: boolean;
+    confidence: number;
+    executionTimeMs: number;
+  }>
 ): EvidenceArtifact[] {
   const collector = new EvidenceCollector(context);
 
   collector.captureTimelineEvent("Evaluation started", `Beginning analysis of ${context.assetId}`);
+
+  // Capture tool call evidence from the exploit agent
+  if (toolCallLog && toolCallLog.length > 0) {
+    collector.captureFromToolCallLog(toolCallLog);
+  }
 
   if (aiAnalysisSteps) {
     collector.captureExecutionTrace(

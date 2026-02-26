@@ -11,6 +11,7 @@ import type {
   ImpactFindings,
   EnhancedBusinessLogicFindings,
   ConfidenceBreakdown,
+  ExploitState,
 } from "./types";
 import type { AdversaryProfile, EvaluationPhaseProgress, DebateSummary } from "@shared/schema";
 import { runDebateModule, filterVerifiedFindings, type DebateResult } from "./debate-module";
@@ -28,6 +29,7 @@ import { generateDeterministicScore } from "./scoring-engine";
 import { parseCVSSVector } from "../cvss-parser";
 import { getEPSSScores } from "../threat-intel/epss-client";
 import { generateRemediationGuidance } from "./remediation-engine";
+import { AevTelemetryRecorder } from "../aev-telemetry";
 import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 import { withCircuitBreaker } from "./circuit-breaker";
 import { getAgentPolicyContext } from "./policy-context";
@@ -710,14 +712,29 @@ async function runPipeline(
 
   const attackGraph = createFallbackGraph(memory);
 
-  const evidenceArtifacts = generateEvidenceFromAnalysis({
-    evaluationId,
-    assetId,
-    exposureType,
-    attackPath: result.attackPath,
-    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
-    multiVectorFindings: memory.multiVector?.findings,
-  });
+  const exploitToolCallLog = memory.exploit?.toolCallLog;
+  const evidenceArtifacts = generateEvidenceFromAnalysis(
+    {
+      evaluationId,
+      assetId,
+      exposureType,
+      attackPath: result.attackPath,
+      businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
+      multiVectorFindings: memory.multiVector?.findings,
+    },
+    undefined,
+    exploitToolCallLog
+  );
+
+  // Upload evidence — awaited in dev/benchmark, fire-and-forget in production
+  const evidenceUpload = import("../evidence-uploader").then(({ uploadAndLinkEvidence, EVIDENCE_UPLOAD_SYNC }) => {
+    const p = uploadAndLinkEvidence(evaluationId, options?.organizationId || "default", evidenceArtifacts);
+    if (EVIDENCE_UPLOAD_SYNC) return p;
+    p.catch(() => {});
+  }).catch(() => {});
+  if (process.env.NODE_ENV !== "production" || process.env.BENCHMARK_MODE === "1") {
+    await evidenceUpload;
+  }
 
   // Look up CVSS data, asset criticality, EPSS, and KEV for deterministic scoring
   let cvssData: ReturnType<typeof parseCVSSVector> | undefined;
@@ -1158,5 +1175,220 @@ function buildConfidenceBreakdown(
     verifiedFindings,
     disputedFindings,
     rejectedFindings,
+  };
+}
+
+// ── Chain Continuation Loop ───────────────────────────────────────────────
+
+const MAX_CHAIN_ITERATIONS = process.env.CHAIN_LOOP_MAX_ITERS
+  ? parseInt(process.env.CHAIN_LOOP_MAX_ITERS, 10)
+  : 3;
+
+function createInitialExploitState(context: AgentContext): ExploitState {
+  return {
+    discoveredEndpoints: [],
+    confirmedVulns: [],
+    credentials: [],
+    privilegeLevel: "none",
+    capabilities: [],
+    extractedArtifacts: [],
+    constraints: {
+      blockedEndpoints: [],
+      maxRequests: 100,
+      remainingBudget: MAX_CHAIN_ITERATIONS * 12, // turns per iteration × iterations
+    },
+    objectives: [
+      { id: "confirm_vuln", description: "Confirm at least one exploitable vulnerability", achieved: false },
+      { id: "chain_exploit", description: "Chain confirmed vulns for deeper access", achieved: false },
+      { id: "demonstrate_impact", description: "Demonstrate business impact of exploitation", achieved: false },
+    ],
+    iteration: 0,
+    lastUpdatedAt: new Date().toISOString(),
+  };
+}
+
+function updateExploitState(state: ExploitState, findings: ExploitFindings): ExploitState {
+  const updated = { ...state };
+
+  // Merge confirmed vulns
+  for (const chain of findings.exploitChains || []) {
+    const alreadyKnown = updated.confirmedVulns.some(
+      v => v.type === chain.technique && v.endpoint === (chain as any).endpoint
+    );
+    if (!alreadyKnown && chain.success_likelihood !== "low") {
+      updated.confirmedVulns.push({
+        type: chain.technique,
+        endpoint: (chain as any).endpoint || "unknown",
+        technique: chain.name,
+        confidence: chain.success_likelihood === "high" ? 90 : 60,
+      });
+    }
+  }
+
+  // Merge discovered endpoints from tool call log
+  for (const tc of findings.toolCallLog || []) {
+    const args = tc.arguments as Record<string, unknown>;
+    const url = String(args?.url || args?.target || "");
+    if (url && !updated.discoveredEndpoints.includes(url)) {
+      updated.discoveredEndpoints.push(url);
+    }
+  }
+
+  // Update capabilities based on findings
+  if (findings.exploitable) {
+    if (!updated.capabilities.includes("vulnerability_confirmed")) {
+      updated.capabilities.push("vulnerability_confirmed");
+    }
+    updated.objectives = updated.objectives.map(o =>
+      o.id === "confirm_vuln" ? { ...o, achieved: true } : o
+    );
+  }
+
+  if (updated.confirmedVulns.length >= 2) {
+    if (!updated.capabilities.includes("multi_vuln")) {
+      updated.capabilities.push("multi_vuln");
+    }
+    updated.objectives = updated.objectives.map(o =>
+      o.id === "chain_exploit" ? { ...o, achieved: true } : o
+    );
+  }
+
+  // Update privilege level based on exploit chain names
+  const chainText = (findings.exploitChains || []).map(c => `${c.name} ${c.description}`).join(" ").toLowerCase();
+  if (chainText.includes("admin") || chainText.includes("privilege") || chainText.includes("escalat")) {
+    if (updated.privilegeLevel === "none" || updated.privilegeLevel === "user") {
+      updated.privilegeLevel = "admin";
+    }
+  } else if (chainText.includes("rce") || chainText.includes("command injection") || chainText.includes("root")) {
+    updated.privilegeLevel = "root";
+  } else if (updated.privilegeLevel === "none" && findings.exploitable) {
+    updated.privilegeLevel = "user";
+  }
+
+  updated.constraints.remainingBudget -= 12; // consumed one iteration's turn budget
+  updated.iteration = state.iteration + 1;
+  updated.lastUpdatedAt = new Date().toISOString();
+
+  return updated;
+}
+
+function shouldContinueChain(state: ExploitState, prevFindingCount: number): boolean {
+  // Stop if all objectives achieved
+  if (state.objectives.every(o => o.achieved)) return false;
+  // Stop if no new vulns found (no progress)
+  if (state.confirmedVulns.length <= prevFindingCount) return false;
+  // Stop if budget exhausted
+  if (state.constraints.remainingBudget <= 0) return false;
+  return true;
+}
+
+export interface ChainLoopResult {
+  iterations: number;
+  finalState: ExploitState;
+  allFindings: ExploitFindings;
+  totalProcessingTime: number;
+}
+
+/**
+ * Multi-iteration exploit loop that carries persistent state across runs.
+ * Each iteration runs a full exploit agent pass, merges findings into ExploitState,
+ * and checks termination conditions before continuing.
+ */
+export async function runChainLoop(
+  context: AgentContext,
+  onProgress?: ProgressCallback,
+): Promise<ChainLoopResult> {
+  const startTime = Date.now();
+  const state = createInitialExploitState(context);
+  const allChains: ExploitFindings["exploitChains"] = [];
+  const allCveRefs: string[] = [];
+  const allMisconfigs: string[] = [];
+  const allToolCallLog: NonNullable<ExploitFindings["toolCallLog"]> = [];
+
+  const telemetry = new AevTelemetryRecorder({
+    evaluationId: context.evaluationId,
+    organizationId: context.organizationId || "unknown",
+    runType: "exploit_agent",
+    executionMode: context.executionMode || "simulation",
+  });
+  void telemetry.start();
+
+  let iterations = 0;
+
+  for (let i = 0; i < MAX_CHAIN_ITERATIONS; i++) {
+    iterations = i + 1;
+    const prevVulnCount = state.confirmedVulns.length;
+
+    onProgress?.("Chain Loop", `iteration_${i}`, Math.floor((i / MAX_CHAIN_ITERATIONS) * 100),
+      `Chain iteration ${i + 1}/${MAX_CHAIN_ITERATIONS} — ${state.confirmedVulns.length} vulns confirmed`);
+
+    // Build memory with state context injected into description
+    const stateContext = state.confirmedVulns.length > 0
+      ? `\n\nPREVIOUS FINDINGS (carry forward — do NOT re-test):\n${state.confirmedVulns.map(v => `- ${v.technique} at ${v.endpoint} (confidence: ${v.confidence}%)`).join("\n")}\nPrivilege level: ${state.privilegeLevel}\nCapabilities: ${state.capabilities.join(", ") || "none"}\n\nFOCUS: Chain from confirmed vulns into deeper access. Try escalation, lateral movement, or data exfiltration.`
+      : "";
+
+    const memory: AgentMemory = {
+      context: {
+        ...context,
+        description: (context.description || "") + stateContext,
+      },
+    };
+
+    try {
+      const result = await runExploitAgent(memory, (stage, progress, message) => {
+        onProgress?.("Chain Loop", stage, Math.floor((i / MAX_CHAIN_ITERATIONS) * 100) + Math.floor(progress * (1 / MAX_CHAIN_ITERATIONS)), message);
+      });
+
+      if (result.success && result.findings) {
+        const findings = result.findings;
+        // Merge findings
+        allChains.push(...(findings.exploitChains || []));
+        allCveRefs.push(...(findings.cveReferences || []));
+        allMisconfigs.push(...(findings.misconfigurations || []));
+        if (findings.toolCallLog) allToolCallLog.push(...findings.toolCallLog);
+
+        // Update state
+        const newState = updateExploitState(state, findings);
+        Object.assign(state, newState);
+
+        if (!shouldContinueChain(state, prevVulnCount)) {
+          break;
+        }
+      } else {
+        // Agent failed — stop chain
+        break;
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      void telemetry.recordFailure("orchestrator_timeout", "chain_loop", errMsg);
+      break;
+    }
+  }
+
+  const mergedFindings: ExploitFindings = {
+    exploitable: allChains.length > 0,
+    exploitChains: allChains,
+    cveReferences: Array.from(new Set(allCveRefs)),
+    misconfigurations: Array.from(new Set(allMisconfigs)),
+    toolCallLog: allToolCallLog.length > 0 ? allToolCallLog : undefined,
+  };
+
+  void telemetry.finish({
+    stopReason: state.objectives.every(o => o.achieved) ? "completed"
+      : state.constraints.remainingBudget <= 0 ? "budget_exceeded"
+      : "no_progress",
+    exploitable: mergedFindings.exploitable,
+    overallConfidence: state.confirmedVulns.reduce((max, v) => Math.max(max, v.confidence), 0),
+    findingCount: allChains.length,
+    totalTurns: iterations,
+    totalToolCalls: allToolCallLog.length,
+    exploitState: state as unknown as Record<string, unknown>,
+  });
+
+  return {
+    iterations,
+    finalState: state,
+    allFindings: mergedFindings,
+    totalProcessingTime: Date.now() - startTime,
   };
 }

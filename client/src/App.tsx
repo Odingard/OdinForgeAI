@@ -10,7 +10,7 @@ import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
 import { ViewModeProvider } from "./contexts/ViewModeContext";
 import { CyberToastProvider } from "@/components/ui/cyber-toast";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "./components/AppSidebar";
+import { AppSidebar, useAevOnlyMode } from "./components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun, User, ChevronDown, LogOut } from "lucide-react";
 import { NotificationsPopover } from "./components/NotificationsPopover";
@@ -92,6 +92,8 @@ function PageLoader() {
 }
 
 function Router() {
+  const isAevOnly = useAevOnlyMode();
+
   return (
     <AppErrorBoundary>
     <Suspense fallback={<PageLoader />}>
@@ -105,7 +107,7 @@ function Router() {
         <Route path="/infrastructure"><Redirect to="/admin/settings?tab=integrations" /></Route>
         <Route path="/reports" component={Reports} />
         <Route path="/governance"><Redirect to="/admin/settings?tab=governance" /></Route>
-        <Route path="/agents" component={Agents} />
+        {!isAevOnly && <Route path="/agents" component={Agents} />}
         <Route path="/full-assessment" component={FullAssessment} />
         <Route path="/recon"><Redirect to="/full-assessment?tab=live-recon" /></Route>
         <Route path="/advanced"><Redirect to="/" /></Route>
@@ -116,12 +118,12 @@ function Router() {
         <Route path="/audit"><Redirect to="/admin/settings?tab=audit-logs" /></Route>
         <Route path="/sessions"><Redirect to="/scans?tab=sessions" /></Route>
         <Route path="/scans" component={LiveScans} />
-        <Route path="/scheduled-scans" component={ScheduledScans} />
+        {!isAevOnly && <Route path="/scheduled-scans" component={ScheduledScans} />}
         <Route path="/sandbox"><Redirect to="/full-assessment?tab=sandbox" /></Route>
-        <Route path="/simulations" component={Simulations} />
+        {!isAevOnly && <Route path="/simulations" component={Simulations} />}
         <Route path="/breach-chains" component={BreachChains} />
         <Route path="/assess" component={AssessmentWizard} />
-        <Route path="/billing"><Redirect to="/admin/settings?tab=billing" /></Route>
+        {!isAevOnly && <Route path="/billing"><Redirect to="/admin/settings?tab=billing" /></Route>}
         <Route path="/admin/users"><Redirect to="/admin/settings?tab=users" /></Route>
         <Route path="/admin/settings" component={Settings} />
         <Route component={NotFound} />
