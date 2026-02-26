@@ -1,4 +1,3 @@
-export { DashboardTopBar } from "./DashboardTopBar";
 export { RiskScoreGauge } from "./RiskScoreGauge";
 export { FindingsVsResolvedChart } from "./FindingsVsResolvedChart";
 export { FindingsMetricCards } from "./FindingsMetricCards";

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2 } from "lucide-react";
+import { Loader2, Zap, Download } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getStoredTokens } from "@/lib/uiAuth";
 import { EvaluationDetail } from "./EvaluationDetail";
@@ -11,7 +11,6 @@ import { EvaluationWizard } from "./EvaluationWizard";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { Evaluation } from "./EvaluationTable";
 import {
-  DashboardTopBar,
   RiskScoreGauge,
   FindingsMetricCards,
   FindingsSeverityBreakdown,
@@ -89,11 +88,6 @@ export function Dashboard() {
   });
   const { data: assets = [] } = useQuery<any[]>({ queryKey: ["/api/assets"] });
   const { data: posture } = useQuery<any>({ queryKey: ["/api/defensive-posture/default"] });
-
-  const dashboardData = useMemo<DashboardData>(
-    () => ({ evaluations, assets, posture }),
-    [evaluations, assets, posture],
-  );
 
   useEffect(() => {
     if (!isLoading && evaluations.length === 0) {
@@ -181,70 +175,80 @@ export function Dashboard() {
     );
   }
 
+  const activeCount = evaluations.filter(e => e.status === "in_progress").length;
+  const completedCount = evaluations.filter(e => e.status === "completed").length;
+
   return (
-    <div className="relative rounded-lg overflow-hidden bg-background min-h-[calc(100vh-80px)]">
-      {/* Subtle background effects */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="grid-bg opacity-[0.06] absolute inset-0" />
-        <div
-          className="absolute rounded-full"
-          style={{
-            width: 400, height: 400, top: "10%", left: "-5%",
-            background: "radial-gradient(circle, rgba(56,189,248,0.03) 0%, transparent 70%)",
-            filter: "blur(60px)",
-          }}
-        />
-        <div
-          className="absolute rounded-full"
-          style={{
-            width: 300, height: 300, bottom: "5%", right: "-3%",
-            background: "radial-gradient(circle, rgba(139,92,246,0.03) 0%, transparent 70%)",
-            filter: "blur(60px)",
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 space-y-4">
-        <DashboardTopBar data={dashboardData} />
-
-        {/* Row 1: Key metric cards */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 px-4">
-          <RiskScoreGauge posture={posture} />
-          <FindingsMetricCards evaluations={evaluations} />
-          <FindingsSeverityBreakdown evaluations={evaluations} />
-          <ReachabilityExploitabilityMatrix evaluations={evaluations} />
-        </div>
-
-        {/* Row 2: Recent evaluations + sidebar */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-3 px-4">
-          <RecentEvaluations evaluations={evaluations} />
-          <div className="space-y-3">
-            <ScannedAppsSummary assets={assets} />
-            <OrganizationMetricsTable assets={assets} evaluations={evaluations} />
+    <div className="flex flex-col gap-3 min-h-0">
+      {/* Page Header */}
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-lg font-semibold tracking-tight" style={{ color: "var(--falcon-t1)", letterSpacing: "-0.02em" }}>
+            Threat Operations
+          </h1>
+          <div className="flex items-center gap-2 mt-1 text-[11px]" style={{ color: "var(--falcon-t3)" }}>
+            <span>{assets.length} targets in scope</span>
+            <span className="w-[3px] h-[3px] rounded-full" style={{ background: "var(--falcon-t4)" }} />
+            <span>{activeCount} active simulations</span>
+            <span className="w-[3px] h-[3px] rounded-full" style={{ background: "var(--falcon-t4)" }} />
+            <span>{evaluations.length} total evaluations</span>
           </div>
         </div>
-
-        {/* Row 3: Timeline chart */}
-        <div className="px-4 pb-4">
-          <FindingsVsResolvedChart evaluations={evaluations} />
+        <div className="flex gap-2">
+          <button
+            className="inline-flex items-center gap-1.5 py-[7px] px-[14px] rounded text-[11px] font-medium tracking-wide cursor-pointer transition-all"
+            style={{ background: "transparent", border: "1px solid var(--falcon-border-2)", color: "var(--falcon-t2)" }}
+            onClick={() => navigate("/reports")}
+          >
+            <Download className="w-3 h-3" />
+            Export
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 py-[7px] px-[14px] rounded text-[11px] font-medium tracking-wide cursor-pointer transition-all"
+            style={{ background: "var(--falcon-red)", border: "1px solid var(--falcon-red)", color: "#fff" }}
+            onClick={() => setShowWizard(true)}
+          >
+            <Zap className="w-3 h-3" />
+            New Assessment
+          </button>
         </div>
-
-        {/* Modals */}
-        <NewEvaluationModal
-          isOpen={showNewModal}
-          onClose={() => setShowNewModal(false)}
-          onSubmit={handleNewEvaluation}
-        />
-        <EvaluationWizard open={showWizard} onOpenChange={setShowWizard} />
-        <ProgressModal
-          isOpen={showProgressModal}
-          onClose={() => { setShowProgressModal(false); setProgressData(null); }}
-          assetId={activeEvaluation?.assetId || ""}
-          evaluationId={activeEvaluation?.id || ""}
-          progressData={progressData}
-        />
-        <OnboardingWizard open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       </div>
+
+      {/* KPI Strip */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-[10px]">
+        <RiskScoreGauge posture={posture} />
+        <FindingsMetricCards evaluations={evaluations} />
+        <FindingsSeverityBreakdown evaluations={evaluations} />
+        <ReachabilityExploitabilityMatrix evaluations={evaluations} />
+      </div>
+
+      {/* Main table + sidebar */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-[10px] flex-1 min-h-0">
+        <RecentEvaluations evaluations={evaluations} />
+        <div className="flex flex-col gap-[10px]">
+          <ScannedAppsSummary assets={assets} />
+          <OrganizationMetricsTable assets={assets} evaluations={evaluations} />
+        </div>
+      </div>
+
+      {/* Timeline chart */}
+      <FindingsVsResolvedChart evaluations={evaluations} />
+
+      {/* Modals */}
+      <NewEvaluationModal
+        isOpen={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        onSubmit={handleNewEvaluation}
+      />
+      <EvaluationWizard open={showWizard} onOpenChange={setShowWizard} />
+      <ProgressModal
+        isOpen={showProgressModal}
+        onClose={() => { setShowProgressModal(false); setProgressData(null); }}
+        assetId={activeEvaluation?.assetId || ""}
+        evaluationId={activeEvaluation?.id || ""}
+        progressData={progressData}
+      />
+      <OnboardingWizard open={showOnboarding} onClose={() => setShowOnboarding(false)} />
     </div>
   );
 }
