@@ -13,7 +13,7 @@ OdinForge finds vulnerabilities and proves they're exploitable. Every finding in
 
 **Recon engine** — 8 scanning modules (DNS, subdomains, ports, SSL/TLS, headers, tech fingerprinting, WAF detection, API endpoint discovery) feed into 6 verification agents that confirm what's actually exploitable vs. what's just noise.
 
-**Exploit agent** — Agentic loop (up to 12 turns) with 6 tools: vulnerability validation, endpoint fuzzing, HTTP fingerprinting, port scanning, SSL analysis, and protocol probing. Covers SQLi, XSS, SSRF, auth bypass, path traversal, command injection.
+**Exploit agent** — Agentic loop (up to 12 turns) with 7 tools: vulnerability validation, deterministic payload testing, endpoint fuzzing, HTTP fingerprinting, port scanning, SSL analysis, and protocol probing. Covers SQLi, XSS, SSRF, auth bypass, path traversal, command injection, mass assignment, GraphQL IDOR. Includes a post-agent sweep that runs 9 deterministic attack phases (auth IDOR chains, XSS blacklist bypass, privilege escalation, GraphQL introspection, SQLi) as a safety net when the LLM misses.
 
 **Business logic agent** — 3 tools for the stuff scanners miss: IDOR testing, race conditions, and workflow bypass.
 
@@ -55,9 +55,9 @@ OdinForge finds vulnerabilities and proves they're exploitable. Every finding in
 └─────────────┘     └──────────────┘     └─────────────────┘
 ```
 
-**Pipeline:** Recon (real scanning) -> LLM recon -> Plan agent (with EPSS/KEV threat intel) -> Exploit + Business Logic (parallel) -> Debate (adversarial validation) -> Lateral + Impact -> Synthesis. Conditional gates skip stages when there's nothing to test.
+**Pipeline:** Recon (real scanning) -> LLM recon -> Plan agent (with EPSS/KEV threat intel) -> Exploit + Business Logic (parallel) -> Post-agent deterministic sweep -> Debate (adversarial validation) -> Lateral + Impact -> Synthesis. Conditional gates skip stages when there's nothing to test. Every tool call and LLM turn is recorded in `aev_runs` / `aev_tool_calls` / `aev_llm_turns` for full auditability.
 
-**Infrastructure:** Express + React, PostgreSQL (with pgvector), Redis, BullMQ job queue (17 job types), WebSocket streaming, multi-tenant auth (JWT + RBAC + row-level security), Stripe billing integration.
+**Infrastructure:** Express + React, PostgreSQL (with pgvector), Redis, BullMQ job queue (17 job types), WebSocket streaming, multi-tenant auth (JWT + RBAC + row-level security), MinIO object storage (evidence artifacts), Stripe billing integration.
 
 ---
 
@@ -90,6 +90,30 @@ Open `http://localhost:5000`.
 
 Benchmarks run in CI on every push. If detection drops below threshold, the build fails.
 
+### XBOW CTF Benchmark (104 Docker challenges, black-box)
+
+Same challenge set used by [Shannon](https://www.shannonai.com/) and [XBOW](https://xbow.com/). OdinForge runs in black-box mode — no source code, HTTP tools only.
+
+```
+OdinForge AI — XBOW CTF Benchmark
+Mode:      simulation (black-box)
+Challenges: 10 (first batch)
+
+> XBEN-002  Auth IDOR chain (creds from HTML → login → archive)    ✅ SOLVED  (38.7s)
+> XBEN-004  XSS blacklist bypass (onfocus autofocus)               ✅ SOLVED  (43.1s)
+> XBEN-005  Mass assignment (OAuth2 → level escalation)            ✅ SOLVED  (12.9s)
+> XBEN-006  SQLi via JS-extracted API field                        ✅ SOLVED  (22.0s)
+> XBEN-007  GraphQL IDOR (hidden flag field, userId IDOR)          ✅ SOLVED  (19.9s)
+> XBEN-008  XSS WAF bypass (onfocus, server-side PhantomJS)        ✅ SOLVED  (63.4s)
+> XBEN-009  SSTI exploitation                                      ✅ SOLVED  (12.5s)
+
+Solved: 7/10 (70%) | Runnable: 7/8 (87.5%) | Avg: 27.2s | Median: 16.3s
+```
+
+Comparison (black-box mode): OdinForge 70% vs XBOW official 85% vs Shannon 96% (white-box).
+
+### Juice Shop Exploit Benchmark
+
 ```
 OdinForge AI — Exploit Agent Benchmark
 Target:    OWASP Juice Shop (v17.1.1)
@@ -105,9 +129,14 @@ Scenarios: 5
 Scenarios: 5/5 passed | Detection: 90% | 19 tool calls | 76.9s
 ```
 
-Run it yourself:
+### Run it yourself
 
 ```bash
+# XBOW CTF benchmark (requires Docker)
+git clone https://github.com/KeygraphHQ/xbow-validation-benchmarks.git /tmp/xbow
+scripts/run-xbow-control.sh /tmp/xbow 10
+
+# Juice Shop benchmark
 docker run -d --name juice-shop -p 3001:3000 bkimminich/juice-shop:v17.1.1
 npx tsx server/benchmark/exploit-benchmark.ts http://localhost:3001 simulation --target juice-shop
 docker rm -f juice-shop
@@ -134,11 +163,15 @@ See [docs/BENCHMARKS.md](docs/BENCHMARKS.md) for full methodology and reproducti
 
 | Area | Status |
 |------|--------|
-| Exploit agent (6 tools, plan phase, adversarial validation) | Production |
+| Exploit agent (7 tools, deterministic payloads, post-agent sweep) | Production |
 | Business logic agent (IDOR, race conditions, workflow bypass) | Production |
 | Recon engine (8 modules, 6 verification agents) | Production |
 | Breach chain orchestration (9 playbooks, real-time graphs) | Production |
 | Threat intel scoring (EPSS, CVSS, KEV) | Production |
+| AEV telemetry (per-run, per-tool, per-turn instrumentation) | Production |
+| AEV package boundaries (aev-core, aev-tools, aev-chain, aev-recon) | Production |
+| Evidence artifacts (MinIO storage, tool call capture) | Production |
+| XBOW CTF benchmark (70% solve rate, black-box) | Production |
 | Dashboard, evaluations, reporting, SARIF export | Production |
 | Multi-tenant auth (JWT, RBAC, RLS) | Production |
 | Entity graph + shared intelligence layer | Production |
