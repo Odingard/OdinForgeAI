@@ -1,6 +1,5 @@
-import { useEffect, useRef, memo, useMemo } from "react";
+import { useEffect, useRef, memo } from "react";
 import { computeRiskScore, riskScoreColor, riskScoreLabel } from "@/lib/dashboard-transforms";
-import { GlowCard } from "@/components/ui/glow-card";
 
 export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { posture: any }) {
   const score = computeRiskScore(posture);
@@ -20,7 +19,7 @@ export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { postur
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const size = 120;
+    const size = 140;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
@@ -28,8 +27,8 @@ export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { postur
 
     const cx = size / 2;
     const cy = size / 2;
-    const outerR = 48;
-    const ringW = 6;
+    const outerR = 56;
+    const ringW = 7;
     const sweepLen = 0.15;
 
     function draw(now: number = 0) {
@@ -65,7 +64,7 @@ export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { postur
       // Inner ring
       ctx!.save();
       ctx!.beginPath();
-      ctx!.arc(cx, cy, outerR - 12, 0, Math.PI * 2);
+      ctx!.arc(cx, cy, outerR - 14, 0, Math.PI * 2);
       ctx!.strokeStyle = "rgba(56,189,248,0.03)";
       ctx!.lineWidth = 1;
       ctx!.stroke();
@@ -128,24 +127,23 @@ export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { postur
 
       // Center score
       ctx!.save();
-      ctx!.font = "bold 26px 'Inter', system-ui";
+      ctx!.font = "bold 30px 'Inter', system-ui";
       ctx!.fillStyle = color;
       ctx!.textAlign = "center";
       ctx!.textBaseline = "middle";
       ctx!.shadowColor = color;
       ctx!.shadowBlur = 12;
-      ctx!.fillText(String(score), cx, cy - 2);
+      ctx!.fillText(String(score), cx, cy - 4);
       ctx!.restore();
 
       // Label
       ctx!.save();
-      ctx!.font = "600 7px 'IBM Plex Mono', monospace";
+      ctx!.font = "600 9px 'Inter', system-ui";
       ctx!.fillStyle = color;
       ctx!.globalAlpha = 0.7;
       ctx!.textAlign = "center";
       ctx!.textBaseline = "middle";
-      ctx!.letterSpacing = "1px";
-      ctx!.fillText(label.toUpperCase(), cx, cy + 14);
+      ctx!.fillText(label.toUpperCase(), cx, cy + 16);
       ctx!.restore();
 
       // Tick marks
@@ -163,7 +161,6 @@ export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { postur
         ctx!.stroke();
       }
       ctx!.restore();
-
     }
 
     animRef.current = requestAnimationFrame(draw);
@@ -171,27 +168,16 @@ export const RiskScoreGauge = memo(function RiskScoreGauge({ posture }: { postur
   }, [score, color, label]);
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
-      <div className="flex items-center gap-2 mb-1">
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: color, boxShadow: `0 0 4px ${color}` }}
-        />
-        <span
-          style={{
-            fontSize: 8,
-            fontFamily: "'IBM Plex Mono', monospace",
-            color: "#475569",
-            letterSpacing: 1.5,
-            textTransform: "uppercase",
-          }}
-        >
+    <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Threat Level
         </span>
       </div>
       <div className="flex justify-center">
-        <canvas ref={canvasRef} style={{ width: 120, height: 120 }} />
+        <canvas ref={canvasRef} style={{ width: 140, height: 140 }} />
       </div>
-    </GlowCard>
+    </div>
   );
 });

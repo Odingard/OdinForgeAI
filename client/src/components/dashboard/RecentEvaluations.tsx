@@ -1,5 +1,5 @@
 import { memo, useMemo } from "react";
-import { GlowCard } from "@/components/ui/glow-card";
+import { Badge } from "@/components/ui/badge";
 
 interface Evaluation {
   id: string;
@@ -13,18 +13,18 @@ interface Evaluation {
   description?: string;
 }
 
-const SEV_COLORS: Record<string, string> = {
-  critical: "#ef4444",
-  high: "#f97316",
-  medium: "#eab308",
-  low: "#22c55e",
+const SEV_STYLES: Record<string, string> = {
+  critical: "bg-red-500/10 text-red-400 border-red-500/20",
+  high: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  medium: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  low: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  completed: "#22c55e",
-  in_progress: "#38bdf8",
-  pending: "#f59e0b",
-  failed: "#ef4444",
+const STATUS_STYLES: Record<string, string> = {
+  completed: "text-emerald-400",
+  in_progress: "text-cyan-400",
+  pending: "text-amber-400",
+  failed: "text-red-400",
 };
 
 function timeAgo(iso: string): string {
@@ -52,78 +52,33 @@ export const RecentEvaluations = memo(function RecentEvaluations({
   );
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-3">
-      <div className="flex items-center justify-between mb-3">
+    <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm p-4">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
-            style={{ boxShadow: "0 0 4px #38bdf8" }}
-          />
-          <span
-            style={{
-              fontSize: 9,
-              fontFamily: "'IBM Plex Mono', monospace",
-              color: "#475569",
-              letterSpacing: 1.5,
-              textTransform: "uppercase",
-            }}
-          >
+          <span className="inline-block h-2 w-2 rounded-full bg-cyan-400" style={{ boxShadow: "0 0 6px #38bdf8" }} />
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Recent Evaluations
           </span>
         </div>
-        <span
-          style={{
-            fontSize: 9,
-            fontFamily: "'IBM Plex Mono', monospace",
-            color: "#334155",
-          }}
-        >
+        <span className="text-xs text-muted-foreground">
           {evaluations.length} total
         </span>
       </div>
 
       {recent.length === 0 ? (
-        <div
-          className="flex flex-col items-center justify-center py-8"
-          style={{ minHeight: 120 }}
-        >
-          <span
-            style={{
-              fontSize: 12,
-              color: "rgba(148, 163, 184, 0.4)",
-              fontFamily: "'Inter', system-ui",
-            }}
-          >
-            No evaluations yet
-          </span>
-          <span
-            style={{
-              fontSize: 10,
-              color: "rgba(148, 163, 184, 0.25)",
-              fontFamily: "'IBM Plex Mono', monospace",
-              marginTop: 4,
-            }}
-          >
-            Run an assessment to see results here
-          </span>
+        <div className="flex flex-col items-center justify-center py-10">
+          <span className="text-sm text-muted-foreground/40">No evaluations yet</span>
+          <span className="text-xs text-muted-foreground/25 mt-1">Run an assessment to see results here</span>
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+          <table className="w-full text-sm">
             <thead>
-              <tr>
+              <tr className="border-b border-border/30">
                 {["Type", "Severity", "Status", "Exploitable", "When"].map((h) => (
                   <th
                     key={h}
-                    style={{
-                      fontSize: 8,
-                      color: "#38bdf8",
-                      letterSpacing: 1.5,
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                      textAlign: h === "Type" ? "left" : "center",
-                      paddingBottom: 8,
-                    }}
+                    className={`text-[10px] font-semibold uppercase tracking-wider text-primary pb-3 ${h === "Type" ? "text-left" : "text-center"}`}
                   >
                     {h}
                   </th>
@@ -133,85 +88,31 @@ export const RecentEvaluations = memo(function RecentEvaluations({
             <tbody>
               {recent.map((e) => {
                 const sev = (e.priority || e.severity || "medium").toLowerCase();
-                const sevColor = SEV_COLORS[sev] || "#64748b";
-                const statusColor = STATUS_COLORS[e.status] || "#64748b";
                 return (
-                  <tr
-                    key={e.id}
-                    style={{ borderTop: "1px solid rgba(56,189,248,0.04)" }}
-                  >
-                    <td
-                      style={{
-                        fontSize: 10,
-                        color: "#94a3b8",
-                        padding: "6px 0",
-                        fontWeight: 500,
-                        maxWidth: 200,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
+                  <tr key={e.id} className="border-t border-border/10 hover:bg-primary/[0.02] transition-colors">
+                    <td className="text-xs text-muted-foreground py-2.5 font-medium max-w-[200px] truncate">
                       {(e.exposureType || "assessment")
                         .replace(/_/g, " ")
                         .replace(/\b\w/g, (c) => c.toUpperCase())}
                     </td>
-                    <td style={{ textAlign: "center", padding: "6px 0" }}>
-                      <span
-                        style={{
-                          fontSize: 8,
-                          fontWeight: 700,
-                          color: sevColor,
-                          letterSpacing: 1,
-                          textTransform: "uppercase",
-                          background: `${sevColor}12`,
-                          padding: "2px 8px",
-                          borderRadius: 100,
-                          border: `1px solid ${sevColor}25`,
-                        }}
-                      >
+                    <td className="text-center py-2.5">
+                      <Badge variant="outline" className={`text-[10px] font-semibold uppercase ${SEV_STYLES[sev] || "bg-muted"}`}>
                         {sev}
-                      </span>
+                      </Badge>
                     </td>
-                    <td style={{ textAlign: "center", padding: "6px 0" }}>
-                      <span
-                        style={{
-                          fontSize: 8,
-                          fontWeight: 600,
-                          color: statusColor,
-                          letterSpacing: 1,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {e.status.replace(/_/g, " ")}
-                      </span>
+                    <td className={`text-center py-2.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_STYLES[e.status] || "text-muted-foreground"}`}>
+                      {e.status.replace(/_/g, " ")}
                     </td>
-                    <td style={{ textAlign: "center", padding: "6px 0" }}>
+                    <td className="text-center py-2.5">
                       {e.status === "completed" ? (
-                        <span
-                          style={{
-                            fontSize: 9,
-                            fontWeight: 700,
-                            color: e.exploitable ? "#ef4444" : "#22c55e",
-                            textShadow: e.exploitable
-                              ? "0 0 6px rgba(239,68,68,0.3)"
-                              : "0 0 6px rgba(34,197,94,0.3)",
-                          }}
-                        >
+                        <span className={`text-xs font-bold ${e.exploitable ? "text-red-400" : "text-emerald-400"}`}>
                           {e.exploitable ? "YES" : "NO"}
                         </span>
                       ) : (
-                        <span style={{ fontSize: 9, color: "#334155" }}>—</span>
+                        <span className="text-xs text-muted-foreground/30">—</span>
                       )}
                     </td>
-                    <td
-                      style={{
-                        fontSize: 9,
-                        color: "#475569",
-                        textAlign: "center",
-                        padding: "6px 0",
-                      }}
-                    >
+                    <td className="text-center py-2.5 text-xs text-muted-foreground">
                       {e.createdAt ? timeAgo(e.createdAt) : "—"}
                     </td>
                   </tr>
@@ -221,6 +122,6 @@ export const RecentEvaluations = memo(function RecentEvaluations({
           </table>
         </div>
       )}
-    </GlowCard>
+    </div>
   );
 });

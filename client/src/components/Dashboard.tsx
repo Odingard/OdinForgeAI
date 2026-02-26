@@ -95,7 +95,6 @@ export function Dashboard() {
     [evaluations, assets, posture],
   );
 
-  // Show onboarding for new users
   useEffect(() => {
     if (!isLoading && evaluations.length === 0) {
       const hasSeenOnboarding = localStorage.getItem("hasSeenOnboarding");
@@ -122,7 +121,6 @@ export function Dashboard() {
     },
   });
 
-  // WebSocket for progress updates
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const { accessToken } = getStoredTokens();
@@ -158,9 +156,7 @@ export function Dashboard() {
       }
     };
 
-    return () => {
-      ws.close();
-    };
+    return () => { ws.close(); };
   }, [activeEvaluation?.id]);
 
   const handleNewEvaluation = (data: EvaluationFormData) => {
@@ -168,7 +164,6 @@ export function Dashboard() {
     createEvaluationMutation.mutate(data);
   };
 
-  // Detail view mode
   if (selectedEvaluationId && selectedEvaluation) {
     return (
       <EvaluationDetail
@@ -186,96 +181,69 @@ export function Dashboard() {
     );
   }
 
-  // ── Main dashboard: three-panel analytics layout ─────────────────────
   return (
-    <div
-      className="relative rounded-lg overflow-hidden"
-      style={{ background: "#06090f", minHeight: "calc(100vh - 80px)" }}
-    >
-      {/* Particle background */}
+    <div className="relative rounded-lg overflow-hidden bg-background min-h-[calc(100vh-80px)]">
+      {/* Subtle background effects */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="grid-bg opacity-10 absolute inset-0" />
-        {/* Scan line */}
-        <div className="scan-line absolute inset-0 opacity-30" />
-        {/* Gradient orbs */}
+        <div className="grid-bg opacity-[0.06] absolute inset-0" />
         <div
           className="absolute rounded-full"
           style={{
-            width: 400,
-            height: 400,
-            top: "10%",
-            left: "-5%",
+            width: 400, height: 400, top: "10%", left: "-5%",
             background: "radial-gradient(circle, rgba(56,189,248,0.03) 0%, transparent 70%)",
             filter: "blur(60px)",
-            animation: "pulse-glow 8s ease-in-out infinite",
           }}
         />
         <div
           className="absolute rounded-full"
           style={{
-            width: 300,
-            height: 300,
-            bottom: "5%",
-            right: "-3%",
+            width: 300, height: 300, bottom: "5%", right: "-3%",
             background: "radial-gradient(circle, rgba(139,92,246,0.03) 0%, transparent 70%)",
             filter: "blur(60px)",
-            animation: "pulse-glow 10s ease-in-out infinite 2s",
           }}
         />
       </div>
 
-      <div className="relative z-10 space-y-0">
+      <div className="relative z-10 space-y-4">
         <DashboardTopBar data={dashboardData} />
 
-      {/* Row 1: Key metric cards */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-2 px-2 pt-2">
-        <RiskScoreGauge posture={posture} />
-        <FindingsMetricCards evaluations={evaluations} />
-        <FindingsSeverityBreakdown evaluations={evaluations} />
-        <ReachabilityExploitabilityMatrix evaluations={evaluations} />
-      </div>
-
-      {/* Row 2: Recent evaluations + sidebar */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_280px] gap-2 px-2 pt-2">
-        <RecentEvaluations evaluations={evaluations} />
-        <div className="space-y-2">
-          <ScannedAppsSummary assets={assets} />
-          <OrganizationMetricsTable assets={assets} evaluations={evaluations} />
+        {/* Row 1: Key metric cards */}
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 px-4">
+          <RiskScoreGauge posture={posture} />
+          <FindingsMetricCards evaluations={evaluations} />
+          <FindingsSeverityBreakdown evaluations={evaluations} />
+          <ReachabilityExploitabilityMatrix evaluations={evaluations} />
         </div>
-      </div>
 
-      {/* Row 3: Timeline chart */}
-      <div className="px-2 pt-2 pb-2">
-        <FindingsVsResolvedChart evaluations={evaluations} />
-      </div>
+        {/* Row 2: Recent evaluations + sidebar */}
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-3 px-4">
+          <RecentEvaluations evaluations={evaluations} />
+          <div className="space-y-3">
+            <ScannedAppsSummary assets={assets} />
+            <OrganizationMetricsTable assets={assets} evaluations={evaluations} />
+          </div>
+        </div>
 
-      {/* Modals */}
-      <NewEvaluationModal
-        isOpen={showNewModal}
-        onClose={() => setShowNewModal(false)}
-        onSubmit={handleNewEvaluation}
-      />
+        {/* Row 3: Timeline chart */}
+        <div className="px-4 pb-4">
+          <FindingsVsResolvedChart evaluations={evaluations} />
+        </div>
 
-      <EvaluationWizard
-        open={showWizard}
-        onOpenChange={setShowWizard}
-      />
-
-      <ProgressModal
-        isOpen={showProgressModal}
-        onClose={() => {
-          setShowProgressModal(false);
-          setProgressData(null);
-        }}
-        assetId={activeEvaluation?.assetId || ""}
-        evaluationId={activeEvaluation?.id || ""}
-        progressData={progressData}
-      />
-
-      <OnboardingWizard
-        open={showOnboarding}
-        onClose={() => setShowOnboarding(false)}
-      />
+        {/* Modals */}
+        <NewEvaluationModal
+          isOpen={showNewModal}
+          onClose={() => setShowNewModal(false)}
+          onSubmit={handleNewEvaluation}
+        />
+        <EvaluationWizard open={showWizard} onOpenChange={setShowWizard} />
+        <ProgressModal
+          isOpen={showProgressModal}
+          onClose={() => { setShowProgressModal(false); setProgressData(null); }}
+          assetId={activeEvaluation?.assetId || ""}
+          evaluationId={activeEvaluation?.id || ""}
+          progressData={progressData}
+        />
+        <OnboardingWizard open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       </div>
     </div>
   );

@@ -1,12 +1,12 @@
 import { memo } from "react";
 import { useLocation } from "wouter";
-import { Zap } from "lucide-react";
+import { Zap, RefreshCw } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
 import type { DashboardData } from "../Dashboard";
 
 export const DashboardTopBar = memo(function DashboardTopBar({ data }: { data: DashboardData }) {
   const [, navigate] = useLocation();
-
   const { evaluations, assets } = data;
   const active = evaluations.filter((e) => e.status === "pending" || e.status === "in_progress").length;
   const exploitable = evaluations.filter((e) => e.exploitable === true).length;
@@ -18,122 +18,40 @@ export const DashboardTopBar = memo(function DashboardTopBar({ data }: { data: D
   };
 
   return (
-    <div
-      style={{
-        background: "rgba(6,9,15,0.95)",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid rgba(56,189,248,0.08)",
-        fontFamily: "'Sora', 'DM Sans', sans-serif",
-      }}
-      className="rounded-t-lg px-4 py-2"
-    >
+    <div className="rounded-t-lg px-5 py-3 bg-card/60 backdrop-blur-sm border-b border-border/50">
       <div className="flex items-center justify-between">
         {/* Left: Branding + Status */}
-        <div className="flex items-center gap-3">
-          <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: -0.5, color: "#f1f5f9" }}>
-            ODIN<span style={{ color: "#38bdf8" }}>FORGE</span>
+        <div className="flex items-center gap-4">
+          <span className="font-extrabold text-lg tracking-tight text-foreground">
+            ODIN<span className="text-primary">FORGE</span>
           </span>
-          <span
-            style={{
-              fontSize: 9,
-              fontFamily: "'IBM Plex Mono', monospace",
-              color: "#38bdf8",
-              background: "rgba(56,189,248,0.08)",
-              padding: "3px 10px",
-              borderRadius: 100,
-              border: "1px solid rgba(56,189,248,0.15)",
-              letterSpacing: 1.5,
-              textTransform: "uppercase",
-              fontWeight: 600,
-            }}
-          >
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-primary bg-primary/8 border border-primary/15 px-3 py-1 rounded-full">
             Threat Operations
           </span>
-          <div className="flex items-center gap-1.5 ml-2">
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400"
-              style={{
-                boxShadow: "0 0 6px #22c55e, 0 0 12px rgba(34,197,94,0.4)",
-                animation: "pulse-glow 2s ease-in-out infinite",
-              }}
-            />
-            <span
-              style={{
-                fontSize: 9,
-                fontFamily: "'IBM Plex Mono', monospace",
-                color: "#22c55e",
-                letterSpacing: 1,
-                textTransform: "uppercase",
-              }}
-            >
+          <div className="flex items-center gap-2 ml-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 glow-green-sm" />
+            <span className="text-[10px] font-medium uppercase tracking-wider text-emerald-400">
               Systems Nominal
             </span>
           </div>
         </div>
 
         {/* Right: Metrics + Actions */}
-        <div className="flex items-center gap-4">
-          <MetricBox label="Threats Active" value={active} color={active > 0 ? "#f59e0b" : "#38bdf8"} />
-          <Divider />
-          <MetricBox label="Exploitable" value={exploitable} color={exploitable > 0 ? "#ef4444" : "#22c55e"} />
-          <Divider />
-          <MetricBox label="Assets" value={assets.length} color="#38bdf8" />
-          <Divider />
-          <button
-            onClick={handleRefresh}
-            style={{
-              fontSize: 9,
-              fontFamily: "'IBM Plex Mono', monospace",
-              color: "#64748b",
-              background: "rgba(56,189,248,0.05)",
-              border: "1px solid rgba(56,189,248,0.1)",
-              borderRadius: 4,
-              padding: "5px 12px",
-              cursor: "pointer",
-              letterSpacing: 1,
-              textTransform: "uppercase",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#38bdf8";
-              e.currentTarget.style.borderColor = "rgba(56,189,248,0.3)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#64748b";
-              e.currentTarget.style.borderColor = "rgba(56,189,248,0.1)";
-            }}
-          >
+        <div className="flex items-center gap-5">
+          <MetricBox label="Active Threats" value={active} color={active > 0 ? "text-amber-400" : "text-primary"} />
+          <div className="w-px h-7 bg-border/50" />
+          <MetricBox label="Exploitable" value={exploitable} color={exploitable > 0 ? "text-red-400" : "text-emerald-400"} />
+          <div className="w-px h-7 bg-border/50" />
+          <MetricBox label="Assets" value={assets.length} color="text-primary" />
+          <div className="w-px h-7 bg-border/50" />
+          <Button variant="ghost" size="sm" onClick={handleRefresh} className="text-xs h-8 px-3 text-muted-foreground hover:text-foreground">
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             Refresh
-          </button>
-          <button
-            onClick={() => navigate("/assess")}
-            style={{
-              fontSize: 9,
-              fontFamily: "'IBM Plex Mono', monospace",
-              color: "#f1f5f9",
-              background: "linear-gradient(135deg, rgba(6,182,212,0.3), rgba(59,130,246,0.3))",
-              border: "1px solid rgba(56,189,248,0.25)",
-              borderRadius: 4,
-              padding: "5px 14px",
-              cursor: "pointer",
-              letterSpacing: 1,
-              textTransform: "uppercase",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              boxShadow: "0 0 12px rgba(56,189,248,0.15)",
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = "0 0 20px rgba(56,189,248,0.3)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = "0 0 12px rgba(56,189,248,0.15)";
-            }}
-          >
-            <Zap size={10} />
+          </Button>
+          <Button size="sm" onClick={() => navigate("/assess")} className="text-xs h-8 px-4">
+            <Zap className="h-3.5 w-3.5 mr-1.5" />
             New Assessment
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -142,34 +60,13 @@ export const DashboardTopBar = memo(function DashboardTopBar({ data }: { data: D
 
 function MetricBox({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div style={{ textAlign: "right" }}>
-      <div
-        style={{
-          fontSize: 8,
-          color: "#475569",
-          fontFamily: "'IBM Plex Mono', monospace",
-          textTransform: "uppercase",
-          letterSpacing: 1.5,
-        }}
-      >
+    <div className="text-right">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-0.5">
         {label}
       </div>
-      <div
-        style={{
-          fontSize: 16,
-          fontWeight: 800,
-          color,
-          letterSpacing: -1,
-          fontFamily: "'Inter', system-ui",
-          textShadow: `0 0 10px ${color}40`,
-        }}
-      >
+      <div className={`text-lg font-bold tabular-nums tracking-tight ${color}`}>
         {value}
       </div>
     </div>
   );
-}
-
-function Divider() {
-  return <div style={{ width: 1, height: 28, background: "rgba(56,189,248,0.08)" }} />;
 }

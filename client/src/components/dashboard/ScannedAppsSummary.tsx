@@ -1,16 +1,14 @@
 import { useMemo, memo } from "react";
 import { groupAssetsByType } from "@/lib/dashboard-transforms";
-import { GlowCard } from "@/components/ui/glow-card";
 
 const TYPE_COLORS: Record<string, string> = {
-  web_application: "#38bdf8",
-  api: "#22c55e",
-  cloud: "#a78bfa",
-  network: "#f59e0b",
+  web_application: "text-cyan-400 border-cyan-500/40",
+  api: "text-emerald-400 border-emerald-500/40",
+  cloud: "text-purple-400 border-purple-500/40",
+  network: "text-amber-400 border-amber-500/40",
 };
 
 export const ScannedAppsSummary = memo(function ScannedAppsSummary({ assets = [] }: { assets: any[] }) {
-
   const groups = useMemo(() => groupAssetsByType(assets), [assets]);
   const total = assets.length;
   const entries = Object.entries(groups)
@@ -18,90 +16,39 @@ export const ScannedAppsSummary = memo(function ScannedAppsSummary({ assets = []
     .slice(0, 4);
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
-      <div className="flex items-center justify-between mb-2">
+    <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm p-4">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
-            style={{ boxShadow: "0 0 4px #38bdf8" }}
-          />
-          <span
-            style={{
-              fontSize: 9,
-              fontFamily: "'IBM Plex Mono', monospace",
-              color: "#475569",
-              letterSpacing: 1.5,
-              textTransform: "uppercase",
-            }}
-          >
+          <span className="inline-block h-2 w-2 rounded-full bg-cyan-400" style={{ boxShadow: "0 0 6px #38bdf8" }} />
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Asset Inventory
           </span>
         </div>
-        <span
-          style={{
-            fontSize: 16,
-            fontWeight: 800,
-            color: "#f1f5f9",
-            fontFamily: "'Inter', system-ui",
-            textShadow: "0 0 10px rgba(241,245,249,0.15)",
-          }}
-        >
+        <span className="text-lg font-bold text-foreground tabular-nums">
           {total}
         </span>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {entries.map(([type, count]) => {
-          const accentColor = TYPE_COLORS[type] || "#64748b";
-          const label = type
-            .replace(/_/g, " ")
-            .replace(/\b\w/g, (c) => c.toUpperCase());
+          const colors = TYPE_COLORS[type] || "text-muted-foreground border-border";
+          const [textColor, borderColor] = colors.split(" ");
+          const label = type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
           return (
             <div
               key={type}
-              className="flex items-center justify-between py-1 px-2 rounded"
-              style={{
-                background: "rgba(6,9,15,0.5)",
-                borderLeft: `2px solid ${accentColor}40`,
-              }}
+              className={`flex items-center justify-between py-2 px-3 rounded-md bg-background/40 border-l-2 ${borderColor}`}
             >
-              <span
-                style={{
-                  fontSize: 10,
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  color: "#94a3b8",
-                  fontWeight: 500,
-                }}
-              >
-                {label}
-              </span>
-              <span
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: accentColor,
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  textShadow: `0 0 6px ${accentColor}30`,
-                }}
-              >
-                {count}
-              </span>
+              <span className="text-xs font-medium text-muted-foreground">{label}</span>
+              <span className={`text-sm font-bold tabular-nums ${textColor}`}>{count}</span>
             </div>
           );
         })}
         {entries.length === 0 && (
-          <p
-            style={{
-              fontSize: 10,
-              fontFamily: "'IBM Plex Mono', monospace",
-              color: "#334155",
-              textAlign: "center",
-              padding: "12px 0",
-            }}
-          >
-            NO ASSETS REGISTERED
+          <p className="text-xs text-muted-foreground/40 text-center py-4 uppercase tracking-wider">
+            No assets registered
           </p>
         )}
       </div>
-    </GlowCard>
+    </div>
   );
 });

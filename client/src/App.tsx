@@ -143,50 +143,58 @@ function AppHeader() {
   };
 
   return (
-    <header className="h-14 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-40">
-      <div className="h-full px-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+    <header className="h-12 border-b border-border/60 bg-background/80 backdrop-blur-md sticky top-0 z-40">
+      <div className="h-full px-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
           <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <div className="hidden sm:block h-4 w-px bg-border" />
+          <span className="hidden sm:block text-xs text-muted-foreground/50 font-medium uppercase tracking-wider">
+            Adversarial Exposure Validation
+          </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
+            className="h-8 w-8"
             onClick={toggleTheme}
             data-testid="button-theme-toggle"
           >
             {theme === "dark" ? (
-              <Sun className="h-4 w-4" />
+              <Sun className="h-3.5 w-3.5" />
             ) : (
-              <Moon className="h-4 w-4" />
+              <Moon className="h-3.5 w-3.5" />
             )}
           </Button>
-          
+
           <NotificationsPopover />
-          
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-2" data-testid="button-user-menu">
-                <div className="h-7 w-7 rounded-full bg-gradient-to-br from-red-600 to-red-500 flex items-center justify-center">
-                  <User className="h-4 w-4 text-white" />
+              <Button variant="ghost" size="sm" className="gap-2 h-8 ml-1" data-testid="button-user-menu">
+                <div className="h-6 w-6 rounded-full bg-gradient-to-br from-red-600 to-red-500 flex items-center justify-center">
+                  <User className="h-3 w-3 text-white" />
                 </div>
-                <span className="hidden sm:inline text-sm">{uiUser?.displayName || uiUser?.email || "User"}</span>
-                <ChevronDown className="h-3 w-3" />
+                <span className="hidden sm:inline text-xs font-medium">{uiUser?.displayName || uiUser?.email || "User"}</span>
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               {uiUser && (
                 <>
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">{uiUser.email}</div>
-                  <div className="px-2 py-1 text-xs font-medium capitalize">{uiUser.role?.name || "User"}</div>
+                  <div className="px-3 py-2">
+                    <p className="text-sm font-medium">{uiUser.displayName || uiUser.email}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{uiUser.email}</p>
+                    <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mt-1">{uiUser.role?.name || "User"}</p>
+                  </div>
                   <DropdownMenuSeparator />
                 </>
               )}
               <DropdownMenuItem data-testid="menu-profile">Profile</DropdownMenuItem>
               <DropdownMenuItem data-testid="menu-settings">Settings</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleLogout} data-testid="menu-logout">
+              <DropdownMenuItem onClick={handleLogout} data-testid="menu-logout" className="text-red-400 focus:text-red-400">
                 <LogOut className="h-4 w-4 mr-2" />
                 Log out
               </DropdownMenuItem>
@@ -200,21 +208,21 @@ function AppHeader() {
 
 function AppLayout() {
   const sidebarStyle = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "15rem",
     "--sidebar-width-icon": "3rem",
   };
 
   return (
     <SidebarProvider style={sidebarStyle as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full bg-background">
         <AppSidebar />
         <div className="flex flex-col flex-1 overflow-hidden">
           <AppHeader />
-          <div className="px-6 pt-4 space-y-2">
+          <div className="px-5 pt-3 space-y-2">
             <TrialBanner />
             <DemoDataBanner />
           </div>
-          <main className="flex-1 overflow-auto p-6">
+          <main className="flex-1 overflow-auto px-5 py-4">
             <Router />
           </main>
         </div>

@@ -1,62 +1,30 @@
 import { useMemo, memo } from "react";
 import { buildOrgMetrics } from "@/lib/dashboard-transforms";
-import { GlowCard } from "@/components/ui/glow-card";
 
 export const OrganizationMetricsTable = memo(function OrganizationMetricsTable({ assets = [], evaluations = [] }: { assets: any[]; evaluations: any[] }) {
-
-  const rows = useMemo(
-    () => buildOrgMetrics(assets, evaluations),
-    [assets, evaluations],
-  );
+  const rows = useMemo(() => buildOrgMetrics(assets, evaluations), [assets, evaluations]);
 
   return (
-    <GlowCard glowColor="cyan" glowIntensity="sm" glass scanLine className="p-2">
-      <div className="flex items-center gap-2 mb-2">
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400"
-          style={{ boxShadow: "0 0 4px #38bdf8" }}
-        />
-        <span
-          style={{
-            fontSize: 9,
-            fontFamily: "'IBM Plex Mono', monospace",
-            color: "#475569",
-            letterSpacing: 1.5,
-            textTransform: "uppercase",
-          }}
-        >
+    <div className="rounded-lg border border-border bg-card/50 backdrop-blur-sm p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-block h-2 w-2 rounded-full bg-cyan-400" style={{ boxShadow: "0 0 6px #38bdf8" }} />
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
           Org Metrics
         </span>
       </div>
       {rows.length === 0 ? (
-        <p
-          style={{
-            fontSize: 10,
-            fontFamily: "'IBM Plex Mono', monospace",
-            color: "#334155",
-            textAlign: "center",
-            padding: "12px 0",
-          }}
-        >
-          NO DATA
+        <p className="text-xs text-muted-foreground/40 text-center py-4 uppercase tracking-wider">
+          No data
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+          <table className="w-full text-sm">
             <thead>
-              <tr>
+              <tr className="border-b border-border/30">
                 {["Type", "Assets", "Crit", "Open"].map((h) => (
                   <th
                     key={h}
-                    style={{
-                      fontSize: 8,
-                      color: "#38bdf8",
-                      letterSpacing: 1.5,
-                      textTransform: "uppercase",
-                      fontWeight: 600,
-                      textAlign: h === "Type" ? "left" : "right",
-                      paddingBottom: 6,
-                    }}
+                    className={`text-[10px] font-semibold uppercase tracking-wider text-primary pb-2.5 ${h === "Type" ? "text-left" : "text-right"}`}
                   >
                     {h}
                   </th>
@@ -65,52 +33,13 @@ export const OrganizationMetricsTable = memo(function OrganizationMetricsTable({
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr
-                  key={row.type}
-                  style={{ borderTop: "1px solid rgba(56,189,248,0.04)" }}
-                >
-                  <td
-                    style={{
-                      fontSize: 10,
-                      color: "#94a3b8",
-                      padding: "5px 0",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {row.name}
-                  </td>
-                  <td
-                    style={{
-                      fontSize: 10,
-                      color: "#64748b",
-                      textAlign: "right",
-                      padding: "5px 0",
-                    }}
-                  >
-                    {row.total}
-                  </td>
-                  <td
-                    style={{
-                      fontSize: 10,
-                      color: row.critical > 0 ? "#ef4444" : "#1e293b",
-                      textAlign: "right",
-                      padding: "5px 0",
-                      fontWeight: row.critical > 0 ? 700 : 400,
-                      textShadow: row.critical > 0 ? "0 0 6px rgba(239,68,68,0.3)" : undefined,
-                    }}
-                  >
+                <tr key={row.type} className="border-t border-border/10">
+                  <td className="text-xs text-muted-foreground py-2 font-medium">{row.name}</td>
+                  <td className="text-xs text-muted-foreground text-right py-2 tabular-nums">{row.total}</td>
+                  <td className={`text-xs text-right py-2 font-bold tabular-nums ${row.critical > 0 ? "text-red-400" : "text-muted-foreground/20"}`}>
                     {row.critical}
                   </td>
-                  <td
-                    style={{
-                      fontSize: 10,
-                      color: row.open > 0 ? "#f59e0b" : "#1e293b",
-                      textAlign: "right",
-                      padding: "5px 0",
-                      fontWeight: row.open > 0 ? 700 : 400,
-                      textShadow: row.open > 0 ? "0 0 6px rgba(245,158,11,0.3)" : undefined,
-                    }}
-                  >
+                  <td className={`text-xs text-right py-2 font-bold tabular-nums ${row.open > 0 ? "text-amber-400" : "text-muted-foreground/20"}`}>
                     {row.open}
                   </td>
                 </tr>
@@ -119,6 +48,6 @@ export const OrganizationMetricsTable = memo(function OrganizationMetricsTable({
           </table>
         </div>
       )}
-    </GlowCard>
+    </div>
   );
 });
