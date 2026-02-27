@@ -156,8 +156,18 @@ async function main() {
       const fullTarget = `${TARGET_URL}${scenario.targetEndpoint}`;
       console.log(`  Target endpoint: ${fullTarget}`);
 
+      // Clone playbook and merge scenario parameters into each step's config
+      // This allows scenarios to override handler defaults (parameter name, location, method)
+      const mergedPlaybook = {
+        ...playbook,
+        steps: playbook.steps.map((step) => ({
+          ...step,
+          config: { ...step.config, ...(scenario.parameters || {}) },
+        })),
+      };
+
       const chainResult = await orchestrator.executePlaybook(
-        playbook,
+        mergedPlaybook,
         fullTarget,
         {
           tenantId: "benchmark",

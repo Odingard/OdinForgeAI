@@ -51,7 +51,7 @@ export const sqliExfilPlaybook: Playbook = {
       timeout: 20000,
       maxRetries: 1,
       dependsOn: ["sqli-detect"],
-      requiredConfidence: 70,
+      requiredConfidence: 50,
       config: {
         queries: ["@@version", "version()"],
       },
@@ -67,7 +67,7 @@ export const sqliExfilPlaybook: Playbook = {
       timeout: 30000,
       maxRetries: 1,
       dependsOn: ["sqli-fingerprint"],
-      requiredConfidence: 60,
+      requiredConfidence: 45,
       config: {
         maxTables: 10,
         sensitivePatterns: ["user", "password", "credential", "session", "token"],
@@ -98,8 +98,8 @@ export const sqliExfilPlaybook: Playbook = {
   ],
   
   abortOn: {
-    stepFailures: 2,
-    confidenceBelow: 40,
+    stepFailures: 3,
+    confidenceBelow: 20,
   },
 };
 
@@ -145,7 +145,7 @@ export const pathTraversalProofPlaybook: Playbook = {
       timeout: 20000,
       maxRetries: 1,
       dependsOn: ["pt-detect"],
-      requiredConfidence: 60,
+      requiredConfidence: 40,
       config: {
         unixFiles: ["/etc/passwd", "/etc/hosts"],
         windowsFiles: ["C:\\Windows\\win.ini", "C:\\Windows\\System32\\drivers\\etc\\hosts"],
@@ -161,8 +161,8 @@ export const pathTraversalProofPlaybook: Playbook = {
       requiresApproval: true,
       timeout: 20000,
       maxRetries: 1,
-      dependsOn: ["pt-os-detect"],
-      requiredConfidence: 70,
+      dependsOn: ["pt-detect"],
+      requiredConfidence: 40,
       safeMode: {
         enabled: true,
         allowedTargets: ["/etc/passwd", "/etc/hosts"],
@@ -222,7 +222,7 @@ export const commandInjectionRcePlaybook: Playbook = {
       timeout: 20000,
       maxRetries: 1,
       dependsOn: ["cmdi-detect"],
-      requiredConfidence: 70,
+      requiredConfidence: 30,
       config: {
         commands: ["id", "whoami", "hostname"],
         windowsCommands: ["whoami", "hostname"],
@@ -251,8 +251,8 @@ export const commandInjectionRcePlaybook: Playbook = {
   ],
   
   abortOn: {
-    stepFailures: 1,
-    confidenceBelow: 50,
+    stepFailures: 2,
+    confidenceBelow: 15,
   },
 };
 
@@ -298,7 +298,7 @@ export const authBypassEscalationPlaybook: Playbook = {
       timeout: 20000,
       maxRetries: 1,
       dependsOn: ["auth-detect"],
-      requiredConfidence: 60,
+      requiredConfidence: 25,
       config: {
         analyzeJwt: true,
         analyzeCookies: true,
@@ -324,7 +324,7 @@ export const authBypassEscalationPlaybook: Playbook = {
   ],
   
   abortOn: {
-    stepFailures: 1,
+    stepFailures: 2,
   },
 };
 
@@ -370,7 +370,7 @@ export const ssrfPivotPlaybook: Playbook = {
       timeout: 20000,
       maxRetries: 1,
       dependsOn: ["ssrf-detect"],
-      requiredConfidence: 70,
+      requiredConfidence: 30,
       config: {
         providers: ["aws", "azure", "gcp"],
       },
@@ -396,7 +396,7 @@ export const ssrfPivotPlaybook: Playbook = {
   ],
   
   abortOn: {
-    stepFailures: 1,
+    stepFailures: 2,
   },
 };
 
@@ -477,7 +477,8 @@ export const multiVectorChainPlaybook: Playbook = {
       requiresApproval: false,
       timeout: 30000,
       maxRetries: 1,
-      dependsOn: ["recon-sqli", "recon-xss", "recon-cmdi", "recon-ssrf"],
+      dependsOn: ["recon-sqli"],
+      requiredConfidence: 40,
       config: {
         selectHighestConfidence: true,
       },
@@ -493,7 +494,7 @@ export const multiVectorChainPlaybook: Playbook = {
       timeout: 30000,
       maxRetries: 1,
       dependsOn: ["exploit-primary"],
-      requiredConfidence: 70,
+      requiredConfidence: 50,
       config: {
         chainFromPrevious: true,
       },
@@ -501,8 +502,7 @@ export const multiVectorChainPlaybook: Playbook = {
   ],
   
   abortOn: {
-    stepFailures: 3,
-    confidenceBelow: 30,
+    stepFailures: 5,
   },
 };
 

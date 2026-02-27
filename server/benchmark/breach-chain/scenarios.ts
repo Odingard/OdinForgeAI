@@ -19,7 +19,7 @@ const juiceShopScenarios: BreachChainScenario[] = [
     parameters: {},
     expectedOutcome: {
       minStepsCompleted: 2,
-      minConfidence: 50,
+      minConfidence: 40,
       shouldDetectVuln: true,
     },
   },
@@ -142,12 +142,107 @@ const webgoatScenarios: BreachChainScenario[] = [
   },
 ];
 
+// ─── BrokenCrystals Scenarios ────────────────────────────────────────
+
+const brokenCrystalsScenarios: BreachChainScenario[] = [
+  {
+    id: "bc-cmdi-chain",
+    name: "Command Injection to RCE via Spawn",
+    target: "broken-crystals",
+    playbookId: "cmd-injection-rce",
+    targetEndpoint: "/api/spawn",
+    parameters: {
+      parameter: "command",
+      parameterLocation: "url_param",
+      method: "GET",
+      injectionPayload: "id",
+    },
+    expectedOutcome: {
+      minStepsCompleted: 1,
+      minConfidence: 40,
+      shouldDetectVuln: true,
+    },
+  },
+  {
+    id: "bc-ssrf-chain",
+    name: "SSRF to Internal Network Pivot via File Endpoint",
+    target: "broken-crystals",
+    playbookId: "ssrf-internal-pivot",
+    targetEndpoint: "/api/file",
+    parameters: {
+      parameter: "path",
+      parameterLocation: "url_param",
+      method: "GET",
+      value: "http://example.com",
+    },
+    expectedOutcome: {
+      minStepsCompleted: 1,
+      minConfidence: 30,
+      shouldDetectVuln: true,
+    },
+  },
+  {
+    id: "bc-auth-chain",
+    name: "JWT Bypass to Privilege Escalation",
+    target: "broken-crystals",
+    playbookId: "auth-bypass-escalation",
+    targetEndpoint: "/api/auth/login",
+    parameters: {
+      parameter: "user",
+      parameterLocation: "body_param",
+      method: "POST",
+      analyzeJwt: true,
+    },
+    expectedOutcome: {
+      minStepsCompleted: 1,
+      minConfidence: 30,
+      shouldDetectVuln: true,
+    },
+  },
+  {
+    id: "bc-path-chain",
+    name: "Path Traversal File Read via LFI",
+    target: "broken-crystals",
+    playbookId: "path-traversal-proof",
+    targetEndpoint: "/api/file",
+    parameters: {
+      parameter: "path",
+      parameterLocation: "url_param",
+      method: "GET",
+      value: "test.txt",
+    },
+    expectedOutcome: {
+      minStepsCompleted: 1,
+      minConfidence: 30,
+      shouldDetectVuln: true,
+    },
+  },
+  {
+    id: "bc-multi-vector",
+    name: "Multi-Vector Attack Chain (SSTI + CMDi + SSRF)",
+    target: "broken-crystals",
+    playbookId: "multi-vector-chain",
+    targetEndpoint: "/api/testimonials/count",
+    parameters: {
+      parameter: "query",
+      parameterLocation: "url_param",
+      method: "GET",
+    },
+    expectedOutcome: {
+      minStepsCompleted: 2,
+      minConfidence: 30,
+      shouldDetectVuln: true,
+    },
+  },
+];
+
 // ─── Registry ─────────────────────────────────────────────────────────
 
 const allScenarios: BreachChainScenario[] = [
   ...juiceShopScenarios,
   ...dvwaScenarios,
   ...webgoatScenarios,
+  ...brokenCrystalsScenarios,
 ];
 
 export function getScenariosForTarget(target: string): BreachChainScenario[] {

@@ -14,7 +14,7 @@ export interface BreachChainScenario {
   target: string;              // "juice-shop" | "dvwa" | "webgoat"
   playbookId: string;          // Reference to playbook in registry
   targetEndpoint: string;      // URL path appended to target base URL
-  parameters: Record<string, string>;
+  parameters: Record<string, string | boolean | number>;
   expectedOutcome: {
     minStepsCompleted: number;
     minConfidence: number;
