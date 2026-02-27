@@ -59,7 +59,7 @@ const juiceShop: BenchmarkTarget = {
       name: "Path Traversal & File Access",
       exposureType: "cve_exploitation",
       description: (targetUrl) =>
-        `Target: ${targetUrl}\nWeb application with an FTP-like file server.\nGET /ftp — lists downloadable files.\nGET /ftp/legal.md — serves a specific file.\nThe file serving endpoint may be vulnerable to path traversal (e.g., /ftp/legal.md%2500.md or /ftp/../../etc/passwd).\nAlso check: /api/Complaints endpoint accepts file uploads that could be exploited.`,
+        `Target: ${targetUrl}\nWeb application with an FTP-like file server.\nGET /ftp — lists downloadable files (directory listing).\nGET /ftp/legal.md — serves a specific file by appending the filename to the /ftp/ path.\nThe file serving mechanism appends the filename directly to the path. Test for path traversal by injecting traversal payloads AS THE PATH SEGMENT after /ftp/.\nUse test_payloads with url="${targetUrl}/ftp", parameter="file", parameter_location="path", vuln_categories=["path_traversal"].\nKnown bypass technique: poison null byte (%2500) to bypass extension whitelist, e.g. /ftp/../../etc/passwd%2500.md\nAlso check: /api/Complaints endpoint accepts file uploads that could be exploited.`,
       targetEndpoints: ["/ftp", "/api/Complaints"],
       expectedVulnTypes: ["path_traversal"],
     },
