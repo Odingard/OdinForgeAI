@@ -29,7 +29,7 @@
     "@aws-sdk/client-sts": "^3.958.0",
     "@aws-sdk/s3-request-presigner": "^3.958.0",
     "@azure/arm-authorization": "^9.0.0",
-    "@azure/arm-compute": "^23.2.0",
+    "@azure/arm-compute": "^23.3.0",
     "@azure/arm-keyvault": "^4.0.0",
     "@azure/arm-monitor": "^7.0.0",
     "@azure/arm-network": "^36.0.0",
