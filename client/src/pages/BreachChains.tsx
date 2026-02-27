@@ -5,18 +5,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
-import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Link2,
   Play,
@@ -57,50 +45,50 @@ const PHASE_META: Record<string, { label: string; icon: typeof Shield; color: st
   application_compromise: {
     label: "App Compromise",
     icon: Crosshair,
-    color: "text-red-500",
+    color: "var(--falcon-red)",
     description: "Exploit application-layer vulnerabilities with active payloads",
   },
   credential_extraction: {
     label: "Credential Extraction",
     icon: Key,
-    color: "text-amber-500",
+    color: "var(--falcon-yellow)",
     description: "Harvest credentials from compromised applications",
   },
   cloud_iam_escalation: {
     label: "Cloud IAM Escalation",
     icon: Cloud,
-    color: "text-cyan-500",
+    color: "var(--falcon-blue-hi)",
     description: "Escalate privileges via IAM misconfigurations",
   },
   container_k8s_breakout: {
     label: "K8s Breakout",
     icon: Container,
-    color: "text-purple-500",
+    color: "#a78bfa",
     description: "Exploit RBAC, secrets, and container escape paths",
   },
   lateral_movement: {
     label: "Lateral Movement",
     icon: Network,
-    color: "text-blue-500",
+    color: "var(--falcon-blue-hi)",
     description: "Pivot across network using harvested credentials",
   },
   impact_assessment: {
     label: "Impact Assessment",
     icon: AlertTriangle,
-    color: "text-orange-500",
+    color: "var(--falcon-orange)",
     description: "Aggregate business impact and compliance gaps",
   },
 };
 
-const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-muted text-muted-foreground",
-  running: "bg-blue-500/20 text-blue-400",
-  paused: "bg-amber-500/20 text-amber-400",
-  completed: "bg-emerald-500/20 text-emerald-400",
-  failed: "bg-destructive/20 text-destructive",
-  aborted: "bg-muted text-muted-foreground",
-  skipped: "bg-muted text-muted-foreground",
-  blocked: "bg-orange-500/20 text-orange-400",
+const STATUS_STYLES: Record<string, { color: string; bg: string }> = {
+  pending: { color: "var(--falcon-t3)", bg: "var(--falcon-panel-2)" },
+  running: { color: "var(--falcon-blue-hi)", bg: "rgba(59,130,246,0.15)" },
+  paused: { color: "var(--falcon-yellow)", bg: "rgba(245,158,11,0.15)" },
+  completed: { color: "var(--falcon-green)", bg: "rgba(16,185,129,0.15)" },
+  failed: { color: "var(--falcon-red)", bg: "rgba(239,68,68,0.15)" },
+  aborted: { color: "var(--falcon-t3)", bg: "var(--falcon-panel-2)" },
+  skipped: { color: "var(--falcon-t3)", bg: "var(--falcon-panel-2)" },
+  blocked: { color: "var(--falcon-orange)", bg: "rgba(249,115,22,0.15)" },
 };
 
 const PHASE_STATUS_ICON: Record<string, typeof CheckCircle2> = {
@@ -113,13 +101,34 @@ const PHASE_STATUS_ICON: Record<string, typeof CheckCircle2> = {
 };
 
 const PRIVILEGE_COLORS: Record<string, string> = {
-  none: "text-muted-foreground",
-  user: "text-blue-400",
-  admin: "text-orange-400",
-  system: "text-red-400",
-  cloud_admin: "text-purple-400",
-  domain_admin: "text-red-500",
+  none: "var(--falcon-t3)",
+  user: "var(--falcon-blue-hi)",
+  admin: "var(--falcon-orange)",
+  system: "var(--falcon-red)",
+  cloud_admin: "#a78bfa",
+  domain_admin: "var(--falcon-red)",
 };
+
+function statusIconColor(status: string): string {
+  if (status === "completed") return "var(--falcon-green)";
+  if (status === "running") return "var(--falcon-blue-hi)";
+  if (status === "failed") return "var(--falcon-red)";
+  return "var(--falcon-t4)";
+}
+
+function statusIconBg(status: string): string {
+  if (status === "completed") return "rgba(16,185,129,0.15)";
+  if (status === "running") return "rgba(59,130,246,0.15)";
+  if (status === "failed") return "rgba(239,68,68,0.15)";
+  return "var(--falcon-panel-2)";
+}
+
+function sevChip(severity: string): string {
+  if (severity === "critical") return "f-chip f-chip-crit";
+  if (severity === "high") return "f-chip f-chip-high";
+  if (severity === "medium") return "f-chip f-chip-med";
+  return "f-chip f-chip-low";
+}
 
 // ============================================================================
 // Sub-components
@@ -133,7 +142,7 @@ function PhaseTimeline({ phaseResults, currentPhase, enabledPhases }: {
   const resultMap = new Map(phaseResults.map(r => [r.phaseName, r]));
 
   return (
-    <div className="space-y-2">
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {enabledPhases.map((phaseName, idx) => {
         const result = resultMap.get(phaseName);
         const meta = PHASE_META[phaseName];
@@ -145,47 +154,56 @@ function PhaseTimeline({ phaseResults, currentPhase, enabledPhases }: {
         return (
           <div
             key={phaseName}
-            className={`flex items-center gap-3 p-3 rounded-md border transition-all ${
-              isCurrent ? "border-primary bg-primary/5" : "border-border"
-            }`}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "10px 12px",
+              borderRadius: 6,
+              border: `1px solid ${isCurrent ? "var(--falcon-blue-hi)" : "var(--falcon-border)"}`,
+              background: isCurrent ? "rgba(59,130,246,0.05)" : "transparent",
+              transition: "all 0.15s ease",
+            }}
           >
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-              status === "completed" ? "bg-emerald-500/20" :
-              status === "running" ? "bg-blue-500/20" :
-              status === "failed" ? "bg-destructive/20" :
-              "bg-muted"
-            }`}>
-              <StatusIcon className={`h-4 w-4 ${
-                status === "completed" ? "text-emerald-400" :
-                status === "running" ? "text-blue-400 animate-spin" :
-                status === "failed" ? "text-destructive" :
-                "text-muted-foreground"
-              }`} />
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
+              background: statusIconBg(status),
+              flexShrink: 0,
+            }}>
+              <StatusIcon
+                style={{ width: 14, height: 14, color: statusIconColor(status) }}
+                className={status === "running" ? "animate-spin" : ""}
+              />
             </div>
 
-            <PhaseIcon className={`h-4 w-4 ${meta?.color || "text-muted-foreground"}`} />
+            <PhaseIcon style={{ width: 14, height: 14, color: meta?.color || "var(--falcon-t4)", flexShrink: 0 }} />
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{meta?.label || phaseName}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{meta?.label || phaseName}</span>
                 {result?.durationMs && (
-                  <span className="text-xs text-muted-foreground">
+                  <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
                     {(result.durationMs / 1000).toFixed(1)}s
                   </span>
                 )}
               </div>
               {result?.findings && result.findings.length > 0 && (
-                <span className="text-xs text-muted-foreground">
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
                   {result.findings.length} finding{result.findings.length !== 1 ? "s" : ""}
                 </span>
               )}
               {result?.error && (
-                <span className="text-xs text-destructive truncate block">{result.error}</span>
+                <span style={{ fontSize: 10, color: "var(--falcon-red)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{result.error}</span>
               )}
             </div>
 
             {idx < enabledPhases.length - 1 && (
-              <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+              <ArrowRight style={{ width: 12, height: 12, color: "var(--falcon-t4)", opacity: 0.5, flexShrink: 0 }} />
             )}
           </div>
         );
@@ -195,59 +213,74 @@ function PhaseTimeline({ phaseResults, currentPhase, enabledPhases }: {
 }
 
 function ContextSummary({ context }: { context: BreachPhaseContext | null }) {
-  if (!context) return <p className="text-sm text-muted-foreground">No context data yet</p>;
+  if (!context) return <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>No context data yet</p>;
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="p-3 rounded-md border text-center">
-          <div className="text-2xl font-bold text-amber-500">
-            {context.credentials?.length || 0}
-          </div>
-          <div className="text-xs text-muted-foreground">Credentials</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot y" />Credentials</div>
+          <div className="f-kpi-val y">{context.credentials?.length || 0}</div>
+          <div className="f-kpi-foot">harvested</div>
         </div>
-        <div className="p-3 rounded-md border text-center">
-          <div className="text-2xl font-bold text-red-500">
-            {context.compromisedAssets?.length || 0}
-          </div>
-          <div className="text-xs text-muted-foreground">Assets Compromised</div>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot r" />Assets Compromised</div>
+          <div className="f-kpi-val r">{context.compromisedAssets?.length || 0}</div>
+          <div className="f-kpi-foot">total</div>
         </div>
-        <div className="p-3 rounded-md border text-center">
-          <div className={`text-2xl font-bold ${PRIVILEGE_COLORS[context.currentPrivilegeLevel] || "text-muted-foreground"}`}>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot" />Privilege Level</div>
+          <div className="f-kpi-val" style={{ color: PRIVILEGE_COLORS[context.currentPrivilegeLevel] || "var(--falcon-t3)" }}>
             {context.currentPrivilegeLevel || "none"}
           </div>
-          <div className="text-xs text-muted-foreground">Privilege Level</div>
+          <div className="f-kpi-foot">current</div>
         </div>
-        <div className="p-3 rounded-md border text-center">
-          <div className="text-2xl font-bold text-purple-500">
-            {context.domainsCompromised?.length || 0}
-          </div>
-          <div className="text-xs text-muted-foreground">Domains Breached</div>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot" style={{ background: "#a78bfa" }} />Domains Breached</div>
+          <div className="f-kpi-val" style={{ color: "#a78bfa" }}>{context.domainsCompromised?.length || 0}</div>
+          <div className="f-kpi-foot">total</div>
         </div>
       </div>
 
       {context.credentials && context.credentials.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-            <Key className="h-4 w-4 text-amber-500" />
+          <h4 style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <Key style={{ width: 14, height: 14, color: "var(--falcon-yellow)" }} />
             Harvested Credentials
           </h4>
-          <div className="space-y-2 max-h-60 overflow-y-auto">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
             {context.credentials.map((cred, idx) => (
-              <div key={cred.id || idx} className="flex items-center gap-2 p-2 rounded-md border text-sm">
-                <Badge variant="outline" className="text-xs shrink-0">{cred.type}</Badge>
-                <span className="truncate">{cred.username || "—"}</span>
+              <div key={cred.id || idx} style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--falcon-border)",
+                fontSize: 12,
+              }}>
+                <span className="f-chip f-chip-gray" style={{ flexShrink: 0 }}>{cred.type}</span>
+                <span style={{ color: "var(--falcon-t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cred.username || "\u2014"}</span>
                 {cred.domain && (
-                  <span className="text-muted-foreground text-xs">@{cred.domain}</span>
+                  <span style={{ color: "var(--falcon-t4)", fontSize: 11 }}>@{cred.domain}</span>
                 )}
-                <Badge className={`ml-auto text-xs shrink-0 ${
-                  cred.accessLevel === "admin" || cred.accessLevel === "system" || cred.accessLevel === "cloud_admin"
-                    ? "bg-destructive/20 text-destructive"
-                    : "bg-muted"
-                }`}>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    flexShrink: 0,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    color: cred.accessLevel === "admin" || cred.accessLevel === "system" || cred.accessLevel === "cloud_admin"
+                      ? "var(--falcon-red)" : "var(--falcon-t3)",
+                    background: cred.accessLevel === "admin" || cred.accessLevel === "system" || cred.accessLevel === "cloud_admin"
+                      ? "rgba(239,68,68,0.15)" : "var(--falcon-panel-2)",
+                  }}
+                >
                   {cred.accessLevel}
-                </Badge>
-                <span className="text-xs text-muted-foreground shrink-0">{cred.source}</span>
+                </span>
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)", flexShrink: 0 }}>{cred.source}</span>
               </div>
             ))}
           </div>
@@ -256,22 +289,39 @@ function ContextSummary({ context }: { context: BreachPhaseContext | null }) {
 
       {context.compromisedAssets && context.compromisedAssets.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-            <Server className="h-4 w-4 text-red-500" />
+          <h4 style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <Server style={{ width: 14, height: 14, color: "var(--falcon-red)" }} />
             Compromised Assets
           </h4>
-          <div className="space-y-2 max-h-60 overflow-y-auto">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
             {context.compromisedAssets.map((asset, idx) => (
-              <div key={asset.id || idx} className="flex items-center gap-2 p-2 rounded-md border text-sm">
-                <Badge variant="outline" className="text-xs shrink-0">{asset.assetType}</Badge>
-                <span className="truncate font-medium">{asset.name}</span>
-                <Badge className={`ml-auto text-xs shrink-0 ${
-                  asset.accessLevel === "admin" || asset.accessLevel === "system"
-                    ? "bg-destructive/20 text-destructive"
-                    : "bg-muted"
-                }`}>
+              <div key={asset.id || idx} style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                border: "1px solid var(--falcon-border)",
+                fontSize: 12,
+              }}>
+                <span className="f-chip f-chip-gray" style={{ flexShrink: 0 }}>{asset.assetType}</span>
+                <span style={{ color: "var(--falcon-t1)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.name}</span>
+                <span
+                  style={{
+                    marginLeft: "auto",
+                    flexShrink: 0,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    color: asset.accessLevel === "admin" || asset.accessLevel === "system"
+                      ? "var(--falcon-red)" : "var(--falcon-t3)",
+                    background: asset.accessLevel === "admin" || asset.accessLevel === "system"
+                      ? "rgba(239,68,68,0.15)" : "var(--falcon-panel-2)",
+                  }}
+                >
                   {asset.accessLevel}
-                </Badge>
+                </span>
               </div>
             ))}
           </div>
@@ -280,10 +330,10 @@ function ContextSummary({ context }: { context: BreachPhaseContext | null }) {
 
       {context.domainsCompromised && context.domainsCompromised.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium mb-2">Domains Breached</h4>
-          <div className="flex flex-wrap gap-2">
+          <h4 style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Domains Breached</h4>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {context.domainsCompromised.map((domain, idx) => (
-              <Badge key={idx} variant="secondary" className="text-xs">{domain}</Badge>
+              <span key={idx} className="f-chip f-chip-gray">{domain}</span>
             ))}
           </div>
         </div>
@@ -291,20 +341,34 @@ function ContextSummary({ context }: { context: BreachPhaseContext | null }) {
 
       {context.attackPathSteps && context.attackPathSteps.length > 0 && (
         <div>
-          <h4 className="text-sm font-medium mb-2">Attack Path ({context.attackPathSteps.length} steps)</h4>
-          <ScrollArea className="h-[200px]">
-            <div className="space-y-2">
+          <h4 style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Attack Path ({context.attackPathSteps.length} steps)</h4>
+          <div style={{ overflowY: "auto", maxHeight: 200 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {context.attackPathSteps.map((step, idx) => (
-                <div key={step.stepId || idx} className="p-2 rounded-md border text-sm">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge className="bg-purple-500/20 text-purple-400 text-xs">{step.phaseName}</Badge>
-                    <span className="font-medium">{step.technique}</span>
+                <div key={step.stepId || idx} style={{
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "1px solid var(--falcon-border)",
+                  fontSize: 12,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      color: "#a78bfa",
+                      background: "rgba(167,139,250,0.15)",
+                    }}>
+                      {step.phaseName}
+                    </span>
+                    <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>{step.technique}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">{step.outcome}</p>
+                  <p style={{ color: "var(--falcon-t4)", fontSize: 11, margin: 0 }}>{step.outcome}</p>
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </div>
       )}
     </div>
@@ -315,90 +379,128 @@ function PhaseResultsDetail({ phaseResults }: { phaseResults: BreachPhaseResult[
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (!phaseResults || phaseResults.length === 0) {
-    return <p className="text-sm text-muted-foreground">No phase results yet</p>;
+    return <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>No phase results yet</p>;
   }
 
   return (
-    <div className="space-y-3">
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {phaseResults.map((result) => {
         const meta = PHASE_META[result.phaseName];
         const PhaseIcon = meta?.icon || Shield;
         const isOpen = expanded === result.phaseName;
         const criticalFindings = result.findings?.filter(f => f.severity === "critical").length || 0;
         const highFindings = result.findings?.filter(f => f.severity === "high").length || 0;
+        const sty = STATUS_STYLES[result.status] || STATUS_STYLES.pending;
 
         return (
-          <Collapsible
-            key={result.phaseName}
-            open={isOpen}
-            onOpenChange={(open) => setExpanded(open ? result.phaseName : null)}
-          >
-            <CollapsibleTrigger asChild>
-              <div className="flex items-center gap-3 p-3 rounded-md border cursor-pointer hover:bg-muted/50 transition-colors">
-                <PhaseIcon className={`h-4 w-4 ${meta?.color || "text-muted-foreground"}`} />
-                <span className="text-sm font-medium flex-1">{meta?.label || result.phaseName}</span>
-                <Badge className={STATUS_STYLES[result.status] || "bg-muted"}>
-                  {result.status}
-                </Badge>
-                {result.findings && result.findings.length > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    {result.findings.length} finding{result.findings.length !== 1 ? "s" : ""}
-                  </span>
-                )}
-                {criticalFindings > 0 && (
-                  <Badge variant="destructive" className="text-xs">{criticalFindings} crit</Badge>
-                )}
-                {highFindings > 0 && (
-                  <Badge className="bg-orange-500/20 text-orange-400 text-xs">{highFindings} high</Badge>
-                )}
-                {result.durationMs && (
-                  <span className="text-xs text-muted-foreground">{(result.durationMs / 1000).toFixed(1)}s</span>
-                )}
-                {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-              </div>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="ml-7 mt-2 space-y-3 pb-2">
+          <div key={result.phaseName}>
+            <button
+              className={`f-collapse-trigger ${isOpen ? "open" : ""}`}
+              onClick={() => setExpanded(isOpen ? null : result.phaseName)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 12px",
+                borderRadius: 6,
+                border: "1px solid var(--falcon-border)",
+                cursor: "pointer",
+                transition: "background 0.15s ease",
+                width: "100%",
+                background: "transparent",
+                color: "inherit",
+                textAlign: "left",
+                font: "inherit",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--falcon-panel-2)"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+            >
+              <PhaseIcon style={{ width: 14, height: 14, color: meta?.color || "var(--falcon-t4)" }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", flex: 1 }}>{meta?.label || result.phaseName}</span>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: 4,
+                color: sty.color,
+                background: sty.bg,
+              }}>
+                {result.status}
+              </span>
+              {result.findings && result.findings.length > 0 && (
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
+                  {result.findings.length} finding{result.findings.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              {criticalFindings > 0 && (
+                <span className="f-chip f-chip-crit" style={{ fontSize: 9 }}>{criticalFindings} crit</span>
+              )}
+              {highFindings > 0 && (
+                <span className="f-chip f-chip-high" style={{ fontSize: 9 }}>{highFindings} high</span>
+              )}
+              {result.durationMs && (
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>{(result.durationMs / 1000).toFixed(1)}s</span>
+              )}
+              {isOpen ? <ChevronDown style={{ width: 14, height: 14, color: "var(--falcon-t3)" }} /> : <ChevronRight style={{ width: 14, height: 14, color: "var(--falcon-t3)" }} />}
+            </button>
+            {isOpen && (
+              <div style={{ marginLeft: 28, marginTop: 8, display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8 }}>
                 {result.error && (
-                  <div className="p-2 bg-destructive/10 border border-destructive/20 rounded text-xs text-destructive">
+                  <div style={{
+                    padding: 8,
+                    background: "rgba(239,68,68,0.08)",
+                    border: "1px solid rgba(239,68,68,0.2)",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: "var(--falcon-red)",
+                  }}>
                     {result.error}
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-3 text-xs">
-                  <div className="p-2 rounded border">
-                    <span className="text-muted-foreground">Input Credentials:</span>{" "}
-                    <span className="font-medium">{result.inputContext?.credentialCount ?? 0}</span>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, fontSize: 11 }}>
+                  <div style={{ padding: 8, borderRadius: 4, border: "1px solid var(--falcon-border)" }}>
+                    <span style={{ color: "var(--falcon-t4)" }}>Input Credentials:</span>{" "}
+                    <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>{result.inputContext?.credentialCount ?? 0}</span>
                   </div>
-                  <div className="p-2 rounded border">
-                    <span className="text-muted-foreground">Input Assets:</span>{" "}
-                    <span className="font-medium">{result.inputContext?.compromisedAssetCount ?? 0}</span>
+                  <div style={{ padding: 8, borderRadius: 4, border: "1px solid var(--falcon-border)" }}>
+                    <span style={{ color: "var(--falcon-t4)" }}>Input Assets:</span>{" "}
+                    <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>{result.inputContext?.compromisedAssetCount ?? 0}</span>
                   </div>
-                  <div className="p-2 rounded border">
-                    <span className="text-muted-foreground">Privilege:</span>{" "}
-                    <span className="font-medium">{result.inputContext?.privilegeLevel || "none"}</span>
+                  <div style={{ padding: 8, borderRadius: 4, border: "1px solid var(--falcon-border)" }}>
+                    <span style={{ color: "var(--falcon-t4)" }}>Privilege:</span>{" "}
+                    <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>{result.inputContext?.privilegeLevel || "none"}</span>
                   </div>
                 </div>
 
                 {result.findings && result.findings.length > 0 && (
                   <div>
-                    <h5 className="text-xs font-medium mb-2">Findings</h5>
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                    <h5 style={{ fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Findings</h5>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto" }}>
                       {result.findings.map((finding, idx) => (
-                        <div key={finding.id || idx} className="p-2 rounded border text-xs">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant={
-                              finding.severity === "critical" ? "destructive" :
-                              finding.severity === "high" ? "destructive" : "secondary"
-                            } className="text-xs">
-                              {finding.severity}
-                            </Badge>
+                        <div key={finding.id || idx} style={{
+                          padding: 8,
+                          borderRadius: 4,
+                          border: "1px solid var(--falcon-border)",
+                          fontSize: 11,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                            <span className={sevChip(finding.severity)}>{finding.severity}</span>
                             {finding.mitreId && (
-                              <Badge className="bg-purple-500/20 text-purple-400 text-xs">{finding.mitreId}</Badge>
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                padding: "2px 6px",
+                                borderRadius: 4,
+                                color: "#a78bfa",
+                                background: "rgba(167,139,250,0.15)",
+                              }}>
+                                {finding.mitreId}
+                              </span>
                             )}
-                            <span className="font-medium">{finding.title}</span>
+                            <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>{finding.title}</span>
                           </div>
-                          <p className="text-muted-foreground">{finding.description}</p>
+                          <p style={{ color: "var(--falcon-t4)", margin: 0 }}>{finding.description}</p>
                         </div>
                       ))}
                     </div>
@@ -407,22 +509,29 @@ function PhaseResultsDetail({ phaseResults }: { phaseResults: BreachPhaseResult[
 
                 {result.safetyDecisions && result.safetyDecisions.length > 0 && (
                   <div>
-                    <h5 className="text-xs font-medium mb-2">Safety Decisions</h5>
-                    <div className="space-y-1">
+                    <h5 style={{ fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Safety Decisions</h5>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {result.safetyDecisions.map((dec, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-xs">
-                          <Badge variant={dec.decision === "ALLOW" ? "secondary" : "destructive"} className="text-xs">
+                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 600,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            color: dec.decision === "ALLOW" ? "var(--falcon-green)" : "var(--falcon-red)",
+                            background: dec.decision === "ALLOW" ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)",
+                          }}>
                             {dec.decision}
-                          </Badge>
-                          <span className="text-muted-foreground">{dec.action}</span>
+                          </span>
+                          <span style={{ color: "var(--falcon-t4)" }}>{dec.action}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+            )}
+          </div>
         );
       })}
     </div>
@@ -444,117 +553,108 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const displayGraph = latestGraph ?? (chain.unifiedAttackGraph as AttackGraph | null);
   const hasGraph = displayGraph && displayGraph.nodes?.length > 0;
 
-  return (
-    <Tabs defaultValue={hasGraph ? "graph" : "overview"} className="w-full">
-      <TabsList className="w-full flex-wrap h-auto justify-start gap-1 p-1">
-        <TabsTrigger value="overview">Overview</TabsTrigger>
-        <TabsTrigger value="graph">Attack Graph</TabsTrigger>
-        <TabsTrigger value="phases">Phase Results</TabsTrigger>
-        <TabsTrigger value="context">Breach Context</TabsTrigger>
-        {chain.executiveSummary && <TabsTrigger value="summary">Executive Summary</TabsTrigger>}
-      </TabsList>
+  const [tab, setTab] = useState(hasGraph ? "graph" : "overview");
 
-      <TabsContent value="overview" className="mt-4 space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className={`text-3xl font-bold ${
-                (chain.overallRiskScore ?? 0) >= 70 ? "text-destructive" :
-                (chain.overallRiskScore ?? 0) >= 40 ? "text-orange-500" : "text-emerald-500"
-              }`}>
-                {chain.overallRiskScore ?? "—"}
+  return (
+    <div style={{ width: "100%" }}>
+      <div className="f-tab-bar">
+        <button className={`f-tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
+        <button className={`f-tab ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>Attack Graph</button>
+        <button className={`f-tab ${tab === "phases" ? "active" : ""}`} onClick={() => setTab("phases")}>Phase Results</button>
+        <button className={`f-tab ${tab === "context" ? "active" : ""}`} onClick={() => setTab("context")}>Breach Context</button>
+        {chain.executiveSummary && <button className={`f-tab ${tab === "summary" ? "active" : ""}`} onClick={() => setTab("summary")}>Executive Summary</button>}
+      </div>
+
+      {tab === "overview" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+            <div className="f-kpi">
+              <div className="f-kpi-lbl">
+                <span className={`f-kpi-dot ${(chain.overallRiskScore ?? 0) >= 70 ? "r" : (chain.overallRiskScore ?? 0) >= 40 ? "o" : "g"}`} />
+                Risk Score
               </div>
-              <div className="text-xs text-muted-foreground mt-1">Risk Score</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold text-amber-500">
-                {chain.totalCredentialsHarvested ?? 0}
+              <div className={`f-kpi-val ${(chain.overallRiskScore ?? 0) >= 70 ? "r" : (chain.overallRiskScore ?? 0) >= 40 ? "o" : "g"}`}>
+                {chain.overallRiskScore ?? "\u2014"}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">Credentials</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold text-red-500">
-                {chain.totalAssetsCompromised ?? 0}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">Assets Compromised</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className="text-3xl font-bold text-purple-500">
-                {(chain.domainsBreached as string[] | null)?.length ?? 0}
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">Domains Breached</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-4 text-center">
-              <div className={`text-xl font-bold ${PRIVILEGE_COLORS[chain.maxPrivilegeAchieved || "none"] || "text-muted-foreground"}`}>
+              <div className="f-kpi-foot">overall</div>
+            </div>
+            <div className="f-kpi">
+              <div className="f-kpi-lbl"><span className="f-kpi-dot y" />Credentials</div>
+              <div className="f-kpi-val y">{chain.totalCredentialsHarvested ?? 0}</div>
+              <div className="f-kpi-foot">harvested</div>
+            </div>
+            <div className="f-kpi">
+              <div className="f-kpi-lbl"><span className="f-kpi-dot r" />Assets</div>
+              <div className="f-kpi-val r">{chain.totalAssetsCompromised ?? 0}</div>
+              <div className="f-kpi-foot">compromised</div>
+            </div>
+            <div className="f-kpi">
+              <div className="f-kpi-lbl"><span className="f-kpi-dot" style={{ background: "#a78bfa" }} />Domains</div>
+              <div className="f-kpi-val" style={{ color: "#a78bfa" }}>{(chain.domainsBreached as string[] | null)?.length ?? 0}</div>
+              <div className="f-kpi-foot">breached</div>
+            </div>
+            <div className="f-kpi">
+              <div className="f-kpi-lbl"><span className="f-kpi-dot" />Max Privilege</div>
+              <div className="f-kpi-val" style={{ color: PRIVILEGE_COLORS[chain.maxPrivilegeAchieved || "none"] || "var(--falcon-t3)", fontSize: 16 }}>
                 {chain.maxPrivilegeAchieved || "none"}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">Max Privilege</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Phase Timeline</CardTitle>
-            <CardDescription>Progression through breach chain phases</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PhaseTimeline
-              phaseResults={phaseResults}
-              currentPhase={chain.currentPhase}
-              enabledPhases={enabledPhases}
-            />
-          </CardContent>
-        </Card>
-
-        {(chain.domainsBreached as string[] | null)?.length ? (
-          <div className="flex flex-wrap gap-2">
-            <span className="text-sm font-medium">Domains breached:</span>
-            {(chain.domainsBreached as string[]).map((d, i) => (
-              <Badge key={i} variant="secondary">{d}</Badge>
-            ))}
+              <div className="f-kpi-foot">achieved</div>
+            </div>
           </div>
-        ) : null}
-      </TabsContent>
 
-      <TabsContent value="phases" className="mt-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Phase-by-Phase Results</CardTitle>
-            <CardDescription>Click a phase to expand its findings</CardDescription>
-          </CardHeader>
-          <CardContent>
+          <div className="f-panel">
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot" />Phase Timeline</div>
+              <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Progression through breach chain phases</span>
+            </div>
+            <div style={{ padding: "12px 16px" }}>
+              <PhaseTimeline
+                phaseResults={phaseResults}
+                currentPhase={chain.currentPhase}
+                enabledPhases={enabledPhases}
+              />
+            </div>
+          </div>
+
+          {(chain.domainsBreached as string[] | null)?.length ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Domains breached:</span>
+              {(chain.domainsBreached as string[]).map((d, i) => (
+                <span key={i} className="f-chip f-chip-gray">{d}</span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {tab === "phases" && (
+        <div className="f-panel">
+          <div className="f-panel-head">
+            <div className="f-panel-title"><span className="f-panel-dot" />Phase-by-Phase Results</div>
+            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Click a phase to expand its findings</span>
+          </div>
+          <div style={{ padding: "12px 16px" }}>
             <PhaseResultsDetail phaseResults={phaseResults} />
-          </CardContent>
-        </Card>
-      </TabsContent>
+          </div>
+        </div>
+      )}
 
-      <TabsContent value="context" className="mt-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Zap className="h-4 w-4 text-amber-500" />
-              Cumulative Breach Context
-            </CardTitle>
-            <CardDescription>
-              Credentials, compromised assets, and attack path accumulated across all phases
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      {tab === "context" && (
+        <div className="f-panel">
+          <div className="f-panel-head">
+            <div className="f-panel-title">
+              <Zap style={{ width: 14, height: 14, color: "var(--falcon-yellow)", marginRight: 6 }} />
+              <span className="f-panel-dot" />Cumulative Breach Context
+            </div>
+            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Credentials, compromised assets, and attack path accumulated across all phases</span>
+          </div>
+          <div style={{ padding: "12px 16px" }}>
             <ContextSummary context={context} />
-          </CardContent>
-        </Card>
-      </TabsContent>
+          </div>
+        </div>
+      )}
 
-      <TabsContent value="graph" className="mt-4">
+      {tab === "graph" && (
         <LiveBreachChainGraph
           graph={displayGraph}
           riskScore={chain.overallRiskScore ?? undefined}
@@ -563,26 +663,22 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
           currentPhase={chain.currentPhase ?? undefined}
           isRunning={chain.status === "running"}
         />
-      </TabsContent>
-
-      {chain.executiveSummary && (
-        <TabsContent value="summary" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Executive Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">
-                {chain.executiveSummary}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
       )}
-    </Tabs>
+
+      {tab === "summary" && chain.executiveSummary && (
+        <div className="f-panel">
+          <div className="f-panel-head">
+            <div className="f-panel-title">
+              <FileText style={{ width: 14, height: 14, color: "var(--falcon-t3)", marginRight: 6 }} />
+              <span className="f-panel-dot" />Executive Summary
+            </div>
+          </div>
+          <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--falcon-t2)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+            {chain.executiveSummary}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -601,107 +697,124 @@ function ChainCard({ chain, onView, onDelete, onResume, onAbort, onGenerateRepor
   const phaseResults = (chain.phaseResults || []) as BreachPhaseResult[];
   const completedPhases = phaseResults.filter(r => r.status === "completed").length;
   const totalPhases = config?.enabledPhases?.length || 6;
+  const sty = STATUS_STYLES[chain.status] || STATUS_STYLES.pending;
 
   return (
-    <Card className="relative overflow-visible">
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2 flex-wrap">
-          <div className="flex-1 min-w-0">
-            <CardTitle className="text-lg truncate flex items-center gap-2">
-              <Link2 className="h-5 w-5 text-red-500 shrink-0" />
-              {chain.name}
-            </CardTitle>
-            <CardDescription className="truncate mt-1">
-              {chain.description || "Cross-domain breach chain"}
-            </CardDescription>
-          </div>
-          <Badge className={STATUS_STYLES[chain.status] || "bg-muted"}>
-            {isRunning && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
-            {chain.status}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isActive && (
-          <div className="mb-4">
-            <div className="flex justify-between text-sm text-muted-foreground mb-1">
-              <span>{chain.currentPhase ? PHASE_META[chain.currentPhase]?.label || chain.currentPhase : "Starting..."}</span>
-              <span>{chain.progress}%</span>
+    <div className="f-panel" style={{ position: "relative", overflow: "visible" }}>
+      <div className="f-panel-head">
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, flexWrap: "wrap", flex: 1 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="f-panel-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Link2 style={{ width: 16, height: 16, color: "var(--falcon-red)", flexShrink: 0 }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chain.name}</span>
             </div>
-            <Progress value={chain.progress} className="h-2" />
+            <p style={{ fontSize: 10, color: "var(--falcon-t4)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {chain.description || "Cross-domain breach chain"}
+            </p>
+          </div>
+          <span style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "2px 8px",
+            borderRadius: 4,
+            color: sty.color,
+            background: sty.bg,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            flexShrink: 0,
+          }}>
+            {isRunning && <Loader2 style={{ width: 10, height: 10 }} className="animate-spin" />}
+            {chain.status}
+          </span>
+        </div>
+      </div>
+      <div style={{ padding: "12px 16px" }}>
+        {isActive && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--falcon-t4)", marginBottom: 6 }}>
+              <span>{chain.currentPhase ? PHASE_META[chain.currentPhase]?.label || chain.currentPhase : "Starting..."}</span>
+              <span style={{ fontFamily: "var(--font-mono)" }}>{chain.progress}%</span>
+            </div>
+            <div className="f-tb-track" style={{ height: 4 }}>
+              <div className="f-tb-fill f-tf-b" style={{ width: `${chain.progress}%` }} />
+            </div>
           </div>
         )}
 
         {chain.status === "completed" && (
-          <div className="grid grid-cols-4 gap-3 mb-4">
-            <div className="text-center p-2 rounded-md bg-muted/50">
-              <div className={`text-2xl font-bold ${
-                (chain.overallRiskScore ?? 0) >= 70 ? "text-destructive" :
-                (chain.overallRiskScore ?? 0) >= 40 ? "text-orange-500" : "text-emerald-500"
-              }`}>
-                {chain.overallRiskScore ?? "—"}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 14 }}>
+            <div style={{ textAlign: "center", padding: 8, borderRadius: 6, background: "var(--falcon-panel-2)" }}>
+              <div style={{
+                fontSize: 20,
+                fontWeight: 700,
+                fontFamily: "var(--font-mono)",
+                color: (chain.overallRiskScore ?? 0) >= 70 ? "var(--falcon-red)" :
+                  (chain.overallRiskScore ?? 0) >= 40 ? "var(--falcon-orange)" : "var(--falcon-green)",
+              }}>
+                {chain.overallRiskScore ?? "\u2014"}
               </div>
-              <div className="text-xs text-muted-foreground">Risk Score</div>
+              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Risk Score</div>
             </div>
-            <div className="text-center p-2 rounded-md bg-muted/50">
-              <div className="text-2xl font-bold text-amber-500">
+            <div style={{ textAlign: "center", padding: 8, borderRadius: 6, background: "var(--falcon-panel-2)" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--falcon-yellow)" }}>
                 {chain.totalCredentialsHarvested ?? 0}
               </div>
-              <div className="text-xs text-muted-foreground">Credentials</div>
+              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Credentials</div>
             </div>
-            <div className="text-center p-2 rounded-md bg-muted/50">
-              <div className="text-2xl font-bold text-red-500">
+            <div style={{ textAlign: "center", padding: 8, borderRadius: 6, background: "var(--falcon-panel-2)" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--falcon-red)" }}>
                 {chain.totalAssetsCompromised ?? 0}
               </div>
-              <div className="text-xs text-muted-foreground">Assets</div>
+              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Assets</div>
             </div>
-            <div className="text-center p-2 rounded-md bg-muted/50">
-              <div className="text-2xl font-bold text-purple-500">
+            <div style={{ textAlign: "center", padding: 8, borderRadius: 6, background: "var(--falcon-panel-2)" }}>
+              <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "var(--font-mono)", color: "#a78bfa" }}>
                 {completedPhases}/{totalPhases}
               </div>
-              <div className="text-xs text-muted-foreground">Phases</div>
+              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Phases</div>
             </div>
           </div>
         )}
 
-        <div className="flex gap-2 flex-wrap">
-          <Button size="sm" onClick={onView}>
-            <Eye className="w-4 h-4 mr-1" />
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button className="f-btn f-btn-primary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onView}>
+            <Eye style={{ width: 13, height: 13, marginRight: 4 }} />
             View Details
-          </Button>
+          </button>
           {chain.status === "completed" && onGenerateReport && (
-            <Button size="sm" variant="outline" onClick={onGenerateReport}>
-              <FileBarChart className="w-4 h-4 mr-1" />
+            <button className="f-btn f-btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onGenerateReport}>
+              <FileBarChart style={{ width: 13, height: 13, marginRight: 4 }} />
               Report
-            </Button>
+            </button>
           )}
           {isPaused && (
-            <Button size="sm" variant="outline" onClick={onResume}>
-              <Play className="w-4 h-4 mr-1" />
+            <button className="f-btn f-btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onResume}>
+              <Play style={{ width: 13, height: 13, marginRight: 4 }} />
               Resume
-            </Button>
+            </button>
           )}
           {isRunning && (
-            <Button size="sm" variant="outline" onClick={onAbort}>
-              <StopCircle className="w-4 h-4 mr-1" />
+            <button className="f-btn f-btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onAbort}>
+              <StopCircle style={{ width: 13, height: 13, marginRight: 4 }} />
               Abort
-            </Button>
+            </button>
           )}
           {!isActive && (
-            <Button size="sm" variant="outline" onClick={onDelete}>
-              <Trash2 className="w-4 h-4" />
-            </Button>
+            <button className="f-btn f-btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }} onClick={onDelete}>
+              <Trash2 style={{ width: 13, height: 13 }} />
+            </button>
           )}
         </div>
 
-        <div className="mt-3 text-xs text-muted-foreground">
+        <div style={{ marginTop: 10, fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
           Started: {chain.startedAt ? new Date(chain.startedAt).toLocaleString() : "Not started"}
           {chain.durationMs && (
-            <span className="ml-2">Duration: {(chain.durationMs / 1000).toFixed(0)}s</span>
+            <span style={{ marginLeft: 8 }}>Duration: {(chain.durationMs / 1000).toFixed(0)}s</span>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -887,81 +1000,99 @@ export default function BreachChains() {
 
   const displayChain = detailChain || selectedChain;
 
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "8px 12px",
+    background: "var(--falcon-panel)",
+    border: "1px solid var(--falcon-border)",
+    borderRadius: 6,
+    color: "var(--falcon-t1)",
+    fontSize: 12,
+    outline: "none",
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Page Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <Link2 className="h-6 w-6 text-red-500" />
-            Cross-Domain Breach Chains
-          </h1>
-          <p className="text-muted-foreground">
-            Chain exploits across application, cloud, container, and network domains
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: "var(--falcon-t1)", margin: 0 }}>Cross-Domain Breach Chains</h1>
+          <p style={{ fontSize: 11, color: "var(--falcon-t3)", marginTop: 4, fontFamily: "var(--font-mono)" }}>
+            // chain exploits across domains
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetch()}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="f-btn f-btn-secondary" onClick={() => refetch()}>
+            <RefreshCw style={{ width: 13, height: 13, marginRight: 6 }} />
             Refresh
-          </Button>
-          <Dialog open={isCreateOpen} onOpenChange={(open) => {
-            setIsCreateOpen(open);
-            if (!open) resetForm();
-          }}>
-            <DialogTrigger asChild>
-              <Button disabled={!canCreate}>
-                {canCreate ? <Play className="h-4 w-4 mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
-                Start Breach Chain
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Link2 className="h-5 w-5 text-red-500" />
-                  Start Cross-Domain Breach Chain
-                </DialogTitle>
-                <DialogDescription>
-                  Launch a multi-phase breach simulation that chains exploits across security domains
-                </DialogDescription>
-              </DialogHeader>
+          </button>
+          <button
+            className="f-btn f-btn-primary"
+            disabled={!canCreate}
+            onClick={() => setIsCreateOpen(true)}
+          >
+            {canCreate ? <Play style={{ width: 13, height: 13, marginRight: 6 }} /> : <Lock style={{ width: 13, height: 13, marginRight: 6 }} />}
+            Start Breach Chain
+          </button>
+        </div>
+      </div>
 
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Chain Name</label>
-                  <Input
+      {/* Create Breach Chain Modal */}
+      {isCreateOpen && (
+        <div className="f-modal-overlay" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
+          <div className="f-modal f-modal-lg" onClick={e => e.stopPropagation()} style={{ maxHeight: "85vh", overflowY: "auto" }}>
+            <div className="f-modal-head">
+              <h2 className="f-modal-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Link2 style={{ width: 16, height: 16, color: "var(--falcon-red)" }} />
+                Start Cross-Domain Breach Chain
+              </h2>
+              <p className="f-modal-desc">
+                Launch a multi-phase breach simulation that chains exploits across security domains
+              </p>
+            </div>
+
+            <div className="f-modal-body">
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Chain Name</label>
+                  <input
+                    style={inputStyle}
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     placeholder="Q1 2026 Full Breach Simulation"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Target URL</label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Target URL</label>
+                  <input
+                    style={inputStyle}
                     value={formData.targetUrl}
                     onChange={(e) => setFormData({ ...formData, targetUrl: e.target.value })}
                     placeholder="https://target-app.example.com"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
                     The Active Exploit Engine will fire real payloads against this target in Phase 1
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Asset IDs (optional, comma-separated)</label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Asset IDs (optional, comma-separated)</label>
+                  <input
+                    style={inputStyle}
                     value={formData.assetIds}
                     onChange={(e) => setFormData({ ...formData, assetIds: e.target.value })}
                     placeholder="web-server-001, api-gateway-002"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
                     If left empty, the target URL will be used as the primary asset
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Description (optional)</label>
-                  <Textarea
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Description (optional)</label>
+                  <textarea
+                    style={{ ...inputStyle, resize: "vertical", minHeight: 48 }}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     placeholder="Validate full attack chain from app compromise to domain admin..."
@@ -969,186 +1100,228 @@ export default function BreachChains() {
                   />
                 </div>
 
-                <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="w-full justify-between">
-                      <span className="flex items-center gap-2">
-                        <Settings2 className="h-4 w-4" />
-                        Advanced Configuration
-                      </span>
-                      <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`} />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-4 pt-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Execution Mode</label>
-                      <Select
-                        value={formData.executionMode}
-                        onValueChange={(v) => setFormData({ ...formData, executionMode: v as any })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="safe">Safe (default)</SelectItem>
-                          <SelectItem value="simulation">Simulation</SelectItem>
-                          <SelectItem value="live">Live</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                <div>
+                  <button
+                    className={`f-collapse-trigger ${showAdvanced ? "open" : ""}`}
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: 12,
+                      padding: "8px 12px",
+                      background: "transparent",
+                      border: "1px solid var(--falcon-border)",
+                      borderRadius: 6,
+                      color: "var(--falcon-t1)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Settings2 style={{ width: 14, height: 14 }} />
+                      Advanced Configuration
+                    </span>
+                    <ChevronDown style={{ width: 14, height: 14, transition: "transform 0.2s", transform: showAdvanced ? "rotate(180deg)" : "rotate(0deg)" }} />
+                  </button>
+                  {showAdvanced && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 16 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Execution Mode</label>
+                        <select
+                          className="f-select"
+                          value={formData.executionMode}
+                          onChange={(e) => setFormData({ ...formData, executionMode: e.target.value as any })}
+                        >
+                          <option value="safe">Safe (default)</option>
+                          <option value="simulation">Simulation</option>
+                          <option value="live">Live</option>
+                        </select>
+                      </div>
 
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-medium">Pause on Critical Findings</label>
-                      <Switch
-                        checked={formData.pauseOnCritical}
-                        onCheckedChange={(checked) => setFormData({ ...formData, pauseOnCritical: checked })}
-                      />
-                    </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Pause on Critical Findings</label>
+                        <button
+                          className={`f-switch ${formData.pauseOnCritical ? "on" : ""}`}
+                          onClick={() => setFormData({ ...formData, pauseOnCritical: !formData.pauseOnCritical })}
+                        />
+                      </div>
 
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Enabled Phases</label>
-                      <div className="grid grid-cols-1 gap-2">
-                        {Object.entries(PHASE_META).map(([key, meta]) => {
-                          const PhaseIcon = meta.icon;
-                          const enabled = formData.enabledPhases.includes(key);
-                          return (
-                            <div
-                              key={key}
-                              className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-colors ${
-                                enabled ? "border-primary bg-primary/5" : "border-border opacity-50"
-                              }`}
-                              onClick={() => togglePhase(key)}
-                            >
-                              <Switch checked={enabled} onCheckedChange={() => togglePhase(key)} />
-                              <PhaseIcon className={`h-4 w-4 ${meta.color}`} />
-                              <div>
-                                <span className="text-sm font-medium">{meta.label}</span>
-                                <p className="text-xs text-muted-foreground">{meta.description}</p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Enabled Phases</label>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {Object.entries(PHASE_META).map(([key, meta]) => {
+                            const PhaseIcon = meta.icon;
+                            const enabled = formData.enabledPhases.includes(key);
+                            return (
+                              <div
+                                key={key}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 10,
+                                  padding: 8,
+                                  borderRadius: 6,
+                                  border: `1px solid ${enabled ? "var(--falcon-blue-hi)" : "var(--falcon-border)"}`,
+                                  background: enabled ? "rgba(59,130,246,0.05)" : "transparent",
+                                  cursor: "pointer",
+                                  opacity: enabled ? 1 : 0.5,
+                                  transition: "all 0.15s ease",
+                                }}
+                                onClick={() => togglePhase(key)}
+                              >
+                                <button
+                                  className={`f-switch ${enabled ? "on" : ""}`}
+                                  onClick={(e) => { e.stopPropagation(); togglePhase(key); }}
+                                />
+                                <PhaseIcon style={{ width: 14, height: 14, color: meta.color }} />
+                                <div>
+                                  <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{meta.label}</span>
+                                  <p style={{ fontSize: 10, color: "var(--falcon-t4)", margin: 0 }}>{meta.description}</p>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  </CollapsibleContent>
-                </Collapsible>
+                  )}
+                </div>
 
-                <div className="bg-muted/50 p-3 rounded-md">
-                  <h4 className="text-sm font-medium flex items-center gap-2">
-                    <Target className="w-4 h-4" />
+                <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                  <h4 style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", display: "flex", alignItems: "center", gap: 8, margin: 0, marginBottom: 8 }}>
+                    <Target style={{ width: 14, height: 14 }} />
                     What this breach chain does:
                   </h4>
-                  <ul className="text-xs text-muted-foreground mt-2 space-y-1">
-                    <li className="text-red-400">Phase 1: Fires active exploit payloads (SQLi, XSS, SSRF, auth bypass...)</li>
-                    <li className="text-amber-400">Phase 2: Extracts credentials from compromised responses</li>
-                    <li className="text-cyan-400">Phase 3: Escalates IAM privileges in cloud environments</li>
-                    <li className="text-purple-400">Phase 4: Attempts K8s RBAC abuse and container breakout</li>
-                    <li className="text-blue-400">Phase 5: Pivots laterally using harvested credentials</li>
-                    <li className="text-orange-400">Phase 6: Aggregates full business impact analysis</li>
+                  <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
+                    <li style={{ color: "var(--falcon-red)" }}>Phase 1: Fires active exploit payloads (SQLi, XSS, SSRF, auth bypass...)</li>
+                    <li style={{ color: "var(--falcon-yellow)" }}>Phase 2: Extracts credentials from compromised responses</li>
+                    <li style={{ color: "var(--falcon-blue-hi)" }}>Phase 3: Escalates IAM privileges in cloud environments</li>
+                    <li style={{ color: "#a78bfa" }}>Phase 4: Attempts K8s RBAC abuse and container breakout</li>
+                    <li style={{ color: "var(--falcon-blue-hi)" }}>Phase 5: Pivots laterally using harvested credentials</li>
+                    <li style={{ color: "var(--falcon-orange)" }}>Phase 6: Aggregates full business impact analysis</li>
                   </ul>
                 </div>
               </div>
+            </div>
 
-              <DialogFooter>
-                <Button
-                  onClick={() => createMutation.mutate(formData)}
-                  disabled={!formData.name.trim() || (!formData.assetIds.trim() && !formData.targetUrl.trim()) || createMutation.isPending}
-                  className="w-full"
-                >
-                  {createMutation.isPending ? (
-                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting...</>
-                  ) : (
-                    <><Play className="h-4 w-4 mr-2" />Launch Breach Chain</>
-                  )}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+            <div className="f-modal-footer">
+              <button className="f-btn f-btn-ghost" onClick={() => { setIsCreateOpen(false); resetForm(); }}>
+                Cancel
+              </button>
+              <button
+                className="f-btn f-btn-primary"
+                style={{ flex: 1, justifyContent: "center" }}
+                onClick={() => createMutation.mutate(formData)}
+                disabled={!formData.name.trim() || (!formData.assetIds.trim() && !formData.targetUrl.trim()) || createMutation.isPending}
+              >
+                {createMutation.isPending ? (
+                  <><Loader2 style={{ width: 14, height: 14, marginRight: 8 }} className="animate-spin" />Starting...</>
+                ) : (
+                  <><Play style={{ width: 14, height: 14, marginRight: 8 }} />Launch Breach Chain</>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
 
       {selectedChain && displayChain ? (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setSelectedChain(null)}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button className="f-btn f-btn-secondary" onClick={() => setSelectedChain(null)}>
               Back to List
-            </Button>
+            </button>
             {displayChain.status === "completed" && (
-              <Button
-                variant="outline"
+              <button
+                className="f-btn f-btn-secondary"
                 onClick={() => generateReportMutation.mutate(displayChain.id)}
                 disabled={generateReportMutation.isPending}
               >
                 {generateReportMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  <Loader2 style={{ width: 13, height: 13, marginRight: 4 }} className="animate-spin" />
                 ) : (
-                  <FileBarChart className="w-4 h-4 mr-1" />
+                  <FileBarChart style={{ width: 13, height: 13, marginRight: 4 }} />
                 )}
                 Generate Report
-              </Button>
+              </button>
             )}
             {displayChain.status === "paused" && (
-              <Button variant="outline" onClick={() => resumeMutation.mutate(displayChain.id)}>
-                <Play className="w-4 h-4 mr-1" /> Resume
-              </Button>
+              <button className="f-btn f-btn-secondary" onClick={() => resumeMutation.mutate(displayChain.id)}>
+                <Play style={{ width: 13, height: 13, marginRight: 4 }} /> Resume
+              </button>
             )}
             {displayChain.status === "running" && (
-              <Button variant="outline" onClick={() => abortMutation.mutate(displayChain.id)}>
-                <StopCircle className="w-4 h-4 mr-1" /> Abort
-              </Button>
+              <button className="f-btn f-btn-secondary" onClick={() => abortMutation.mutate(displayChain.id)}>
+                <StopCircle style={{ width: 13, height: 13, marginRight: 4 }} /> Abort
+              </button>
             )}
           </div>
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="f-panel">
+            <div className="f-panel-head">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", flex: 1 }}>
                 <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Link2 className="h-5 w-5 text-red-500" />
+                  <div className="f-panel-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <Link2 style={{ width: 16, height: 16, color: "var(--falcon-red)" }} />
                     {displayChain.name}
-                  </CardTitle>
-                  <CardDescription>{displayChain.description || "Cross-domain breach chain"}</CardDescription>
+                  </div>
+                  <p style={{ fontSize: 10, color: "var(--falcon-t4)", margin: "2px 0 0 0" }}>{displayChain.description || "Cross-domain breach chain"}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge className={STATUS_STYLES[displayChain.status] || "bg-muted"}>
-                    {displayChain.status === "running" && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    color: (STATUS_STYLES[displayChain.status] || STATUS_STYLES.pending).color,
+                    background: (STATUS_STYLES[displayChain.status] || STATUS_STYLES.pending).bg,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}>
+                    {displayChain.status === "running" && <Loader2 style={{ width: 10, height: 10 }} className="animate-spin" />}
                     {displayChain.status}
-                  </Badge>
+                  </span>
                   {displayChain.status === "running" && (
-                    <span className="text-sm text-muted-foreground">{displayChain.progress}%</span>
+                    <span style={{ fontSize: 11, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>{displayChain.progress}%</span>
                   )}
                 </div>
               </div>
-              {displayChain.status === "running" && (
-                <Progress value={displayChain.progress} className="h-2 mt-2" />
-              )}
-            </CardHeader>
-            <CardContent>
+            </div>
+            {displayChain.status === "running" && (
+              <div style={{ padding: "0 16px 4px 16px" }}>
+                <div className="f-tb-track" style={{ height: 4 }}>
+                  <div className="f-tb-fill f-tf-b" style={{ width: `${displayChain.progress}%` }} />
+                </div>
+              </div>
+            )}
+            <div style={{ padding: "12px 16px" }}>
               <ChainDetail chain={displayChain} />
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       ) : (
         <>
           {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 0" }}>
+              <Loader2 style={{ width: 28, height: 28, color: "var(--falcon-t4)" }} className="animate-spin" />
             </div>
           ) : chains.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <Link2 className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium">No Breach Chains Yet</h3>
-                <p className="text-muted-foreground mt-1">
+            <div className="f-panel">
+              <div style={{ padding: "48px 0", textAlign: "center" }}>
+                <Link2 style={{ width: 40, height: 40, color: "var(--falcon-t4)", margin: "0 auto 16px auto", display: "block" }} />
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", margin: 0 }}>No Breach Chains Yet</h3>
+                <p style={{ fontSize: 11, color: "var(--falcon-t4)", marginTop: 6 }}>
                   Start a cross-domain breach chain to validate your full attack surface
                 </p>
-                <Button className="mt-4" onClick={() => setIsCreateOpen(true)} disabled={!canCreate}>
-                  <Play className="w-4 h-4 mr-2" />
+                <button className="f-btn f-btn-primary" style={{ marginTop: 16 }} onClick={() => setIsCreateOpen(true)} disabled={!canCreate}>
+                  <Play style={{ width: 13, height: 13, marginRight: 6 }} />
                   Start Your First Breach Chain
-                </Button>
-              </CardContent>
-            </Card>
+                </button>
+              </div>
+            </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))" }}>
               {chains.map((chain) => (
                 <ChainCard
                   key={chain.id}

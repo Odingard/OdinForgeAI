@@ -1,18 +1,5 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ParticleBackground, GradientOrb } from "@/components/ui/animated-background";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -67,15 +54,25 @@ const exportFormats = [
   { value: "csv", label: "CSV", icon: FileSpreadsheet },
 ];
 
+function severityChipClass(severity: string | undefined) {
+  switch (severity?.toLowerCase()) {
+    case "critical": return "f-chip f-chip-crit";
+    case "high": return "f-chip f-chip-high";
+    case "medium": return "f-chip f-chip-med";
+    case "low": return "f-chip f-chip-low";
+    default: return "f-chip f-chip-gray";
+  }
+}
+
 export default function Reports() {
   const { toast } = useToast();
   const { hasPermission, needsSanitizedView } = useAuth();
-  
+
   const canGenerateReport = hasPermission("reports:generate");
   const canDeleteReport = hasPermission("reports:delete");
   const canExportReport = hasPermission("reports:export");
   const isExecutiveView = needsSanitizedView();
-  
+
   const { data: reports = [], isLoading } = useQuery<Report[]>({
     queryKey: ["/api/reports"],
   });
@@ -99,6 +96,9 @@ export default function Reports() {
   );
   const [dateTo, setDateTo] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [previewData, setPreviewData] = useState<any>(null);
+  const [reportsTab, setReportsTab] = useState("reports");
+  const [downloadMenuId, setDownloadMenuId] = useState<string | null>(null);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
 
   // Engagement metadata state
   const [clientName, setClientName] = useState<string>("");
@@ -106,6 +106,16 @@ export default function Reports() {
   const [testingApproach, setTestingApproach] = useState<string>("gray_box");
   const [leadTester, setLeadTester] = useState<string>("");
   const [showEngagementOptions, setShowEngagementOptions] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (downloadMenuRef.current && !downloadMenuRef.current.contains(e.target as Node)) {
+        setDownloadMenuId(null);
+      }
+    };
+    if (downloadMenuId) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [downloadMenuId]);
 
   const generateMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -190,7 +200,7 @@ export default function Reports() {
         role: "Lead Tester",
       }] : undefined,
     } : undefined;
-    
+
     if (reportVersion === "v2_narrative") {
       const reportTypesMap: Record<string, string[]> = {
         "executive_summary": ["executive"],
@@ -224,7 +234,7 @@ export default function Reports() {
 
   const handleDownload = (report: Report, downloadFormat: "pdf" | "json" | "csv" = "pdf") => {
     const filename = report.title.replace(/\s+/g, "_");
-    
+
     if (downloadFormat === "pdf") {
       generatePdf(report);
     } else if (downloadFormat === "json") {
@@ -251,7 +261,7 @@ export default function Reports() {
   const convertToCSV = (data: any): string => {
     if (!data) return "";
     const sections: string[] = [];
-    
+
     const escapeCSV = (value: any): string => {
       const str = String(value ?? "");
       if (str.includes(",") || str.includes("\n") || str.includes('"')) {
@@ -383,7 +393,7 @@ export default function Reports() {
     const content = report.content as any;
     const reportTypeLabel = reportTypes.find(t => t.value === report.reportType)?.label
       || (report.reportType === "breach_chain" ? "Breach Chain Analysis" : report.reportType);
-    
+
     const docDefinition: any = {
       pageSize: "A4",
       pageMargins: [40, 60, 40, 60],
@@ -498,7 +508,7 @@ export default function Reports() {
 
   const buildPdfContent = (data: any, reportType: string): any[] => {
     const content: any[] = [];
-    
+
     if (!data) {
       content.push({ text: "No data available for this report.", style: "bodyText" });
       return content;
@@ -786,21 +796,21 @@ export default function Reports() {
     // Attack Paths section (for technical reports)
     if (data.attackPaths && Array.isArray(data.attackPaths) && data.attackPaths.length > 0) {
       content.push({ text: "Attack Path Analysis", style: "sectionHeader" });
-      content.push({ 
-        text: "The following attack paths were identified and validated during the security assessment:", 
-        style: "bodyText" 
+      content.push({
+        text: "The following attack paths were identified and validated during the security assessment:",
+        style: "bodyText"
       });
-      
+
       for (const [idx, path] of data.attackPaths.slice(0, 5).entries()) {
         content.push({ text: `Attack Path ${idx + 1}: ${path.assetId || "Target Asset"}`, style: "subHeader" });
-        
+
         const pathInfo = [];
         if (path.complexity) pathInfo.push(`Complexity: ${path.complexity}/100`);
         if (path.timeToCompromise) pathInfo.push(`Estimated Time to Compromise: ${path.timeToCompromise}`);
         if (pathInfo.length > 0) {
           content.push({ text: pathInfo.join(" | "), style: "bodyText", color: "#64748b" });
         }
-        
+
         if (path.steps && Array.isArray(path.steps)) {
           const stepsText = path.steps.map((step: any, i: number) => {
             const technique = step.technique || step.action || step.description || "Action";
@@ -815,7 +825,7 @@ export default function Reports() {
     // Vulnerability Breakdown section (for technical reports)
     if (data.vulnerabilityBreakdown) {
       content.push({ text: "Vulnerability Distribution", style: "sectionHeader" });
-      
+
       if (data.vulnerabilityBreakdown.bySeverity) {
         content.push({ text: "By Severity:", style: "subHeader" });
         const severityItems = Object.entries(data.vulnerabilityBreakdown.bySeverity)
@@ -823,7 +833,7 @@ export default function Reports() {
           .join(", ");
         content.push({ text: severityItems, style: "bodyText" });
       }
-      
+
       if (data.vulnerabilityBreakdown.byType) {
         content.push({ text: "By Type:", style: "subHeader" });
         const typeItems = Object.entries(data.vulnerabilityBreakdown.byType)
@@ -857,11 +867,11 @@ export default function Reports() {
         margin: [0, 5, 0, 10],
       };
       content.push(gapsTable);
-      
+
       // Add remediation guidance
       content.push({ text: "Remediation Guidance", style: "subHeader" });
       const remediationList = {
-        ul: data.gaps.slice(0, 10).map((gap: any) => 
+        ul: data.gaps.slice(0, 10).map((gap: any) =>
           `${gap.controlId}: ${gap.remediationGuidance || "Review and implement required controls"}`
         ),
         style: "listItem",
@@ -873,12 +883,12 @@ export default function Reports() {
     // Audit Readiness section (for compliance reports)
     if (data.auditReadiness) {
       content.push({ text: "Audit Readiness Assessment", style: "sectionHeader" });
-      
+
       const readinessInfo = [
         { label: "Overall Readiness Score", value: `${data.auditReadiness.score || 0}%` },
         { label: "Compliant Controls", value: `${data.auditReadiness.readyControls || 0} of ${data.auditReadiness.totalControls || 0}` },
       ];
-      
+
       const readinessTable = {
         table: {
           widths: ["*", "auto"],
@@ -891,7 +901,7 @@ export default function Reports() {
         margin: [0, 5, 0, 10],
       };
       content.push(readinessTable);
-      
+
       if (data.auditReadiness.priorityActions && Array.isArray(data.auditReadiness.priorityActions)) {
         content.push({ text: "Priority Actions for Audit Preparation:", style: "subHeader" });
         const actionsList = {
@@ -974,26 +984,26 @@ export default function Reports() {
 
   const buildWebAppScanPdfContent = (data: any): any[] => {
     const content: any[] = [];
-    
+
     // Executive Summary section
     content.push({ text: "Executive Summary", style: "sectionHeader" });
-    
+
     if (data.executiveSummary) {
       const summary = data.executiveSummary;
       if (summary.overview) {
         content.push({ text: summary.overview, style: "bodyText" });
       }
-      
+
       // Key metrics table
       const metricsData = [
         ["Risk Level", summary.riskLevel || "Unknown"],
         ["Findings Count", String(summary.findingsCount || 0)],
       ];
-      
+
       if (data.scanMetadata?.targetUrl) {
         metricsData.unshift(["Target URL", data.scanMetadata.targetUrl]);
       }
-      
+
       const metricsTable = {
         table: {
           widths: ["auto", "*"],
@@ -1007,14 +1017,14 @@ export default function Reports() {
       };
       content.push(metricsTable);
     }
-    
+
     // Attack Surface Analysis section (from reconResult)
     if (data.reconResult) {
       const recon = data.reconResult;
-      
+
       if (recon.attackSurface) {
         content.push({ text: "Attack Surface Analysis", style: "sectionHeader" });
-        
+
         const surfaceData = [
           ["Total Endpoints", String(recon.attackSurface.totalEndpoints || 0)],
           ["High Priority Endpoints", String(recon.attackSurface.highPriorityEndpoints || 0)],
@@ -1023,7 +1033,7 @@ export default function Reports() {
           ["File Upload Points", String(recon.attackSurface.fileUploadPoints || 0)],
           ["API Endpoints", String(recon.attackSurface.apiEndpoints || 0)],
         ];
-        
+
         const surfaceTable = {
           table: {
             widths: ["*", "auto"],
@@ -1037,40 +1047,40 @@ export default function Reports() {
         };
         content.push(surfaceTable);
       }
-      
+
       // Application Security Headers
       if (recon.applicationInfo) {
         content.push({ text: "Application Security Headers", style: "sectionHeader" });
-        
+
         const appInfo = recon.applicationInfo;
-        
+
         if (appInfo.securityHeaders && Object.keys(appInfo.securityHeaders).length > 0) {
           content.push({ text: "Present Headers:", style: "subHeader" });
-          const presentHeaders = Object.entries(appInfo.securityHeaders).map(([header, value]) => 
+          const presentHeaders = Object.entries(appInfo.securityHeaders).map(([header, value]) =>
             `${header}: ${String(value).substring(0, 60)}${String(value).length > 60 ? "..." : ""}`
           );
           content.push({ ul: presentHeaders, style: "listItem", margin: [0, 5, 0, 10] });
         }
-        
+
         if (appInfo.missingSecurityHeaders && appInfo.missingSecurityHeaders.length > 0) {
           content.push({ text: "Missing Headers (Recommended):", style: "subHeader" });
-          content.push({ 
-            ul: appInfo.missingSecurityHeaders.slice(0, 10), 
-            style: "listItem", 
-            margin: [0, 5, 0, 15] 
+          content.push({
+            ul: appInfo.missingSecurityHeaders.slice(0, 10),
+            style: "listItem",
+            margin: [0, 5, 0, 15]
           });
         }
       }
     }
-    
+
     // Technical Findings section
     if (data.technicalFindings && Array.isArray(data.technicalFindings) && data.technicalFindings.length > 0) {
       content.push({ text: "Security Findings", style: "sectionHeader" });
-      content.push({ 
-        text: `${data.technicalFindings.length} validated finding(s) identified during the assessment.`, 
-        style: "bodyText" 
+      content.push({
+        text: `${data.technicalFindings.length} validated finding(s) identified during the assessment.`,
+        style: "bodyText"
       });
-      
+
       const findingsTable = {
         table: {
           headerRows: 1,
@@ -1094,48 +1104,48 @@ export default function Reports() {
         margin: [0, 10, 0, 15],
       };
       content.push(findingsTable);
-      
+
       // Detailed findings
       content.push({ text: "Finding Details", style: "sectionHeader" });
-      
+
       for (const [idx, finding] of data.technicalFindings.slice(0, 10).entries()) {
-        content.push({ 
-          text: `${idx + 1}. ${finding.vulnerabilityType?.replace(/_/g, " ").toUpperCase() || "Finding"} - ${finding.endpointPath || "Unknown Path"}`, 
-          style: "subHeader" 
+        content.push({
+          text: `${idx + 1}. ${finding.vulnerabilityType?.replace(/_/g, " ").toUpperCase() || "Finding"} - ${finding.endpointPath || "Unknown Path"}`,
+          style: "subHeader"
         });
-        
+
         const findingDetails = [
           `Parameter: ${finding.parameter || "N/A"}`,
           `MITRE ATT&CK: ${finding.mitreAttackId || "N/A"}`,
           `Verdict: ${finding.verdict || "N/A"}`,
         ];
         content.push({ text: findingDetails.join(" | "), style: "bodyText", color: "#64748b" });
-        
+
         // Evidence
         if (finding.evidence && Array.isArray(finding.evidence) && finding.evidence.length > 0) {
           content.push({ text: "Evidence:", style: "listLabel", margin: [0, 5, 0, 2] });
-          content.push({ 
-            ul: finding.evidence.slice(0, 3).map((e: string) => e.substring(0, 100) + (e.length > 100 ? "..." : "")), 
+          content.push({
+            ul: finding.evidence.slice(0, 3).map((e: string) => e.substring(0, 100) + (e.length > 100 ? "..." : "")),
             style: "listItem",
             margin: [10, 0, 0, 5]
           });
         }
-        
+
         // Reproduction Steps
         if (finding.reproductionSteps && Array.isArray(finding.reproductionSteps)) {
           content.push({ text: "Reproduction Steps:", style: "listLabel", margin: [0, 5, 0, 2] });
-          content.push({ 
-            ol: finding.reproductionSteps.slice(0, 5), 
+          content.push({
+            ol: finding.reproductionSteps.slice(0, 5),
             style: "listItem",
             margin: [10, 0, 0, 5]
           });
         }
-        
+
         // Recommendations
         if (finding.recommendations && Array.isArray(finding.recommendations) && finding.recommendations.length > 0) {
           content.push({ text: "Recommendations:", style: "listLabel", margin: [0, 5, 0, 2] });
-          content.push({ 
-            ul: finding.recommendations.slice(0, 5), 
+          content.push({
+            ul: finding.recommendations.slice(0, 5),
             style: "listItem",
             margin: [10, 0, 0, 15]
           });
@@ -1145,7 +1155,7 @@ export default function Reports() {
       content.push({ text: "Security Findings", style: "sectionHeader" });
       content.push({ text: "No validated security findings were identified during this assessment.", style: "bodyText" });
     }
-    
+
     return content;
   };
 
@@ -1161,395 +1171,454 @@ export default function Reports() {
 
   const getReportIcon = (type: string) => {
     switch (type) {
-      case "executive_summary": return <Briefcase className="w-4 h-4" />;
-      case "technical_deep_dive": return <FileText className="w-4 h-4" />;
-      case "compliance_mapping": return <Shield className="w-4 h-4" />;
+      case "executive_summary": return <Briefcase style={{ width: 16, height: 16, color: "var(--falcon-t3)" }} />;
+      case "technical_deep_dive": return <FileText style={{ width: 16, height: 16, color: "var(--falcon-t3)" }} />;
+      case "compliance_mapping": return <Shield style={{ width: 16, height: 16, color: "var(--falcon-t3)" }} />;
       case "breach_chain":
-      case "breach_chain_analysis": return <Link2 className="w-4 h-4" />;
-      default: return <FileText className="w-4 h-4" />;
+      case "breach_chain_analysis": return <Link2 style={{ width: 16, height: 16, color: "var(--falcon-t3)" }} />;
+      default: return <FileText style={{ width: 16, height: 16, color: "var(--falcon-t3)" }} />;
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusChip = (status: string) => {
     switch (status) {
       case "completed":
-        return <Badge variant="default" className="bg-green-500/20 text-green-400 border-green-500/30"><CheckCircle2 className="w-3 h-3 mr-1" />Completed</Badge>;
+        return (
+          <span className="f-chip f-chip-low" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <CheckCircle2 style={{ width: 10, height: 10 }} />Completed
+          </span>
+        );
       case "generating":
-        return <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Generating</Badge>;
+        return (
+          <span className="f-chip f-chip-gray" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <Clock style={{ width: 10, height: 10 }} />Generating
+          </span>
+        );
       case "failed":
-        return <Badge variant="destructive"><AlertTriangle className="w-3 h-3 mr-1" />Failed</Badge>;
+        return (
+          <span className="f-chip f-chip-crit" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <AlertTriangle style={{ width: 10, height: 10 }} />Failed
+          </span>
+        );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <span className="f-chip f-chip-gray">{status}</span>;
     }
   };
 
+  if (isLoading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ color: "var(--falcon-t3)", fontSize: 12 }}>Loading reports...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="container mx-auto p-6 space-y-6 relative">
-      {/* Animated backgrounds */}
-      <ParticleBackground particleCount={30} particleColor="#06b6d4" opacity={0.15} />
-      <GradientOrb color1="#ef4444" color2="#f97316" size="lg" className="top-20 right-10" />
-      <GradientOrb color1="#06b6d4" color2="#8b5cf6" size="md" className="bottom-40 left-10" />
-
-      {/* Grid overlay */}
-      <div className="absolute inset-0 grid-bg opacity-10 pointer-events-none" />
-
-      <div className="relative z-10">
-      {isExecutiveView && (
-        <Alert>
-          <Briefcase className="h-4 w-4" />
-          <AlertDescription>
-            You are viewing reports in executive mode. Only executive summary reports are available. 
-            Technical details and raw findings are not shown.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div data-testid="reports-page">
+      {/* Page header */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-reports-title">
-            <FileText className="h-6 w-6 text-cyan-400 glow-cyan-sm" />
-            <span className="text-neon-red">Enterprise</span>
-            <span>Reports</span>
-          </h1>
-          <p className="text-muted-foreground">Generate executive, technical, and compliance reports</p>
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: "var(--falcon-t1)", margin: 0 }}>Reports</h1>
+          <p style={{ fontSize: 11, color: "var(--falcon-t3)", marginTop: 4, fontFamily: "var(--font-mono)" }}>
+            // security report generation and analytics
+          </p>
         </div>
-        <Dialog open={isGenerateOpen} onOpenChange={setIsGenerateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="btn-generate-report" disabled={!canGenerateReport}>
-              {canGenerateReport ? <Plus className="w-4 h-4 mr-2" /> : <Lock className="w-4 h-4 mr-2" />}
-              Generate Report
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Generate New Report</DialogTitle>
-              <DialogDescription>Configure and generate a security assessment report</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Report Type</Label>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <button className="f-btn f-btn-primary" data-testid="btn-generate-report" disabled={!canGenerateReport}
+          onClick={() => setIsGenerateOpen(true)}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {canGenerateReport ? <Plus style={{ width: 14, height: 14 }} /> : <Lock style={{ width: 14, height: 14 }} />}
+          Generate Report
+        </button>
+      </div>
+
+      {/* Generate Report Modal */}
+      {isGenerateOpen && (
+        <div className="f-modal-overlay" onClick={() => setIsGenerateOpen(false)}>
+          <div className="f-modal f-modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="f-modal-head">
+              <h2 className="f-modal-title">Generate New Report</h2>
+              <p className="f-modal-desc">Configure and generate a security assessment report</p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "16px 0" }}>
+              {/* Report Type Selection */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Report Type</label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                   {reportTypes.map((type) => (
-                    <Card
+                    <div
                       key={type.value}
-                      className={`cursor-pointer transition-colors hover-elevate ${
-                        selectedType === type.value ? "border-primary bg-primary/5" : ""
-                      }`}
+                      className="f-panel"
+                      style={{
+                        cursor: "pointer",
+                        padding: 12,
+                        borderColor: selectedType === type.value ? "var(--falcon-blue-hi)" : undefined,
+                        background: selectedType === type.value ? "rgba(59,130,246,0.06)" : undefined,
+                      }}
                       onClick={() => setSelectedType(type.value)}
                       data-testid={`card-report-type-${type.value}`}
                     >
-                      <CardContent className="p-4">
-                        <div className="flex flex-col items-center text-center gap-2">
-                          <type.icon className="w-6 h-6 text-primary" />
-                          <span className="font-medium text-sm">{type.label}</span>
-                          <span className="text-xs text-muted-foreground">{type.description}</span>
-                        </div>
-                      </CardContent>
-                    </Card>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 8 }}>
+                        <type.icon style={{ width: 20, height: 20, color: selectedType === type.value ? "var(--falcon-blue-hi)" : "var(--falcon-t3)" }} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{type.label}</span>
+                        <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{type.description}</span>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
 
+              {/* Compliance Framework */}
               {selectedType === "compliance_mapping" && (
-                <div className="space-y-2">
-                  <Label>Compliance Framework</Label>
-                  <Select value={selectedFramework} onValueChange={setSelectedFramework}>
-                    <SelectTrigger data-testid="select-framework">
-                      <SelectValue placeholder="Select framework" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {complianceFrameworks.map((fw) => (
-                        <SelectItem key={fw.value} value={fw.value}>{fw.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Compliance Framework</label>
+                  <select className="f-select" value={selectedFramework} onChange={e => setSelectedFramework(e.target.value)} data-testid="select-framework">
+                    {complianceFrameworks.map((fw) => (
+                      <option key={fw.value} value={fw.value}>{fw.label}</option>
+                    ))}
+                  </select>
                 </div>
               )}
 
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Date From</Label>
-                    <Input
+              {/* Date Range */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Date From</label>
+                    <input
                       type="date"
                       value={dateFrom}
                       onChange={(e) => setDateFrom(e.target.value)}
                       data-testid="input-date-from"
+                      style={{
+                        background: "var(--falcon-panel)",
+                        border: "1px solid var(--falcon-border)",
+                        borderRadius: 4,
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        color: "var(--falcon-t1)",
+                        fontFamily: "var(--font-mono)",
+                      }}
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Date To</Label>
-                    <Input
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Date To</label>
+                    <input
                       type="date"
                       value={dateTo}
                       onChange={(e) => setDateTo(e.target.value)}
                       data-testid="input-date-to"
+                      style={{
+                        background: "var(--falcon-panel)",
+                        border: "1px solid var(--falcon-border)",
+                        borderRadius: 4,
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        color: "var(--falcon-t1)",
+                        fontFamily: "var(--font-mono)",
+                      }}
                     />
                   </div>
                 </div>
                 {dateFrom && dateTo && (
-                  <div className="text-xs text-muted-foreground font-mono flex justify-between px-1">
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "0 4px", fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
                     <span>From: {formatDTG(new Date(dateFrom + "T00:00:00Z"))}</span>
                     <span>To: {formatDTG(new Date(dateTo + "T23:59:59Z"))}</span>
                   </div>
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label>Export Format</Label>
-                <div className="flex gap-2">
+              {/* Export Format */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Export Format</label>
+                <div style={{ display: "flex", gap: 8 }}>
                   {exportFormats.map((fmt) => (
-                    <Button
+                    <button
                       key={fmt.value}
-                      variant={selectedFormat === fmt.value ? "default" : "outline"}
-                      size="sm"
+                      className={`f-btn ${selectedFormat === fmt.value ? "f-btn-primary" : "f-btn-ghost"}`}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11 }}
                       onClick={() => setSelectedFormat(fmt.value)}
                       data-testid={`btn-format-${fmt.value}`}
                     >
-                      <fmt.icon className="w-4 h-4 mr-2" />
+                      <fmt.icon style={{ width: 14, height: 14 }} />
                       {fmt.label}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               </div>
 
-              <Separator />
-              
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Engagement Context</Label>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
+              {/* Separator */}
+              <div style={{ height: 1, background: "var(--falcon-border)", margin: "4px 0" }} />
+
+              {/* Engagement Context */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Engagement Context</label>
+                  <button
+                    className="f-btn f-btn-ghost"
+                    style={{ fontSize: 10 }}
                     onClick={() => setShowEngagementOptions(!showEngagementOptions)}
-                    className="text-xs"
                     data-testid="btn-toggle-engagement"
                   >
                     {showEngagementOptions ? "Hide Options" : "Add Professional Context"}
-                  </Button>
+                  </button>
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
                   Add engagement metadata for consulting-grade deliverables
                 </p>
-                
+
                 {showEngagementOptions && (
-                  <div className="space-y-3 p-3 rounded-md bg-muted/30 border">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Client Name</Label>
-                        <Input
+                  <div style={{
+                    display: "flex", flexDirection: "column", gap: 12, padding: 12, borderRadius: 6,
+                    background: "var(--falcon-panel-2)", border: "1px solid var(--falcon-border)",
+                  }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: "var(--falcon-t3)" }}>Client Name</label>
+                        <input
                           placeholder="Acme Corporation"
                           value={clientName}
                           onChange={(e) => setClientName(e.target.value)}
                           data-testid="input-client-name"
+                          style={{
+                            background: "var(--falcon-panel)",
+                            border: "1px solid var(--falcon-border)",
+                            borderRadius: 4,
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            color: "var(--falcon-t1)",
+                          }}
                         />
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Lead Tester</Label>
-                        <Input
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: "var(--falcon-t3)" }}>Lead Tester</label>
+                        <input
                           placeholder="John Smith, OSCP"
                           value={leadTester}
                           onChange={(e) => setLeadTester(e.target.value)}
                           data-testid="input-lead-tester"
+                          style={{
+                            background: "var(--falcon-panel)",
+                            border: "1px solid var(--falcon-border)",
+                            borderRadius: 4,
+                            padding: "6px 10px",
+                            fontSize: 12,
+                            color: "var(--falcon-t1)",
+                          }}
                         />
                       </div>
                     </div>
-                    
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Methodology</Label>
-                        <Select value={methodology} onValueChange={setMethodology}>
-                          <SelectTrigger data-testid="select-methodology">
-                            <SelectValue placeholder="Select methodology" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="OWASP">OWASP</SelectItem>
-                            <SelectItem value="PTES">PTES</SelectItem>
-                            <SelectItem value="NIST">NIST</SelectItem>
-                            <SelectItem value="OSSTMM">OSSTMM</SelectItem>
-                            <SelectItem value="ISSAF">ISSAF</SelectItem>
-                            <SelectItem value="custom">Custom</SelectItem>
-                          </SelectContent>
-                        </Select>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: "var(--falcon-t3)" }}>Methodology</label>
+                        <select className="f-select" value={methodology} onChange={e => setMethodology(e.target.value)} data-testid="select-methodology">
+                          <option value="OWASP">OWASP</option>
+                          <option value="PTES">PTES</option>
+                          <option value="NIST">NIST</option>
+                          <option value="OSSTMM">OSSTMM</option>
+                          <option value="ISSAF">ISSAF</option>
+                          <option value="custom">Custom</option>
+                        </select>
                       </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Testing Approach</Label>
-                        <Select value={testingApproach} onValueChange={setTestingApproach}>
-                          <SelectTrigger data-testid="select-testing-approach">
-                            <SelectValue placeholder="Select approach" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="black_box">Black Box</SelectItem>
-                            <SelectItem value="gray_box">Gray Box</SelectItem>
-                            <SelectItem value="white_box">White Box</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <label style={{ fontSize: 10, fontWeight: 600, color: "var(--falcon-t3)" }}>Testing Approach</label>
+                        <select className="f-select" value={testingApproach} onChange={e => setTestingApproach(e.target.value)} data-testid="select-testing-approach">
+                          <option value="black_box">Black Box</option>
+                          <option value="gray_box">Gray Box</option>
+                          <option value="white_box">White Box</option>
+                        </select>
                       </div>
                     </div>
                   </div>
                 )}
               </div>
 
+              {/* V2 AI Notice */}
               {isV2Enabled && (
                 <>
-                  <Separator />
-                  <div className="flex items-center gap-2 p-3 rounded-md bg-cyan-500/10 border border-cyan-500/20">
-                    <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
-                    <span className="text-xs text-muted-foreground">
+                  <div style={{ height: 1, background: "var(--falcon-border)", margin: "4px 0" }} />
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 6,
+                    background: "rgba(6,182,212,0.08)", border: "1px solid rgba(6,182,212,0.2)",
+                  }}>
+                    <Sparkles style={{ width: 14, height: 14, color: "var(--falcon-blue-hi)", flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: "var(--falcon-t3)" }}>
                       AI Narrative Engine active — reports use evidence-anchored breach narratives
                     </span>
                   </div>
                 </>
               )}
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsGenerateOpen(false)}>Cancel</Button>
-              <Button 
-                onClick={handleGenerate} 
+            <div className="f-modal-footer">
+              <button className="f-btn f-btn-ghost" onClick={() => setIsGenerateOpen(false)}>Cancel</button>
+              <button
+                className="f-btn f-btn-primary"
+                onClick={handleGenerate}
                 disabled={generateMutation.isPending || generateV2Mutation.isPending}
                 data-testid="btn-confirm-generate"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 {(generateMutation.isPending || generateV2Mutation.isPending) && (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 style={{ width: 14, height: 14, animation: "spin 1s linear infinite" }} />
                 )}
                 Generate Report
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Executive view notice */}
+      {isExecutiveView && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", marginBottom: 16,
+          background: "var(--falcon-panel)", border: "1px solid var(--falcon-border)", borderRadius: 6,
+          fontSize: 11, color: "var(--falcon-t3)",
+        }}>
+          <Briefcase style={{ width: 14, height: 14, flexShrink: 0 }} />
+          You are viewing reports in executive mode. Only executive summary reports are available.
+          Technical details and raw findings are not shown.
+        </div>
+      )}
+
+      <div className="f-tab-bar">
+        <button className={`f-tab ${reportsTab === "reports" ? "active" : ""}`} onClick={() => setReportsTab("reports")} data-testid="tab-reports">
+          <FileText style={{ width: 14, height: 14, marginRight: 6 }} />
+          Generated Reports
+        </button>
+        <button className={`f-tab ${reportsTab === "trends" ? "active" : ""}`} onClick={() => setReportsTab("trends")} data-testid="tab-trends">
+          <BarChart3 style={{ width: 14, height: 14, marginRight: 6 }} />
+          Trends
+        </button>
+        <button className={`f-tab ${reportsTab === "preview" ? "active" : ""}`} onClick={() => previewData && setReportsTab("preview")} data-testid="tab-preview" style={{ opacity: previewData ? 1 : 0.4, cursor: previewData ? "pointer" : "default" }}>
+          <FileText style={{ width: 14, height: 14, marginRight: 6 }} />
+          Latest Preview
+        </button>
       </div>
 
-      <Tabs defaultValue="reports" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="reports" data-testid="tab-reports">
-            <FileText className="w-4 h-4 mr-2" />
-            Generated Reports
-          </TabsTrigger>
-          <TabsTrigger value="trends" data-testid="tab-trends">
-            <BarChart3 className="w-4 h-4 mr-2" />
-            Trends
-          </TabsTrigger>
-          <TabsTrigger value="preview" data-testid="tab-preview" disabled={!previewData}>
-            <FileText className="w-4 h-4 mr-2" />
-            Latest Preview
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="reports" className="space-y-4">
-          {isLoading ? (
-            <Card className="glass border-border/50 glow-cyan-sm">
-              <CardContent className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
-              </CardContent>
-            </Card>
-          ) : reports.length === 0 ? (
-            <Card className="glass border-border/50">
-              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-                <FileText className="w-12 h-12 text-cyan-400 glow-cyan-sm mb-4" />
-                <h3 className="font-medium mb-2">No reports generated yet</h3>
-                <p className="text-muted-foreground text-sm mb-4">
-                  Generate your first report to see it here
-                </p>
-                <Button onClick={() => setIsGenerateOpen(true)} data-testid="btn-generate-first" className="glow-cyan-sm">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Generate Report
-                </Button>
-              </CardContent>
-            </Card>
+      {/* === Generated Reports Tab === */}
+      {reportsTab === "reports" && (
+        <>
+          {reports.length === 0 ? (
+            <div className="f-panel" style={{ padding: "48px 24px", textAlign: "center" }}>
+              <FileText style={{ width: 40, height: 40, color: "var(--falcon-t4)", margin: "0 auto 12px" }} />
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>No reports generated yet</div>
+              <div style={{ fontSize: 11, color: "var(--falcon-t4)", marginBottom: 16 }}>
+                Generate your first report to see it here
+              </div>
+              <button className="f-btn f-btn-primary" onClick={() => setIsGenerateOpen(true)} data-testid="btn-generate-first"
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <Plus style={{ width: 14, height: 14 }} />
+                Generate Report
+              </button>
+            </div>
           ) : (
-            <div className="grid gap-4">
-              {reports.map((report) => (
-                <Card key={report.id} data-testid={`card-report-${report.id}`} className="glass border-border/50 hover-elevate scan-line">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between gap-4 flex-wrap">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-md">
-                          {getReportIcon(report.reportType)}
-                        </div>
-                        <div>
-                          <h3 className="font-medium">{report.title}</h3>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <DTGRangeDisplay 
-                              startDate={report.dateRangeFrom} 
-                              endDate={report.dateRangeTo} 
-                              compact 
-                            />
-                            {report.framework && (
-                              <Badge variant="outline" className="text-xs">
-                                {report.framework.toUpperCase()}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(report.status)}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              data-testid={`btn-download-${report.id}`}
-                            >
-                              <Download className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem 
-                              onClick={() => handleDownload(report, "pdf")}
-                              data-testid={`btn-download-pdf-${report.id}`}
-                            >
-                              <FileType className="w-4 h-4 mr-2" />
-                              Download PDF
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              onClick={() => handleDownload(report, "json")}
-                              data-testid={`btn-download-json-${report.id}`}
-                            >
-                              <FileJson className="w-4 h-4 mr-2" />
-                              Download JSON
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              onClick={() => handleDownload(report, "csv")}
-                              data-testid={`btn-download-csv-${report.id}`}
-                            >
-                              <FileSpreadsheet className="w-4 h-4 mr-2" />
-                              Download CSV
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        {canDeleteReport && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => deleteMutation.mutate(report.id)}
-                            disabled={deleteMutation.isPending}
-                            data-testid={`btn-delete-${report.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+            <div className="f-panel">
+              <div className="f-panel-head">
+                <div className="f-panel-title">
+                  <span className="f-panel-dot b" />
+                  Generated Reports
+                </div>
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
+                  {reports.length} report{reports.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div>
+                {reports.map((report) => (
+                  <div
+                    key={report.id}
+                    data-testid={`card-report-${report.id}`}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12, padding: "10px 16px",
+                      borderBottom: "1px solid var(--falcon-border)",
+                    }}
+                  >
+                    <div style={{ padding: 6, background: "var(--falcon-panel-2)", borderRadius: 4 }}>
+                      {getReportIcon(report.reportType)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{report.title}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                        <DTGRangeDisplay
+                          startDate={report.dateRangeFrom}
+                          endDate={report.dateRangeTo}
+                          compact
+                        />
+                        {report.framework && (
+                          <span className="f-chip f-chip-gray" style={{ fontSize: 9 }}>
+                            {report.framework.toUpperCase()}
+                          </span>
                         )}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {getStatusChip(report.status)}
+                      <div style={{ position: "relative" }} ref={downloadMenuId === report.id ? downloadMenuRef : undefined}>
+                        <button
+                          className="f-btn f-btn-ghost"
+                          style={{ padding: "4px 6px" }}
+                          data-testid={`btn-download-${report.id}`}
+                          onClick={() => setDownloadMenuId(downloadMenuId === report.id ? null : report.id)}
+                        >
+                          <Download style={{ width: 14, height: 14 }} />
+                        </button>
+                        {downloadMenuId === report.id && (
+                          <div style={{
+                            position: "absolute", right: 0, top: "100%", marginTop: 4, zIndex: 50,
+                            background: "var(--falcon-panel)", border: "1px solid var(--falcon-border)",
+                            borderRadius: 6, padding: 4, minWidth: 160, boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                          }}>
+                            <button className="f-btn f-btn-ghost" style={{ width: "100%", justifyContent: "flex-start", padding: "6px 10px", fontSize: 11 }}
+                              onClick={() => { handleDownload(report, "pdf"); setDownloadMenuId(null); }}
+                              data-testid={`btn-download-pdf-${report.id}`}>
+                              <FileType style={{ width: 14, height: 14, marginRight: 8 }} />Download PDF
+                            </button>
+                            <button className="f-btn f-btn-ghost" style={{ width: "100%", justifyContent: "flex-start", padding: "6px 10px", fontSize: 11 }}
+                              onClick={() => { handleDownload(report, "json"); setDownloadMenuId(null); }}
+                              data-testid={`btn-download-json-${report.id}`}>
+                              <FileJson style={{ width: 14, height: 14, marginRight: 8 }} />Download JSON
+                            </button>
+                            <button className="f-btn f-btn-ghost" style={{ width: "100%", justifyContent: "flex-start", padding: "6px 10px", fontSize: 11 }}
+                              onClick={() => { handleDownload(report, "csv"); setDownloadMenuId(null); }}
+                              data-testid={`btn-download-csv-${report.id}`}>
+                              <FileSpreadsheet style={{ width: 14, height: 14, marginRight: 8 }} />Download CSV
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {canDeleteReport && (
+                        <button
+                          className="f-btn f-btn-ghost"
+                          style={{ padding: "4px 6px", color: "var(--falcon-red)" }}
+                          onClick={() => deleteMutation.mutate(report.id)}
+                          disabled={deleteMutation.isPending}
+                          data-testid={`btn-delete-${report.id}`}
+                        >
+                          <Trash2 style={{ width: 14, height: 14 }} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-        </TabsContent>
+        </>
+      )}
 
-        <TabsContent value="trends">
-          <Card className="glass border-border/50 glow-purple-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-purple-400" />
+      {/* === Trends Tab === */}
+      {reportsTab === "trends" && (
+          <div className="f-panel">
+            <div className="f-panel-head">
+              <div className="f-panel-title">
+                <span className="f-panel-dot" style={{ background: "#a78bfa" }} />
                 Report Generation Trends
-              </CardTitle>
-              <CardDescription>
-                Report generation activity over the last 30 days
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              </div>
+              <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
+                last 30 days
+              </span>
+            </div>
+            <div style={{ padding: 16 }}>
               {reports.length > 0 ? (
                 <TimeSeriesChart
                   data={(() => {
@@ -1577,85 +1646,91 @@ export default function Reports() {
                   height={300}
                 />
               ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <BarChart3 className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                  <p>No reports generated yet</p>
+                <div style={{ textAlign: "center", padding: "48px 0" }}>
+                  <BarChart3 style={{ width: 40, height: 40, margin: "0 auto 12px", opacity: 0.3, color: "var(--falcon-t4)" }} />
+                  <p style={{ fontSize: 11, color: "var(--falcon-t4)" }}>No reports generated yet</p>
                 </div>
               )}
 
               {/* Report Type Distribution */}
               {reports.length > 0 && (
-                <div className="mt-6 space-y-4">
-                  <h3 className="font-medium">Report Type Distribution</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div style={{ marginTop: 24 }}>
+                  <div style={{ height: 1, background: "var(--falcon-border)", margin: "0 0 16px 0" }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 12 }}>Report Type Distribution</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                     {reportTypes.map(type => {
                       const count = reports.filter(r => r.reportType === type.value || (type.value === "breach_chain_analysis" && r.reportType === "breach_chain")).length;
                       const percentage = reports.length > 0 ? ((count / reports.length) * 100).toFixed(1) : "0";
 
                       return (
-                        <Card key={type.value} className="p-4">
-                          <div className="flex items-center gap-2 mb-2">
-                            <type.icon className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium text-sm">{type.label}</span>
+                        <div key={type.value} className="f-panel" style={{ padding: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                            <type.icon style={{ width: 14, height: 14, color: "var(--falcon-t3)" }} />
+                            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)" }}>{type.label}</span>
                           </div>
-                          <div className="text-2xl font-bold">{count}</div>
-                          <div className="text-xs text-muted-foreground">{percentage}% of total</div>
-                        </Card>
+                          <div style={{ fontSize: 22, fontWeight: 700, color: "var(--falcon-t1)" }}>{count}</div>
+                          <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{percentage}% of total</div>
+                        </div>
                       );
                     })}
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
+      )}
 
-        <TabsContent value="preview">
-          {previewData && (
-            <Card className="glass border-border/50 glow-green-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-green-400" />
+      {/* === Preview Tab === */}
+      {reportsTab === "preview" && previewData && (
+            <div className="f-panel">
+              <div className="f-panel-head">
+                <div className="f-panel-title">
+                  <span className="f-panel-dot g" />
                   {previewData.title}
-                </CardTitle>
-                <CardDescription>Generated report preview</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[500px]">
-                  <div className="space-y-6">
+                </div>
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
+                  generated report preview
+                </span>
+              </div>
+              <div style={{ padding: 16 }}>
+                <div style={{ maxHeight: 500, overflowY: "auto" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                    {/* Executive Summary */}
                     {previewData.data.executiveSummary && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Executive Summary</h3>
-                        <p className="text-muted-foreground">{previewData.data.executiveSummary}</p>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Executive Summary</div>
+                        <p style={{ fontSize: 12, color: "var(--falcon-t3)", lineHeight: 1.5 }}>{previewData.data.executiveSummary}</p>
                       </div>
                     )}
-                    
+
+                    {/* Key Metrics */}
                     {previewData.data.keyMetrics && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Key Metrics</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Key Metrics</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                           {Object.entries(previewData.data.keyMetrics).map(([key, value]) => (
-                            <div key={key} className="bg-muted p-3 rounded-md">
-                              <div className="text-sm text-muted-foreground">{key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase())}</div>
-                              <div className="text-lg font-semibold">{String(value)}</div>
+                            <div key={key} style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{key.replace(/([A-Z])/g, " $1").replace(/^./, s => s.toUpperCase())}</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--falcon-t1)", marginTop: 4 }}>{String(value)}</div>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
 
+                    {/* Recommendations */}
                     {previewData.data.recommendations && Array.isArray(previewData.data.recommendations) && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Recommendations</h3>
-                        <ul className="list-disc list-inside space-y-2">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Recommendations</div>
+                        <ul style={{ listStyleType: "disc", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 8 }}>
                           {previewData.data.recommendations.map((rec: any, idx: number) => (
-                            <li key={idx} className="text-muted-foreground">
+                            <li key={idx} style={{ fontSize: 12, color: "var(--falcon-t3)" }}>
                               {typeof rec === "string" ? rec : (
                                 rec.action ? (
                                   <span>
-                                    {rec.priority && <Badge className="mr-2">Priority {rec.priority}</Badge>}
+                                    {rec.priority && <span className="f-chip f-chip-gray" style={{ marginRight: 6 }}>Priority {rec.priority}</span>}
                                     {rec.action}
-                                    {rec.impact && <span className="text-sm italic ml-2">({rec.impact})</span>}
+                                    {rec.impact && <span style={{ fontSize: 11, fontStyle: "italic", marginLeft: 6, color: "var(--falcon-t4)" }}>({rec.impact})</span>}
                                   </span>
                                 ) : (rec.description || rec.title || rec.text || "Recommendation pending")
                               )}
@@ -1665,21 +1740,24 @@ export default function Reports() {
                       </div>
                     )}
 
+                    {/* Findings */}
                     {previewData.data.findings && Array.isArray(previewData.data.findings) && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Findings</h3>
-                        <div className="space-y-3">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Findings</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           {previewData.data.findings.slice(0, 10).map((finding: any, idx: number) => (
-                            <div key={idx} className="bg-muted p-3 rounded-md">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge variant={finding.severity === "critical" ? "destructive" : "secondary"}>
+                            <div key={idx} style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                <span className={severityChipClass(finding.severity)}>
                                   {finding.severity?.toUpperCase() || "N/A"}
-                                </Badge>
-                                <span className="font-medium">{finding.title || "Untitled Finding"}</span>
+                                </span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{finding.title || "Untitled Finding"}</span>
                               </div>
-                              <p className="text-sm text-muted-foreground">{finding.description}</p>
+                              <p style={{ fontSize: 11, color: "var(--falcon-t3)" }}>{finding.description}</p>
                               {finding.recommendation && (
-                                <p className="text-sm mt-2"><span className="font-medium">Recommendation:</span> {finding.recommendation}</p>
+                                <p style={{ fontSize: 11, marginTop: 8, color: "var(--falcon-t3)" }}>
+                                  <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>Recommendation:</span> {finding.recommendation}
+                                </p>
                               )}
                             </div>
                           ))}
@@ -1687,41 +1765,43 @@ export default function Reports() {
                       </div>
                     )}
 
+                    {/* Top Business Risks */}
                     {previewData.data.topRisks && Array.isArray(previewData.data.topRisks) && previewData.data.topRisks.length > 0 && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Top Business Risks</h3>
-                        <div className="space-y-3">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Top Business Risks</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           {previewData.data.topRisks.slice(0, 5).map((risk: any, idx: number) => (
-                            <div key={idx} className="bg-muted p-3 rounded-md">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge variant={risk.severity === "critical" ? "destructive" : "secondary"}>
+                            <div key={idx} style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                <span className={severityChipClass(risk.severity)}>
                                   {risk.severity?.toUpperCase() || "N/A"}
-                                </Badge>
-                                <span className="font-medium">{risk.assetId || "Asset"}</span>
+                                </span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{risk.assetId || "Asset"}</span>
                                 {risk.financialImpact && (
-                                  <span className="text-sm text-muted-foreground ml-auto">{risk.financialImpact}</span>
+                                  <span style={{ fontSize: 11, color: "var(--falcon-t4)", marginLeft: "auto" }}>{risk.financialImpact}</span>
                                 )}
                               </div>
-                              <p className="text-sm text-muted-foreground">{risk.riskDescription}</p>
+                              <p style={{ fontSize: 11, color: "var(--falcon-t3)" }}>{risk.riskDescription}</p>
                             </div>
                           ))}
                         </div>
                       </div>
                     )}
 
+                    {/* Attack Path Analysis */}
                     {previewData.data.attackPaths && Array.isArray(previewData.data.attackPaths) && previewData.data.attackPaths.length > 0 && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Attack Path Analysis</h3>
-                        <div className="space-y-3">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Attack Path Analysis</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           {previewData.data.attackPaths.slice(0, 3).map((path: any, idx: number) => (
-                            <div key={idx} className="bg-muted p-3 rounded-md">
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="font-medium">Path {idx + 1}: {path.assetId || "Target"}</span>
-                                {path.complexity && <Badge variant="outline">Complexity: {path.complexity}</Badge>}
-                                {path.timeToCompromise && <Badge variant="outline">{path.timeToCompromise}</Badge>}
+                            <div key={idx} style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Path {idx + 1}: {path.assetId || "Target"}</span>
+                                {path.complexity && <span className="f-chip f-chip-gray">Complexity: {path.complexity}</span>}
+                                {path.timeToCompromise && <span className="f-chip f-chip-gray">{path.timeToCompromise}</span>}
                               </div>
                               {path.steps && Array.isArray(path.steps) && (
-                                <div className="text-sm text-muted-foreground">
+                                <div style={{ fontSize: 11, color: "var(--falcon-t3)" }}>
                                   {path.steps.map((step: any, i: number) => (
                                     <span key={i}>
                                       {i > 0 && " → "}
@@ -1736,21 +1816,24 @@ export default function Reports() {
                       </div>
                     )}
 
+                    {/* Compliance Gaps */}
                     {previewData.data.gaps && Array.isArray(previewData.data.gaps) && previewData.data.gaps.length > 0 && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Compliance Gaps</h3>
-                        <div className="space-y-3">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Compliance Gaps</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           {previewData.data.gaps.slice(0, 5).map((gap: any, idx: number) => (
-                            <div key={idx} className="bg-muted p-3 rounded-md">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge variant={gap.severity === "critical" ? "destructive" : "secondary"}>
+                            <div key={idx} style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                <span className={severityChipClass(gap.severity)}>
                                   {gap.severity?.toUpperCase() || "MEDIUM"}
-                                </Badge>
-                                <span className="font-medium">{gap.controlId}</span>
+                                </span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{gap.controlId}</span>
                               </div>
-                              <p className="text-sm text-muted-foreground">{gap.gapDescription}</p>
+                              <p style={{ fontSize: 11, color: "var(--falcon-t3)" }}>{gap.gapDescription}</p>
                               {gap.remediationGuidance && (
-                                <p className="text-sm mt-2"><span className="font-medium">Remediation:</span> {gap.remediationGuidance}</p>
+                                <p style={{ fontSize: 11, marginTop: 8, color: "var(--falcon-t3)" }}>
+                                  <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>Remediation:</span> {gap.remediationGuidance}
+                                </p>
                               )}
                             </div>
                           ))}
@@ -1758,30 +1841,31 @@ export default function Reports() {
                       </div>
                     )}
 
+                    {/* Audit Readiness */}
                     {previewData.data.auditReadiness && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Audit Readiness</h3>
-                        <div className="bg-muted p-4 rounded-md">
-                          <div className="grid grid-cols-2 gap-4 mb-3">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Audit Readiness</div>
+                        <div style={{ background: "var(--falcon-panel-2)", padding: 16, borderRadius: 6 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 12 }}>
                             <div>
-                              <div className="text-sm text-muted-foreground">Readiness Score</div>
-                              <div className="text-2xl font-bold">{previewData.data.auditReadiness.score || 0}%</div>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Readiness Score</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--falcon-t1)" }}>{previewData.data.auditReadiness.score || 0}%</div>
                             </div>
                             <div>
-                              <div className="text-sm text-muted-foreground">Compliant Controls</div>
-                              <div className="text-2xl font-bold">
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Compliant Controls</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--falcon-t1)" }}>
                                 {previewData.data.auditReadiness.readyControls || 0} / {previewData.data.auditReadiness.totalControls || 0}
                               </div>
                             </div>
                           </div>
                           {previewData.data.auditReadiness.priorityActions && Array.isArray(previewData.data.auditReadiness.priorityActions) && (
                             <div>
-                              <div className="text-sm font-medium mb-2">Priority Actions:</div>
-                              <ul className="list-decimal list-inside text-sm text-muted-foreground space-y-1">
+                              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Priority Actions:</div>
+                              <ol style={{ paddingLeft: 20, display: "flex", flexDirection: "column", gap: 4 }}>
                                 {previewData.data.auditReadiness.priorityActions.slice(0, 3).map((action: string, idx: number) => (
-                                  <li key={idx}>{action}</li>
+                                  <li key={idx} style={{ fontSize: 11, color: "var(--falcon-t3)" }}>{action}</li>
                                 ))}
-                              </ul>
+                              </ol>
                             </div>
                           )}
                         </div>
@@ -1791,22 +1875,32 @@ export default function Reports() {
                     {/* Breach Chain specific preview sections */}
                     {previewData.data.reportType === "breach_chain" && previewData.data.phases && Array.isArray(previewData.data.phases) && previewData.data.phases.length > 0 && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Breach Chain Phase Execution</h3>
-                        <div className="space-y-2">
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Breach Chain Phase Execution</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                           {previewData.data.phases.map((phase: any, idx: number) => (
-                            <div key={idx} className="bg-muted p-3 rounded-md flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-mono bg-background px-2 py-1 rounded">{idx + 1}</span>
-                                <span className="font-medium">{phase.name}</span>
+                            <div key={idx} style={{
+                              background: "var(--falcon-panel-2)", padding: "10px 12px", borderRadius: 6,
+                              display: "flex", alignItems: "center", justifyContent: "space-between",
+                            }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span style={{
+                                  fontSize: 10, fontFamily: "var(--font-mono)",
+                                  background: "var(--falcon-panel)", padding: "2px 8px", borderRadius: 3,
+                                  color: "var(--falcon-t3)",
+                                }}>{idx + 1}</span>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{phase.name}</span>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <Badge variant={phase.status === "completed" ? "default" : phase.status === "failed" ? "destructive" : "secondary"}
-                                  className={phase.status === "completed" ? "bg-green-500/20 text-green-400 border-green-500/30" : ""}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <span className={
+                                  phase.status === "completed" ? "f-chip f-chip-low" :
+                                  phase.status === "failed" ? "f-chip f-chip-crit" :
+                                  "f-chip f-chip-gray"
+                                }>
                                   {phase.status?.toUpperCase() || "UNKNOWN"}
-                                </Badge>
-                                <span className="text-sm text-muted-foreground">{phase.findingCount || 0} findings</span>
+                                </span>
+                                <span style={{ fontSize: 11, color: "var(--falcon-t4)" }}>{phase.findingCount || 0} findings</span>
                                 {phase.durationMs > 0 && (
-                                  <span className="text-sm text-muted-foreground">{Math.round(phase.durationMs / 1000)}s</span>
+                                  <span style={{ fontSize: 11, color: "var(--falcon-t4)" }}>{Math.round(phase.durationMs / 1000)}s</span>
                                 )}
                               </div>
                             </div>
@@ -1815,66 +1909,70 @@ export default function Reports() {
                       </div>
                     )}
 
+                    {/* Breach Impact Summary */}
                     {previewData.data.reportType === "breach_chain" && previewData.data.overallRiskScore !== undefined && (
                       <div>
-                        <h3 className="font-semibold text-lg mb-2">Breach Impact Summary</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                          <div className="bg-muted p-3 rounded-md">
-                            <div className="text-sm text-muted-foreground">Risk Score</div>
-                            <div className={`text-2xl font-bold ${
-                              previewData.data.overallRiskScore >= 80 ? "text-red-500" :
-                              previewData.data.overallRiskScore >= 60 ? "text-orange-500" :
-                              previewData.data.overallRiskScore >= 40 ? "text-yellow-500" : "text-green-500"
-                            }`}>{previewData.data.overallRiskScore}/100</div>
-                            <div className="text-xs text-muted-foreground">{previewData.data.riskTier}</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 8 }}>Breach Impact Summary</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                          <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                            <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Risk Score</div>
+                            <div style={{
+                              fontSize: 22, fontWeight: 700,
+                              color: previewData.data.overallRiskScore >= 80 ? "var(--falcon-red)" :
+                                     previewData.data.overallRiskScore >= 60 ? "var(--falcon-orange)" :
+                                     previewData.data.overallRiskScore >= 40 ? "var(--falcon-yellow)" : "var(--falcon-green)",
+                            }}>{previewData.data.overallRiskScore}/100</div>
+                            <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{previewData.data.riskTier}</div>
                           </div>
                           {previewData.data.assetsCompromised !== undefined && (
-                            <div className="bg-muted p-3 rounded-md">
-                              <div className="text-sm text-muted-foreground">Assets Compromised</div>
-                              <div className="text-2xl font-bold">{previewData.data.assetsCompromised}</div>
+                            <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Assets Compromised</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--falcon-t1)" }}>{previewData.data.assetsCompromised}</div>
                             </div>
                           )}
                           {previewData.data.credentialsHarvested !== undefined && (
-                            <div className="bg-muted p-3 rounded-md">
-                              <div className="text-sm text-muted-foreground">Credentials Harvested</div>
-                              <div className="text-2xl font-bold">{previewData.data.credentialsHarvested}</div>
+                            <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Credentials Harvested</div>
+                              <div style={{ fontSize: 22, fontWeight: 700, color: "var(--falcon-t1)" }}>{previewData.data.credentialsHarvested}</div>
                             </div>
                           )}
                           {previewData.data.maxPrivilegeAchieved && previewData.data.maxPrivilegeAchieved !== "none" && (
-                            <div className="bg-muted p-3 rounded-md">
-                              <div className="text-sm text-muted-foreground">Max Privilege</div>
-                              <div className="text-lg font-bold">{previewData.data.maxPrivilegeAchieved.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</div>
+                            <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Max Privilege</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--falcon-t1)" }}>{previewData.data.maxPrivilegeAchieved.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</div>
                             </div>
                           )}
                           {previewData.data.domainsBreached && previewData.data.domainsBreached.length > 0 && (
-                            <div className="bg-muted p-3 rounded-md">
-                              <div className="text-sm text-muted-foreground">Domains Breached</div>
-                              <div className="text-lg font-bold">{previewData.data.domainsBreached.length}</div>
+                            <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Domains Breached</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--falcon-t1)" }}>{previewData.data.domainsBreached.length}</div>
                             </div>
                           )}
                           {previewData.data.executionMode && (
-                            <div className="bg-muted p-3 rounded-md">
-                              <div className="text-sm text-muted-foreground">Execution Mode</div>
-                              <div className="text-lg font-bold">{previewData.data.executionMode.replace(/\b\w/g, (c: string) => c.toUpperCase())}</div>
+                            <div style={{ background: "var(--falcon-panel-2)", padding: 12, borderRadius: 6 }}>
+                              <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Execution Mode</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--falcon-t1)" }}>{previewData.data.executionMode.replace(/\b\w/g, (c: string) => c.toUpperCase())}</div>
                             </div>
                           )}
                         </div>
                       </div>
                     )}
 
+                    {/* Fallback raw JSON */}
                     {!previewData.data.executiveSummary && !previewData.data.recommendations && !previewData.data.findings && (
-                      <pre className="text-sm font-mono bg-muted p-4 rounded-md overflow-x-auto">
+                      <pre style={{
+                        fontSize: 11, fontFamily: "var(--font-mono)",
+                        background: "var(--falcon-panel-2)", padding: 16, borderRadius: 6,
+                        overflowX: "auto", color: "var(--falcon-t3)",
+                      }}>
                         {JSON.stringify(previewData.data, null, 2)}
                       </pre>
                     )}
                   </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-      </Tabs>
-      </div>
+                </div>
+              </div>
+            </div>
+      )}
     </div>
   );
 }

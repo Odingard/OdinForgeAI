@@ -5,224 +5,58 @@ import {
   useScheduledScanRuns,
   useScheduledScanStats,
   useCreateScheduledScan,
-  useUpdateScheduledScan,
   useDeleteScheduledScan,
   useRunScheduledScanNow,
   useToggleScheduledScan,
   ScheduledScan,
   ScanRun,
 } from "@/hooks/useScheduledScans";
-import { DataTable, DataTableColumn, DataTableAction } from "@/components/shared/DataTable";
-import { MetricsGrid } from "@/components/shared/MetricsGrid";
-import { StatusTimeline, TimelineEvent } from "@/components/shared/StatusTimeline";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Calendar,
-  Play,
-  Trash2,
-  Eye,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  Plus,
-} from "lucide-react";
+
+function statusDot(status: string) {
+  if (status === "completed" || status === "success") return "f-s-dot f-sd-done";
+  if (status === "running" || status === "pending") return "f-s-dot f-sd-live";
+  if (status === "failed" || status === "error") return "f-s-dot f-sd-err";
+  return "f-s-dot f-sd-queue";
+}
+
+function statusTextCls(status: string) {
+  if (status === "completed" || status === "success") return "f-st-done";
+  if (status === "running" || status === "pending") return "f-st-live";
+  if (status === "failed" || status === "error") return "f-st-err";
+  return "f-st-queue";
+}
 
 export default function ScheduledScans() {
   const { toast } = useToast();
   const [builderDialogOpen, setBuilderDialogOpen] = useState(false);
   const [selectedScan, setSelectedScan] = useState<ScheduledScan | null>(null);
 
-  // Builder form state
   const [scanName, setScanName] = useState("");
   const [scanDescription, setScanDescription] = useState("");
   const [scanType, setScanType] = useState<"vulnerability" | "compliance" | "reconnaissance" | "penetration">("vulnerability");
   const [targetIds, setTargetIds] = useState("");
-  const [schedule, setSchedule] = useState("0 0 * * *"); // Daily at midnight
+  const [schedule, setSchedule] = useState("0 0 * * *");
 
   const { data: stats } = useScheduledScanStats();
   const { data: scans = [], isLoading } = useScheduledScans();
   const { data: scanRuns = [] } = useScheduledScanRuns(selectedScan?.id || null);
   const createScan = useCreateScheduledScan();
-  const updateScan = useUpdateScheduledScan();
   const deleteScan = useDeleteScheduledScan();
   const runNow = useRunScheduledScanNow();
   const toggleScan = useToggleScheduledScan();
 
-  const metrics = [
-    {
-      label: "Total Schedules",
-      value: stats?.totalSchedules || 0,
-      icon: Calendar,
-      trend: undefined,
-    },
-    {
-      label: "Enabled",
-      value: stats?.enabledSchedules || 0,
-      icon: CheckCircle2,
-      trend: undefined,
-    },
-    {
-      label: "Upcoming Runs",
-      value: stats?.upcomingRuns || 0,
-      icon: Clock,
-      trend: undefined,
-    },
-    {
-      label: "Runs Today",
-      value: stats?.lastRunsToday || 0,
-      icon: Play,
-      trend: undefined,
-    },
-  ];
-
-  // Table columns
-  const columns: DataTableColumn<ScheduledScan>[] = [
-    {
-      key: "name",
-      header: "Schedule Name",
-      cell: (scan) => (
-        <div>
-          <div className="font-medium">{scan.name}</div>
-          {scan.description && (
-            <div className="text-xs text-muted-foreground">{scan.description}</div>
-          )}
-        </div>
-      ),
-      sortable: true,
-    },
-    {
-      key: "scanType",
-      header: "Type",
-      cell: (scan) => (
-        <Badge variant="outline" className="capitalize">
-          {scan.scanType}
-        </Badge>
-      ),
-      sortable: true,
-    },
-    {
-      key: "schedule",
-      header: "Frequency",
-      cell: (scan) => (
-        <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
-          {scan.schedule}
-        </code>
-      ),
-    },
-    {
-      key: "nextRun",
-      header: "Next Run",
-      cell: (scan) => (
-        scan.nextRun ? (
-          <span className="text-sm">
-            {formatDistanceToNow(new Date(scan.nextRun), { addSuffix: true })}
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">-</span>
-        )
-      ),
-      sortable: true,
-    },
-    {
-      key: "lastRun",
-      header: "Last Run",
-      cell: (scan) => (
-        scan.lastRun ? (
-          <span className="text-sm text-muted-foreground">
-            {formatDistanceToNow(new Date(scan.lastRun), { addSuffix: true })}
-          </span>
-        ) : (
-          <span className="text-sm text-muted-foreground">Never</span>
-        )
-      ),
-      sortable: true,
-    },
-    {
-      key: "enabled",
-      header: "Status",
-      cell: (scan) => (
-        <Switch
-          checked={scan.enabled}
-          onCheckedChange={(checked) => toggleScan.mutate({ scanId: scan.id, enabled: checked })}
-          disabled={toggleScan.isPending}
-        />
-      ),
-    },
-  ];
-
-  // Table actions
-  const actions: DataTableAction<ScheduledScan>[] = [
-    {
-      label: "View History",
-      icon: <Eye className="h-4 w-4" />,
-      onClick: (scan) => setSelectedScan(scan),
-      variant: "ghost",
-    },
-    {
-      label: "Run Now",
-      icon: <Play className="h-4 w-4" />,
-      onClick: (scan) => runNow.mutate(scan.id),
-      variant: "ghost",
-      disabled: () => runNow.isPending,
-    },
-    {
-      label: "Delete",
-      icon: <Trash2 className="h-4 w-4" />,
-      onClick: (scan) => deleteScan.mutate(scan.id),
-      variant: "ghost",
-      disabled: () => deleteScan.isPending,
-    },
-  ];
-
   const handleCreateScan = async () => {
     if (!scanName.trim() || !targetIds.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please enter a name and at least one target ID",
-        variant: "destructive",
-      });
+      toast({ title: "Missing Information", description: "Please enter a name and at least one target ID", variant: "destructive" });
       return;
     }
-
     const targets = targetIds.split(",").map(id => id.trim()).filter(Boolean);
-
-    await createScan.mutateAsync({
-      name: scanName,
-      description: scanDescription || undefined,
-      scanType,
-      targetIds: targets,
-      schedule,
-    });
-
-    // Reset form
-    setScanName("");
-    setScanDescription("");
-    setTargetIds("");
+    await createScan.mutateAsync({ name: scanName, description: scanDescription || undefined, scanType, targetIds: targets, schedule });
+    setScanName(""); setScanDescription(""); setTargetIds("");
     setBuilderDialogOpen(false);
   };
 
-  // Convert scan runs to timeline events
-  const getRunTimeline = (runs: ScanRun[]): TimelineEvent[] => {
-    return runs.map(run => ({
-      id: run.id,
-      title: run.status === "completed" ? "Scan Completed" : run.status === "failed" ? "Scan Failed" : "Scan Running",
-      description: run.findingsCount !== undefined ? `Found ${run.findingsCount} issues` : run.error || "",
-      timestamp: run.startTime,
-      status: run.status === "completed" ? "success" : run.status === "failed" ? "error" : run.status === "running" ? "pending" : "info",
-    }));
-  };
-
-  // Common cron expressions
   const cronPresets = [
     { label: "Daily at midnight", value: "0 0 * * *" },
     { label: "Weekly on Monday", value: "0 0 * * 1" },
@@ -231,198 +65,196 @@ export default function ScheduledScans() {
     { label: "Every hour", value: "0 * * * *" },
   ];
 
+  const GRID_COLS = "1.5fr 100px 130px 110px 110px 70px 120px";
+
   return (
-    <div className="space-y-6 p-6">
+    <div data-testid="text-page-title">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-page-title">
-            Scheduled Scans
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Manage automated security scan schedules
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: "var(--falcon-t1)", margin: 0 }}>Scheduled Scans</h1>
+          <p style={{ fontSize: 11, color: "var(--falcon-t3)", marginTop: 4, fontFamily: "var(--font-mono)" }}>
+            // automated security scan schedules
           </p>
         </div>
-        <Dialog open={builderDialogOpen} onOpenChange={setBuilderDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Schedule
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create Scan Schedule</DialogTitle>
-              <DialogDescription>
-                Set up an automated security scan
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Schedule Name</Label>
-                <Input
-                  placeholder="Weekly vulnerability scan"
-                  value={scanName}
-                  onChange={(e) => setScanName(e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Description (optional)</Label>
-                <Textarea
-                  placeholder="Scan description..."
-                  value={scanDescription}
-                  onChange={(e) => setScanDescription(e.target.value)}
-                  rows={2}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Scan Type</Label>
-                <Select value={scanType} onValueChange={(v) => setScanType(v as any)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vulnerability">Vulnerability Scan</SelectItem>
-                    <SelectItem value="compliance">Compliance Check</SelectItem>
-                    <SelectItem value="reconnaissance">Reconnaissance</SelectItem>
-                    <SelectItem value="penetration">Penetration Test</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Target IDs</Label>
-                <Input
-                  placeholder="asset-123, asset-456..."
-                  value={targetIds}
-                  onChange={(e) => setTargetIds(e.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Comma-separated list of asset IDs to scan
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Schedule (Cron Expression)</Label>
-                <Select value={schedule} onValueChange={setSchedule}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {cronPresets.map(preset => (
-                      <SelectItem key={preset.value} value={preset.value}>
-                        {preset.label} ({preset.value})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="0 0 * * *"
-                  value={schedule}
-                  onChange={(e) => setSchedule(e.target.value)}
-                  className="font-mono text-sm"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setBuilderDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreateScan} disabled={createScan.isPending}>
-                {createScan.isPending ? "Creating..." : "Create Schedule"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <button className="f-btn f-btn-primary" onClick={() => setBuilderDialogOpen(true)}>+ Create Schedule</button>
       </div>
 
-      {/* Metrics */}
-      <MetricsGrid metrics={metrics} />
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot b" />Total Schedules</div>
+          <div className="f-kpi-val b">{stats?.totalSchedules || 0}</div>
+          <div className="f-kpi-foot">configured</div>
+        </div>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot g" />Enabled</div>
+          <div className="f-kpi-val g">{stats?.enabledSchedules || 0}</div>
+          <div className="f-kpi-foot">active schedules</div>
+        </div>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot o" />Upcoming</div>
+          <div className="f-kpi-val o">{stats?.upcomingRuns || 0}</div>
+          <div className="f-kpi-foot">pending runs</div>
+        </div>
+        <div className="f-kpi">
+          <div className="f-kpi-lbl"><span className="f-kpi-dot" />Runs Today</div>
+          <div className="f-kpi-val">{stats?.lastRunsToday || 0}</div>
+          <div className="f-kpi-foot">completed today</div>
+        </div>
+      </div>
 
-      {/* Schedules Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Scan Schedules</CardTitle>
-          <CardDescription>
-            Automated security scans with configurable frequencies
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            data={scans}
-            columns={columns}
-            actions={actions}
-            isLoading={isLoading}
-            emptyState={{
-              icon: <Calendar className="h-12 w-12" />,
-              title: "No Schedules",
-              description: "Create your first scheduled scan",
-              action: {
-                label: "Create Schedule",
-                onClick: () => setBuilderDialogOpen(true),
-              },
-            }}
-            searchable={true}
-            searchPlaceholder="Search schedules..."
-            searchKeys={["name", "description", "scanType"]}
-            paginated={true}
-            pageSize={20}
-            data-testid="schedules-table"
-          />
-        </CardContent>
-      </Card>
-
-      {/* Run History Dialog */}
-      <Dialog open={!!selectedScan} onOpenChange={() => setSelectedScan(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{selectedScan?.name}</DialogTitle>
-            <DialogDescription>
-              Scan execution history
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedScan && (
-            <div className="space-y-6">
-              {/* Schedule Info */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Type:</span>{" "}
-                  <Badge variant="outline" className="capitalize ml-2">{selectedScan.scanType}</Badge>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Frequency:</span>{" "}
-                  <code className="text-xs ml-2">{selectedScan.schedule}</code>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Next Run:</span>{" "}
-                  <span className="font-medium">
-                    {selectedScan.nextRun
-                      ? formatDistanceToNow(new Date(selectedScan.nextRun), { addSuffix: true })
-                      : "Not scheduled"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Targets:</span>{" "}
-                  <span className="font-medium">{selectedScan.targetIds.length}</span>
-                </div>
+      {/* Schedules table */}
+      <div className="f-panel" style={{ flex: 1, minHeight: 0 }}>
+        <div className="f-panel-head">
+          <div className="f-panel-title"><span className="f-panel-dot b" />Scan Schedules</div>
+        </div>
+        <div className="f-tbl" style={{ flex: 1 }}>
+          <div className="f-tbl-head" style={{ gridTemplateColumns: GRID_COLS }}>
+            <span className="f-th">Schedule</span>
+            <span className="f-th">Type</span>
+            <span className="f-th">Frequency</span>
+            <span className="f-th">Next Run</span>
+            <span className="f-th">Last Run</span>
+            <span className="f-th">Status</span>
+            <span className="f-th">Actions</span>
+          </div>
+          <div className="f-tbl-body">
+            {isLoading ? (
+              <div style={{ padding: "40px 0", textAlign: "center", fontSize: 11, color: "var(--falcon-t4)" }}>Loading schedules...</div>
+            ) : scans.length === 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "40px 0" }}>
+                <span style={{ fontSize: 11, color: "var(--falcon-t4)" }}>No schedules</span>
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)", marginTop: 4 }}>Create your first scheduled scan</span>
+                <button className="f-btn f-btn-primary" style={{ marginTop: 12 }} onClick={() => setBuilderDialogOpen(true)}>Create Schedule</button>
               </div>
+            ) : (
+              scans.map(scan => (
+                <div key={scan.id} className="f-tbl-row" style={{ gridTemplateColumns: GRID_COLS }}>
+                  <div>
+                    <div className="f-td n">{scan.name}</div>
+                    {scan.description && <div className="f-td sub">{scan.description}</div>}
+                  </div>
+                  <div><span className="f-chip f-chip-gray">{scan.scanType.toUpperCase()}</span></div>
+                  <div><code style={{ fontSize: 10, color: "var(--falcon-t2)", background: "var(--falcon-panel-2)", padding: "2px 6px", borderRadius: 3 }}>{scan.schedule}</code></div>
+                  <div className="f-td">{scan.nextRun ? formatDistanceToNow(new Date(scan.nextRun), { addSuffix: true }) : "—"}</div>
+                  <div className="f-td">{scan.lastRun ? formatDistanceToNow(new Date(scan.lastRun), { addSuffix: true }) : "Never"}</div>
+                  <div>
+                    <button
+                      className={`f-switch ${scan.enabled ? "on" : ""}`}
+                      onClick={() => toggleScan.mutate({ scanId: scan.id, enabled: !scan.enabled })}
+                      aria-label={scan.enabled ? "Disable schedule" : "Enable schedule"}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button className="f-btn f-btn-ghost" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => setSelectedScan(scan)}>History</button>
+                    <button className="f-btn f-btn-secondary" style={{ fontSize: 10, padding: "2px 6px" }} onClick={() => runNow.mutate(scan.id)} disabled={runNow.isPending}>Run</button>
+                    <button className="f-btn f-btn-ghost" style={{ fontSize: 10, padding: "2px 6px", color: "var(--falcon-red)" }} onClick={() => deleteScan.mutate(scan.id)}>Del</button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
 
-              {/* Run History Timeline */}
+      {/* Create schedule modal */}
+      {builderDialogOpen && (
+        <div className="f-modal-overlay" onClick={() => setBuilderDialogOpen(false)}>
+          <div className="f-modal" onClick={e => e.stopPropagation()}>
+            <div className="f-modal-head">
+              <h2 className="f-modal-title">Create Scan Schedule</h2>
+              <p className="f-modal-desc">Set up an automated security scan</p>
+            </div>
+            <div className="f-modal-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div>
-                <h3 className="font-medium mb-4">Execution History</h3>
-                {scanRuns.length > 0 ? (
-                  <StatusTimeline events={getRunTimeline(scanRuns)} />
-                ) : (
-                  <p className="text-sm text-muted-foreground">No execution history</p>
-                )}
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", display: "block", marginBottom: 6 }}>Schedule Name</label>
+                <input style={{ width: "100%", padding: "8px 12px", background: "var(--falcon-panel)", border: "1px solid var(--falcon-border)", borderRadius: 6, color: "var(--falcon-t1)", fontSize: 12 }}
+                  placeholder="Weekly vulnerability scan" value={scanName} onChange={(e) => setScanName(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", display: "block", marginBottom: 6 }}>Description</label>
+                <textarea style={{ width: "100%", padding: "8px 12px", background: "var(--falcon-panel)", border: "1px solid var(--falcon-border)", borderRadius: 6, color: "var(--falcon-t1)", fontSize: 12, resize: "vertical" }}
+                  placeholder="Scan description..." value={scanDescription} onChange={(e) => setScanDescription(e.target.value)} rows={2} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", display: "block", marginBottom: 6 }}>Scan Type</label>
+                <select className="f-select" value={scanType} onChange={(e) => setScanType(e.target.value as any)}>
+                  <option value="vulnerability">Vulnerability Scan</option>
+                  <option value="compliance">Compliance Check</option>
+                  <option value="reconnaissance">Reconnaissance</option>
+                  <option value="penetration">Penetration Test</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", display: "block", marginBottom: 6 }}>Target IDs</label>
+                <input style={{ width: "100%", padding: "8px 12px", background: "var(--falcon-panel)", border: "1px solid var(--falcon-border)", borderRadius: 6, color: "var(--falcon-t1)", fontSize: 12 }}
+                  placeholder="asset-123, asset-456..." value={targetIds} onChange={(e) => setTargetIds(e.target.value)} />
+                <p style={{ fontSize: 10, color: "var(--falcon-t4)", marginTop: 4 }}>Comma-separated list of asset IDs</p>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)", display: "block", marginBottom: 6 }}>Schedule</label>
+                <select className="f-select" value={schedule} onChange={(e) => setSchedule(e.target.value)}>
+                  {cronPresets.map(p => <option key={p.value} value={p.value}>{p.label} ({p.value})</option>)}
+                </select>
               </div>
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            <div className="f-modal-footer">
+              <button className="f-btn f-btn-ghost" onClick={() => setBuilderDialogOpen(false)}>Cancel</button>
+              <button className="f-btn f-btn-primary" onClick={handleCreateScan} disabled={createScan.isPending}>
+                {createScan.isPending ? "Creating..." : "Create Schedule"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Run history modal */}
+      {selectedScan && (
+        <div className="f-modal-overlay" onClick={() => setSelectedScan(null)}>
+          <div className="f-modal f-modal-lg" onClick={e => e.stopPropagation()}>
+            <div className="f-modal-head">
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <h2 className="f-modal-title">{selectedScan.name}</h2>
+                  <p className="f-modal-desc">Scan execution history</p>
+                </div>
+                <button className="f-btn f-btn-ghost" style={{ padding: "4px 8px" }} onClick={() => setSelectedScan(null)}>✕</button>
+              </div>
+            </div>
+            <div className="f-modal-body">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, marginBottom: 20 }}>
+                <div style={{ color: "var(--falcon-t3)" }}>Type: <span className="f-chip f-chip-gray" style={{ marginLeft: 4 }}>{selectedScan.scanType.toUpperCase()}</span></div>
+                <div style={{ color: "var(--falcon-t3)" }}>Frequency: <code style={{ fontSize: 10, color: "var(--falcon-t2)" }}>{selectedScan.schedule}</code></div>
+                <div style={{ color: "var(--falcon-t3)" }}>Next Run: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.nextRun ? formatDistanceToNow(new Date(selectedScan.nextRun), { addSuffix: true }) : "Not scheduled"}</span></div>
+                <div style={{ color: "var(--falcon-t3)" }}>Targets: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.targetIds.length}</span></div>
+              </div>
+
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: "var(--falcon-t1)", marginBottom: 12 }}>Execution History</h3>
+              {scanRuns.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {scanRuns.map(run => (
+                    <div key={run.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", border: "1px solid var(--falcon-border)", borderRadius: 6, fontSize: 12 }}>
+                      <span className={statusDot(run.status)} />
+                      <span className={statusTextCls(run.status)} style={{ fontWeight: 600, fontSize: 11 }}>
+                        {run.status === "completed" ? "Completed" : run.status === "failed" ? "Failed" : "Running"}
+                      </span>
+                      <span style={{ color: "var(--falcon-t3)", fontSize: 11 }}>
+                        {run.findingsCount !== undefined ? `${run.findingsCount} findings` : run.error || ""}
+                      </span>
+                      <span style={{ marginLeft: "auto", color: "var(--falcon-t4)", fontSize: 10 }}>
+                        {new Date(run.startTime).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ fontSize: 11, color: "var(--falcon-t4)" }}>No execution history</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

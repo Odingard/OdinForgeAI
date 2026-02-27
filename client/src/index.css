@@ -646,6 +646,101 @@
   .f-act-g { background: var(--falcon-green-dim); color: var(--falcon-green); border: 1px solid rgba(34,197,94,0.2); }
   .f-act-b { background: var(--falcon-blue-dim); color: var(--falcon-blue-hi); border: 1px solid rgba(59,130,246,0.25); }
 
+  /* Tabs */
+  .f-tab-bar {
+    display: flex; gap: 2px; border-bottom: 1px solid var(--falcon-border);
+    margin-bottom: 20px; overflow-x: auto;
+  }
+  .f-tab {
+    padding: 8px 16px; font-size: 11px; font-weight: 500;
+    color: var(--falcon-t3); background: transparent; border: none;
+    border-bottom: 2px solid transparent; cursor: pointer;
+    transition: all 0.15s; white-space: nowrap; display: inline-flex;
+    align-items: center; gap: 6px; font-family: var(--font-sans);
+  }
+  .f-tab svg { width: 14px; height: 14px; }
+  .f-tab:hover { color: var(--falcon-t2); }
+  .f-tab.active { color: var(--falcon-t1); border-bottom-color: var(--falcon-red); }
+
+  /* Modal / Dialog */
+  .f-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(2px); animation: f-fade-in 0.15s ease;
+  }
+  @keyframes f-fade-in { from { opacity: 0 } to { opacity: 1 } }
+  .f-modal {
+    background: var(--falcon-panel); border: 1px solid var(--falcon-border);
+    border-radius: 8px; width: 100%; max-width: 480px; max-height: 80vh;
+    overflow-y: auto; box-shadow: 0 24px 48px rgba(0,0,0,0.4);
+    animation: f-scale-in 0.15s ease;
+  }
+  @keyframes f-scale-in { from { transform: scale(0.96); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+  .f-modal-lg { max-width: 720px; }
+  .f-modal-xl { max-width: 960px; }
+  .f-modal-head { padding: 16px 20px; border-bottom: 1px solid var(--falcon-border); }
+  .f-modal-title { font-size: 14px; font-weight: 600; color: var(--falcon-t1); margin: 0; }
+  .f-modal-desc { font-size: 11px; color: var(--falcon-t3); margin-top: 4px; }
+  .f-modal-body { padding: 20px; }
+  .f-modal-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 20px; border-top: 1px solid var(--falcon-border);
+  }
+
+  /* Toggle switch */
+  .f-switch {
+    width: 34px; height: 18px; border-radius: 9px;
+    background: var(--falcon-border-2); border: none; cursor: pointer;
+    position: relative; transition: background 0.2s; flex-shrink: 0;
+    padding: 0;
+  }
+  .f-switch.on { background: var(--falcon-green); }
+  .f-switch::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; transition: left 0.2s;
+  }
+  .f-switch.on::after { left: 18px; }
+
+  /* Native select */
+  .f-select {
+    width: 100%; padding: 8px 32px 8px 12px;
+    background: var(--falcon-panel); border: 1px solid var(--falcon-border);
+    border-radius: 6px; color: var(--falcon-t1); font-size: 12px;
+    appearance: none; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%233a5166' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+  }
+  .f-select:focus { outline: none; border-color: var(--falcon-blue-hi); }
+  .f-select option { background: var(--falcon-panel); color: var(--falcon-t1); }
+
+  /* Range slider */
+  .f-range {
+    width: 100%; height: 4px; appearance: none; -webkit-appearance: none;
+    background: var(--falcon-border); border-radius: 2px; outline: none;
+  }
+  .f-range::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--falcon-blue-hi); cursor: pointer;
+    border: 2px solid var(--falcon-panel);
+  }
+  .f-range::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--falcon-blue-hi); cursor: pointer;
+    border: 2px solid var(--falcon-panel);
+  }
+
+  /* Collapsible */
+  .f-collapse-trigger {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 8px 12px; background: transparent; border: none;
+    color: var(--falcon-t2); font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: color 0.12s;
+  }
+  .f-collapse-trigger:hover { color: var(--falcon-t1); }
+  .f-collapse-trigger svg { width: 14px; height: 14px; transition: transform 0.2s; }
+  .f-collapse-trigger.open svg { transform: rotate(90deg); }
+
   /* Animations */
   @keyframes alert-pip { 0%,100%{opacity:1} 50%{opacity:0.3} }
   @keyframes f-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }

@@ -3,22 +3,12 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
-import { Slider } from "@/components/ui/slider";
-import { 
-  Settings as SettingsIcon, 
-  Building2, 
-  Shield, 
-  Bell, 
-  Key, 
+import {
+  Settings as SettingsIcon,
+  Building2,
+  Shield,
+  Bell,
+  Key,
   AlertTriangle,
   Save,
   RefreshCw,
@@ -45,10 +35,44 @@ const GovernancePanel = lazy(() => import("@/pages/Governance"));
 const AuditLogsPanel = lazy(() => import("@/pages/AuditLogs"));
 
 const PanelFallback = () => (
-  <div className="flex items-center justify-center h-64">
-    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256 }}>
+    <Loader2 className="h-8 w-8 animate-spin" style={{ color: "var(--falcon-t4)" }} />
   </div>
 );
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 12px",
+  background: "var(--falcon-panel)",
+  border: "1px solid var(--falcon-border)",
+  borderRadius: 6,
+  color: "var(--falcon-t1)",
+  fontSize: 12,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: "var(--falcon-t1)",
+};
+
+const labelNormalStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 400,
+  color: "var(--falcon-t1)",
+};
+
+const hintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--falcon-t4)",
+  marginTop: 4,
+};
+
+const separatorStyle: React.CSSProperties = {
+  height: 1,
+  background: "var(--falcon-border)",
+  margin: "16px 0",
+};
 
 interface OrganizationSettings {
   organizationName: string;
@@ -97,7 +121,7 @@ export default function Settings() {
   });
 
   const [localSettings, setLocalSettings] = useState<Partial<OrganizationSettings>>({});
-  
+
   const mergedSettings = { ...settings, ...localSettings };
 
   const updateSettingsMutation = useMutation({
@@ -144,708 +168,716 @@ export default function Settings() {
 
   if (!canManageSettings && !canManageUsers) {
     return (
-      <div className="space-y-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
+      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+        <div style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 12,
+          padding: "14px 16px",
+          background: "rgba(239, 68, 68, 0.08)",
+          border: "1px solid rgba(239, 68, 68, 0.25)",
+          borderRadius: 8,
+          color: "var(--falcon-red)",
+          fontSize: 12,
+        }}>
+          <AlertTriangle className="h-4 w-4" style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>
             You do not have permission to manage organization settings. Contact your administrator for access.
-          </AlertDescription>
-        </Alert>
+          </span>
+        </div>
       </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256 }}>
+        <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--falcon-t4)" }} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2" data-testid="text-page-title">
-            <SettingsIcon className="h-6 w-6" />
-            Settings
-          </h1>
-          <p className="text-muted-foreground">
-            Configure organization, security, and platform settings
-          </p>
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: "var(--falcon-t1)", margin: 0 }}>Settings</h1>
+          <p style={{ fontSize: 11, color: "var(--falcon-t3)", marginTop: 4, fontFamily: "var(--font-mono)" }}>// organization and platform configuration</p>
         </div>
         {hasUnsavedChanges && (
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              className="f-btn f-btn-ghost"
               onClick={handleReset}
               data-testid="btn-reset-changes"
             >
-              <RefreshCw className="h-4 w-4 mr-2" />
+              <RefreshCw className="h-4 w-4" style={{ marginRight: 8 }} />
               Reset
-            </Button>
-            <Button 
+            </button>
+            <button
+              className="f-btn f-btn-primary"
               onClick={handleSaveChanges}
               disabled={updateSettingsMutation.isPending}
               data-testid="btn-save-changes"
             >
-              <Save className="h-4 w-4 mr-2" />
+              <Save className="h-4 w-4" style={{ marginRight: 8 }} />
               {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
-            </Button>
+            </button>
           </div>
         )}
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex w-full overflow-x-auto">
-          <TabsTrigger value="organization" className="flex items-center gap-2" data-testid="tab-organization">
-            <Building2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Organization</span>
-          </TabsTrigger>
-          <TabsTrigger value="security" className="flex items-center gap-2" data-testid="tab-security">
-            <Shield className="h-4 w-4" />
-            <span className="hidden sm:inline">Security</span>
-          </TabsTrigger>
-          <TabsTrigger value="notifications" className="flex items-center gap-2" data-testid="tab-notifications">
-            <Bell className="h-4 w-4" />
-            <span className="hidden sm:inline">Notifications</span>
-          </TabsTrigger>
-          <TabsTrigger value="api" className="flex items-center gap-2" data-testid="tab-api">
-            <Key className="h-4 w-4" />
-            <span className="hidden sm:inline">API</span>
-          </TabsTrigger>
-          {canManageUsers && (
-            <TabsTrigger value="users" className="flex items-center gap-2" data-testid="tab-users">
-              <Users className="h-4 w-4" />
-              <span className="hidden sm:inline">Users</span>
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="billing" className="flex items-center gap-2" data-testid="tab-billing">
-            <CreditCard className="h-4 w-4" />
-            <span className="hidden sm:inline">Billing</span>
-          </TabsTrigger>
-          <TabsTrigger value="integrations" className="flex items-center gap-2" data-testid="tab-integrations">
-            <Plug className="h-4 w-4" />
-            <span className="hidden sm:inline">Integrations</span>
-          </TabsTrigger>
-          <TabsTrigger value="governance" className="flex items-center gap-2" data-testid="tab-governance">
-            <ShieldAlert className="h-4 w-4" />
-            <span className="hidden sm:inline">Governance</span>
-          </TabsTrigger>
-          <TabsTrigger value="audit-logs" className="flex items-center gap-2" data-testid="tab-audit-logs">
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Audit Logs</span>
-          </TabsTrigger>
-        </TabsList>
+      <div className="f-tab-bar">
+        <button className={`f-tab ${activeTab === "organization" ? "active" : ""}`} onClick={() => setActiveTab("organization")} data-testid="tab-organization">
+          <Building2 className="h-4 w-4" />
+          <span className="hidden sm:inline">Organization</span>
+        </button>
+        <button className={`f-tab ${activeTab === "security" ? "active" : ""}`} onClick={() => setActiveTab("security")} data-testid="tab-security">
+          <Shield className="h-4 w-4" />
+          <span className="hidden sm:inline">Security</span>
+        </button>
+        <button className={`f-tab ${activeTab === "notifications" ? "active" : ""}`} onClick={() => setActiveTab("notifications")} data-testid="tab-notifications">
+          <Bell className="h-4 w-4" />
+          <span className="hidden sm:inline">Notifications</span>
+        </button>
+        <button className={`f-tab ${activeTab === "api" ? "active" : ""}`} onClick={() => setActiveTab("api")} data-testid="tab-api">
+          <Key className="h-4 w-4" />
+          <span className="hidden sm:inline">API</span>
+        </button>
+        {canManageUsers && (
+          <button className={`f-tab ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")} data-testid="tab-users">
+            <Users className="h-4 w-4" />
+            <span className="hidden sm:inline">Users</span>
+          </button>
+        )}
+        <button className={`f-tab ${activeTab === "billing" ? "active" : ""}`} onClick={() => setActiveTab("billing")} data-testid="tab-billing">
+          <CreditCard className="h-4 w-4" />
+          <span className="hidden sm:inline">Billing</span>
+        </button>
+        <button className={`f-tab ${activeTab === "integrations" ? "active" : ""}`} onClick={() => setActiveTab("integrations")} data-testid="tab-integrations">
+          <Plug className="h-4 w-4" />
+          <span className="hidden sm:inline">Integrations</span>
+        </button>
+        <button className={`f-tab ${activeTab === "governance" ? "active" : ""}`} onClick={() => setActiveTab("governance")} data-testid="tab-governance">
+          <ShieldAlert className="h-4 w-4" />
+          <span className="hidden sm:inline">Governance</span>
+        </button>
+        <button className={`f-tab ${activeTab === "audit-logs" ? "active" : ""}`} onClick={() => setActiveTab("audit-logs")} data-testid="tab-audit-logs">
+          <FileText className="h-4 w-4" />
+          <span className="hidden sm:inline">Audit Logs</span>
+        </button>
+      </div>
 
-        <TabsContent value="organization" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5" />
-                Organization Details
-              </CardTitle>
-              <CardDescription>
-                Basic information about your organization
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="orgName">Organization Name</Label>
-                <Input
+      {/* Organization Tab */}
+      {activeTab === "organization" && (
+        <div>
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Organization Details</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label htmlFor="orgName" style={labelStyle}>Organization Name</label>
+                <input
                   id="orgName"
+                  style={inputStyle}
                   value={mergedSettings.organizationName || ""}
                   onChange={(e) => updateSetting("organizationName", e.target.value)}
                   placeholder="Enter organization name"
                   data-testid="input-org-name"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   The name displayed throughout the platform
                 </p>
               </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="orgDescription">Description</Label>
-                <Textarea
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label htmlFor="orgDescription" style={labelStyle}>Description</label>
+                <textarea
                   id="orgDescription"
+                  style={{ ...inputStyle, minHeight: 72, resize: "vertical" }}
                   value={mergedSettings.organizationDescription || ""}
                   onChange={(e) => updateSetting("organizationDescription", e.target.value)}
                   placeholder="Brief description of your organization"
                   rows={3}
                   data-testid="input-org-description"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   A brief description for internal reference
                 </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Contact Information
-              </CardTitle>
-              <CardDescription>
-                Primary contact details for your organization
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="contactEmail">Contact Email</Label>
-                  <Input
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Contact Information</div>
+            </div>
+            <div style={{ padding: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label htmlFor="contactEmail" style={labelStyle}>Contact Email</label>
+                  <input
                     id="contactEmail"
                     type="email"
+                    style={inputStyle}
                     value={mergedSettings.contactEmail || ""}
                     onChange={(e) => updateSetting("contactEmail", e.target.value)}
                     placeholder="security@example.com"
                     data-testid="input-contact-email"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     Primary email for security communications
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactPhone">Contact Phone</Label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label htmlFor="contactPhone" style={labelStyle}>Contact Phone</label>
+                  <input
                     id="contactPhone"
                     type="tel"
+                    style={inputStyle}
                     value={mergedSettings.contactPhone || ""}
                     onChange={(e) => updateSetting("contactPhone", e.target.value)}
                     placeholder="+1 (555) 000-0000"
                     data-testid="input-contact-phone"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     Emergency contact number
                   </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
+        </div>
+      )}
 
-        <TabsContent value="security" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Session Settings
-              </CardTitle>
-              <CardDescription>
-                Configure user session behavior and timeouts
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="sessionTimeout">Session Timeout (minutes)</Label>
-                <Input
+      {/* Security Tab */}
+      {activeTab === "security" && (
+        <div>
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Session Settings</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label htmlFor="sessionTimeout" style={labelStyle}>Session Timeout (minutes)</label>
+                <input
                   id="sessionTimeout"
                   type="number"
                   min={5}
                   max={480}
+                  style={inputStyle}
                   value={mergedSettings.sessionTimeoutMinutes || 30}
                   onChange={(e) => updateSetting("sessionTimeoutMinutes", parseInt(e.target.value) || 30)}
                   data-testid="input-session-timeout"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   Inactive users will be logged out after this duration (5-480 minutes)
                 </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <KeyRound className="h-5 w-5" />
-                Multi-Factor Authentication
-              </CardTitle>
-              <CardDescription>
-                Enforce additional authentication for enhanced security
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Require MFA for All Users</Label>
-                  <p className="text-xs text-muted-foreground">
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Multi-Factor Authentication</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <label style={labelStyle}>Require MFA for All Users</label>
+                  <p style={hintStyle}>
                     Enforce multi-factor authentication for all platform users
                   </p>
                 </div>
-                <Switch
-                  checked={mergedSettings.mfaRequired || false}
-                  onCheckedChange={(checked) => updateSetting("mfaRequired", checked)}
+                <button
+                  className={`f-switch ${mergedSettings.mfaRequired ? "on" : ""}`}
+                  onClick={() => updateSetting("mfaRequired", !mergedSettings.mfaRequired)}
                   data-testid="switch-mfa-required"
                 />
               </div>
-              
+
               {mergedSettings.mfaRequired && (
-                <div className="space-y-2 pl-4 border-l-2 border-muted">
-                  <Label htmlFor="mfaGracePeriod">Grace Period (days)</Label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 16, borderLeft: "2px solid var(--falcon-border)" }}>
+                  <label htmlFor="mfaGracePeriod" style={labelStyle}>Grace Period (days)</label>
+                  <input
                     id="mfaGracePeriod"
                     type="number"
                     min={0}
                     max={30}
+                    style={inputStyle}
                     value={mergedSettings.mfaGracePeriodDays || 7}
                     onChange={(e) => updateSetting("mfaGracePeriodDays", parseInt(e.target.value) || 7)}
                     data-testid="input-mfa-grace-period"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     Days users have to set up MFA before being locked out
                   </p>
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="h-5 w-5" />
-                Password Policy
-              </CardTitle>
-              <CardDescription>
-                Define password requirements for user accounts
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="passwordMinLength">Minimum Password Length</Label>
-                <Input
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Password Policy</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label htmlFor="passwordMinLength" style={labelStyle}>Minimum Password Length</label>
+                <input
                   id="passwordMinLength"
                   type="number"
                   min={8}
                   max={128}
+                  style={inputStyle}
                   value={mergedSettings.passwordMinLength || 12}
                   onChange={(e) => updateSetting("passwordMinLength", parseInt(e.target.value) || 12)}
                   data-testid="input-password-min-length"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   Minimum characters required (8-128)
                 </p>
               </div>
 
-              <Separator />
+              <div style={separatorStyle} />
 
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">Character Requirements</Label>
-                
-                <div className="flex items-center justify-between">
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <label style={{ ...labelStyle, fontSize: 13 }}>Character Requirements</label>
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <Label className="font-normal">Require Uppercase Letters</Label>
-                    <p className="text-xs text-muted-foreground">At least one A-Z character</p>
+                    <label style={labelNormalStyle}>Require Uppercase Letters</label>
+                    <p style={hintStyle}>At least one A-Z character</p>
                   </div>
-                  <Switch
-                    checked={mergedSettings.passwordRequireUppercase ?? true}
-                    onCheckedChange={(checked) => updateSetting("passwordRequireUppercase", checked)}
+                  <button
+                    className={`f-switch ${mergedSettings.passwordRequireUppercase ?? true ? "on" : ""}`}
+                    onClick={() => updateSetting("passwordRequireUppercase", !(mergedSettings.passwordRequireUppercase ?? true))}
                     data-testid="switch-password-uppercase"
                   />
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <Label className="font-normal">Require Lowercase Letters</Label>
-                    <p className="text-xs text-muted-foreground">At least one a-z character</p>
+                    <label style={labelNormalStyle}>Require Lowercase Letters</label>
+                    <p style={hintStyle}>At least one a-z character</p>
                   </div>
-                  <Switch
-                    checked={mergedSettings.passwordRequireLowercase ?? true}
-                    onCheckedChange={(checked) => updateSetting("passwordRequireLowercase", checked)}
+                  <button
+                    className={`f-switch ${mergedSettings.passwordRequireLowercase ?? true ? "on" : ""}`}
+                    onClick={() => updateSetting("passwordRequireLowercase", !(mergedSettings.passwordRequireLowercase ?? true))}
                     data-testid="switch-password-lowercase"
                   />
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <Label className="font-normal">Require Numbers</Label>
-                    <p className="text-xs text-muted-foreground">At least one 0-9 digit</p>
+                    <label style={labelNormalStyle}>Require Numbers</label>
+                    <p style={hintStyle}>At least one 0-9 digit</p>
                   </div>
-                  <Switch
-                    checked={mergedSettings.passwordRequireNumbers ?? true}
-                    onCheckedChange={(checked) => updateSetting("passwordRequireNumbers", checked)}
+                  <button
+                    className={`f-switch ${mergedSettings.passwordRequireNumbers ?? true ? "on" : ""}`}
+                    onClick={() => updateSetting("passwordRequireNumbers", !(mergedSettings.passwordRequireNumbers ?? true))}
                     data-testid="switch-password-numbers"
                   />
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
-                    <Label className="font-normal">Require Special Characters</Label>
-                    <p className="text-xs text-muted-foreground">At least one special character (!@#$%^&*)</p>
+                    <label style={labelNormalStyle}>Require Special Characters</label>
+                    <p style={hintStyle}>At least one special character (!@#$%^&*)</p>
                   </div>
-                  <Switch
-                    checked={mergedSettings.passwordRequireSpecial ?? true}
-                    onCheckedChange={(checked) => updateSetting("passwordRequireSpecial", checked)}
+                  <button
+                    className={`f-switch ${mergedSettings.passwordRequireSpecial ?? true ? "on" : ""}`}
+                    onClick={() => updateSetting("passwordRequireSpecial", !(mergedSettings.passwordRequireSpecial ?? true))}
                     data-testid="switch-password-special"
                   />
                 </div>
               </div>
 
-              <Separator />
+              <div style={separatorStyle} />
 
-              <div className="space-y-2">
-                <Label htmlFor="passwordExpiry">Password Expiry (days)</Label>
-                <Input
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label htmlFor="passwordExpiry" style={labelStyle}>Password Expiry (days)</label>
+                <input
                   id="passwordExpiry"
                   type="number"
                   min={0}
                   max={365}
+                  style={inputStyle}
                   value={mergedSettings.passwordExpiryDays || 90}
                   onChange={(e) => updateSetting("passwordExpiryDays", parseInt(e.target.value) || 90)}
                   data-testid="input-password-expiry"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   Days before users must change their password (0 = never expires)
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
+        </div>
+      )}
 
-        <TabsContent value="notifications" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Email Notifications
-              </CardTitle>
-              <CardDescription>
-                Configure email alerts for security events
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable Email Notifications</Label>
-                  <p className="text-xs text-muted-foreground">
+      {/* Notifications Tab */}
+      {activeTab === "notifications" && (
+        <div>
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Email Notifications</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <label style={labelStyle}>Enable Email Notifications</label>
+                  <p style={hintStyle}>
                     Send email alerts for security findings
                   </p>
                 </div>
-                <Switch
-                  checked={mergedSettings.emailNotificationsEnabled ?? true}
-                  onCheckedChange={(checked) => updateSetting("emailNotificationsEnabled", checked)}
+                <button
+                  className={`f-switch ${mergedSettings.emailNotificationsEnabled ?? true ? "on" : ""}`}
+                  onClick={() => updateSetting("emailNotificationsEnabled", !(mergedSettings.emailNotificationsEnabled ?? true))}
                   data-testid="switch-email-notifications"
                 />
               </div>
 
               {mergedSettings.emailNotificationsEnabled && (
                 <>
-                  <Separator />
-                  
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium">Alert Levels</Label>
-                    
-                    <div className="flex items-center justify-between">
+                  <div style={separatorStyle} />
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <label style={{ ...labelStyle, fontSize: 13 }}>Alert Levels</label>
+
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
-                        <Label className="font-normal text-red-600 dark:text-red-400">Critical Alerts</Label>
-                        <p className="text-xs text-muted-foreground">Immediate notification for critical findings</p>
+                        <label style={{ ...labelNormalStyle, color: "var(--falcon-red)" }}>Critical Alerts</label>
+                        <p style={hintStyle}>Immediate notification for critical findings</p>
                       </div>
-                      <Switch
-                        checked={mergedSettings.emailCriticalAlerts ?? true}
-                        onCheckedChange={(checked) => updateSetting("emailCriticalAlerts", checked)}
+                      <button
+                        className={`f-switch ${mergedSettings.emailCriticalAlerts ?? true ? "on" : ""}`}
+                        onClick={() => updateSetting("emailCriticalAlerts", !(mergedSettings.emailCriticalAlerts ?? true))}
                         data-testid="switch-email-critical"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
-                        <Label className="font-normal text-orange-600 dark:text-orange-400">High Alerts</Label>
-                        <p className="text-xs text-muted-foreground">Notification for high-severity findings</p>
+                        <label style={{ ...labelNormalStyle, color: "var(--falcon-orange)" }}>High Alerts</label>
+                        <p style={hintStyle}>Notification for high-severity findings</p>
                       </div>
-                      <Switch
-                        checked={mergedSettings.emailHighAlerts ?? true}
-                        onCheckedChange={(checked) => updateSetting("emailHighAlerts", checked)}
+                      <button
+                        className={`f-switch ${mergedSettings.emailHighAlerts ?? true ? "on" : ""}`}
+                        onClick={() => updateSetting("emailHighAlerts", !(mergedSettings.emailHighAlerts ?? true))}
                         data-testid="switch-email-high"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
-                        <Label className="font-normal text-yellow-600 dark:text-yellow-400">Medium Alerts</Label>
-                        <p className="text-xs text-muted-foreground">Notification for medium-severity findings</p>
+                        <label style={{ ...labelNormalStyle, color: "var(--falcon-yellow)" }}>Medium Alerts</label>
+                        <p style={hintStyle}>Notification for medium-severity findings</p>
                       </div>
-                      <Switch
-                        checked={mergedSettings.emailMediumAlerts ?? false}
-                        onCheckedChange={(checked) => updateSetting("emailMediumAlerts", checked)}
+                      <button
+                        className={`f-switch ${mergedSettings.emailMediumAlerts ?? false ? "on" : ""}`}
+                        onClick={() => updateSetting("emailMediumAlerts", !(mergedSettings.emailMediumAlerts ?? false))}
                         data-testid="switch-email-medium"
                       />
                     </div>
 
-                    <div className="flex items-center justify-between">
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
-                        <Label className="font-normal text-blue-600 dark:text-blue-400">Low Alerts</Label>
-                        <p className="text-xs text-muted-foreground">Notification for low-severity findings</p>
+                        <label style={{ ...labelNormalStyle, color: "var(--falcon-blue-hi)" }}>Low Alerts</label>
+                        <p style={hintStyle}>Notification for low-severity findings</p>
                       </div>
-                      <Switch
-                        checked={mergedSettings.emailLowAlerts ?? false}
-                        onCheckedChange={(checked) => updateSetting("emailLowAlerts", checked)}
+                      <button
+                        className={`f-switch ${mergedSettings.emailLowAlerts ?? false ? "on" : ""}`}
+                        onClick={() => updateSetting("emailLowAlerts", !(mergedSettings.emailLowAlerts ?? false))}
                         data-testid="switch-email-low"
                       />
                     </div>
                   </div>
 
-                  <Separator />
+                  <div style={separatorStyle} />
 
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Daily Digest</Label>
-                      <p className="text-xs text-muted-foreground">
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <label style={labelStyle}>Daily Digest</label>
+                      <p style={hintStyle}>
                         Receive a daily summary email of all security activities
                       </p>
                     </div>
-                    <Switch
-                      checked={mergedSettings.emailDailyDigest ?? true}
-                      onCheckedChange={(checked) => updateSetting("emailDailyDigest", checked)}
+                    <button
+                      className={`f-switch ${mergedSettings.emailDailyDigest ?? true ? "on" : ""}`}
+                      onClick={() => updateSetting("emailDailyDigest", !(mergedSettings.emailDailyDigest ?? true))}
                       data-testid="switch-email-digest"
                     />
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Gauge className="h-5 w-5" />
-                Alert Thresholds
-              </CardTitle>
-              <CardDescription>
-                Configure score thresholds for alert classification
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-red-600 dark:text-red-400">Critical Threshold</Label>
-                  <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded" data-testid="text-threshold-critical">
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Alert Thresholds</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 24 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <label style={{ ...labelStyle, color: "var(--falcon-red)" }}>Critical Threshold</label>
+                  <span style={{
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--falcon-panel-2)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    color: "var(--falcon-t1)",
+                  }} data-testid="text-threshold-critical">
                     {mergedSettings.alertThresholdCritical || 90}+
                   </span>
                 </div>
-                <Slider
-                  value={[mergedSettings.alertThresholdCritical || 90]}
-                  onValueChange={([value]) => updateSetting("alertThresholdCritical", value)}
+                <input
+                  type="range"
+                  className="f-range"
+                  value={mergedSettings.alertThresholdCritical || 90}
+                  onChange={(e) => updateSetting("alertThresholdCritical", parseInt(e.target.value))}
                   min={50}
                   max={100}
                   step={5}
                   data-testid="slider-threshold-critical"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   Scores at or above this value are classified as critical
                 </p>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-orange-600 dark:text-orange-400">High Threshold</Label>
-                  <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded" data-testid="text-threshold-high">
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <label style={{ ...labelStyle, color: "var(--falcon-orange)" }}>High Threshold</label>
+                  <span style={{
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--falcon-panel-2)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    color: "var(--falcon-t1)",
+                  }} data-testid="text-threshold-high">
                     {mergedSettings.alertThresholdHigh || 70}+
                   </span>
                 </div>
-                <Slider
-                  value={[mergedSettings.alertThresholdHigh || 70]}
-                  onValueChange={([value]) => updateSetting("alertThresholdHigh", value)}
+                <input
+                  type="range"
+                  className="f-range"
+                  value={mergedSettings.alertThresholdHigh || 70}
+                  onChange={(e) => updateSetting("alertThresholdHigh", parseInt(e.target.value))}
                   min={30}
                   max={90}
                   step={5}
                   data-testid="slider-threshold-high"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   Scores at or above this value are classified as high severity
                 </p>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="text-yellow-600 dark:text-yellow-400">Medium Threshold</Label>
-                  <span className="text-sm font-mono bg-muted px-2 py-0.5 rounded" data-testid="text-threshold-medium">
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <label style={{ ...labelStyle, color: "var(--falcon-yellow)" }}>Medium Threshold</label>
+                  <span style={{
+                    fontSize: 12,
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--falcon-panel-2)",
+                    padding: "2px 8px",
+                    borderRadius: 4,
+                    color: "var(--falcon-t1)",
+                  }} data-testid="text-threshold-medium">
                     {mergedSettings.alertThresholdMedium || 40}+
                   </span>
                 </div>
-                <Slider
-                  value={[mergedSettings.alertThresholdMedium || 40]}
-                  onValueChange={([value]) => updateSetting("alertThresholdMedium", value)}
+                <input
+                  type="range"
+                  className="f-range"
+                  value={mergedSettings.alertThresholdMedium || 40}
+                  onChange={(e) => updateSetting("alertThresholdMedium", parseInt(e.target.value))}
                   min={10}
                   max={70}
                   step={5}
                   data-testid="slider-threshold-medium"
                 />
-                <p className="text-xs text-muted-foreground">
+                <p style={hintStyle}>
                   Scores at or above this value are classified as medium severity
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
+        </div>
+      )}
 
-        <TabsContent value="api" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                API Rate Limits
-              </CardTitle>
-              <CardDescription>
-                Configure API request rate limiting to protect platform resources
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="rateLimitMinute">Requests per Minute</Label>
-                  <Input
+      {/* API Tab */}
+      {activeTab === "api" && (
+        <div>
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />API Rate Limits</div>
+            </div>
+            <div style={{ padding: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label htmlFor="rateLimitMinute" style={labelStyle}>Requests per Minute</label>
+                  <input
                     id="rateLimitMinute"
                     type="number"
                     min={1}
                     max={1000}
+                    style={inputStyle}
                     value={mergedSettings.apiRateLimitPerMinute || 60}
                     onChange={(e) => updateSetting("apiRateLimitPerMinute", parseInt(e.target.value) || 60)}
                     data-testid="input-rate-limit-minute"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     Max requests/minute
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="rateLimitHour">Requests per Hour</Label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label htmlFor="rateLimitHour" style={labelStyle}>Requests per Hour</label>
+                  <input
                     id="rateLimitHour"
                     type="number"
                     min={60}
                     max={100000}
+                    style={inputStyle}
                     value={mergedSettings.apiRateLimitPerHour || 1000}
                     onChange={(e) => updateSetting("apiRateLimitPerHour", parseInt(e.target.value) || 1000)}
                     data-testid="input-rate-limit-hour"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     Max requests/hour
                   </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="rateLimitDay">Requests per Day</Label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label htmlFor="rateLimitDay" style={labelStyle}>Requests per Day</label>
+                  <input
                     id="rateLimitDay"
                     type="number"
                     min={1000}
                     max={1000000}
+                    style={inputStyle}
                     value={mergedSettings.apiRateLimitPerDay || 10000}
                     onChange={(e) => updateSetting("apiRateLimitPerDay", parseInt(e.target.value) || 10000)}
                     data-testid="input-rate-limit-day"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     Max requests/day
                   </p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Key className="h-5 w-5" />
-                API Logging & Auditing
-              </CardTitle>
-              <CardDescription>
-                Configure API request logging for security auditing
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable API Request Logging</Label>
-                  <p className="text-xs text-muted-foreground">
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />API Logging & Auditing</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <label style={labelStyle}>Enable API Request Logging</label>
+                  <p style={hintStyle}>
                     Log all API requests for security auditing and compliance
                   </p>
                 </div>
-                <Switch
-                  checked={mergedSettings.apiLoggingEnabled ?? true}
-                  onCheckedChange={(checked) => updateSetting("apiLoggingEnabled", checked)}
+                <button
+                  className={`f-switch ${mergedSettings.apiLoggingEnabled ?? true ? "on" : ""}`}
+                  onClick={() => updateSetting("apiLoggingEnabled", !(mergedSettings.apiLoggingEnabled ?? true))}
                   data-testid="switch-api-logging"
                 />
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Webhook className="h-5 w-5" />
-                Webhooks
-              </CardTitle>
-              <CardDescription>
-                Configure outbound webhooks for integration with external systems
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Enable Webhooks</Label>
-                  <p className="text-xs text-muted-foreground">
+          <div className="f-panel" style={{ marginBottom: 16 }}>
+            <div className="f-panel-head">
+              <div className="f-panel-title"><span className="f-panel-dot b" />Webhooks</div>
+            </div>
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <label style={labelStyle}>Enable Webhooks</label>
+                  <p style={hintStyle}>
                     Send real-time event notifications to external systems
                   </p>
                 </div>
-                <Switch
-                  checked={mergedSettings.webhooksEnabled ?? false}
-                  onCheckedChange={(checked) => updateSetting("webhooksEnabled", checked)}
+                <button
+                  className={`f-switch ${mergedSettings.webhooksEnabled ?? false ? "on" : ""}`}
+                  onClick={() => updateSetting("webhooksEnabled", !(mergedSettings.webhooksEnabled ?? false))}
                   data-testid="switch-webhooks-enabled"
                 />
               </div>
 
               {mergedSettings.webhooksEnabled && (
-                <div className="space-y-2 pl-4 border-l-2 border-muted">
-                  <Label htmlFor="webhookUrl">Webhook URL</Label>
-                  <Input
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 16, borderLeft: "2px solid var(--falcon-border)" }}>
+                  <label htmlFor="webhookUrl" style={labelStyle}>Webhook URL</label>
+                  <input
                     id="webhookUrl"
                     type="url"
+                    style={inputStyle}
                     value={mergedSettings.webhookUrl || ""}
                     onChange={(e) => updateSetting("webhookUrl", e.target.value)}
                     placeholder="https://your-system.com/webhook"
                     data-testid="input-webhook-url"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p style={hintStyle}>
                     URL to receive webhook event payloads (HTTPS required)
                   </p>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </div>
+        </div>
+      )}
 
-        {canManageUsers && (
-          <TabsContent value="users" className="mt-6">
-            <Suspense fallback={<PanelFallback />}>
-              <UserManagementPanel />
-            </Suspense>
-          </TabsContent>
-        )}
+      {/* Users Tab */}
+      {canManageUsers && activeTab === "users" && (
+        <div>
+          <Suspense fallback={<PanelFallback />}>
+            <UserManagementPanel />
+          </Suspense>
+        </div>
+      )}
 
-        <TabsContent value="billing" className="mt-6">
+      {/* Billing Tab */}
+      {activeTab === "billing" && (
+        <div>
           <Suspense fallback={<PanelFallback />}>
             <BillingPanel />
           </Suspense>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="integrations" className="mt-6">
+      {/* Integrations Tab */}
+      {activeTab === "integrations" && (
+        <div>
           <Suspense fallback={<PanelFallback />}>
             <IntegrationsPanel />
           </Suspense>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="governance" className="mt-6">
+      {/* Governance Tab */}
+      {activeTab === "governance" && (
+        <div>
           <Suspense fallback={<PanelFallback />}>
             <GovernancePanel />
           </Suspense>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="audit-logs" className="mt-6">
+      {/* Audit Logs Tab */}
+      {activeTab === "audit-logs" && (
+        <div>
           <Suspense fallback={<PanelFallback />}>
             <AuditLogsPanel />
           </Suspense>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   );
 }
