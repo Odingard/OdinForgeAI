@@ -275,6 +275,7 @@ export interface AgentResult<T> {
   findings: T;
   agentName: string;
   processingTime: number;
+  stopReason?: string;
 }
 
 export interface ValidationStats {

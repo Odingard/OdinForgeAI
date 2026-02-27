@@ -69,6 +69,18 @@ export async function uploadAndLinkEvidence(
 
     const bundleKey = `evidence/${organizationId}/${evaluationId}/bundle-${randomUUID()}.json`;
 
+    // Try MinIO/S3 upload first, fall back to DB-only base64 storage
+    let objectStorageUrl: string | undefined;
+    try {
+      const { StorageService } = await import("./storage");
+      const storageService = new StorageService();
+      objectStorageUrl = await storageService.uploadFile(
+        bundleKey, Buffer.from(bundleJson), "application/json"
+      );
+    } catch {
+      // MinIO/S3 not configured or unavailable — fall through to DB storage
+    }
+
     await evidenceStore.storeEvidence({
       tenantId: organizationId,
       organizationId,
@@ -78,7 +90,10 @@ export async function uploadAndLinkEvidence(
       validationMethod: "agent_based",
       observedBehavior: `Evidence bundle: ${artifacts.length} artifacts`,
       storageKey: bundleKey,
-      rawDataBase64: Buffer.from(bundleJson).toString("base64").slice(0, 500 * 1024),
+      objectStorageUrl,
+      rawDataBase64: objectStorageUrl
+        ? undefined
+        : Buffer.from(bundleJson).toString("base64").slice(0, 500 * 1024),
     });
     stored++;
 

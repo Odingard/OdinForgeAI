@@ -799,6 +799,26 @@ export async function registerRoutes(
     }
   });
 
+  // ── AEV Telemetry — single run detail with nested tool calls, LLM turns, failures
+  app.get("/api/aev/run-detail/:runId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const { runId } = req.params;
+      const { aevRuns, aevToolCalls, aevLlmTurns, aevFailures } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const [run] = await db.select().from(aevRuns).where(eq(aevRuns.id, runId));
+      if (!run) return res.status(404).json({ error: "Run not found" });
+      const [toolCalls, llmTurns, failures] = await Promise.all([
+        db.select().from(aevToolCalls).where(eq(aevToolCalls.runId, runId)),
+        db.select().from(aevLlmTurns).where(eq(aevLlmTurns.runId, runId)),
+        db.select().from(aevFailures).where(eq(aevFailures.runId, runId)),
+      ]);
+      res.json({ run, toolCalls, llmTurns, failures });
+    } catch (error) {
+      console.error("[AEV] Failed to fetch run detail:", error);
+      res.status(500).json({ error: "Failed to fetch run detail" });
+    }
+  });
+
   app.get("/api/aev/evaluations", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
     try {
       const organizationId = req.query.organizationId as string | undefined;
@@ -989,6 +1009,24 @@ export async function registerRoutes(
         ? Math.round(completedResults.reduce((sum, r) => sum + (r?.confidence || 0), 0) / completedResults.length)
         : 0;
 
+      // Telemetry aggregates from aev_runs + aev_failures
+      const { aevRuns, aevFailures } = await import("@shared/schema");
+      const allRuns = await db.select().from(aevRuns);
+      const allFailures = await db.select().from(aevFailures);
+
+      const stopReasonDist: Record<string, number> = {};
+      let totalDurationMs = 0;
+      let runsWithDuration = 0;
+      for (const run of allRuns) {
+        if (run.stopReason) stopReasonDist[run.stopReason] = (stopReasonDist[run.stopReason] || 0) + 1;
+        if (run.durationMs) { totalDurationMs += run.durationMs; runsWithDuration++; }
+      }
+
+      const failureCodeDist: Record<string, number> = {};
+      for (const f of allFailures) {
+        if (f.failureCode) failureCodeDist[f.failureCode] = (failureCodeDist[f.failureCode] || 0) + 1;
+      }
+
       res.json({
         total: evaluations.length,
         active: evaluations.filter(e => e.status === "pending" || e.status === "in_progress").length,
@@ -996,6 +1034,12 @@ export async function registerRoutes(
         exploitable: exploitableCount,
         safe: safeCount,
         avgConfidence,
+        telemetry: {
+          totalRuns: allRuns.length,
+          avgDurationMs: runsWithDuration > 0 ? Math.round(totalDurationMs / runsWithDuration) : 0,
+          stopReasonDistribution: stopReasonDist,
+          failureCodePareto: failureCodeDist,
+        },
       });
     } catch (error) {
       console.error("Error fetching stats:", error);

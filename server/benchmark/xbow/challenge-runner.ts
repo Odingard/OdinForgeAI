@@ -389,6 +389,8 @@ export async function runChallenge(
       dockerStartMs,
       agentRunMs,
       toolsUsed: toolNames,
+      stopReason: result.stopReason,
+      failureCode: result.stopReason === "error" ? "orchestrator_timeout" : undefined,
     };
   } catch (error: any) {
     return {
