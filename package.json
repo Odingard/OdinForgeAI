@@ -12,7 +12,9 @@
     "check": "tsc",
     "lint:security": "eslint --no-warn-ignored .",
     "db:push": "drizzle-kit push",
-    "db:optimize": "tsx scripts/apply-db-optimizations.ts"
+    "db:optimize": "tsx scripts/apply-db-optimizations.ts",
+    "benchmark:setup": "bash scripts/benchmark-vuln-bank.sh",
+    "benchmark:run": "tsx scripts/benchmark-vuln-bank.ts"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

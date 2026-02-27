@@ -1,0 +1,9 @@
+{
+  "assetId": "vuln-bank-benchmark-20260226_025508",
+  "assetType": "web_application",
+  "targetUrl": "http://localhost:5000",
+  "targetDescription": "vuln-bank: Deliberately vulnerable banking application",
+  "executionMode": "safe",
+  "scanType": "full_recon",
+  "timestamp": "2026-02-26T08:56:00Z"
+}

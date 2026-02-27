@@ -6,7 +6,8 @@
       "Bash(/tmp/check_pages.txt:*)",
       "Read(//Users/dre/prod/OdinForge-AI/client/src/pages/**)",
       "Bash(git revert:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(/tmp/dashboard_calls.txt:*)"
     ]
   }
 }
