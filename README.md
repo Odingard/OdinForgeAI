@@ -13,7 +13,7 @@ OdinForge runs a multi-phase pipeline that goes from reconnaissance to proven ex
 
 ```
 Recon (8 modules) → Attack Graph → Plan Agent (EPSS/KEV intel)
-    → Exploit Agent (10 tools, 12 turns) → Breach Chain Orchestrator (11 playbooks)
+    → Exploit Agent (9 tools, 12 turns) → Breach Chain Orchestrator (11 playbooks)
     → Deterministic Scoring → SARIF/PDF/HTML Reports
 ```
 
@@ -31,7 +31,7 @@ Every finding includes the HTTP request and response that prove it. Every tool c
 ### Exploit agent
 Agentic tool-calling loop — up to 12 turns, 110s timeout, 120s circuit breaker. Adapts strategy based on what each tool returns.
 
-**10 tools:**
+**9 tools:**
 
 | Tool | Mode | What it does |
 |------|------|-------------|
@@ -143,7 +143,7 @@ Shared intelligence layer connecting assets, vulnerabilities, findings, and rela
 ├────────────┬────────────┬──────────────┬────────────┬───────────┤
 │  Recon     │  Exploit   │  Breach      │  Scoring   │  Reports  │
 │  Engine    │  Agent     │  Chain       │  Engine    │  + SARIF  │
-│  8 modules │  10 tools  │  11 playbooks│  EPSS/CVSS │  PDF/HTML │
+│  8 modules │  9 tools  │  11 playbooks│  EPSS/CVSS │  PDF/HTML │
 │  6 agents  │  12 turns  │  17 categories│  KEV      │  JSON     │
 ├────────────┴────────────┴──────────────┴────────────┴───────────┤
 │                    Data Layer                                     │
@@ -290,7 +290,7 @@ Open `http://localhost:5000`. First login triggers org bootstrap.
 | Database schema | 5,527 | 73 tables |
 | Storage layer | 3,314 | 169 interface methods |
 | Chain orchestrator | 1,995 | 17 categories, 11 playbooks |
-| Exploit agent + tools | 2,176 | 10 tools, 12-turn loop |
+| Exploit agent + tools | 2,176 | 9 tools, 12-turn loop |
 | Recon engine | ~1,500 | 8 modules, 6 agents |
 | Validation engine | ~4,200 | 6 validators, 8 payload sets |
 | Scoring engine | 764 | Deterministic v3.0 |

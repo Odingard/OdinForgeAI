@@ -1,30 +1,35 @@
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: './client/tests/setup.ts',
-    include: ['client/tests/**/*.test.{ts,tsx}'],
+    env: {
+      OPENAI_API_KEY: "sk-test-dummy-key-for-vitest",
+      DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy",
+    },
+    include: [
+      'server/**/*.test.ts',
+      'shared/**/*.test.ts',
+    ],
+    exclude: [
+      'node_modules/**',
+      'server/src/reportsV2/**',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/',
-        'client/tests/',
+        'client/',
         '**/*.d.ts',
         '**/*.config.*',
-        '**/mockData',
         '**/dist',
       ],
     },
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './client/src'),
       '@shared': path.resolve(__dirname, './shared'),
     },
   },

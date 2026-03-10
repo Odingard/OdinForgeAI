@@ -46,7 +46,7 @@ Welcome to the OdinForge AI documentation. This covers installation, configurati
 - [Adversary Simulation Enhancement](ADVERSARY_SIMULATION_ENHANCEMENT.md) - Future release: ATT&CK technique execution engine
 
 ### Additional Resources
-- [Getting Started Guide](../wiki/Getting-Started.md) - Quick start walkthrough
+- [Getting Started Guide](#quick-start) - Quick start walkthrough
 - [Security Policies](../policies/rules_of_engagement.md) - Rules of engagement
 
 ---
@@ -64,7 +64,7 @@ OdinForge AI is an enterprise security platform that automates exploit validatio
 | **Attack Path Mapping** | Generate MITRE ATT&CK aligned attack graphs with live visualization |
 | **Breach Chain Orchestration** | Cross-domain attack chains with real-time WebSocket progress |
 | **Cloud Security Scanning** | 67 checks across AWS, Azure, GCP, and Kubernetes |
-| **Endpoint Security** | 33 checks across Linux, macOS, and Windows plus Go-based agents |
+| **Endpoint Security** | 33 checks across Linux, macOS, and Windows; Go agent provides telemetry collection and firewall management |
 | **Entity Graph** | Shared intelligence layer connecting assets, findings, and relationships |
 | **AI Simulations** | Run AI vs AI purple team exercises |
 | **Billing & Subscriptions** | Stripe-powered plans with usage-metered evaluations |
