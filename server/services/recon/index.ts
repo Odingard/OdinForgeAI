@@ -8,8 +8,9 @@
 export * from './types'
 
 // ── Module Exports ───────────────────────────────────────────────────────────
-export { analyzeDns }             from './dns-recon'
+export { analyzeDns, attemptZoneTransfers } from './dns-recon'
 export { analyzeSubdomains }      from './subdomain-enum'
+export type { SubdomainEnumOptions } from './subdomain-enum'
 export { analyzePorts }           from './port-scan'
 export { analyzeSslTls }          from './ssl-tls-analysis'
 export { analyzeHeaders }         from './header-analysis'
@@ -17,11 +18,14 @@ export { analyzeTech }            from './tech-detection'
 export { analyzeWaf }             from './waf-detection'
 export { analyzeApiEndpoints }    from './api-endpoint-discovery'
 export { checkEndpoint }          from './single-api-endpoint-checker'
+export { discoverSubdomainsPassive } from './passive-sources'
+export { generatePermutations }   from './subdomain-permuter'
+export { PROFESSIONAL_WORDLIST, WORDLIST_SIZE, WORDLIST_CATEGORIES } from './wordlists/subdomains-10k'
 
 // ── Module Imports (for the orchestrator) ────────────────────────────────────
 import * as https from 'https'
 import * as http from 'http'
-import { analyzeDns }             from './dns-recon'
+import { analyzeDns, attemptZoneTransfers } from './dns-recon'
 import { analyzeSubdomains }      from './subdomain-enum'
 import { analyzePorts }           from './port-scan'
 import { analyzeSslTls }          from './ssl-tls-analysis'

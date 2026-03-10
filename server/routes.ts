@@ -2230,6 +2230,89 @@ export async function registerRoutes(
     }
   });
 
+  // ── Verify Fix — Re-run a previous evaluation's attack path to confirm remediation ──
+  // This is the AEV closure loop: after a fix is applied, re-execute the same
+  // attack path automatically and compare results to prove the fix worked.
+  app.post("/api/aev/evaluations/:id/verify-fix", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const { id: originalEvaluationId } = req.params;
+
+      // 1. Load the original evaluation and its result
+      const originalEvaluation = await storage.getEvaluation(originalEvaluationId);
+      if (!originalEvaluation) {
+        return res.status(404).json({ error: "Original evaluation not found" });
+      }
+
+      const originalResult = await storage.getResultByEvaluationId(originalEvaluationId);
+      if (!originalResult) {
+        return res.status(400).json({ error: "Original evaluation has no results to verify against" });
+      }
+
+      // 2. Create a new evaluation linked to the original
+      const verifyEvaluation = await storage.createEvaluation({
+        assetId: originalEvaluation.assetId,
+        exposureType: originalEvaluation.exposureType || "web_application",
+        priority: originalEvaluation.priority || "high",
+        description: `[Verify Fix] Re-execution of evaluation ${originalEvaluationId} to confirm remediation`,
+        organizationId: originalEvaluation.organizationId || "default",
+      });
+
+      // 3. Respond immediately — re-execution runs in background
+      res.json({
+        verifyEvaluationId: verifyEvaluation.id,
+        originalEvaluationId,
+        assetId: originalEvaluation.assetId,
+        status: "started",
+        message: "Re-executing attack path to verify remediation. Results will include drift comparison.",
+      });
+
+      // 4. Re-run the evaluation with the same parameters
+      runEvaluation(verifyEvaluation.id, {
+        assetId: originalEvaluation.assetId,
+        exposureType: originalEvaluation.exposureType || "web_application",
+        priority: originalEvaluation.priority || "high",
+        description: `[Verify Fix] Re-execution of ${originalEvaluationId}`,
+        organizationId: originalEvaluation.organizationId || "default",
+      }).then(async () => {
+        // 5. After completion, compute drift against the original
+        try {
+          const { computeEvaluationDiff } = await import("./services/evaluation-differ");
+          const newResult = await storage.getResultByEvaluationId(verifyEvaluation.id);
+          if (newResult) {
+            const drift = await computeEvaluationDiff({
+              currentEvaluation: verifyEvaluation,
+              currentResult: newResult,
+              assetId: originalEvaluation.assetId,
+            });
+
+            // Broadcast verification result via WebSocket
+            try {
+              const { broadcastToChannel } = require("./services/ws-bridge");
+              const orgId = originalEvaluation.organizationId || "default";
+              const channel = `evaluation:${orgId}:${orgId}:${verifyEvaluation.id}`;
+              broadcastToChannel(channel, {
+                type: "verify_fix_complete",
+                originalEvaluationId,
+                verifyEvaluationId: verifyEvaluation.id,
+                drift,
+                remediationVerified: drift
+                  ? drift.changes.resolvedFindings.length > 0 && drift.changes.newFindings.length === 0
+                  : null,
+              });
+            } catch { /* ws may not be available */ }
+          }
+        } catch (err) {
+          console.error(`[VerifyFix] Drift computation failed for ${verifyEvaluation.id}:`, err);
+        }
+      }).catch(err => {
+        console.error(`[VerifyFix] Re-execution failed for ${verifyEvaluation.id}:`, err);
+      });
+    } catch (error) {
+      console.error("Error starting verify-fix:", error);
+      res.status(500).json({ error: "Failed to start verification" });
+    }
+  });
+
   // Domain Scan Report Generation
   app.get("/api/reports/domain-scan/:scanId", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {

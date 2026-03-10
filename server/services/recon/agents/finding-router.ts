@@ -35,6 +35,7 @@ export function extractDnsFindings(dns: DnsReconResult): RoutedFinding[] {
       _source: 'dns-recon',
       nameservers: dns.nameservers,
       records: dns.records,
+      attackTechnique: 'T1590.002', // MITRE: Gather Victim Network Information - DNS
     })
   }
 
@@ -44,6 +45,7 @@ export function extractDnsFindings(dns: DnsReconResult): RoutedFinding[] {
       _target: host,
       _priority: 'medium',
       _source: 'dns-recon',
+      attackTechnique: 'T1557', // MITRE: Adversary-in-the-Middle
     })
   }
 
@@ -56,6 +58,7 @@ export function extractDnsFindings(dns: DnsReconResult): RoutedFinding[] {
       _source: 'dns-recon',
       record,
       cname: record.value,
+      attackTechnique: 'T1584.001', // MITRE: Compromise Infrastructure - Domains
     })
   }
 
@@ -64,21 +67,100 @@ export function extractDnsFindings(dns: DnsReconResult): RoutedFinding[] {
 
 // ─── Subdomain Findings ──────────────────────────────────────────────────────
 
+// Environment patterns that indicate non-production exposure
+const ENV_PATTERNS = /^(dev|staging|stage|stg|test|testing|qa|uat|sandbox|demo|preview|beta|alpha|canary|pre-?prod|preprod|integration|int|perf|load)/i
+const ADMIN_PATTERNS = /^(admin|panel|cpanel|whm|plesk|dashboard|console|mgmt|manage|backoffice|phpmyadmin|pma|adminer|pgadmin|dbadmin|webadmin)/i
+const SENSITIVE_PATTERNS = /^(internal|intranet|corp|private|vpn|remote|bastion|jump|vault|secrets|config|env|git|gitlab|jenkins|ci|sonar)/i
+const DATA_PATTERNS = /^(db|database|mysql|postgres|mongo|redis|memcache|elastic|kafka|rabbit|etcd|influx)/i
+
 export function extractSubdomainFindings(subdomains: SubdomainEnumResult): RoutedFinding[] {
   const findings: RoutedFinding[] = []
 
   for (const sub of subdomains.subdomains) {
-    // Check for potential subdomain takeover candidates (alive DNS, dead HTTP)
+    const prefix = sub.subdomain.split('.')[0]
+
+    // Subdomain takeover candidates (alive DNS, dead HTTP)
     if (sub.ip && !sub.isAlive) {
       findings.push({
-        _findingType: 'dns:subdomain-takeover',
+        _findingType: 'subdomain:takeover-candidate',
         _target: sub.subdomain,
         _priority: 'high',
         _source: 'subdomain-enum',
         ip: sub.ip,
         subdomain: sub.subdomain,
+        attackTechnique: 'T1584.001', // MITRE: Compromise Infrastructure - Domains
       })
     }
+
+    // Non-production environment exposed to internet
+    if (sub.isAlive && ENV_PATTERNS.test(prefix)) {
+      findings.push({
+        _findingType: 'subdomain:environment-leak',
+        _target: sub.subdomain,
+        _priority: 'high',
+        _source: 'subdomain-enum',
+        ip: sub.ip,
+        statusCode: sub.statusCode,
+        title: sub.title,
+        environment: prefix,
+        attackTechnique: 'T1190', // MITRE: Exploit Public-Facing Application
+      })
+    }
+
+    // Admin/management panel exposed
+    if (sub.isAlive && ADMIN_PATTERNS.test(prefix)) {
+      findings.push({
+        _findingType: 'subdomain:admin-panel-exposed',
+        _target: sub.subdomain,
+        _priority: 'critical',
+        _source: 'subdomain-enum',
+        ip: sub.ip,
+        statusCode: sub.statusCode,
+        title: sub.title,
+        attackTechnique: 'T1078', // MITRE: Valid Accounts
+      })
+    }
+
+    // Sensitive internal service exposed
+    if (sub.isAlive && SENSITIVE_PATTERNS.test(prefix)) {
+      findings.push({
+        _findingType: 'subdomain:sensitive-service-exposed',
+        _target: sub.subdomain,
+        _priority: 'high',
+        _source: 'subdomain-enum',
+        ip: sub.ip,
+        statusCode: sub.statusCode,
+        title: sub.title,
+        attackTechnique: 'T1133', // MITRE: External Remote Services
+      })
+    }
+
+    // Database/data service exposed
+    if (sub.isAlive && DATA_PATTERNS.test(prefix)) {
+      findings.push({
+        _findingType: 'subdomain:data-service-exposed',
+        _target: sub.subdomain,
+        _priority: 'critical',
+        _source: 'subdomain-enum',
+        ip: sub.ip,
+        statusCode: sub.statusCode,
+        title: sub.title,
+        attackTechnique: 'T1213', // MITRE: Data from Information Repositories
+      })
+    }
+  }
+
+  // Shadow IT detection: large subdomain count suggests untracked assets
+  if (subdomains.totalFound > 50) {
+    findings.push({
+      _findingType: 'subdomain:shadow-it-risk',
+      _target: subdomains.domain,
+      _priority: 'medium',
+      _source: 'subdomain-enum',
+      totalSubdomains: subdomains.totalFound,
+      aliveCount: subdomains.aliveCount,
+      attackTechnique: 'T1595.002', // MITRE: Active Scanning - Vulnerability Scanning
+    })
   }
 
   return findings
@@ -100,6 +182,7 @@ export function extractPortFindings(ports: PortScanResult): RoutedFinding[] {
         port: p.port,
         service: p.service,
         banner: p.banner,
+        attackTechnique: 'T1190', // MITRE: Exploit Public-Facing Application
       })
     }
 
@@ -112,6 +195,7 @@ export function extractPortFindings(ports: PortScanResult): RoutedFinding[] {
         port: p.port,
         service: p.service,
         banner: p.banner,
+        attackTechnique: 'T1133', // MITRE: External Remote Services
       })
     }
 
@@ -124,6 +208,7 @@ export function extractPortFindings(ports: PortScanResult): RoutedFinding[] {
         _source: 'port-scan',
         port: p.port,
         service: p.service,
+        attackTechnique: 'T1046', // MITRE: Network Service Discovery
       })
     }
 
@@ -137,6 +222,7 @@ export function extractPortFindings(ports: PortScanResult): RoutedFinding[] {
         port: p.port,
         service: p.service,
         banner: p.banner,
+        attackTechnique: 'T1005', // MITRE: Data from Local System
       })
     }
 
@@ -149,6 +235,7 @@ export function extractPortFindings(ports: PortScanResult): RoutedFinding[] {
         _source: 'port-scan',
         port: p.port,
         service: p.service,
+        attackTechnique: 'T1078', // MITRE: Valid Accounts
       })
     }
   }
@@ -169,6 +256,7 @@ export function extractSslFindings(ssl: SslTlsResult): RoutedFinding[] {
       _source: 'ssl-tls-analysis',
       port: ssl.port,
       certificate: ssl.certificate,
+      attackTechnique: 'T1557', // MITRE: Adversary-in-the-Middle
     })
   }
 
@@ -180,6 +268,7 @@ export function extractSslFindings(ssl: SslTlsResult): RoutedFinding[] {
       _source: 'ssl-tls-analysis',
       port: ssl.port,
       certificate: ssl.certificate,
+      attackTechnique: 'T1553.004', // MITRE: Subvert Trust Controls - Install Root Certificate
     })
   }
 
@@ -192,6 +281,7 @@ export function extractSslFindings(ssl: SslTlsResult): RoutedFinding[] {
         _source: 'ssl-tls-analysis',
         port: ssl.port,
         protocol: proto.name,
+        attackTechnique: 'T1040', // MITRE: Network Sniffing
       })
     }
   }
@@ -205,6 +295,7 @@ export function extractSslFindings(ssl: SslTlsResult): RoutedFinding[] {
         _source: 'ssl-tls-analysis',
         port: ssl.port,
         issue,
+        attackTechnique: 'T1040', // MITRE: Network Sniffing
       })
     }
   }
