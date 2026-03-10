@@ -270,6 +270,8 @@ async function runPipeline(
         ...partialRecon,
         apiDiscovery: { baseUrl: host, endpoints: [], totalDiscovered: 0, hasSwagger: false, hasOpenApi: false },
         endpointChecks: [],
+        techFingerprints: new Map(),
+        extractedSecrets: new Map(),
         summary: { totalEndpoints: 0, totalIssues: 0, criticalIssues: 0, highIssues: 0, mediumIssues: 0, lowIssues: 0, topIssues: [] },
       });
       // Pre-populate recon findings so Tier 1 LLM agent has real data to work with

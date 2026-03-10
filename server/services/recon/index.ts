@@ -21,6 +21,10 @@ export { checkEndpoint }          from './single-api-endpoint-checker'
 export { discoverSubdomainsPassive } from './passive-sources'
 export { generatePermutations }   from './subdomain-permuter'
 export { PROFESSIONAL_WORDLIST, WORDLIST_SIZE, WORDLIST_CATEGORIES } from './wordlists/subdomains-10k'
+export { fingerprintSubdomain, fingerprintSubdomains } from './tech-fingerprint'
+export type { TechFingerprint } from './tech-fingerprint'
+export { extractSecretsFromUrl, extractSecretsFromSubdomains } from './secret-extractor'
+export type { ExtractedSecret, SecretType } from './secret-extractor'
 
 // ── Module Imports (for the orchestrator) ────────────────────────────────────
 import * as https from 'https'
@@ -34,6 +38,10 @@ import { analyzeTech }            from './tech-detection'
 import { analyzeWaf }             from './waf-detection'
 import { analyzeApiEndpoints }    from './api-endpoint-discovery'
 import { checkEndpoint }          from './single-api-endpoint-checker'
+import { fingerprintSubdomains }  from './tech-fingerprint'
+import type { TechFingerprint }   from './tech-fingerprint'
+import { extractSecretsFromSubdomains } from './secret-extractor'
+import type { ExtractedSecret }   from './secret-extractor'
 
 // ─── Protocol Detection ──────────────────────────────────────────────────────
 // Try HTTPS first; if it fails, fall back to HTTP
@@ -95,6 +103,10 @@ export interface FullReconResult {
   tech: TechDetectionResult
   waf: WafDetectionResult
 
+  // Enhanced recon results
+  techFingerprints: Map<string, TechFingerprint[]>
+  extractedSecrets: Map<string, ExtractedSecret[]>
+
   // API recon results
   apiDiscovery: ApiEndpointDiscoveryResult
   endpointChecks: EndpointCheckResult[]
@@ -155,6 +167,23 @@ export async function runFullRecon(
   ])
 
   console.log(`[RECON] Phase 1 complete. Found ${subdomains.totalFound} subdomains, ${ports.openPorts.length} open ports.`)
+
+  // ── Phase 1.5: Tech fingerprinting + secret extraction on alive subdomains ─
+  console.log('[RECON] Phase 1.5: Technology fingerprinting & secret extraction...')
+
+  const aliveSubdomains = subdomains.subdomains.filter(s => s.isAlive)
+  const [techFingerprints, extractedSecrets] = await Promise.all([
+    aliveSubdomains.length > 0
+      ? fingerprintSubdomains(aliveSubdomains)
+      : Promise.resolve(new Map<string, TechFingerprint[]>()),
+    aliveSubdomains.length > 0
+      ? extractSecretsFromSubdomains(aliveSubdomains)
+      : Promise.resolve(new Map<string, ExtractedSecret[]>()),
+  ])
+
+  const totalFingerprints = Array.from(techFingerprints.values()).reduce((sum, fps) => sum + fps.length, 0)
+  const totalSecrets = Array.from(extractedSecrets.values()).reduce((sum, secs) => sum + secs.length, 0)
+  console.log(`[RECON] Phase 1.5 complete. ${totalFingerprints} tech fingerprints, ${totalSecrets} leaked secrets found.`)
 
   // ── Phase 2: API endpoint discovery ────────────────────────────────────────
   console.log('[RECON] Phase 2: API endpoint discovery...')
@@ -231,6 +260,8 @@ export async function runFullRecon(
     headers,
     tech,
     waf,
+    techFingerprints,
+    extractedSecrets,
     apiDiscovery,
     endpointChecks,
     summary: {

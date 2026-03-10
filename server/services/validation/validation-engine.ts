@@ -8,12 +8,14 @@ import { createSsrfValidator, type SsrfValidationResult } from "./modules/ssrf-v
 import type { PayloadExecutionContext, PayloadResult } from "./payloads/payload-types";
 import type { ValidationContext } from "./validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
-import { 
-  type ExecutionMode, 
-  executionModeEnforcer, 
+import {
+  type ExecutionMode,
+  executionModeEnforcer,
   validateOperation,
-  getExecutionModeConfig 
+  getExecutionModeConfig
 } from "./execution-modes";
+import { type WafProfile, getWafProfile, evadePayload, buildEvasionHeaders } from "./payloads/waf-evasion";
+import { captureAndDiff, type DiffResult } from "./response-differ";
 
 export type VulnerabilityType = "sqli" | "xss" | "auth_bypass" | "command_injection" | "path_traversal" | "ssrf";
 
@@ -24,6 +26,10 @@ export interface ValidationEngineConfig {
   safeMode?: boolean;
   executionMode?: ExecutionMode;
   tenantId?: string;
+  /** Detected WAF name from recon — enables automatic payload evasion transforms */
+  detectedWaf?: string | null;
+  /** Enable response diffing oracle for blind injection detection */
+  useResponseDiffing?: boolean;
 }
 
 export interface ValidationTarget {
@@ -61,17 +67,23 @@ const DEFAULT_CONFIG: Required<ValidationEngineConfig> = {
   safeMode: true,
   executionMode: "safe",
   tenantId: "default",
+  detectedWaf: null,
+  useResponseDiffing: true,
 };
 
 export class ValidationEngine {
   private config: Required<ValidationEngineConfig>;
   private validationContext?: ValidationContext;
   private client: ValidatingHttpClient;
+  private wafProfile: WafProfile | null;
 
   constructor(config?: ValidationEngineConfig, validationContext?: ValidationContext) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.validationContext = validationContext;
     this.client = new ValidatingHttpClient();
+    this.wafProfile = this.config.detectedWaf
+      ? getWafProfile(this.config.detectedWaf)
+      : null;
   }
 
   async validateTarget(target: ValidationTarget): Promise<UnifiedValidationResult> {
@@ -108,13 +120,19 @@ export class ValidationEngine {
       modeConfig.restrictions.maxConcurrentProbes * 2
     );
 
+    // Inject WAF evasion headers if a WAF was detected during recon
+    const evasionHeaders = this.wafProfile
+      ? buildEvasionHeaders(this.wafProfile)
+      : {};
+    const mergedHeaders = { ...evasionHeaders, ...target.headers };
+
     const executionContext: PayloadExecutionContext = {
       targetUrl: target.url,
       parameterName: target.parameterName,
       parameterLocation: target.parameterLocation,
       originalValue: target.originalValue,
       httpMethod: target.method,
-      headers: target.headers,
+      headers: mergedHeaders,
       timeout: this.config.timeoutMs,
     };
 

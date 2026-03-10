@@ -61,6 +61,21 @@ const FINDING_NODE_MAP: Record<string, NodeMapping> = {
   "header:missing-xcto":    { tactic: "execution",             nodeType: "pivot", compromiseLevel: "none" },
   "header:insecure-cookie": { tactic: "credential-access",     nodeType: "pivot", compromiseLevel: "none" },
   "header:info-leak":       { tactic: "discovery",             nodeType: "pivot", compromiseLevel: "none" },
+  // Tech fingerprint findings
+  "tech:default-credentials":  { tactic: "initial-access",     nodeType: "entry", compromiseLevel: "admin" },
+  "tech:exposed-admin-panel":  { tactic: "initial-access",     nodeType: "entry", compromiseLevel: "admin" },
+  "tech:exposed-devops-tool":  { tactic: "initial-access",     nodeType: "entry", compromiseLevel: "user" },
+  "tech:exposed-database-ui":  { tactic: "initial-access",     nodeType: "entry", compromiseLevel: "admin" },
+  // Secret extraction findings
+  "secret:leaked-api-key":     { tactic: "credential-access",  nodeType: "entry", compromiseLevel: "user" },
+  "secret:leaked-token":       { tactic: "credential-access",  nodeType: "entry", compromiseLevel: "user" },
+  "secret:leaked-aws-key":     { tactic: "credential-access",  nodeType: "entry", compromiseLevel: "admin" },
+  "secret:leaked-private-key": { tactic: "credential-access",  nodeType: "entry", compromiseLevel: "admin" },
+  "secret:hardcoded-password": { tactic: "credential-access",  nodeType: "entry", compromiseLevel: "user" },
+  "secret:internal-url-leak":  { tactic: "discovery",          nodeType: "pivot", compromiseLevel: "none" },
+  // Horizontal privilege escalation findings
+  "idor:horizontal-access":    { tactic: "lateral-movement",   nodeType: "pivot", compromiseLevel: "user" },
+  "idor:vertical-escalation":  { tactic: "privilege-escalation", nodeType: "objective", compromiseLevel: "admin" },
 };
 
 // ─── Complexity Mapping ─────────────────────────────────────────────────────

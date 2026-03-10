@@ -404,17 +404,128 @@ export function extractEndpointFindings(checks: EndpointCheckResult[]): RoutedFi
   return findings
 }
 
+// ─── Tech Fingerprint Findings ──────────────────────────────────────────────
+
+import type { TechFingerprint } from '../tech-fingerprint'
+import type { ExtractedSecret } from '../secret-extractor'
+
+const HIGH_RISK_CATEGORIES = new Set(['ci_cd', 'database_ui', 'devops', 'admin_panel'])
+
+export function extractTechFingerprintFindings(
+  fingerprints: Map<string, TechFingerprint[]>
+): RoutedFinding[] {
+  const findings: RoutedFinding[] = []
+
+  Array.from(fingerprints.entries()).forEach(([subdomain, fps]) => {
+    for (const fp of fps) {
+      // Default credentials available → critical
+      if (fp.defaultCreds && fp.defaultCreds.length > 0) {
+        findings.push({
+          _findingType: 'tech:default-credentials',
+          _target: subdomain,
+          _priority: 'critical',
+          _source: 'tech-fingerprint',
+          technology: fp.technology,
+          version: fp.version,
+          category: fp.category,
+          defaultCreds: fp.defaultCreds,
+          attackSurface: fp.attackSurface,
+          attackTechnique: 'T1078.001', // MITRE: Default Accounts
+        })
+      }
+
+      // High-risk category exposed
+      if (HIGH_RISK_CATEGORIES.has(fp.category)) {
+        const findingType = fp.category === 'database_ui'
+          ? 'tech:exposed-database-ui'
+          : fp.category === 'admin_panel'
+            ? 'tech:exposed-admin-panel'
+            : 'tech:exposed-devops-tool'
+        findings.push({
+          _findingType: findingType,
+          _target: subdomain,
+          _priority: 'high',
+          _source: 'tech-fingerprint',
+          technology: fp.technology,
+          version: fp.version,
+          category: fp.category,
+          knownVulns: fp.knownVulns,
+          attackSurface: fp.attackSurface,
+          attackTechnique: 'T1190', // MITRE: Exploit Public-Facing Application
+        })
+      }
+    }
+  })
+
+  return findings
+}
+
+// ─── Secret Extraction Findings ─────────────────────────────────────────────
+
+const SECRET_FINDING_MAP: Record<string, { findingType: string, technique: string }> = {
+  aws_access_key:    { findingType: 'secret:leaked-aws-key',     technique: 'T1552.001' },
+  aws_secret_key:    { findingType: 'secret:leaked-aws-key',     technique: 'T1552.001' },
+  private_key:       { findingType: 'secret:leaked-private-key', technique: 'T1552.004' },
+  jwt_token:         { findingType: 'secret:leaked-token',       technique: 'T1528' },
+  bearer_token:      { findingType: 'secret:leaked-token',       technique: 'T1528' },
+  github_token:      { findingType: 'secret:leaked-token',       technique: 'T1528' },
+  slack_token:       { findingType: 'secret:leaked-token',       technique: 'T1528' },
+  hardcoded_password: { findingType: 'secret:hardcoded-password', technique: 'T1552.001' },
+  internal_url:      { findingType: 'secret:internal-url-leak',  technique: 'T1590.004' },
+  database_url:      { findingType: 'secret:hardcoded-password', technique: 'T1552.001' },
+}
+
+export function extractSecretFindings(
+  secrets: Map<string, ExtractedSecret[]>
+): RoutedFinding[] {
+  const findings: RoutedFinding[] = []
+
+  Array.from(secrets.entries()).forEach(([subdomain, secs]) => {
+    for (const sec of secs) {
+      const mapping = SECRET_FINDING_MAP[sec.type] || {
+        findingType: 'secret:leaked-api-key',
+        technique: 'T1552.001',
+      }
+      findings.push({
+        _findingType: mapping.findingType,
+        _target: subdomain,
+        _priority: sec.severity,
+        _source: 'secret-extractor',
+        secretType: sec.type,
+        value: sec.value, // Already redacted
+        context: sec.context,
+        confidence: sec.confidence,
+        attackTechnique: mapping.technique,
+      })
+    }
+  })
+
+  return findings
+}
+
 // ─── Master Extractor ────────────────────────────────────────────────────────
 
 export function extractAllFindings(recon: FullReconResult): RoutedFinding[] {
-  return [
+  const findings = [
     ...extractDnsFindings(recon.dns),
     ...extractSubdomainFindings(recon.subdomains),
     ...extractPortFindings(recon.ports),
     ...extractSslFindings(recon.ssl),
     ...extractHeaderFindings(recon.headers),
     ...extractEndpointFindings(recon.endpointChecks),
-  ].sort((a, b) => {
+  ]
+
+  // Add tech fingerprint findings if available
+  if (recon.techFingerprints && recon.techFingerprints.size > 0) {
+    findings.push(...extractTechFingerprintFindings(recon.techFingerprints))
+  }
+
+  // Add secret extraction findings if available
+  if (recon.extractedSecrets && recon.extractedSecrets.size > 0) {
+    findings.push(...extractSecretFindings(recon.extractedSecrets))
+  }
+
+  return findings.sort((a, b) => {
     const order = { critical: 0, high: 1, medium: 2, low: 3 }
     return order[a._priority] - order[b._priority]
   })

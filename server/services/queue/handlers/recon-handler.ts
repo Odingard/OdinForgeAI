@@ -225,6 +225,8 @@ export async function handleReconScanJob(
       timestamp: new Date().toISOString(),
       duration: Date.now() - startTime,
       dns, subdomains, ports, ssl, headers, tech, waf,
+      techFingerprints: new Map(),
+      extractedSecrets: new Map(),
       apiDiscovery,
       endpointChecks,
       summary: buildSummary(endpointChecks, ssl, headers),

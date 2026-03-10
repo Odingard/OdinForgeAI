@@ -807,6 +807,96 @@ export const cloudStorageExposurePlaybook: Playbook = {
 };
 
 // ============================================================================
+// IDOR CHAIN ESCALATION (FULL 4-STEP)
+// ============================================================================
+
+export const idorChainEscalationPlaybook: Playbook = {
+  id: "idor-chain-escalation",
+  name: "IDOR Chain Escalation",
+  description: "Chains IDOR detection through user enumeration, data harvesting, and privilege escalation",
+  version: "1.0.0",
+  category: "idor",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1078", "T1087", "T1005", "T1548"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 180000,
+
+  steps: [
+    {
+      id: "idor-detect",
+      name: "IDOR Detection",
+      description: "Detect IDOR by testing ID parameter manipulation",
+      type: "validate",
+      category: "idor",
+      requiredMode: "safe",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 2,
+      requiredConfidence: 0,
+      config: {},
+    },
+    {
+      id: "idor-enumerate-users",
+      name: "User/Resource ID Enumeration",
+      description: "Enumerate valid user/resource IDs by incrementing/iterating",
+      type: "exploit",
+      category: "idor",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 45000,
+      maxRetries: 1,
+      dependsOn: ["idor-detect"],
+      requiredConfidence: 40,
+      config: {
+        maxIds: 50,
+        patterns: ["increment", "uuid_swap"],
+      },
+    },
+    {
+      id: "idor-harvest-data",
+      name: "Data Harvesting via IDOR",
+      description: "Access other users' data using discovered IDs",
+      type: "exfiltrate",
+      category: "idor",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 60000,
+      maxRetries: 1,
+      dependsOn: ["idor-enumerate-users"],
+      requiredConfidence: 50,
+      config: {
+        sensitiveFields: ["email", "phone", "ssn", "address", "credit_card", "password", "token"],
+      },
+    },
+    {
+      id: "idor-privesc-attempt",
+      name: "Privilege Escalation via IDOR",
+      description: "Attempt to modify other users' data or escalate to admin",
+      type: "escalate",
+      category: "idor",
+      requiredMode: "live",
+      requiresApproval: true,
+      timeout: 45000,
+      maxRetries: 1,
+      dependsOn: ["idor-harvest-data"],
+      requiredConfidence: 60,
+      config: {
+        targetRoles: ["admin", "superuser", "moderator"],
+        testMethods: ["PUT", "PATCH", "DELETE"],
+      },
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 2,
+    confidenceBelow: 20,
+  },
+};
+
+// ============================================================================
 // PLAYBOOK REGISTRY
 // ============================================================================
 
@@ -822,6 +912,7 @@ export const playbookRegistry: Map<string, Playbook> = new Map([
   [workflowBypassPlaybook.id, workflowBypassPlaybook],
   [iamEscalationPlaybook.id, iamEscalationPlaybook],
   [cloudStorageExposurePlaybook.id, cloudStorageExposurePlaybook],
+  [idorChainEscalationPlaybook.id, idorChainEscalationPlaybook],
 ]);
 
 export function getPlaybook(id: string): Playbook | undefined {

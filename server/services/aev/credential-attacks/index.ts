@@ -8,3 +8,5 @@
 export { JwtAttackModule } from "./jwt-attacks";
 export { SessionAttackModule } from "./session-attacks";
 export { CredentialReplayModule } from "./credential-replay";
+export { HorizontalPrivescModule } from "./horizontal-privesc";
+export type { HorizontalPrivescResult, HorizontalFinding, TestEndpoint } from "./horizontal-privesc";
