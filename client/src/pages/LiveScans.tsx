@@ -139,7 +139,7 @@ export default function LiveScans() {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>{scan.name}</span>
-                        <span className="f-chip f-chip-gray">{scan.type.toUpperCase()}</span>
+                        <span className="f-chip f-chip-gray">{(scan.type ?? "scan").toUpperCase()}</span>
                       </div>
                       <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--falcon-t2)" }}>{scan.progress}%</span>
                     </div>
@@ -183,11 +183,11 @@ export default function LiveScans() {
                   scans.map(scan => (
                     <div key={scan.id} className="f-tbl-row" style={{ gridTemplateColumns: GRID_COLS }}>
                       <div className="f-td n">{scan.name}</div>
-                      <div><span className="f-chip f-chip-gray">{scan.type.toUpperCase()}</span></div>
+                      <div><span className="f-chip f-chip-gray">{(scan.type ?? "scan").toUpperCase()}</span></div>
                       <div>
                         <span className="f-status">
                           <span className={statusDot(scan.status)} />
-                          <span className={statusText(scan.status)}>{scan.status.toUpperCase()}</span>
+                          <span className={statusText(scan.status)}>{(scan.status ?? "unknown").toUpperCase()}</span>
                         </span>
                       </div>
                       <div>
