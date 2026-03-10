@@ -85,9 +85,45 @@ const TACTIC_ORDER = [
   "exfiltration", "impact",
 ];
 
+// Plain English labels for non-technical stakeholders
+const TACTIC_PLAIN_ENGLISH: Record<string, string> = {
+  "reconnaissance": "Scouting Your Systems",
+  "resource-development": "Building Attack Tools",
+  "initial-access": "Breaking In",
+  "execution": "Running Malicious Code",
+  "persistence": "Maintaining Access",
+  "privilege-escalation": "Gaining Higher Privileges",
+  "defense-evasion": "Avoiding Detection",
+  "credential-access": "Stealing Credentials",
+  "discovery": "Mapping Internal Systems",
+  "lateral-movement": "Spreading to Other Systems",
+  "collection": "Gathering Sensitive Data",
+  "command-and-control": "Remote Control",
+  "exfiltration": "Stealing Data Out",
+  "impact": "Causing Damage",
+};
+
+// Business impact descriptions for each tactic
+const TACTIC_BUSINESS_IMPACT: Record<string, string> = {
+  "reconnaissance": "Attacker identifies your systems, domains, and infrastructure",
+  "resource-development": "Attacker prepares custom tools targeting your environment",
+  "initial-access": "Attacker finds a way into your network or application",
+  "execution": "Attacker is actively running code on your systems",
+  "persistence": "Attacker has created backdoors to return even after you respond",
+  "privilege-escalation": "Attacker has gained admin-level access to your systems",
+  "defense-evasion": "Attacker is hiding their activity from your security tools",
+  "credential-access": "Attacker has obtained usernames, passwords, or API keys",
+  "discovery": "Attacker is discovering databases, file shares, and internal services",
+  "lateral-movement": "Attacker has moved from one system to another inside your network",
+  "collection": "Attacker is accessing customer data, financial records, or IP",
+  "command-and-control": "Attacker is remotely controlling compromised systems",
+  "exfiltration": "Attacker is transferring your data outside your organization",
+  "impact": "Attacker can disrupt operations, encrypt data, or cause financial loss",
+};
+
 const KILL_CHAIN_DISPLAY = [
-  "Reconnaissance", "Initial Access", "Execution", "Credential Access",
-  "Lateral Movement", "Privilege Escalation", "Collection", "Impact",
+  "Scouting", "Break-In", "Execute", "Steal Creds",
+  "Spread", "Escalate", "Collect", "Damage",
 ];
 
 const KILL_CHAIN_DISPLAY_IDS = [
@@ -299,6 +335,7 @@ export function LiveBreachChainGraph({
   const animRef = useRef<number>(0);
   const timeRef = useRef(0);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [dims, setDims] = useState({ w: 1200, h: 700 });
   const layoutRef = useRef<{ layoutNodes: LayoutNode[]; layoutEdges: LayoutEdge[] }>({
     layoutNodes: [],
@@ -637,15 +674,16 @@ export function LiveBreachChainGraph({
         const label = node.label.length > 20 ? node.label.slice(0, 18) + "..." : node.label;
         ctx!.fillText(label, node.x, node.y + r + 8, maxLabelWidth);
 
-        // Tactic label
+        // Tactic label — plain English for non-technical readers
         ctx!.font = "9px 'IBM Plex Mono', monospace";
         const tacticColor = TACTICS_COLORS[node.tactic] || "#64748b";
         ctx!.fillStyle = tacticColor;
+        const plainTactic = TACTIC_PLAIN_ENGLISH[node.tactic] || node.tactic.replace(/-/g, " ");
         ctx!.fillText(
-          node.tactic.replace(/-/g, " ").toUpperCase(),
+          plainTactic.toUpperCase(),
           node.x,
           node.y + r + 22,
-          maxLabelWidth
+          maxLabelWidth + 20
         );
 
         // "+N findings" badge for collapsed children
@@ -817,6 +855,13 @@ export function LiveBreachChainGraph({
           style={{ width: "100%", height: "100%", cursor: hoveredNode ? "pointer" : "default" }}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoveredNode(null)}
+          onClick={() => {
+            if (hoveredNode) {
+              setSelectedNode(selectedNode === hoveredNode ? null : hoveredNode);
+            } else {
+              setSelectedNode(null);
+            }
+          }}
         />
 
         {/* Legend */}
@@ -858,7 +903,138 @@ export function LiveBreachChainGraph({
         >
           odinforgeai.com — Live Breach Chain
         </div>
+
+        {/* Click-to-expand Node Detail Panel */}
+        {selectedNode && (() => {
+          const node = layoutRef.current.layoutNodes.find(n => n.id === selectedNode);
+          if (!node) return null;
+          const severity = node.compromiseLevel === "admin" ? "critical"
+            : node.compromiseLevel === "user" ? "high"
+            : node.compromiseLevel === "limited" ? "medium" : "low";
+          const severityConfig = {
+            critical: { color: "#ef4444", bg: "rgba(239,68,68,0.1)", label: "Critical Risk", icon: "\u26A0" },
+            high: { color: "#f59e0b", bg: "rgba(245,158,11,0.1)", label: "High Risk", icon: "\u26A0" },
+            medium: { color: "#3b82f6", bg: "rgba(59,130,246,0.1)", label: "Medium Risk", icon: "\u2139" },
+            low: { color: "#22c55e", bg: "rgba(34,197,94,0.1)", label: "Low Risk", icon: "\u2713" },
+          }[severity] || { color: "#64748b", bg: "rgba(100,116,139,0.1)", label: "Info", icon: "\u2139" };
+
+          return (
+            <div
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                width: 320,
+                background: "rgba(6,9,15,0.95)",
+                border: `1px solid ${severityConfig.color}33`,
+                borderRadius: 8,
+                padding: 16,
+                backdropFilter: "blur(12px)",
+                boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 16px ${severityConfig.color}11`,
+                zIndex: 10,
+              }}
+            >
+              {/* Severity Traffic Light */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: "50%",
+                  background: severityConfig.bg, border: `2px solid ${severityConfig.color}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, color: severityConfig.color,
+                }}>
+                  {severityConfig.icon}
+                </div>
+                <div>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, color: severityConfig.color,
+                    fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase",
+                  }}>
+                    {severityConfig.label}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#64748b" }}>
+                    {node.nodeType === "entry" ? "Entry Point" : node.nodeType === "objective" ? "Attacker Goal" : "Attack Step"}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    marginLeft: "auto", cursor: "pointer", color: "#64748b",
+                    fontSize: 16, padding: "0 4px",
+                  }}
+                  onClick={(e) => { e.stopPropagation(); setSelectedNode(null); }}
+                >
+                  {"\u2715"}
+                </div>
+              </div>
+
+              {/* Node Name */}
+              <div style={{
+                fontSize: 13, fontWeight: 700, color: "#f1f5f9", marginBottom: 6,
+              }}>
+                {node.label}
+              </div>
+
+              {/* Plain English Description */}
+              <div style={{
+                fontSize: 12, color: "#94a3b8", lineHeight: 1.5, marginBottom: 12,
+              }}>
+                {node.description || TACTIC_BUSINESS_IMPACT[node.tactic] || "No additional details available."}
+              </div>
+
+              {/* What This Means (business impact) */}
+              <div style={{
+                background: severityConfig.bg, borderRadius: 6, padding: "10px 12px",
+                marginBottom: 12,
+              }}>
+                <div style={{
+                  fontSize: 9, color: severityConfig.color, fontWeight: 700,
+                  fontFamily: "'IBM Plex Mono', monospace", marginBottom: 4,
+                  textTransform: "uppercase", letterSpacing: 0.5,
+                }}>
+                  What This Means
+                </div>
+                <div style={{ fontSize: 11, color: "#cbd5e1", lineHeight: 1.5 }}>
+                  {TACTIC_BUSINESS_IMPACT[node.tactic] || "This step in the attack chain could expose your organization to risk."}
+                </div>
+              </div>
+
+              {/* Affected Assets */}
+              {node.assets.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{
+                    fontSize: 9, color: "#64748b", fontWeight: 600,
+                    fontFamily: "'IBM Plex Mono', monospace", marginBottom: 4,
+                    textTransform: "uppercase", letterSpacing: 0.5,
+                  }}>
+                    Affected Systems
+                  </div>
+                  {node.assets.map((asset, i) => (
+                    <div key={i} style={{
+                      fontSize: 11, color: "#38bdf8", padding: "2px 0",
+                      fontFamily: "'IBM Plex Mono', monospace",
+                    }}>
+                      {asset}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Attack Phase */}
+              <div style={{
+                fontSize: 10, color: "#475569", paddingTop: 8,
+                borderTop: "1px solid rgba(56,189,248,0.08)",
+                fontFamily: "'IBM Plex Mono', monospace",
+              }}>
+                Phase: {TACTIC_PLAIN_ENGLISH[node.tactic] || node.tactic}
+              </div>
+            </div>
+          );
+        })()}
       </div>
+
+      {/* Executive Summary — auto-generated plain English narrative */}
+      {graph && graph.nodes && graph.nodes.length > 0 && (
+        <ExecutiveSummary graph={graph} riskScore={riskScore} />
+      )}
     </div>
   );
 }
@@ -866,6 +1042,170 @@ export function LiveBreachChainGraph({
 // ============================================================================
 // SUB-COMPONENTS
 // ============================================================================
+
+// ============================================================================
+// EXECUTIVE SUMMARY — Auto-generated plain English narrative
+// ============================================================================
+
+function ExecutiveSummary({ graph, riskScore }: { graph: AttackGraph; riskScore?: number }) {
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  const criticalPath = graph.criticalPath || [];
+  const ttc = graph.timeToCompromise;
+
+  // Count node types
+  const entryPoints = nodes.filter(n => n.nodeType === "entry").length;
+  const objectives = nodes.filter(n => n.nodeType === "objective").length;
+  const totalSteps = criticalPath.length;
+
+  // Gather unique tactics on the critical path
+  const criticalTactics = new Set<string>();
+  for (const nodeId of criticalPath) {
+    const node = nodes.find(n => n.id === nodeId);
+    if (node?.tactic) criticalTactics.add(node.tactic);
+  }
+
+  // Count compromised assets
+  const allAssets = new Set<string>();
+  for (const node of nodes) {
+    for (const asset of (node.assets || [])) allAssets.add(asset);
+  }
+
+  // Risk level text
+  const riskLevel = !riskScore ? "unknown"
+    : riskScore >= 80 ? "critical"
+    : riskScore >= 60 ? "high"
+    : riskScore >= 40 ? "moderate"
+    : "low";
+
+  const riskColors: Record<string, { text: string; bg: string; border: string }> = {
+    critical: { text: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.2)" },
+    high: { text: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.2)" },
+    moderate: { text: "#3b82f6", bg: "rgba(59,130,246,0.08)", border: "rgba(59,130,246,0.2)" },
+    low: { text: "#22c55e", bg: "rgba(34,197,94,0.08)", border: "rgba(34,197,94,0.2)" },
+    unknown: { text: "#64748b", bg: "rgba(100,116,139,0.08)", border: "rgba(100,116,139,0.2)" },
+  };
+  const rc = riskColors[riskLevel];
+
+  // Build the narrative
+  const narrative = buildNarrative(totalSteps, entryPoints, objectives, allAssets.size, criticalTactics, ttc, riskLevel);
+
+  return (
+    <div
+      style={{
+        padding: "16px 24px",
+        borderTop: "1px solid rgba(56,189,248,0.06)",
+        background: "rgba(6,9,15,0.8)",
+      }}
+    >
+      {/* Section Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <div style={{
+          fontSize: 11, fontWeight: 700, color: "#94a3b8",
+          fontFamily: "'IBM Plex Mono', monospace",
+          textTransform: "uppercase", letterSpacing: 1,
+        }}>
+          Executive Summary
+        </div>
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: rc.text,
+          background: rc.bg, border: `1px solid ${rc.border}`,
+          padding: "2px 10px", borderRadius: 100,
+          fontFamily: "'IBM Plex Mono', monospace",
+          textTransform: "uppercase",
+        }}>
+          {riskLevel} risk
+        </div>
+      </div>
+
+      {/* Narrative */}
+      <div style={{
+        fontSize: 13, color: "#cbd5e1", lineHeight: 1.7,
+        maxWidth: 900,
+      }}>
+        {narrative}
+      </div>
+
+      {/* Key Numbers */}
+      <div style={{
+        display: "flex", gap: 24, marginTop: 14, paddingTop: 12,
+        borderTop: "1px solid rgba(56,189,248,0.06)",
+      }}>
+        <SummaryMetric label="Attack Steps" value={totalSteps} />
+        <SummaryMetric label="Entry Points" value={entryPoints} />
+        <SummaryMetric label="Systems at Risk" value={allAssets.size} />
+        <SummaryMetric label="Attack Goals" value={objectives} />
+        {ttc && <SummaryMetric label="Time to Breach" value={`${ttc.expected} ${ttc.unit}`} />}
+      </div>
+    </div>
+  );
+}
+
+function buildNarrative(
+  steps: number,
+  entries: number,
+  objectives: number,
+  assets: number,
+  tactics: Set<string>,
+  ttc: AttackGraph["timeToCompromise"],
+  riskLevel: string
+): string {
+  const parts: string[] = [];
+
+  // Opening
+  if (riskLevel === "critical" || riskLevel === "high") {
+    parts.push(`This assessment identified a ${riskLevel}-risk attack path that an adversary could use to compromise your organization.`);
+  } else {
+    parts.push(`This assessment identified an attack path with ${riskLevel} overall risk to your organization.`);
+  }
+
+  // Attack path description
+  if (steps > 0) {
+    parts.push(`The attack chain consists of ${steps} step${steps !== 1 ? "s" : ""}, starting from ${entries} entry point${entries !== 1 ? "s" : ""}.`);
+  }
+
+  // Business impact
+  if (tactics.has("credential-access")) {
+    parts.push("The attacker could steal login credentials, potentially accessing sensitive accounts.");
+  }
+  if (tactics.has("lateral-movement")) {
+    parts.push("Once inside, the attacker can spread to other systems across your network.");
+  }
+  if (tactics.has("exfiltration")) {
+    parts.push("There is a path for the attacker to extract sensitive data outside your organization.");
+  }
+  if (tactics.has("impact")) {
+    parts.push("The attacker could cause direct business disruption, including data destruction or ransomware.");
+  }
+
+  // Systems at risk
+  if (assets > 0) {
+    parts.push(`${assets} system${assets !== 1 ? "s" : ""} ${assets !== 1 ? "are" : "is"} at risk along this attack path.`);
+  }
+
+  // Time to compromise
+  if (ttc) {
+    parts.push(`Estimated time to full compromise: ${ttc.expected} ${ttc.unit}.`);
+  }
+
+  return parts.join(" ");
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <div style={{
+        fontSize: 9, color: "#475569", fontFamily: "'IBM Plex Mono', monospace",
+        textTransform: "uppercase", letterSpacing: 0.5,
+      }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
 
 function MetricBox({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
