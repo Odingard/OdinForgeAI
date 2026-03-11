@@ -31,14 +31,14 @@ interface ScanFinding {
   evidence?: string;
 }
 
-function statusDot(status: string) {
+function statusDot(status: string | undefined) {
   if (status === "running") return "f-s-dot f-sd-live";
   if (status === "completed") return "f-s-dot f-sd-done";
   if (status === "failed") return "f-s-dot f-sd-err";
   return "f-s-dot f-sd-queue";
 }
 
-function statusText(status: string) {
+function statusText(status: string | undefined) {
   if (status === "running") return "f-st-live";
   if (status === "completed") return "f-st-done";
   if (status === "failed") return "f-st-err";
@@ -298,7 +298,7 @@ export default function LiveScans() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12 }}>
                   <div style={{ color: "var(--falcon-t3)" }}>Scan ID: <code style={{ fontSize: 10, color: "var(--falcon-t2)" }}>{selectedScan.id}</code></div>
                   <div style={{ color: "var(--falcon-t3)" }}>Type: <span style={{ color: "var(--falcon-t1)", fontWeight: 600 }}>{selectedScan.type}</span></div>
-                  <div style={{ color: "var(--falcon-t3)" }}>Status: <span className={statusText(selectedScan.status)}>{selectedScan.status.toUpperCase()}</span></div>
+                  <div style={{ color: "var(--falcon-t3)" }}>Status: <span className={statusText(selectedScan.status ?? "")}>{(selectedScan.status ?? "unknown").toUpperCase()}</span></div>
                   <div style={{ color: "var(--falcon-t3)" }}>Targets: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.targetCount}</span></div>
                   <div style={{ color: "var(--falcon-t3)" }}>Started: <span style={{ color: "var(--falcon-t1)" }}>{new Date(selectedScan.startTime).toLocaleString()}</span></div>
                   {selectedScan.endTime && (
