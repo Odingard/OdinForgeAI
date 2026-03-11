@@ -1,6 +1,8 @@
 import { randomUUID, createHash } from "crypto";
 import { storage } from "../../storage";
 import { testProtocolConnection, probeHost, type ConnectionResult } from "./protocol-connectors";
+import { portScan } from "../external-recon";
+import { createCredentialProbe } from "../validation/probes/credential-probe";
 import type {
   DiscoveredCredential,
   LateralMovementFinding,
@@ -283,15 +285,43 @@ class LateralMovementService {
     }
 
     const startTime = Date.now();
-    const useReal = options?.useRealConnection ?? false;
-    
+    // Always use real connections — simulation mode is gone
+    const useReal = options?.useRealConnection ?? true;
+
     let connectionResult: ConnectionResult | null = null;
     let success = false;
     let accessLevel = "none";
 
-    if (useReal) {
-      const protocol = this.getProtocolForTechnique(request.technique);
-      if (protocol) {
+    const protocol = this.getProtocolForTechnique(request.technique);
+    if (protocol && useReal) {
+      // For SSH: use real credential probe with ssh2
+      if (protocol === "ssh" && request.customCredential) {
+        try {
+          const probe = createCredentialProbe({
+            host: request.targetHost,
+            port: 22,
+            service: "ssh",
+            timeout: options?.timeout || 8000,
+            customCredentials: [{ username: request.customCredential.username, password: request.customCredential.value }],
+          });
+          const result = await probe.probe();
+          success = result.vulnerable;
+          accessLevel = success ? "user" : "none"; // SSH = user-level until privilege escalation
+          connectionResult = {
+            success,
+            connected: true,
+            portOpen: true,
+            responseReceived: true,
+            authResult: success ? "success" : "failure",
+            banner: result.serviceBanner,
+            timing: { connectMs: result.executionTimeMs, totalMs: result.executionTimeMs },
+            evidence: { credentialsFound: success, serviceBanner: result.serviceBanner },
+          };
+        } catch {
+          success = false;
+        }
+      } else if (protocol) {
+        // SMB, WinRM, RDP, WMI — TCP banner + port check (auth requires domain membership)
         connectionResult = await testProtocolConnection({
           targetHost: request.targetHost,
           port: this.getDefaultPort(protocol),
@@ -299,16 +329,12 @@ class LateralMovementService {
           username: request.customCredential?.username,
           domain: request.customCredential?.domain,
           credential: request.customCredential?.value,
-          timeout: options?.timeout || 10000,
+          timeout: options?.timeout || 8000,
         });
-        
-        success = connectionResult.connected && connectionResult.portOpen;
+        // Port open + valid banner = service exposed (potential for credential stuffing)
+        success = connectionResult.portOpen;
         accessLevel = success ? "unknown" : "none";
       }
-    } else {
-      await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 300));
-      success = Math.random() > 0.35;
-      accessLevel = success ? (Math.random() > 0.5 ? "admin" : "user") : "none";
     }
 
     const credentialUsed = request.customCredential 
@@ -419,93 +445,91 @@ class LateralMovementService {
     const discoveredCreds: DiscoveredCredential[] = [];
     const networkNodes: { id: string; type: string; accessLevel: string }[] = [];
     const networkEdges: { from: string; to: string; technique: string }[] = [];
-    const techniques = request.techniques || ["credential_reuse"];
-
-    networkNodes.push({
-      id: request.startingHost,
-      type: "entry",
-      accessLevel: "user",
-    });
-
-    const hostsToScan = this.generateHostsToScan(request.startingHost, request.scanDepth);
+    const techniques = request.techniques || ["credential_reuse", "ssh_pivot"];
     const excludeSet = new Set(request.excludeHosts || []);
 
-    for (let i = 0; i < hostsToScan.length; i++) {
-      const host = hostsToScan[i];
-      if (excludeSet.has(host)) continue;
-
-      const isPivotPoint = Math.random() > 0.6;
-      
-      if (isPivotPoint) {
-        const pivotId = `pivot-${randomUUID().slice(0, 8)}`;
-        const accessLevel = Math.random() > 0.5 ? "admin" : "user";
-        const usedTechniques = techniques.filter(() => Math.random() > 0.5);
-        
-        if (usedTechniques.length === 0) usedTechniques.push(techniques[0] || "credential_reuse");
-
-        const pivotData: InsertPivotPoint & { id: string } = {
-          id: pivotId,
-          organizationId: "default",
-          tenantId: "default",
-          hostname: host,
-          ipAddress: this.generateIpForHost(host),
-          networkSegment: this.getNetworkSegment(host),
-          accessMethod: usedTechniques[0],
-          accessLevel,
-          reachableFrom: [request.startingHost],
-          reachableTo: this.generateReachableHosts(host),
-          pivotScore: Math.floor(40 + Math.random() * 60),
-          strategicValue: accessLevel === "admin" 
-            ? "High-value target with administrative access. Can be used to pivot to additional systems."
-            : "User-level access available. May allow credential harvesting or further enumeration.",
-          discoveredServices: this.generateServices(host),
-          isActive: true,
-          lastVerifiedAt: new Date(),
-        };
-
-        const pivot = await storage.createPivotPoint(pivotData);
-        discoveredPivots.push(pivot);
-
-        networkNodes.push({
-          id: host,
-          type: "pivot",
-          accessLevel,
-        });
-
-        for (const technique of usedTechniques) {
-          networkEdges.push({
-            from: request.startingHost,
-            to: host,
-            technique,
-          });
-        }
-
-        if (Math.random() > 0.7) {
-          const cred = await this.addCredential({
-            tenantId: "default",
-            sourceType: "harvest",
-            sourceHost: host,
-            credentialType: Math.random() > 0.5 ? "ntlm_hash" : "password",
-            username: `user_${host.replace(/\./g, "_")}`,
-            domain: "CORP",
-            credentialValue: randomUUID(),
-            privilegeLevel: accessLevel,
-          });
-          discoveredCreds.push(cred);
-        }
+    // Extract real hostname from URL or IP
+    let targetHost = request.startingHost;
+    try {
+      if (request.startingHost.startsWith("http")) {
+        targetHost = new URL(request.startingHost).hostname;
       }
+    } catch { /* use as-is */ }
+
+    networkNodes.push({ id: targetHost, type: "entry", accessLevel: "user" });
+
+    // Real port scan of the target host
+    const PIVOT_PORTS = [21, 22, 23, 25, 80, 443, 445, 1433, 3306, 3389, 5432, 5900, 5985, 6379, 8080, 8443, 27017];
+    let openPorts: Array<{ port: number; service: string; banner?: string }> = [];
+
+    try {
+      console.log(`[LateralMovement] Port scanning ${targetHost} for pivot discovery...`);
+      const scanResults = await portScan(targetHost, PIVOT_PORTS);
+      openPorts = scanResults.filter(r => r.state === "open").map(r => ({
+        port: r.port,
+        service: r.service || this.serviceNameForPort(r.port),
+        banner: r.banner || undefined,
+      }));
+      console.log(`[LateralMovement] Found ${openPorts.length} open ports on ${targetHost}: ${openPorts.map(p => p.port).join(", ")}`);
+    } catch (err) {
+      console.warn(`[LateralMovement] Port scan failed for ${targetHost}:`, err);
     }
 
-    if (discoveredPivots.length >= 2) {
+    // Each open port with a lateral-movement-relevant service becomes a pivot point
+    const pivotServices = [22, 23, 445, 3389, 5985, 5986]; // SSH, Telnet, SMB, RDP, WinRM
+    const dbServices = [1433, 3306, 5432, 6379, 27017]; // MSSQL, MySQL, PostgreSQL, Redis, MongoDB
+
+    for (const openPort of openPorts) {
+      if (excludeSet.has(`${targetHost}:${openPort.port}`)) continue;
+
+      const isPivotService = pivotServices.includes(openPort.port);
+      const isDbService = dbServices.includes(openPort.port);
+      if (!isPivotService && !isDbService) continue;
+
+      const pivotId = `pivot-${randomUUID().slice(0, 8)}`;
+      const technique = this.techniqueForPort(openPort.port);
+      const pivotScore = isPivotService ? (openPort.port === 22 ? 75 : openPort.port === 445 ? 90 : 70) : 55;
+      const accessLevel = "unknown"; // real — requires credential test to determine
+
+      const pivotData: InsertPivotPoint & { id: string } = {
+        id: pivotId,
+        organizationId: "default",
+        tenantId: "default",
+        hostname: targetHost,
+        ipAddress: targetHost,
+        networkSegment: `${targetHost}/32`,
+        accessMethod: technique,
+        accessLevel,
+        reachableFrom: [request.startingHost],
+        reachableTo: [],
+        pivotScore,
+        strategicValue: this.strategicValueForPort(openPort.port, openPort.banner),
+        discoveredServices: [{ port: openPort.port, service: openPort.service, version: openPort.banner }],
+        isActive: true,
+        lastVerifiedAt: new Date(),
+      };
+
+      const pivot = await storage.createPivotPoint(pivotData);
+      discoveredPivots.push(pivot);
+      networkNodes.push({ id: `${targetHost}:${openPort.port}`, type: "pivot", accessLevel });
+      networkEdges.push({ from: request.startingHost, to: `${targetHost}:${openPort.port}`, technique });
+    }
+
+    // Build attack path if we found multiple pivot points
+    if (discoveredPivots.length >= 1) {
       const pathId = `path-${randomUUID().slice(0, 8)}`;
+      const mitreTechniques = Array.from(new Set(networkEdges.map(e =>
+        LATERAL_MOVEMENT_TECHNIQUES[e.technique as keyof typeof LATERAL_MOVEMENT_TECHNIQUES]?.mitreId || "T1021"
+      )));
+
       const pathData: InsertAttackPath & { id: string } = {
         id: pathId,
         organizationId: "default",
         tenantId: "default",
-        name: `Attack Path from ${request.startingHost}`,
-        description: `Discovered attack path with ${discoveredPivots.length} pivot points`,
+        name: `Lateral Attack Surface: ${targetHost}`,
+        description: `Real port scan discovered ${discoveredPivots.length} exposed service(s) on ${targetHost} usable for lateral movement or credential stuffing.`,
         entryPoint: request.startingHost,
-        targetObjective: discoveredPivots[discoveredPivots.length - 1]?.hostname,
+        targetObjective: targetHost,
         pathNodes: networkNodes.map(n => ({
           id: n.id,
           hostname: n.id,
@@ -517,14 +541,12 @@ class LateralMovementService {
           to: e.to,
           technique: e.technique,
           credentialRequired: true,
-          successProbability: 60 + Math.random() * 30,
+          successProbability: this.successProbabilityForTechnique(e.technique),
         })),
         totalHops: discoveredPivots.length,
-        overallRisk: discoveredPivots.some(p => p.accessLevel === "admin") ? "high" : "medium",
-        exploitability: Math.floor(50 + Math.random() * 40),
-        mitreTechniques: Array.from(new Set(networkEdges.map(e => 
-          LATERAL_MOVEMENT_TECHNIQUES[e.technique as keyof typeof LATERAL_MOVEMENT_TECHNIQUES]?.mitreId || "T1021"
-        ))),
+        overallRisk: discoveredPivots.some(p => (p.pivotScore ?? 0) >= 80) ? "high" : "medium",
+        exploitability: Math.max(...discoveredPivots.map(p => p.pivotScore ?? 50)),
+        mitreTechniques,
         killChainPhases: ["lateral-movement", "credential-access", "discovery"],
         status: "discovered",
         lastValidatedAt: new Date(),
@@ -538,11 +560,52 @@ class LateralMovementService {
       pivotPoints: discoveredPivots,
       attackPaths: discoveredPaths,
       credentialsDiscovered: discoveredCreds,
-      networkMap: {
-        nodes: networkNodes,
-        edges: networkEdges,
-      },
+      networkMap: { nodes: networkNodes, edges: networkEdges },
     };
+  }
+
+  private serviceNameForPort(port: number): string {
+    const map: Record<number, string> = {
+      21: "ftp", 22: "ssh", 23: "telnet", 25: "smtp", 80: "http", 443: "https",
+      445: "smb", 1433: "mssql", 3306: "mysql", 3389: "rdp", 5432: "postgresql",
+      5900: "vnc", 5985: "winrm", 6379: "redis", 8080: "http-alt", 8443: "https-alt",
+      27017: "mongodb",
+    };
+    return map[port] || `tcp/${port}`;
+  }
+
+  private techniqueForPort(port: number): string {
+    const map: Record<number, string> = {
+      22: "ssh_pivot", 23: "telnet", 445: "smb_relay", 3389: "rdp_pivot",
+      5985: "winrm", 5986: "winrm", 1433: "credential_reuse", 3306: "credential_reuse",
+      5432: "credential_reuse", 6379: "credential_reuse", 27017: "credential_reuse",
+    };
+    return map[port] || "credential_reuse";
+  }
+
+  private strategicValueForPort(port: number, banner?: string): string {
+    const bannerStr = banner ? ` Banner: ${banner.slice(0, 80)}` : "";
+    const descriptions: Record<number, string> = {
+      22: `SSH service exposed — credential stuffing and key-based auth attack surface.${bannerStr}`,
+      23: `Telnet service exposed — unencrypted, credential interception possible.${bannerStr}`,
+      445: `SMB service exposed — pass-the-hash, relay attacks, lateral movement via file shares.${bannerStr}`,
+      3389: `RDP service exposed — credential stuffing and brute-force attack surface.${bannerStr}`,
+      5985: `WinRM exposed — remote PowerShell execution if credentials are valid.${bannerStr}`,
+      1433: `MSSQL exposed — database credential reuse, xp_cmdshell if misconfigured.${bannerStr}`,
+      3306: `MySQL exposed — database credential reuse, potential for UDF exploitation.${bannerStr}`,
+      5432: `PostgreSQL exposed — database credential reuse, COPY TO/FROM for RCE.${bannerStr}`,
+      6379: `Redis exposed — unauthenticated access common, SSH key injection possible.${bannerStr}`,
+      27017: `MongoDB exposed — often unauthenticated, full data access.${bannerStr}`,
+    };
+    return descriptions[port] || `Service on port ${port} exposed — potential credential reuse target.${bannerStr}`;
+  }
+
+  private successProbabilityForTechnique(technique: string): number {
+    const probabilities: Record<string, number> = {
+      ssh_pivot: 45, smb_relay: 35, rdp_pivot: 30, winrm: 40,
+      credential_reuse: 50, pass_the_hash: 60,
+    };
+    return probabilities[technique] ?? 35;
   }
 
   async getFindings(organizationId?: string): Promise<LateralMovementFinding[]> {
@@ -622,51 +685,6 @@ class LateralMovementService {
     return portMap[protocol] || 445;
   }
 
-  private generateHostsToScan(startingHost: string, depth: number): string[] {
-    const hosts: string[] = [];
-    const baseIp = startingHost.match(/\d+\.\d+\.\d+/) || ["10.0.0"];
-    
-    for (let i = 0; i < depth * 3; i++) {
-      hosts.push(`${baseIp[0]}.${10 + i}`);
-    }
-    
-    return hosts;
-  }
-
-  private generateIpForHost(hostname: string): string {
-    if (hostname.match(/\d+\.\d+\.\d+\.\d+/)) return hostname;
-    return `10.0.0.${Math.floor(Math.random() * 254) + 1}`;
-  }
-
-  private getNetworkSegment(host: string): string {
-    const ipMatch = host.match(/(\d+\.\d+\.\d+)/);
-    if (ipMatch) return `${ipMatch[1]}.0/24`;
-    return "10.0.0.0/24";
-  }
-
-  private generateReachableHosts(host: string): string[] {
-    const base = host.match(/(\d+\.\d+\.\d+)/) || ["10.0.0"];
-    const count = Math.floor(Math.random() * 5) + 1;
-    const hosts: string[] = [];
-    
-    for (let i = 0; i < count; i++) {
-      hosts.push(`${base[0]}.${100 + i}`);
-    }
-    
-    return hosts;
-  }
-
-  private generateServices(host: string): { port: number; service: string; version?: string }[] {
-    const services = [
-      { port: 22, service: "ssh", version: "OpenSSH 8.4" },
-      { port: 445, service: "smb", version: "SMB 3.1.1" },
-      { port: 3389, service: "rdp", version: "RDP 10.0" },
-      { port: 5985, service: "winrm", version: "WinRM 2.0" },
-      { port: 135, service: "rpc", version: "Microsoft Windows RPC" },
-    ];
-    
-    return services.filter(() => Math.random() > 0.5);
-  }
 }
 
 export const lateralMovementService = new LateralMovementService();

@@ -1,4 +1,5 @@
 import * as net from "net";
+import { Client as SshClient } from "ssh2";
 import type { CredentialProbeConfig, ProbeResult } from "./probe-types";
 import { createErrorProbeResult, determineVerdict, DEFAULT_PORTS, DEFAULT_CREDENTIALS } from "./probe-types";
 
@@ -139,6 +140,8 @@ export class CredentialProbe {
 
   private async testCredential(username: string, password: string): Promise<{ success: boolean; error?: string }> {
     switch (this.config.service) {
+      case "ssh":
+        return this.testSsh(username, password);
       case "ftp":
         return this.testFtp(username, password);
       case "redis":
@@ -148,6 +151,45 @@ export class CredentialProbe {
       default:
         return this.testGenericTcp(username, password);
     }
+  }
+
+  private async testSsh(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      const conn = new SshClient();
+      const timer = setTimeout(() => {
+        conn.destroy();
+        resolve({ success: false, error: "Timeout" });
+      }, this.timeout);
+
+      conn.on("ready", () => {
+        clearTimeout(timer);
+        conn.end();
+        resolve({ success: true });
+      });
+
+      conn.on("error", (err) => {
+        clearTimeout(timer);
+        // "All configured authentication methods failed" = host reachable but creds wrong
+        // "ECONNREFUSED" / "ETIMEDOUT" = port not open
+        resolve({ success: false, error: err.message });
+      });
+
+      try {
+        conn.connect({
+          host: this.config.host,
+          port: this.config.port,
+          username,
+          password,
+          readyTimeout: this.timeout,
+          algorithms: {
+            kex: ["diffie-hellman-group14-sha256", "ecdh-sha2-nistp256", "diffie-hellman-group-exchange-sha256"],
+          },
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        resolve({ success: false, error: String(err) });
+      }
+    });
   }
 
   private async testFtp(username: string, password: string): Promise<{ success: boolean; error?: string }> {

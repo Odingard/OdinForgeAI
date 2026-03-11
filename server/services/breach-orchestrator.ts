@@ -1133,15 +1133,21 @@ async function executeLateralMovement(
     );
 
     try {
+      // Extract real hostname from chain's primary asset as fallback target
+      const chainTargetHost = (() => {
+        const primaryAsset = chain.assetIds[0] || "";
+        try { return new URL(primaryAsset).hostname; } catch { return primaryAsset; }
+      })();
+
       const reuseResult = await lateralMovementService.testCredentialReuse({
         credentialType: cred.type,
         username: cred.username || "unknown",
         domain: cred.domain,
-        credentialValue: cred.valueHash, // Will be tested in simulated mode
+        credentialValue: cred.valueHash,
         targetHosts: cred.validatedTargets.length > 0
-          ? cred.validatedTargets
-          : ["10.0.0.1", "10.0.0.2", "10.0.0.5"], // Default internal targets
-        techniques: ["credential_reuse", "pass_the_hash", "ssh_pivot"],
+          ? cred.validatedTargets.map(t => { try { return new URL(t).hostname; } catch { return t; } })
+          : [chainTargetHost].filter(Boolean),
+        techniques: ["credential_reuse", "ssh_pivot"],
       });
 
       for (const finding of reuseResult.findings) {
@@ -1172,14 +1178,15 @@ async function executeLateralMovement(
     }
   }
 
-  // Discover pivot points from the first compromised asset
+  // Discover pivot points — use compromised asset name or fall back to chain's primary target
   const entryPoint = context.compromisedAssets[0];
-  if (entryPoint) {
-    onProgress(chain.id, "lateral_movement", 80, "Discovering pivot points");
+  const pivotTarget = entryPoint?.name || chain.assetIds[0] || "";
+  if (pivotTarget) {
+    onProgress(chain.id, "lateral_movement", 80, `Port scanning ${pivotTarget} for exposed services...`);
 
     try {
       const pivotResult = await lateralMovementService.discoverPivotPoints({
-        startingHost: entryPoint.name,
+        startingHost: pivotTarget,
         scanDepth: 3,
         techniques: ["ssh_pivot", "rdp_pivot", "smb_relay", "credential_reuse"],
       });
