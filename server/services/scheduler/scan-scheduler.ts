@@ -5,10 +5,13 @@ import { db } from "../../db";
 import { eq } from "drizzle-orm";
 import { scheduledScanRuns } from "@shared/schema";
 import type { ScheduledScan } from "@shared/schema";
+import { getDueChains, advanceSchedule, checkSlaBreaches } from "../breach-chain/continuous-exposure";
 
 let schedulerTask: ReturnType<typeof cron.schedule> | null = null;
 let threatIntelTask: ReturnType<typeof cron.schedule> | null = null;
 let metricsAggregationTask: ReturnType<typeof cron.schedule> | null = null;
+let breachChainTask: ReturnType<typeof cron.schedule> | null = null;
+let slaCheckTask: ReturnType<typeof cron.schedule> | null = null;
 
 function calculateNextRunAt(scan: ScheduledScan): Date {
   const now = new Date();
@@ -221,6 +224,35 @@ async function aggregateAllOrgMetrics(): Promise<void> {
   }
 }
 
+async function processDueBreachChains(): Promise<void> {
+  try {
+    const due = await getDueChains();
+    if (due.length === 0) return;
+    console.log(`[Scheduler] Found ${due.length} breach chain(s) due for re-run`);
+
+    for (const chain of due) {
+      try {
+        await queueService.addJob(
+          "breach_chain",
+          {
+            type: "breach_chain",
+            chainId: chain.id,
+            organizationId: chain.organizationId,
+            isScheduledRun: true,
+          },
+          { priority: "normal" },
+        );
+        await advanceSchedule(chain);
+        console.log(`[Scheduler] Queued breach chain re-run: ${chain.name} (${chain.id})`);
+      } catch (err) {
+        console.error(`[Scheduler] Failed to queue breach chain ${chain.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("[Scheduler] processDueBreachChains failed:", err);
+  }
+}
+
 export function initScheduler(): void {
   if (schedulerTask) {
     console.log("[Scheduler] Scheduler already running");
@@ -241,9 +273,27 @@ export function initScheduler(): void {
     await aggregateAllOrgMetrics();
   });
 
+  // v3.0: Breach chain scheduler — check every 15 minutes
+  breachChainTask = cron.schedule("*/15 * * * *", async () => {
+    await processDueBreachChains();
+  });
+
+  // v3.0: SLA breach check — daily at 6:00 AM UTC
+  slaCheckTask = cron.schedule("0 6 * * *", async () => {
+    const orgs = await storage.getBreachChains().then((chains) =>
+      Array.from(new Set(chains.map((c) => c.organizationId)))
+    ).catch(() => [] as string[]);
+    for (const orgId of orgs) {
+      const count = await checkSlaBreaches(orgId);
+      if (count > 0) console.log(`[Scheduler] SLA breaches detected: ${count} in org ${orgId}`);
+    }
+  });
+
   console.log("[Scheduler] Scan scheduler initialized (checking every minute)");
   console.log("[Scheduler] Threat intel sync scheduled (checking every hour)");
   console.log("[Scheduler] Metrics aggregation scheduled (daily at midnight UTC)");
+  console.log("[Scheduler] Breach chain scheduler initialized (checking every 15 minutes)");
+  console.log("[Scheduler] SLA breach check scheduled (daily at 06:00 UTC)");
 
   setTimeout(() => {
     processDueScans().catch((err) => {
@@ -253,6 +303,14 @@ export function initScheduler(): void {
 }
 
 export function stopScheduler(): void {
+  if (breachChainTask) {
+    breachChainTask.stop();
+    breachChainTask = null;
+  }
+  if (slaCheckTask) {
+    slaCheckTask.stop();
+    slaCheckTask = null;
+  }
   if (schedulerTask) {
     schedulerTask.stop();
     schedulerTask = null;

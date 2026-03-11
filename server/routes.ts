@@ -7706,6 +7706,104 @@ export async function registerRoutes(
     }
   });
 
+  // ─── v3.0 Continuous Exposure ──────────────────────────────────────────────
+
+  /** GET /api/breach-chains/exposure-summary — org-wide exposure trend & SLA status */
+  app.get("/api/breach-chains/exposure-summary", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const orgId = req.uiUser?.organizationId ?? "default";
+      const { buildExposureSummary } = await import("./services/breach-chain/continuous-exposure");
+      const summary = await buildExposureSummary(orgId);
+      res.json(summary);
+    } catch (error) {
+      console.error("Exposure summary error:", error);
+      res.status(500).json({ error: "Failed to build exposure summary" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/snapshots — risk history for a single chain */
+  app.get("/api/breach-chains/:id/snapshots", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const history = Array.isArray(chain.riskHistory) ? chain.riskHistory : [];
+      res.json({ chainId: chain.id, chainName: chain.name, snapshots: history });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get snapshots" });
+    }
+  });
+
+  /** POST /api/breach-chains/:id/schedule — set or update schedule config */
+  app.post("/api/breach-chains/:id/schedule", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { enabled, frequency, timeOfDay, dayOfWeek } = req.body;
+      const { computeNextRunAt } = await import("./services/breach-chain/continuous-exposure");
+
+      const config = { enabled: !!enabled, frequency: frequency || "weekly", timeOfDay, dayOfWeek };
+      const nextRunAt = enabled ? computeNextRunAt(config).toISOString() : undefined;
+
+      await storage.updateBreachChain(chain.id, {
+        scheduleConfig: { ...config, nextRunAt },
+      } as any);
+
+      res.json({ success: true, scheduleConfig: { ...config, nextRunAt } });
+    } catch (error) {
+      console.error("Set schedule error:", error);
+      res.status(500).json({ error: "Failed to set schedule" });
+    }
+  });
+
+  /** DELETE /api/breach-chains/:id/schedule — disable schedule */
+  app.delete("/api/breach-chains/:id/schedule", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const existing = (chain.scheduleConfig as any) ?? {};
+      await storage.updateBreachChain(chain.id, {
+        scheduleConfig: { ...existing, enabled: false, nextRunAt: undefined },
+      } as any);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to disable schedule" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/alerts — alerts for a specific chain */
+  app.get("/api/breach-chains/:id/alerts", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const orgId = req.uiUser?.organizationId ?? "default";
+      const alerts = await storage.getBreachChainAlerts(orgId, req.params.id);
+      res.json(alerts);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get alerts" });
+    }
+  });
+
+  /** GET /api/breach-chains/alerts — all unread alerts for the org */
+  app.get("/api/breach-chain-alerts", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const orgId = req.uiUser?.organizationId ?? "default";
+      const alerts = await storage.getBreachChainAlerts(orgId);
+      const unread = alerts.filter((a) => !a.dismissed);
+      res.json({ total: alerts.length, unread: unread.length, alerts: unread.slice(0, 20) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get alerts" });
+    }
+  });
+
+  /** POST /api/breach-chain-alerts/:id/dismiss — dismiss an alert */
+  app.post("/api/breach-chain-alerts/:id/dismiss", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      await storage.dismissBreachChainAlert(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to dismiss alert" });
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Active Exploit Engine (standalone endpoint)
   // ═══════════════════════════════════════════════════════════════════════════

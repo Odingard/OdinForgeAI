@@ -5335,6 +5335,31 @@ export const breachChains = pgTable("breach_chains", {
   completedAt: timestamp("completed_at"),
   durationMs: integer("duration_ms"),
 
+  // v3.0: Continuous Exposure — schedule config
+  scheduleConfig: jsonb("schedule_config").$type<{
+    enabled: boolean;
+    frequency: "daily" | "weekly" | "monthly" | "manual";
+    timeOfDay?: string;   // "HH:MM" UTC
+    dayOfWeek?: number;   // 0-6 for weekly
+    nextRunAt?: string;   // ISO string
+    lastRunAt?: string;   // ISO string
+  }>(),
+
+  // v3.0: Continuous Exposure — SLA tracking
+  slaDeadline: timestamp("sla_deadline"),
+  slaBreachedAt: timestamp("sla_breached_at"),
+  remediationDueAt: timestamp("remediation_due_at"),
+  slaDays: integer("sla_days").default(30), // SLA window in days
+
+  // v3.0: Continuous Exposure — risk history snapshots (appended on each run)
+  riskHistory: jsonb("risk_history").$type<Array<{
+    score: number;
+    nodeCount: number;
+    criticalPathLength: number;
+    completedAt: string;
+    runId?: string;
+  }>>().default([]),
+
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -5348,6 +5373,36 @@ export const insertBreachChainSchema = createInsertSchema(breachChains).omit({
 
 export type InsertBreachChain = z.infer<typeof insertBreachChainSchema>;
 export type BreachChain = typeof breachChains.$inferSelect;
+
+// v3.0: Breach Chain Alert Events
+export const breachChainAlerts = pgTable("breach_chain_alerts", {
+  id: varchar("id").primaryKey(),
+  organizationId: varchar("organization_id").notNull().default("default"),
+  chainId: varchar("chain_id").notNull(),
+  chainName: varchar("chain_name").notNull(),
+
+  // Alert type
+  alertType: varchar("alert_type").notNull(), // new_breach_path | sla_breach | risk_worsened | risk_improved | schedule_failed
+  severity: varchar("severity").notNull().default("high"), // low | medium | high | critical
+
+  // Alert payload
+  title: varchar("title").notNull(),
+  message: text("message").notNull(),
+  previousScore: integer("previous_score"),
+  currentScore: integer("current_score"),
+  deltaScore: integer("delta_score"),
+
+  // Delivery
+  delivered: boolean("delivered").default(false),
+  deliveredAt: timestamp("delivered_at"),
+  deliveryChannel: varchar("delivery_channel"), // in_app | slack | email | webhook
+  dismissed: boolean("dismissed").default(false),
+  dismissedAt: timestamp("dismissed_at"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type BreachChainAlert = typeof breachChainAlerts.$inferSelect;
 
 // ============================================================================
 // ENTITY GRAPH — Shared Intelligence Layer

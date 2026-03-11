@@ -295,6 +295,19 @@ export async function runBreachChain(
     createPurpleTeamFindingsFromChain(chainId, chain.organizationId, phaseResults).catch(err => {
       console.error(`[BreachOrchestrator] Failed to create purple team findings for chain ${chainId}:`, err);
     });
+
+    // v3.0: Append risk snapshot for continuous exposure trending
+    import("./breach-chain/continuous-exposure").then(({ appendRiskSnapshot, initializeSla }) => {
+      const nodeCount = unifiedGraph?.nodes?.length ?? 0;
+      const criticalPathLength = unifiedGraph?.criticalPath?.length ?? 0;
+      appendRiskSnapshot(chainId, {
+        score: overallRiskScore,
+        nodeCount,
+        criticalPathLength,
+        completedAt: new Date().toISOString(),
+      }).catch(() => {});
+      initializeSla(chainId, overallRiskScore).catch(() => {});
+    }).catch(() => {});
   } catch (error) {
     console.error(`[BreachOrchestrator] Chain ${chainId} failed:`, error);
     await storage.updateBreachChain(chainId, {

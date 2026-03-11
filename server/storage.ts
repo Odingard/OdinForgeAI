@@ -175,6 +175,7 @@ import {
   type InsertMetricsHistory,
   // Cross-Domain Breach Chains
   breachChains,
+  breachChainAlerts,
   type AttackGraph,
   type BreachChain,
   type InsertBreachChain,
@@ -250,6 +251,10 @@ export interface IStorage {
   updateBreachChain(id: string, updates: Partial<BreachChain>): Promise<void>;
   updateBreachChainGraph(chainId: string, graph: AttackGraph): Promise<BreachChain | undefined>;
   deleteBreachChain(id: string): Promise<void>;
+  // v3.0 Continuous Exposure alerts
+  createBreachChainAlert(data: any): Promise<any>;
+  getBreachChainAlerts(organizationId: string, chainId?: string): Promise<any[]>;
+  dismissBreachChainAlert(alertId: string): Promise<void>;
 
   // Live Scan Result operations
   createLiveScanResult(data: InsertLiveScanResult): Promise<LiveScanResult>;
@@ -1917,6 +1922,39 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBreachChain(id: string): Promise<void> {
     await db.delete(breachChains).where(eq(breachChains.id, id));
+  }
+
+  // v3.0 Continuous Exposure — alert operations
+  async createBreachChainAlert(data: any): Promise<any> {
+    const [alert] = await db
+      .insert(breachChainAlerts)
+      .values(data)
+      .returning();
+    return alert;
+  }
+
+  async getBreachChainAlerts(organizationId: string, chainId?: string): Promise<any[]> {
+    const rows = await db
+      .select()
+      .from(breachChainAlerts)
+      .where(
+        chainId
+          ? and(
+              eq(breachChainAlerts.organizationId, organizationId),
+              eq(breachChainAlerts.chainId, chainId),
+            )
+          : eq(breachChainAlerts.organizationId, organizationId),
+      )
+      .orderBy(desc(breachChainAlerts.createdAt))
+      .limit(100);
+    return rows;
+  }
+
+  async dismissBreachChainAlert(alertId: string): Promise<void> {
+    await db
+      .update(breachChainAlerts)
+      .set({ dismissed: true, dismissedAt: new Date() })
+      .where(eq(breachChainAlerts.id, alertId));
   }
 
   // Evaluation History (drift detection)

@@ -41,11 +41,13 @@ import {
   Download,
   BookOpen,
   Activity,
+  TrendingUp,
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
 import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
 import { ChainComparison } from "@/components/ChainComparison";
 import { ChainSparkline } from "@/components/ChainSparkline";
+import { ExposureDashboard } from "@/components/ExposureDashboard";
 
 // Phase metadata for display
 const PHASE_META: Record<string, { label: string; icon: typeof Shield; color: string; description: string }> = {
@@ -1152,6 +1154,7 @@ export default function BreachChains() {
   const canCreate = hasPermission("evaluations:create");
   const canDelete = hasPermission("evaluations:delete");
 
+  const [pageView, setPageView] = useState<"chains" | "exposure">("chains");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedChain, setSelectedChain] = useState<BreachChain | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -1348,32 +1351,61 @@ export default function BreachChains() {
             Real attack paths. Verified exploitation. Proven risk.
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="f-btn f-btn-secondary" onClick={() => refetch()}>
-            <RefreshCw style={{ width: 13, height: 13, marginRight: 6 }} />
-            Refresh
-          </button>
-          <button
-            className={`f-btn ${compareMode ? "f-btn-primary" : "f-btn-ghost"}`}
-            onClick={() => { setCompareMode(!compareMode); setSelectedForCompare([]); }}
-          >
-            {compareMode ? `Comparing (${selectedForCompare.length}/2)` : "Compare Chains"}
-          </button>
-          {compareMode && selectedForCompare.length === 2 && (
-            <button className="f-btn f-btn-primary" onClick={() => setShowComparison(true)}>
-              Compare Now
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {/* Page-level view toggle */}
+          <div style={{ display: "flex", gap: 2, background: "var(--falcon-panel-2)", borderRadius: 6, padding: 2, border: "1px solid var(--falcon-border)" }}>
+            <button
+              className={`f-btn f-btn-xs ${pageView === "chains" ? "f-btn-primary" : "f-btn-ghost"}`}
+              style={{ padding: "4px 10px", fontSize: 11 }}
+              onClick={() => { setPageView("chains"); setSelectedChain(null); }}
+            >
+              <Link2 style={{ width: 11, height: 11, marginRight: 4 }} />
+              Chains
             </button>
+            <button
+              className={`f-btn f-btn-xs ${pageView === "exposure" ? "f-btn-primary" : "f-btn-ghost"}`}
+              style={{ padding: "4px 10px", fontSize: 11 }}
+              onClick={() => { setPageView("exposure"); setSelectedChain(null); }}
+            >
+              <TrendingUp style={{ width: 11, height: 11, marginRight: 4 }} />
+              Exposure
+            </button>
+          </div>
+          {pageView === "chains" && (
+            <>
+              <button className="f-btn f-btn-secondary" onClick={() => refetch()}>
+                <RefreshCw style={{ width: 13, height: 13, marginRight: 6 }} />
+                Refresh
+              </button>
+              <button
+                className={`f-btn ${compareMode ? "f-btn-primary" : "f-btn-ghost"}`}
+                onClick={() => { setCompareMode(!compareMode); setSelectedForCompare([]); }}
+              >
+                {compareMode ? `Comparing (${selectedForCompare.length}/2)` : "Compare Chains"}
+              </button>
+              {compareMode && selectedForCompare.length === 2 && (
+                <button className="f-btn f-btn-primary" onClick={() => setShowComparison(true)}>
+                  Compare Now
+                </button>
+              )}
+              <button
+                className="f-btn f-btn-primary"
+                disabled={!canCreate}
+                onClick={() => setIsCreateOpen(true)}
+              >
+                {canCreate ? <Play style={{ width: 13, height: 13, marginRight: 6 }} /> : <Lock style={{ width: 13, height: 13, marginRight: 6 }} />}
+                Start Breach Chain
+              </button>
+            </>
           )}
-          <button
-            className="f-btn f-btn-primary"
-            disabled={!canCreate}
-            onClick={() => setIsCreateOpen(true)}
-          >
-            {canCreate ? <Play style={{ width: 13, height: 13, marginRight: 6 }} /> : <Lock style={{ width: 13, height: 13, marginRight: 6 }} />}
-            Start Breach Chain
-          </button>
         </div>
       </div>
+
+      {/* Exposure Dashboard — page-level view */}
+      {pageView === "exposure" && <ExposureDashboard />}
+
+      {/* Chains view — list, detail, create modal */}
+      {pageView === "chains" && <>
 
       {/* Create Breach Chain Modal */}
       {isCreateOpen && (
@@ -1694,6 +1726,8 @@ export default function BreachChains() {
           onClose={() => { setShowComparison(false); setCompareMode(false); setSelectedForCompare([]); }}
         />
       )}
+
+      </>}
     </div>
   );
 }

@@ -18,6 +18,7 @@ export const jobTypes = [
   "mimir_triggered_evaluation",
   "cloud_scan",
   "endpoint_scan",
+  "breach_chain",
 ] as const;
 
 export type JobType = typeof jobTypes[number];
