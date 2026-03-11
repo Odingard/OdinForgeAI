@@ -1520,6 +1520,29 @@ function buildUnifiedAttackGraph(
       discoveredBy: "exploit",
     });
 
+    // Derive complexity from phase findings
+    const phaseComplexity: AttackEdge["complexity"] = phase.findings.some(f => f.severity === "critical")
+      ? "low"
+      : phase.findings.some(f => f.severity === "high")
+      ? "medium"
+      : "high";
+
+    // Compute realistic timeEstimate (minutes) based on phase type and complexity
+    const phaseTimeEstimateMinutes = (() => {
+      const rawMs = phase.durationMs || 0;
+      if (rawMs > 0) return rawMs / 60000;
+      // Phase-based defaults when no timing data
+      switch (phase.phaseName) {
+        case "application_compromise": return phaseComplexity === "low" ? 5 : phaseComplexity === "medium" ? 15 : 30;
+        case "credential_extraction":  return phaseComplexity === "low" ? 10 : phaseComplexity === "medium" ? 20 : 45;
+        case "cloud_iam_escalation":   return phaseComplexity === "low" ? 15 : phaseComplexity === "medium" ? 30 : 60;
+        case "container_k8s_breakout": return phaseComplexity === "low" ? 20 : phaseComplexity === "medium" ? 45 : 90;
+        case "lateral_movement":       return phaseComplexity === "low" ? 30 : phaseComplexity === "medium" ? 75 : 120;
+        case "impact_assessment":      return phaseComplexity === "low" ? 5 : phaseComplexity === "medium" ? 15 : 30;
+        default:                       return 15;
+      }
+    })();
+
     // Edge from previous phase to this phase
     edges.push({
       id: `breach-edge-${nodeCounter++}`,
@@ -1527,8 +1550,8 @@ function buildUnifiedAttackGraph(
       target: phaseNodeId,
       technique: `Cross-domain: ${PHASE_DEFINITIONS[phase.phaseName].displayName}`,
       successProbability: phase.findings.length > 0 ? 85 : 40,
-      complexity: phase.findings.some(f => f.severity === "critical") ? "low" as const : "medium" as const,
-      timeEstimate: (phase.durationMs || 60000) / 60000,
+      complexity: phaseComplexity,
+      timeEstimate: phaseTimeEstimateMinutes,
       edgeType: "primary" as const,
       discoveredBy: "exploit" as const,
       description: `${phase.findings.length} findings discovered`,
@@ -1547,14 +1570,18 @@ function buildUnifiedAttackGraph(
         discoveredBy: "exploit",
       });
 
+      // Finding-level timeEstimate by severity
+      const findingTimeEstimate = finding.severity === "critical" ? 5 : finding.severity === "high" ? 10 : 15;
+      const findingComplexity: AttackEdge["complexity"] = finding.severity === "critical" ? "low" : "medium";
+
       edges.push({
         id: `finding-edge-${nodeCounter++}`,
         source: phaseNodeId,
         target: findingNodeId,
         technique: finding.technique || finding.title,
         successProbability: 75,
-        complexity: "medium" as const,
-        timeEstimate: 5,
+        complexity: findingComplexity,
+        timeEstimate: findingTimeEstimate,
         edgeType: "primary" as const,
         discoveredBy: "exploit" as const,
         description: finding.description,

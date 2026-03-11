@@ -897,6 +897,343 @@ export const idorChainEscalationPlaybook: Playbook = {
 };
 
 // ============================================================================
+// LATERAL MOVEMENT CHAIN
+// ============================================================================
+
+export const lateralMovementChainPlaybook: Playbook = {
+  id: "lateral-movement-chain",
+  name: "Credential-Based Lateral Movement",
+  description: "Uses harvested credentials to move laterally across the network via SSH, RDP, SMB, and service APIs",
+  version: "1.0.0",
+  category: "lateral_movement",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1550.002", "T1021.002", "T1563.002", "T1018"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 45 * 60 * 1000,
+
+  steps: [
+    {
+      id: "credential-reuse-scan",
+      name: "Credential Reuse Scan",
+      description: "Test harvested credentials against other services on the network: SSH, RDP, SMB, API auth endpoints, admin panels",
+      type: "validate",
+      category: "credential_attack",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      config: {},
+    },
+    {
+      id: "pass-the-hash",
+      name: "Pass-the-Hash Attack",
+      description: "Attempt pass-the-hash attacks using NTLM hashes extracted from previous compromise",
+      type: "exploit",
+      category: "credential_attack",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["credential-reuse-scan"],
+      requiredConfidence: 40,
+      config: {},
+    },
+    {
+      id: "session-hijacking",
+      name: "Session Hijacking",
+      description: "Steal active sessions via cookie theft, token replay, or SSO abuse",
+      type: "exploit",
+      category: "session_attack",
+      requiredMode: "live",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["pass-the-hash"],
+      requiredConfidence: 40,
+      config: {},
+    },
+    {
+      id: "pivot-discovery",
+      name: "Pivot Point Discovery",
+      description: "Map reachable internal hosts from pivot point, enumerate services on 192.168/10.0 ranges",
+      type: "exfiltrate",
+      category: "lateral_movement",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 45000,
+      maxRetries: 1,
+      dependsOn: ["credential-reuse-scan"],
+      requiredConfidence: 30,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 3,
+    confidenceBelow: 20,
+  },
+};
+
+// ============================================================================
+// PRIVILEGE ESCALATION CHAIN
+// ============================================================================
+
+export const privilegeEscalationChainPlaybook: Playbook = {
+  id: "privilege-escalation-chain",
+  name: "Local to Domain Admin Escalation",
+  description: "Systematic privilege escalation from unprivileged foothold to domain admin via sudo abuse, SUID binaries, service exploitation, and token impersonation",
+  version: "1.0.0",
+  category: "privilege_escalation",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1548.003", "T1548.001", "T1574.005", "T1134.001", "T1558.003"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 60 * 60 * 1000,
+
+  steps: [
+    {
+      id: "sudo-abuse-check",
+      name: "Sudo Misconfiguration Check",
+      description: "Check sudo permissions, NOPASSWD entries, sudoers misconfigurations",
+      type: "validate",
+      category: "privilege_escalation",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      config: {},
+    },
+    {
+      id: "suid-sgid-enum",
+      name: "SUID/SGID Binary Enumeration",
+      description: "Find SUID/SGID binaries exploitable for privilege escalation (GTFOBins)",
+      type: "exploit",
+      category: "privilege_escalation",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 25000,
+      maxRetries: 1,
+      dependsOn: ["sudo-abuse-check"],
+      requiredConfidence: 30,
+      config: {},
+    },
+    {
+      id: "service-exploitation",
+      name: "Weak Service Permission Exploitation",
+      description: "Target weak service permissions, unquoted service paths, writable service binaries",
+      type: "exploit",
+      category: "privilege_escalation",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["sudo-abuse-check"],
+      requiredConfidence: 30,
+      config: {},
+    },
+    {
+      id: "token-impersonation",
+      name: "Token Impersonation",
+      description: "Impersonate high-privilege tokens via SeImpersonatePrivilege (Potato attacks)",
+      type: "exploit",
+      category: "privilege_escalation",
+      requiredMode: "live",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["service-exploitation"],
+      requiredConfidence: 50,
+      config: {},
+    },
+    {
+      id: "domain-escalation",
+      name: "Domain Admin Escalation",
+      description: "Attempt Kerberoasting, AS-REP Roasting, DCSync if domain credentials available",
+      type: "escalate",
+      category: "privilege_escalation",
+      requiredMode: "live",
+      requiresApproval: true,
+      timeout: 60000,
+      maxRetries: 1,
+      dependsOn: ["token-impersonation"],
+      requiredConfidence: 60,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 3,
+    confidenceBelow: 20,
+  },
+};
+
+// ============================================================================
+// PERSISTENCE IMPLANT CHAIN
+// ============================================================================
+
+export const persistenceImplantChainPlaybook: Playbook = {
+  id: "persistence-implant-chain",
+  name: "Persistence and C2 Foothold",
+  description: "Establishes persistent access via cron backdoors, startup modifications, webshell upload, and C2 beacon simulation",
+  version: "1.0.0",
+  category: "persistence",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1053.003", "T1546.004", "T1505.003", "T1071.001"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 30 * 60 * 1000,
+
+  steps: [
+    {
+      id: "cron-backdoor",
+      name: "Cron Backdoor Installation Test",
+      description: "Attempt to install cron job backdoor in /etc/cron.d or user crontab",
+      type: "exploit",
+      category: "persistence",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      config: {},
+    },
+    {
+      id: "startup-persistence",
+      name: "Startup Persistence Test",
+      description: "Test .bashrc/.profile modification, systemd service installation, rc.local",
+      type: "exploit",
+      category: "persistence",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["cron-backdoor"],
+      requiredConfidence: 30,
+      config: {},
+    },
+    {
+      id: "webshell-upload",
+      name: "Webshell Upload Attempt",
+      description: "Attempt webshell upload to writable web directories",
+      type: "exploit",
+      category: "persistence",
+      requiredMode: "live",
+      requiresApproval: true,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["cron-backdoor"],
+      requiredConfidence: 40,
+      config: {},
+    },
+    {
+      id: "c2-beacon-simulate",
+      name: "C2 Beacon Simulation",
+      description: "Simulate C2 beacon: outbound connection to external host, test egress filtering",
+      type: "persist",
+      category: "persistence",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 20000,
+      maxRetries: 1,
+      dependsOn: ["cron-backdoor"],
+      requiredConfidence: 20,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 3,
+  },
+};
+
+// ============================================================================
+// DATA EXFILTRATION CHAIN
+// ============================================================================
+
+export const dataExfiltrationChainPlaybook: Playbook = {
+  id: "data-exfiltration-chain",
+  name: "Staged Data Exfiltration",
+  description: "Discovers sensitive data, dumps databases, tests cloud storage exfiltration, and validates egress paths",
+  version: "1.0.0",
+  category: "data_exfiltration",
+
+  author: "OdinForge AEV",
+  mitreAttackIds: ["T1083", "T1005", "T1537", "T1048"],
+  riskLevel: "critical",
+
+  minimumMode: "simulation",
+  estimatedDuration: 35 * 60 * 1000,
+
+  steps: [
+    {
+      id: "data-discovery",
+      name: "Sensitive Data Discovery",
+      description: "Find sensitive data: .env files, config files, database dumps, SSH keys, API credentials in common paths",
+      type: "exfiltrate",
+      category: "data_exfiltration",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      config: {},
+    },
+    {
+      id: "database-dump-attempt",
+      name: "Database Dump Attempt",
+      description: "Attempt to dump database schema and sample records via SQLi or direct DB access",
+      type: "exfiltrate",
+      category: "data_exfiltration",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 45000,
+      maxRetries: 1,
+      dependsOn: ["data-discovery"],
+      requiredConfidence: 40,
+      config: {},
+    },
+    {
+      id: "cloud-storage-exfil",
+      name: "Cloud Storage Exfiltration Test",
+      description: "Test S3/GCS/Azure Blob exfiltration paths using any discovered cloud credentials",
+      type: "exfiltrate",
+      category: "data_exfiltration",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["data-discovery"],
+      requiredConfidence: 30,
+      config: {},
+    },
+    {
+      id: "egress-validation",
+      name: "Egress Path Validation",
+      description: "Validate data can leave the network: test DNS exfiltration, HTTP POST to external, FTP",
+      type: "exfiltrate",
+      category: "data_exfiltration",
+      requiredMode: "simulation",
+      requiresApproval: false,
+      timeout: 30000,
+      maxRetries: 1,
+      dependsOn: ["data-discovery"],
+      requiredConfidence: 20,
+      config: {},
+    },
+  ],
+
+  abortOn: {
+    stepFailures: 3,
+    confidenceBelow: 20,
+  },
+};
+
+// ============================================================================
 // PLAYBOOK REGISTRY
 // ============================================================================
 
@@ -913,6 +1250,10 @@ export const playbookRegistry: Map<string, Playbook> = new Map([
   [iamEscalationPlaybook.id, iamEscalationPlaybook],
   [cloudStorageExposurePlaybook.id, cloudStorageExposurePlaybook],
   [idorChainEscalationPlaybook.id, idorChainEscalationPlaybook],
+  [lateralMovementChainPlaybook.id, lateralMovementChainPlaybook],
+  [privilegeEscalationChainPlaybook.id, privilegeEscalationChainPlaybook],
+  [persistenceImplantChainPlaybook.id, persistenceImplantChainPlaybook],
+  [dataExfiltrationChainPlaybook.id, dataExfiltrationChainPlaybook],
 ]);
 
 export function getPlaybook(id: string): Playbook | undefined {

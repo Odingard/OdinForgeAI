@@ -5,6 +5,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
+import { BreachTimeline } from "@/components/BreachTimeline";
+import { BreachChainExport } from "@/components/BreachChainExport";
 import {
   Link2,
   Play,
@@ -36,6 +38,9 @@ import {
   Settings2,
   ArrowRight,
   FileBarChart,
+  Download,
+  BookOpen,
+  Activity,
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
 import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
@@ -539,6 +544,7 @@ function PhaseResultsDetail({ phaseResults }: { phaseResults: BreachPhaseResult[
 }
 
 function ChainDetail({ chain }: { chain: BreachChain }) {
+  const { toast } = useToast();
   const phaseResults = (chain.phaseResults || []) as BreachPhaseResult[];
   const context = chain.currentContext as BreachPhaseContext | null;
   const config = chain.config as any;
@@ -554,16 +560,63 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const hasGraph = displayGraph && displayGraph.nodes?.length > 0;
 
   const [tab, setTab] = useState(hasGraph ? "graph" : "overview");
+  const [showExport, setShowExport] = useState(false);
+  const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
+
+  // Narrative query
+  const { data: narrative } = useQuery({
+    queryKey: [`/api/breach-chains/${chain.id}/narrative`],
+    enabled: !!chain.id && chain.status === "completed",
+  });
+
+  // Remediation mutation
+  const remediateMutation = useMutation({
+    mutationFn: async ({ nodeId, status }: { nodeId: string; status: string }) => {
+      await apiRequest("POST", `/api/breach-chains/${chain.id}/nodes/${nodeId}/remediate`, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/breach-chains/${chain.id}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
+      toast({ title: "Remediation Updated", description: "Node status has been updated." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Update Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Remediation panel data
+  const allNodes = displayGraph?.nodes || [];
+  const criticalPathSet = new Set(displayGraph?.criticalPath || []);
+  const criticalNodes = allNodes.filter(n => criticalPathSet.has(n.id));
+  const fixedCount = criticalNodes.filter(n => n.remediationStatus === "verified_fixed").length;
 
   return (
     <div style={{ width: "100%" }}>
       <div className="f-tab-bar">
         <button className={`f-tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
         <button className={`f-tab ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>Attack Graph</button>
+        <button className={`f-tab ${tab === "timeline" ? "active" : ""}`} onClick={() => setTab("timeline")}>
+          <Activity style={{ width: 11, height: 11, marginRight: 4, display: "inline" }} />
+          Timeline
+        </button>
+        <button className={`f-tab ${tab === "story" ? "active" : ""}`} onClick={() => setTab("story")}>
+          <BookOpen style={{ width: 11, height: 11, marginRight: 4, display: "inline" }} />
+          Story
+        </button>
         <button className={`f-tab ${tab === "phases" ? "active" : ""}`} onClick={() => setTab("phases")}>Phase Results</button>
         <button className={`f-tab ${tab === "context" ? "active" : ""}`} onClick={() => setTab("context")}>Breach Context</button>
         {chain.executiveSummary && <button className={`f-tab ${tab === "summary" ? "active" : ""}`} onClick={() => setTab("summary")}>Executive Summary</button>}
       </div>
+
+      {/* Export modal */}
+      {showExport && (
+        <BreachChainExport
+          chain={chain}
+          graph={displayGraph}
+          narrative={narrative}
+          onClose={() => setShowExport(false)}
+        />
+      )}
 
       {tab === "overview" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -655,14 +708,265 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
       )}
 
       {tab === "graph" && (
-        <LiveBreachChainGraph
-          graph={displayGraph}
-          riskScore={chain.overallRiskScore ?? undefined}
-          assetsCompromised={chain.totalAssetsCompromised ?? undefined}
-          credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}
-          currentPhase={chain.currentPhase ?? undefined}
-          isRunning={chain.status === "running"}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Export button row */}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 2px" }}>
+            <button
+              className="f-btn f-btn-secondary"
+              style={{ fontSize: 11, padding: "4px 10px" }}
+              onClick={() => setShowExport(true)}
+            >
+              <Download style={{ width: 12, height: 12, marginRight: 5 }} />
+              Export Report
+            </button>
+          </div>
+
+          <LiveBreachChainGraph
+            graph={displayGraph}
+            riskScore={chain.overallRiskScore ?? undefined}
+            assetsCompromised={chain.totalAssetsCompromised ?? undefined}
+            credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}
+            currentPhase={chain.currentPhase ?? undefined}
+            isRunning={chain.status === "running"}
+          />
+
+          {/* Remediation Progress Panel */}
+          {criticalNodes.length > 0 && (
+            <div className="f-panel">
+              <div className="f-panel-head">
+                <div className="f-panel-title">
+                  <CheckCircle2 style={{ width: 14, height: 14, color: "var(--falcon-green)", marginRight: 6 }} />
+                  Remediation Progress
+                </div>
+                <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
+                  {fixedCount} of {criticalNodes.length} critical path nodes remediated
+                </span>
+              </div>
+              <div style={{ padding: "12px 16px" }}>
+                {/* Progress bar */}
+                <div style={{ marginBottom: 12 }}>
+                  <div className="f-tb-track" style={{ height: 6 }}>
+                    <div
+                      className="f-tb-fill"
+                      style={{
+                        width: `${(fixedCount / Math.max(criticalNodes.length, 1)) * 100}%`,
+                        background: "var(--falcon-green)",
+                        transition: "width 0.3s ease",
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--falcon-t4)", marginTop: 4 }}>
+                    <span>{fixedCount} fixed</span>
+                    <span>{criticalNodes.length - fixedCount} remaining</span>
+                  </div>
+                </div>
+                {/* Node list */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {criticalNodes.map((node) => {
+                    const remStatus = node.remediationStatus || "open";
+                    return (
+                      <div key={node.id} style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "7px 10px",
+                        borderRadius: 6,
+                        border: "1px solid var(--falcon-border)",
+                        fontSize: 12,
+                      }}>
+                        <span style={{ flex: 1, color: "var(--falcon-t1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {node.label}
+                        </span>
+                        <span className={`f-chip ${
+                          remStatus === "verified_fixed" ? "f-chip-low" :
+                          remStatus === "in_progress" ? "f-chip-med" :
+                          remStatus === "accepted_risk" ? "f-chip-gray" :
+                          "f-chip-crit"
+                        }`} style={{ fontSize: 9, flexShrink: 0 }}>
+                          {remStatus === "verified_fixed" ? "Fixed"
+                            : remStatus === "in_progress" ? "In Progress"
+                            : remStatus === "accepted_risk" ? "Accepted Risk"
+                            : "Open"}
+                        </span>
+                        <select
+                          className="f-select"
+                          style={{ fontSize: 10, padding: "2px 6px", width: "auto", flexShrink: 0 }}
+                          value={remStatus}
+                          onChange={(e) => remediateMutation.mutate({ nodeId: node.id, status: e.target.value })}
+                          disabled={remediateMutation.isPending}
+                        >
+                          <option value="open">Open</option>
+                          <option value="in_progress">In Progress</option>
+                          <option value="verified_fixed">Verified Fixed</option>
+                          <option value="accepted_risk">Accepted Risk</option>
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "timeline" && (
+        <div className="f-panel">
+          <div className="f-panel-head">
+            <div className="f-panel-title">
+              <Activity style={{ width: 14, height: 14, color: "var(--falcon-blue-hi)", marginRight: 6 }} />
+              Attack Timeline
+            </div>
+            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
+              Critical path progression — click a step to highlight it in the graph
+            </span>
+          </div>
+          <div style={{ padding: "16px" }}>
+            {hasGraph ? (
+              <BreachTimeline
+                graph={displayGraph}
+                activeNodeId={highlightedNode}
+                onNodeClick={(nodeId) => {
+                  setHighlightedNode(nodeId);
+                  setTab("graph");
+                }}
+              />
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>No attack graph data available yet.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "story" && (
+        <div className="f-panel">
+          <div className="f-panel-head">
+            <div className="f-panel-title">
+              <BookOpen style={{ width: 14, height: 14, color: "var(--falcon-blue-hi)", marginRight: 6 }} />
+              Attack Story
+            </div>
+            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
+              Plain English narrative of the full attack chain
+            </span>
+          </div>
+          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 14 }}>
+            {chain.status !== "completed" ? (
+              <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>Story becomes available after the chain completes.</p>
+            ) : narrative ? (
+              // Render API narrative sections
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {(narrative as any)?.sections?.map((section: any, idx: number) => {
+                  const sev = section.severity || "low";
+                  const sevC = sev === "critical" ? "var(--falcon-red)" : sev === "high" ? "var(--falcon-orange)" : sev === "medium" ? "var(--falcon-yellow)" : "var(--falcon-green)";
+                  const sevBg = sev === "critical" ? "rgba(239,68,68,0.07)" : sev === "high" ? "rgba(249,115,22,0.07)" : sev === "medium" ? "rgba(234,179,8,0.07)" : "rgba(34,197,94,0.07)";
+                  return (
+                    <div key={idx} style={{
+                      display: "flex",
+                      gap: 14,
+                      padding: "14px 16px",
+                      borderRadius: 8,
+                      border: `1px solid ${sevC}33`,
+                      background: sevBg,
+                    }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: "50%",
+                        border: `2px solid ${sevC}`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0, fontSize: 12, fontWeight: 700, color: sevC,
+                        background: `${sevC}22`,
+                      }}>
+                        {idx + 1}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--falcon-t1)" }}>
+                            {section.heading || section.title || `Step ${idx + 1}`}
+                          </span>
+                          <span className={`f-chip ${sev === "critical" ? "f-chip-crit" : sev === "high" ? "f-chip-high" : sev === "medium" ? "f-chip-med" : "f-chip-low"}`} style={{ fontSize: 9 }}>
+                            {sev}
+                          </span>
+                          {section.technique && (
+                            <span style={{
+                              fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                              color: "#a78bfa", background: "rgba(167,139,250,0.15)",
+                              fontFamily: "var(--font-mono)",
+                            }}>
+                              {section.technique}
+                            </span>
+                          )}
+                          {section.timeEstimate && (
+                            <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
+                              ~{section.timeEstimate}
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ fontSize: 12, color: "var(--falcon-t2)", lineHeight: 1.7, margin: 0 }}>
+                          {section.body || section.description || ""}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              // Fallback: build story from attack graph critical path
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {displayGraph?.criticalPath?.length ? (
+                  displayGraph.criticalPath.map((nodeId, idx) => {
+                    const node = displayGraph.nodes.find(n => n.id === nodeId);
+                    if (!node) return null;
+                    const sev = node.compromiseLevel === "admin" || node.compromiseLevel === "system" ? "critical"
+                      : node.compromiseLevel === "user" ? "high"
+                      : node.compromiseLevel === "limited" ? "medium" : "low";
+                    const sevC = sev === "critical" ? "var(--falcon-red)" : sev === "high" ? "var(--falcon-orange)" : sev === "medium" ? "var(--falcon-yellow)" : "var(--falcon-green)";
+                    const sevBg = sev === "critical" ? "rgba(239,68,68,0.07)" : sev === "high" ? "rgba(249,115,22,0.07)" : sev === "medium" ? "rgba(234,179,8,0.07)" : "rgba(34,197,94,0.07)";
+                    return (
+                      <div key={nodeId} style={{
+                        display: "flex",
+                        gap: 14,
+                        padding: "12px 14px",
+                        borderRadius: 8,
+                        border: `1px solid ${sevC}33`,
+                        background: sevBg,
+                      }}>
+                        <div style={{
+                          width: 26, height: 26, borderRadius: "50%",
+                          border: `2px solid ${sevC}`,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          flexShrink: 0, fontSize: 11, fontWeight: 700, color: sevC,
+                        }}>
+                          {idx + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--falcon-t1)" }}>{node.label}</span>
+                            <span className={`f-chip ${sev === "critical" ? "f-chip-crit" : sev === "high" ? "f-chip-high" : sev === "medium" ? "f-chip-med" : "f-chip-low"}`} style={{ fontSize: 9 }}>
+                              {sev}
+                            </span>
+                            {node.tactic && (
+                              <span style={{
+                                fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                                color: "#a78bfa", background: "rgba(167,139,250,0.15)",
+                                fontFamily: "var(--font-mono)",
+                              }}>
+                                {node.tactic.replace(/-/g, " ")}
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ fontSize: 12, color: "var(--falcon-t2)", lineHeight: 1.6, margin: 0 }}>
+                            {node.description || "No description available."}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>No attack path data available yet.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {tab === "summary" && chain.executiveSummary && (

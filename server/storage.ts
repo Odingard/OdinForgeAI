@@ -175,6 +175,7 @@ import {
   type InsertMetricsHistory,
   // Cross-Domain Breach Chains
   breachChains,
+  type AttackGraph,
   type BreachChain,
   type InsertBreachChain,
   // Evaluation History (drift detection)
@@ -247,6 +248,7 @@ export interface IStorage {
   getBreachChain(id: string): Promise<BreachChain | undefined>;
   getBreachChains(organizationId?: string): Promise<BreachChain[]>;
   updateBreachChain(id: string, updates: Partial<BreachChain>): Promise<void>;
+  updateBreachChainGraph(chainId: string, graph: AttackGraph): Promise<BreachChain | undefined>;
   deleteBreachChain(id: string): Promise<void>;
 
   // Live Scan Result operations
@@ -1902,6 +1904,15 @@ export class DatabaseStorage implements IStorage {
       .update(breachChains)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(breachChains.id, id));
+  }
+
+  async updateBreachChainGraph(chainId: string, graph: AttackGraph): Promise<BreachChain | undefined> {
+    const [updated] = await db
+      .update(breachChains)
+      .set({ unifiedAttackGraph: graph, updatedAt: new Date() })
+      .where(eq(breachChains.id, chainId))
+      .returning();
+    return updated;
   }
 
   async deleteBreachChain(id: string): Promise<void> {

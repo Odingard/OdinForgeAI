@@ -50,6 +50,7 @@ import { AGENT_RELEASE, INSTALLATION_INSTRUCTIONS } from "@shared/agent-releases
 import { fullRecon, reconToExposures, type ReconResult } from "./services/external-recon";
 import { runFullAssessment } from "./services/full-assessment";
 import { runBreachChain, resumeBreachChain, abortBreachChain } from "./services/breach-orchestrator";
+import { generateNarrative } from "./services/breach-chain/narrative-generator";
 import { runActiveExploitEngine, type ActiveExploitTarget } from "./services/active-exploit-engine";
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
@@ -7492,6 +7493,92 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get breach chain error:", error);
       res.status(500).json({ error: "Failed to fetch breach chain" });
+    }
+  });
+
+  // Narrative generator — plain-English attack story from a completed breach chain
+  app.get("/api/breach-chains/:id/narrative", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (chain.status !== "completed") {
+        return res.status(400).json({ error: "Chain must be completed to generate narrative" });
+      }
+      if (!chain.unifiedAttackGraph) {
+        return res.status(400).json({ error: "No attack graph available" });
+      }
+      const narrative = generateNarrative(chain.unifiedAttackGraph, chain.name, chain.name);
+      res.json({ narrative });
+    } catch (error) {
+      console.error("Narrative generation error:", error);
+      res.status(500).json({ error: "Failed to generate narrative" });
+    }
+  });
+
+  // Remediation tracking — update a node's remediation status within a breach chain
+  app.post("/api/breach-chains/:id/nodes/:nodeId/remediate", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { id, nodeId } = req.params;
+      const { status, notes, remediatedBy } = req.body as {
+        status: "in_progress" | "verified_fixed" | "accepted_risk";
+        notes?: string;
+        remediatedBy?: string;
+      };
+
+      if (!status || !["in_progress", "verified_fixed", "accepted_risk"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status. Must be in_progress, verified_fixed, or accepted_risk" });
+      }
+
+      const chain = await storage.getBreachChain(id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (!chain.unifiedAttackGraph) {
+        return res.status(400).json({ error: "No attack graph available" });
+      }
+
+      const graph = chain.unifiedAttackGraph;
+      const nodeIndex = graph.nodes.findIndex((n) => n.id === nodeId);
+      if (nodeIndex === -1) {
+        return res.status(404).json({ error: `Node ${nodeId} not found in attack graph` });
+      }
+
+      // Update the node in-place
+      const updatedNodes = [...graph.nodes];
+      updatedNodes[nodeIndex] = {
+        ...updatedNodes[nodeIndex],
+        remediationStatus: status,
+        remediatedAt: new Date().toISOString(),
+        remediatedBy: remediatedBy ?? req.uiUser?.email ?? "unknown",
+        remediationNotes: notes,
+      };
+      const updatedGraph = { ...graph, nodes: updatedNodes };
+
+      const updated = await storage.updateBreachChainGraph(id, updatedGraph);
+
+      // Broadcast WebSocket event so clients see the update immediately
+      wsService.broadcastToChannel(`breach_chain:${chain.organizationId}`, {
+        type: "node_remediation_update",
+        chainId: id,
+        nodeId,
+        status,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Compute progress: how many critical path nodes are now verified_fixed
+      const criticalPathNodes = graph.criticalPath
+        .map((nid) => updatedNodes.find((n) => n.id === nid))
+        .filter(Boolean);
+      const fixed = criticalPathNodes.filter((n) => n?.remediationStatus === "verified_fixed").length;
+      const total = criticalPathNodes.length;
+
+      res.json({
+        success: true,
+        nodeId,
+        status,
+        criticalPathProgress: { fixed, total },
+      });
+    } catch (error) {
+      console.error("Node remediation error:", error);
+      res.status(500).json({ error: "Failed to update node remediation status" });
     }
   });
 

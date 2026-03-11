@@ -31,6 +31,7 @@ interface LayoutNode {
   isSatellite: boolean;     // true = finding node shown as small satellite
   collapsedCount: number;   // number of hidden children (for "+N" badge)
   radius: number;           // render size
+  remediationStatus?: "open" | "in_progress" | "verified_fixed" | "accepted_risk";
 }
 
 interface LayoutEdge {
@@ -303,6 +304,7 @@ function makeLayoutNode(
     isSatellite,
     collapsedCount,
     radius,
+    remediationStatus: node.remediationStatus,
   };
 }
 
@@ -577,12 +579,26 @@ export function LiveBreachChainGraph({
         const nodeOpacity = nodeOpacitiesRef.current.get(node.id) ?? 1;
         const r = isHovered ? node.radius + 4 : node.radius;
 
+        // Remediation override colors
+        const remStatus = node.remediationStatus;
+        const remFill = remStatus === "verified_fixed" ? "#22c55e"
+          : remStatus === "in_progress" ? "#eab308"
+          : remStatus === "accepted_risk" ? "#6b7280"
+          : null;
+        const remPulse = remStatus === "in_progress"
+          ? 0.5 + Math.sin(t * 4) * 0.5   // 0..1 oscillation for pulsing outline
+          : 1;
+        const remIcon = remStatus === "verified_fixed" ? "\u2713"
+          : remStatus === "accepted_risk" ? "\u2717"
+          : null;
+
         ctx!.save();
         ctx!.globalAlpha = nodeOpacity * 0.8;
 
         // Subtle glow
+        const glowColor = remFill ? `${remFill}44` : colors.glow;
         const gradient = ctx!.createRadialGradient(node.x, node.y, r * 0.3, node.x, node.y, r * 1.8);
-        gradient.addColorStop(0, colors.glow);
+        gradient.addColorStop(0, glowColor);
         gradient.addColorStop(1, "transparent");
         ctx!.fillStyle = gradient;
         ctx!.beginPath();
@@ -592,18 +608,20 @@ export function LiveBreachChainGraph({
         // Node circle
         ctx!.beginPath();
         ctx!.arc(node.x, node.y, r, 0, Math.PI * 2);
-        ctx!.fillStyle = colors.bg;
+        ctx!.fillStyle = remFill ?? colors.bg;
         ctx!.fill();
-        ctx!.strokeStyle = colors.border;
+        ctx!.strokeStyle = remStatus === "in_progress"
+          ? `rgba(234,179,8,${remPulse})`
+          : remFill ?? colors.border;
         ctx!.lineWidth = isHovered ? 1.5 : 0.8;
         ctx!.stroke();
 
-        // Small dot icon
-        ctx!.fillStyle = colors.border;
-        ctx!.font = "8px sans-serif";
+        // Remediation icon or default dot icon
+        ctx!.fillStyle = remFill ? "#fff" : colors.border;
+        ctx!.font = remIcon ? "bold 9px sans-serif" : "8px sans-serif";
         ctx!.textAlign = "center";
         ctx!.textBaseline = "middle";
-        ctx!.fillText("\u25CF", node.x, node.y);
+        ctx!.fillText(remIcon ?? "\u25CF", node.x, node.y);
 
         // Label (only when hovered)
         if (isHovered) {
@@ -638,12 +656,26 @@ export function LiveBreachChainGraph({
         const pulse = 1 + Math.sin(t * 2 + idx) * 0.04;
         const r = (isHovered ? node.radius + 6 : node.radius) * pulse;
 
+        // Remediation override colors
+        const remStatus = node.remediationStatus;
+        const remFill = remStatus === "verified_fixed" ? "#22c55e"
+          : remStatus === "in_progress" ? "#eab308"
+          : remStatus === "accepted_risk" ? "#6b7280"
+          : null;
+        const remPulse = remStatus === "in_progress"
+          ? 0.4 + Math.abs(Math.sin(t * 4)) * 0.6
+          : 1;
+        const remIcon = remStatus === "verified_fixed" ? "\u2713"
+          : remStatus === "accepted_risk" ? "\u2717"
+          : null;
+
         ctx!.save();
         ctx!.globalAlpha = nodeOpacity;
 
         // Outer glow
+        const glowColor = remFill ? `${remFill}55` : colors.glow;
         const gradient = ctx!.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, r * 2.5);
-        gradient.addColorStop(0, colors.glow);
+        gradient.addColorStop(0, glowColor);
         gradient.addColorStop(1, "transparent");
         ctx!.fillStyle = gradient;
         ctx!.beginPath();
@@ -653,18 +685,20 @@ export function LiveBreachChainGraph({
         // Node circle
         ctx!.beginPath();
         ctx!.arc(node.x, node.y, r, 0, Math.PI * 2);
-        ctx!.fillStyle = colors.bg;
+        ctx!.fillStyle = remFill ? `${remFill}33` : colors.bg;
         ctx!.fill();
-        ctx!.strokeStyle = colors.border;
+        ctx!.strokeStyle = remStatus === "in_progress"
+          ? `rgba(234,179,8,${remPulse})`
+          : remFill ?? colors.border;
         ctx!.lineWidth = isHovered ? 2.5 : 1.5;
         ctx!.stroke();
 
-        // Node icon
-        ctx!.fillStyle = colors.border;
+        // Node icon — remediation overrides default icon
+        ctx!.fillStyle = remFill ?? colors.border;
         ctx!.font = `${isHovered ? 16 : 14}px sans-serif`;
         ctx!.textAlign = "center";
         ctx!.textBaseline = "middle";
-        ctx!.fillText(NODE_ICONS[node.nodeType] || "\u25CF", node.x, node.y);
+        ctx!.fillText(remIcon ?? NODE_ICONS[node.nodeType] ?? "\u25CF", node.x, node.y);
 
         // Node label
         ctx!.font = "bold 11px 'Sora', sans-serif";

@@ -686,6 +686,10 @@ export const attackNodeSchema = z.object({
   compromiseLevel: z.enum(["none", "limited", "user", "admin", "system"]),
   assets: z.array(z.string()).optional(),
   discoveredBy: z.enum(["recon", "exploit", "lateral", "business-logic", "impact"]).optional(),
+  remediationStatus: z.enum(["open", "in_progress", "verified_fixed", "accepted_risk"]).optional(),
+  remediatedAt: z.string().optional(),
+  remediatedBy: z.string().optional(),
+  remediationNotes: z.string().optional(),
 });
 
 // Attack Graph Edge - represents a technique/transition between nodes
