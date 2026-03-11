@@ -45,6 +45,17 @@ function statusText(status: string | undefined) {
   return "f-st-queue";
 }
 
+function safeDate(val: string | undefined | null): Date | null {
+  if (!val) return null;
+  const d = new Date(val);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function safeDistanceToNow(val: string | undefined | null): string {
+  const d = safeDate(val);
+  return d ? formatDistanceToNow(d, { addSuffix: true }) : "—";
+}
+
 function sevChip(severity: string) {
   if (severity === "critical") return "f-chip f-chip-crit";
   if (severity === "high") return "f-chip f-chip-high";
@@ -74,7 +85,7 @@ export default function LiveScans() {
   const activeScans = scans.filter(s => s.status === "running").length;
   const completedToday = scans.filter(s =>
     s.status === "completed" &&
-    new Date(s.startTime).toDateString() === new Date().toDateString()
+    (safeDate(s.startTime)?.toDateString() ?? "") === new Date().toDateString()
   ).length;
   const totalFindings = scans.reduce((sum, s) => sum + (s.findingsCount || 0), 0);
   const criticalFindings = scans.reduce((sum, s) => sum + (s.criticalFindings || 0), 0);
@@ -148,7 +159,7 @@ export default function LiveScans() {
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 10, color: "var(--falcon-t4)" }}>
                       <span>{scan.targetCount} targets</span>
-                      <span>Started {formatDistanceToNow(new Date(scan.startTime), { addSuffix: true })}</span>
+                      <span>Started {safeDistanceToNow(scan.startTime)}</span>
                     </div>
                   </div>
                 ))}
@@ -209,7 +220,7 @@ export default function LiveScans() {
                         )}
                       </div>
                       <div className="f-td" style={{ fontSize: 11 }}>
-                        {formatDistanceToNow(new Date(scan.startTime), { addSuffix: true })}
+                        {safeDistanceToNow(scan.startTime)}
                       </div>
                       <div>
                         <button className="f-btn f-btn-ghost" style={{ fontSize: 10, padding: "2px 8px" }}
@@ -300,9 +311,9 @@ export default function LiveScans() {
                   <div style={{ color: "var(--falcon-t3)" }}>Type: <span style={{ color: "var(--falcon-t1)", fontWeight: 600 }}>{selectedScan.type}</span></div>
                   <div style={{ color: "var(--falcon-t3)" }}>Status: <span className={statusText(selectedScan.status ?? "")}>{(selectedScan.status ?? "unknown").toUpperCase()}</span></div>
                   <div style={{ color: "var(--falcon-t3)" }}>Targets: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.targetCount}</span></div>
-                  <div style={{ color: "var(--falcon-t3)" }}>Started: <span style={{ color: "var(--falcon-t1)" }}>{new Date(selectedScan.startTime).toLocaleString()}</span></div>
+                  <div style={{ color: "var(--falcon-t3)" }}>Started: <span style={{ color: "var(--falcon-t1)" }}>{safeDate(selectedScan.startTime)?.toLocaleString() ?? "—"}</span></div>
                   {selectedScan.endTime && (
-                    <div style={{ color: "var(--falcon-t3)" }}>Completed: <span style={{ color: "var(--falcon-t1)" }}>{new Date(selectedScan.endTime).toLocaleString()}</span></div>
+                    <div style={{ color: "var(--falcon-t3)" }}>Completed: <span style={{ color: "var(--falcon-t1)" }}>{safeDate(selectedScan.endTime)?.toLocaleString() ?? "—"}</span></div>
                   )}
                 </div>
               )}
