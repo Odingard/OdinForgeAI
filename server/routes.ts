@@ -188,6 +188,16 @@ export async function registerRoutes(
   // Note: Health endpoints intentionally excluded from rate limiting to ensure
   // Kubernetes probes, load balancer checks, and monitoring systems always succeed.
   // These endpoints return minimal data and pose negligible abuse risk.
+  // Public feature flags endpoint — exposes server-side env flags to the browser
+  app.get("/api/flags", (_req, res) => {
+    const { BREACH_ENHANCEMENT_FLAGS } = require("../shared/schema");
+    const flags: Record<string, boolean> = {};
+    for (const flag of Object.values(BREACH_ENHANCEMENT_FLAGS) as string[]) {
+      flags[flag] = process.env[flag] === "true" || process.env[flag] === "1";
+    }
+    res.json(flags);
+  });
+
   app.get("/healthz", (_req, res) => {
     res.status(200).json({
       ok: true,

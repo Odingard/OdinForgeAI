@@ -48,6 +48,17 @@ services:
       CLOUD_CREDENTIALS_KEY: ${CLOUD_CREDENTIALS_KEY:-}
       REPORTS_V2_NARRATIVE: ${REPORTS_V2_NARRATIVE:-true}
       DISABLE_WORKER: "true"
+      # Breach Chain Enhancement v1.0 feature flags
+      BREACH_CHAIN_ENRICHED_NODES: "true"
+      BREACH_CHAIN_NODE_TOOLTIP: "true"
+      BREACH_CHAIN_NODE_DRILLDOWN: "true"
+      BREACH_CHAIN_SUB_AGENT_ENGINE: "true"
+      BREACH_CHAIN_CREDENTIAL_BUS: "true"
+      BREACH_CHAIN_ATTACK_ENGINE: "true"
+      BREACH_CHAIN_ATTACK_HEATMAP: "true"
+      BREACH_CHAIN_CREDENTIAL_WEB: "true"
+      BREACH_CHAIN_DEFENSE_GAP: "true"
+      BREACH_CHAIN_ENGAGEMENT_CONFIG: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -81,6 +92,11 @@ services:
       STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
       STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
       STORAGE_FORCE_PATH_STYLE: "true"
+      # Breach Chain Enhancement v1.0 feature flags
+      BREACH_CHAIN_ENRICHED_NODES: "true"
+      BREACH_CHAIN_SUB_AGENT_ENGINE: "true"
+      BREACH_CHAIN_CREDENTIAL_BUS: "true"
+      BREACH_CHAIN_ATTACK_ENGINE: "true"
     depends_on:
       postgres:
         condition: service_healthy

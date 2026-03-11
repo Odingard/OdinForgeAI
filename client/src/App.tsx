@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense, Component } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense, Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { Switch, Route, useLocation, Redirect, Link } from "wouter";
 import { queryClient } from "./lib/queryClient";
@@ -460,6 +460,16 @@ function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useUIAuth();
   const [, forceUpdate] = useState(0);
   const [location] = useLocation();
+
+  // Fetch server-side feature flags once on mount and expose to client
+  useEffect(() => {
+    fetch("/api/flags")
+      .then(r => r.ok ? r.json() : {})
+      .then((flags: Record<string, boolean>) => {
+        (window as any).__ODINFORGE_FLAGS__ = flags;
+      })
+      .catch(() => {});
+  }, []);
 
   const handleAuthSuccess = useCallback(() => {
     forceUpdate(x => x + 1);
