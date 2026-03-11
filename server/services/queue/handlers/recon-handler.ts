@@ -13,7 +13,7 @@ import { governanceEnforcement } from "../../governance/governance-enforcement";
 import {
   analyzeDns, analyzeSubdomains, analyzePorts, analyzeSslTls,
   analyzeHeaders, analyzeTech, analyzeWaf, analyzeApiEndpoints,
-  checkEndpoint,
+  checkEndpoint, fingerprintSubdomains, extractSecretsFromSubdomains,
 } from "../../recon/index";
 import type { FullReconResult } from "../../recon/index";
 import type { SubdomainEnumResult, PortScanResult } from "../../recon/types";
@@ -219,14 +219,36 @@ export async function handleReconScanJob(
 
     console.log(`[ReconScan] Phase 3 done: ${endpointChecks.length} endpoints checked`);
 
+    // ── Phase 3.5: Tech Fingerprinting + Secret Extraction ─────────────
+    const aliveSubdomains = subdomains.subdomains.filter(s => s.isAlive);
+
+    emitScanProgress(tenantId, organizationId, scanId, evaluationId, {
+      phase: "fingerprinting",
+      progress: 58,
+      message: `Fingerprinting ${aliveSubdomains.length} live subdomains for tech stack + secrets...`,
+    });
+
+    const [techFingerprints, extractedSecrets] = await Promise.all([
+      aliveSubdomains.length > 0
+        ? fingerprintSubdomains(aliveSubdomains, 10)
+        : Promise.resolve(new Map()),
+      aliveSubdomains.length > 0
+        ? extractSecretsFromSubdomains(aliveSubdomains, 5)
+        : Promise.resolve(new Map()),
+    ]);
+
+    const totalFingerprints = Array.from(techFingerprints.values()).reduce((sum: number, fps: unknown[]) => sum + fps.length, 0);
+    const totalSecrets = Array.from(extractedSecrets.values()).reduce((sum: number, secs: unknown[]) => sum + secs.length, 0);
+    console.log(`[ReconScan] Phase 3.5: ${totalFingerprints} tech fingerprints, ${totalSecrets} secrets extracted`);
+
     // Assemble the FullReconResult
     const reconResult: FullReconResult = {
       target: { host },
       timestamp: new Date().toISOString(),
       duration: Date.now() - startTime,
       dns, subdomains, ports, ssl, headers, tech, waf,
-      techFingerprints: new Map(),
-      extractedSecrets: new Map(),
+      techFingerprints,
+      extractedSecrets,
       apiDiscovery,
       endpointChecks,
       summary: buildSummary(endpointChecks, ssl, headers),
