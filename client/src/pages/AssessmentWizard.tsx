@@ -495,7 +495,7 @@ function StepLaunch({ state, isLaunching }: { state: WizardState; isLaunching: b
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Execution Mode</span>
             <Badge variant="outline" className={modeColors[state.executionMode]}>
-              {state.executionMode.charAt(0).toUpperCase() + state.executionMode.slice(1)}
+              {state.executionMode ? state.executionMode.charAt(0).toUpperCase() + state.executionMode.slice(1) : ""}
             </Badge>
           </div>
 

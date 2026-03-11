@@ -56,7 +56,7 @@ export function BusinessLogicFindingsPanel({ findings }: BusinessLogicFindingsPa
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <h4 className="font-semibold text-foreground">{finding.title}</h4>
                     <Badge className={severityColors[finding.severity]}>
-                      {finding.severity.toUpperCase()}
+                      {(finding.severity ?? "info").toUpperCase()}
                     </Badge>
                     <Badge variant="outline" className="text-xs">
                       {categoryLabels[finding.category] || finding.category}

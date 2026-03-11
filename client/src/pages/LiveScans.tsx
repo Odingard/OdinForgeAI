@@ -283,7 +283,7 @@ export default function LiveScans() {
                     <div className="f-tbl-body" style={{ maxHeight: 400 }}>
                       {scanFindings.map(finding => (
                         <div key={finding.id} className="f-tbl-row" style={{ gridTemplateColumns: FINDINGS_COLS }}>
-                          <div><span className={sevChip(finding.severity)}>{finding.severity.toUpperCase()}</span></div>
+                          <div><span className={sevChip(finding.severity ?? "info")}>{(finding.severity ?? "info").toUpperCase()}</span></div>
                           <div>
                             <div className="f-td n">{finding.title}</div>
                             {finding.cve && <div className="f-td sub">{finding.cve}</div>}

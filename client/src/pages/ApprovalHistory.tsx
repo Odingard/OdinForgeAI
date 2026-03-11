@@ -398,7 +398,7 @@ export default function ApprovalHistory() {
                     {item.respondedBy ? (
                       <div className="flex items-center gap-1">
                         <User className="h-3 w-3 text-muted-foreground" />
-                        {item.respondedBy.split("@")[0]}
+                        {item.respondedBy?.split("@")[0] ?? "—"}
                       </div>
                     ) : (
                       "—"

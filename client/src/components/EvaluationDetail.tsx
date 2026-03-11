@@ -279,7 +279,7 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                     ? "bg-red-500/10 text-red-400 border-red-500/30"
                     : "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                 } data-testid="badge-execution-mode">
-                  {evaluation.executionMode === "simulation" ? "AI SIMULATION" : evaluation.executionMode.toUpperCase()}
+                  {evaluation.executionMode === "simulation" ? "AI SIMULATION" : (evaluation.executionMode ?? "").toUpperCase()}
                 </Badge>
               )}
             </div>
@@ -377,7 +377,7 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                     Exposure Type
                   </label>
                   <Badge className="bg-blue-500/10 text-blue-400 border-blue-500/30">
-                    {evaluation.exposureType.replace("_", " ").toUpperCase()}
+                    {(evaluation.exposureType ?? "").replace("_", " ").toUpperCase()}
                   </Badge>
                 </div>
                 <div>
@@ -385,7 +385,7 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                     Severity
                   </label>
                   <Badge className={getSeverityBadge(evaluation.priority)}>
-                    {evaluation.priority.toUpperCase()}
+                    {(evaluation.priority ?? "").toUpperCase()}
                   </Badge>
                 </div>
                 <div>
@@ -393,7 +393,7 @@ export function EvaluationDetail({ evaluation, onBack }: EvaluationDetailProps) 
                     Status
                   </label>
                   <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                    {evaluation.status.toUpperCase()}
+                    {(evaluation.status ?? "").toUpperCase()}
                   </Badge>
                 </div>
               </div>

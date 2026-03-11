@@ -349,6 +349,7 @@ export function LiveBreachChainGraph({
     const container = containerRef.current;
     if (!container) return;
     const ro = new ResizeObserver((entries) => {
+      if (!entries[0]) return;
       const { width, height } = entries[0].contentRect;
       const w = Math.max(width, 600);
       const h = Math.max(height, 500);

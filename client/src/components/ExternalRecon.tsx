@@ -1845,7 +1845,7 @@ function ExternalReconContent() {
                             results.result.attackReadiness.riskLevel === 'medium' ? 'bg-yellow-500' :
                             'bg-green-500'
                           }`}>
-                            {results.result.attackReadiness.riskLevel.toUpperCase()}
+                            {(results.result.attackReadiness.riskLevel ?? "unknown").toUpperCase()}
                           </Badge>
                         </CardContent>
                       </Card>
@@ -2477,7 +2477,7 @@ function ExternalReconContent() {
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
                               <Badge variant="outline" className={getSeverityColor(exposure.severity)}>
-                                {exposure.severity.toUpperCase()}
+                                {(exposure.severity ?? "info").toUpperCase()}
                               </Badge>
                               <span className="font-medium">{exposure.description}</span>
                             </div>

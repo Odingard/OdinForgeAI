@@ -230,7 +230,7 @@ export default function Assets() {
         exploitableCount: assetEvals.filter(e => e.exploitable).length,
         highestPriority: sorted[0]?.priority || "none",
         latestEvaluation: assetEvals.length > 0
-          ? assetEvals.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.createdAt
+          ? assetEvals.sort((a, b) => (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0))[0]?.createdAt
           : "",
         avgScore,
         exposureTypes: Array.from(new Set(assetEvals.map(e => e.exposureType))),
@@ -271,7 +271,7 @@ export default function Assets() {
         evaluationCount: evals.length,
         exploitableCount: evals.filter(e => e.exploitable).length,
         highestPriority: sorted[0]?.priority || "low",
-        latestEvaluation: evals.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]?.createdAt || "",
+        latestEvaluation: evals.sort((a, b) => (b.createdAt ? new Date(b.createdAt).getTime() : 0) - (a.createdAt ? new Date(a.createdAt).getTime() : 0))[0]?.createdAt || "",
         avgScore,
         exposureTypes: Array.from(new Set(evals.map(e => e.exposureType))),
       });

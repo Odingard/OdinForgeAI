@@ -137,8 +137,8 @@ export default function ScheduledScans() {
                   </div>
                   <div><span className="f-chip f-chip-gray">{scan.scanType.toUpperCase()}</span></div>
                   <div><code style={{ fontSize: 10, color: "var(--falcon-t2)", background: "var(--falcon-panel-2)", padding: "2px 6px", borderRadius: 3 }}>{scan.schedule}</code></div>
-                  <div className="f-td">{scan.nextRun ? formatDistanceToNow(new Date(scan.nextRun), { addSuffix: true }) : "—"}</div>
-                  <div className="f-td">{scan.lastRun ? formatDistanceToNow(new Date(scan.lastRun), { addSuffix: true }) : "Never"}</div>
+                  <div className="f-td">{scan.nextRun && !isNaN(new Date(scan.nextRun).getTime()) ? formatDistanceToNow(new Date(scan.nextRun), { addSuffix: true }) : "—"}</div>
+                  <div className="f-td">{scan.lastRun && !isNaN(new Date(scan.lastRun).getTime()) ? formatDistanceToNow(new Date(scan.lastRun), { addSuffix: true }) : "Never"}</div>
                   <div>
                     <button
                       className={`f-switch ${scan.enabled ? "on" : ""}`}
@@ -226,7 +226,7 @@ export default function ScheduledScans() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, marginBottom: 20 }}>
                 <div style={{ color: "var(--falcon-t3)" }}>Type: <span className="f-chip f-chip-gray" style={{ marginLeft: 4 }}>{selectedScan.scanType.toUpperCase()}</span></div>
                 <div style={{ color: "var(--falcon-t3)" }}>Frequency: <code style={{ fontSize: 10, color: "var(--falcon-t2)" }}>{selectedScan.schedule}</code></div>
-                <div style={{ color: "var(--falcon-t3)" }}>Next Run: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.nextRun ? formatDistanceToNow(new Date(selectedScan.nextRun), { addSuffix: true }) : "Not scheduled"}</span></div>
+                <div style={{ color: "var(--falcon-t3)" }}>Next Run: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.nextRun && !isNaN(new Date(selectedScan.nextRun).getTime()) ? formatDistanceToNow(new Date(selectedScan.nextRun), { addSuffix: true }) : "Not scheduled"}</span></div>
                 <div style={{ color: "var(--falcon-t3)" }}>Targets: <span style={{ color: "var(--falcon-t1)" }}>{selectedScan.targetIds.length}</span></div>
               </div>
 

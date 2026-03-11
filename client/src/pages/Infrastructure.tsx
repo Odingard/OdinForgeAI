@@ -1084,7 +1084,7 @@ function CloudConnectionCard({
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <Badge className={getSeverityBadge(finding.severity)}>
-                            {finding.severity.toUpperCase()}
+                            {(finding.severity ?? "info").toUpperCase()}
                           </Badge>
                           <span className="font-medium text-sm">{finding.title}</span>
                         </div>
@@ -1875,7 +1875,7 @@ export default function Infrastructure() {
                         </TableCell>
                         <TableCell>
                           <Badge className={getSeverityBadge(vuln.severity)}>
-                            {vuln.severity.toUpperCase()}
+                            {(vuln.severity ?? "info").toUpperCase()}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -2018,7 +2018,7 @@ export default function Infrastructure() {
                       <div className="flex gap-1 flex-wrap">
                         {(configDraft?.providers || autoDeployConfig?.providers || []).map(provider => (
                           <Badge key={provider} variant="outline" className="text-xs">
-                            {provider.toUpperCase()}
+                            {provider?.toUpperCase()}
                           </Badge>
                         ))}
                       </div>
@@ -2068,7 +2068,7 @@ export default function Infrastructure() {
                                   });
                                 }}
                               />
-                              {p.toUpperCase()}
+                              {p?.toUpperCase()}
                             </label>
                           ))}
                         </div>
@@ -2122,7 +2122,7 @@ export default function Infrastructure() {
                                   });
                                 }}
                               />
-                              {p.charAt(0).toUpperCase() + p.slice(1)}
+                              {p ? p.charAt(0).toUpperCase() + p.slice(1) : ""}
                             </label>
                           ))}
                         </div>

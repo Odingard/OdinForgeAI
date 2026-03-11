@@ -874,7 +874,7 @@ export default function Agents() {
                         <TableCell>{finding.affectedComponent || "-"}</TableCell>
                         <TableCell className="capitalize">{finding.status}</TableCell>
                         <TableCell>
-                          {formatDistanceToNow(new Date(finding.detectedAt), { addSuffix: true })}
+                          {finding.detectedAt && !isNaN(new Date(finding.detectedAt).getTime()) ? formatDistanceToNow(new Date(finding.detectedAt), { addSuffix: true }) : "—"}
                         </TableCell>
                         <TableCell>
                           {finding.autoEvaluationTriggered ? (
@@ -969,7 +969,7 @@ export default function Agents() {
                     <div className="text-right">
                       <p className="text-xs text-muted-foreground">Last Updated</p>
                       <p className="text-sm">
-                        {formatDistanceToNow(new Date(latestTelemetry.collectedAt), { addSuffix: true })}
+                        {latestTelemetry.collectedAt && !isNaN(new Date(latestTelemetry.collectedAt).getTime()) ? formatDistanceToNow(new Date(latestTelemetry.collectedAt), { addSuffix: true }) : "—"}
                       </p>
                     </div>
                   </div>
@@ -1301,7 +1301,7 @@ export default function Agents() {
                   </TableHeader>
                   <TableBody>
                     {enrollmentTokens.map((token) => {
-                      const isExpired = new Date(token.expiresAt) < new Date();
+                      const isExpired = token.expiresAt ? new Date(token.expiresAt) < new Date() : false;
                       return (
                         <TableRow key={token.id}>
                           <TableCell>
@@ -1319,10 +1319,10 @@ export default function Agents() {
                             )}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {formatDistanceToNow(new Date(token.expiresAt), { addSuffix: true })}
+                            {token.expiresAt && !isNaN(new Date(token.expiresAt).getTime()) ? formatDistanceToNow(new Date(token.expiresAt), { addSuffix: true }) : "—"}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
-                            {formatDistanceToNow(new Date(token.createdAt), { addSuffix: true })}
+                            {token.createdAt && !isNaN(new Date(token.createdAt).getTime()) ? formatDistanceToNow(new Date(token.createdAt), { addSuffix: true }) : "—"}
                           </TableCell>
                           <TableCell className="text-right">
                             {canManageAgent && !token.revoked && !isExpired && (
@@ -1491,7 +1491,7 @@ export default function Agents() {
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground">Registered</Label>
                   <p className="text-sm">
-                    {formatDistanceToNow(new Date(selectedAgent.registeredAt), { addSuffix: true })}
+                    {selectedAgent.registeredAt && !isNaN(new Date(selectedAgent.registeredAt).getTime()) ? formatDistanceToNow(new Date(selectedAgent.registeredAt), { addSuffix: true }) : "—"}
                   </p>
                 </div>
                 <div className="space-y-1 col-span-2">

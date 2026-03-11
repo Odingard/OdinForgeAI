@@ -431,12 +431,12 @@ export default function UserManagement() {
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground" data-testid={`text-created-${user.id}`}>
-                        {user.createdAt ? formatDistanceToNow(new Date(user.createdAt), { addSuffix: true }) : "-"}
+                        {user.createdAt && !isNaN(new Date(user.createdAt).getTime()) ? formatDistanceToNow(new Date(user.createdAt), { addSuffix: true }) : "-"}
                       </span>
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground" data-testid={`text-lastlogin-${user.id}`}>
-                        {user.lastLoginAt ? formatDistanceToNow(new Date(user.lastLoginAt), { addSuffix: true }) : "Never"}
+                        {user.lastLoginAt && !isNaN(new Date(user.lastLoginAt).getTime()) ? formatDistanceToNow(new Date(user.lastLoginAt), { addSuffix: true }) : "Never"}
                       </span>
                     </TableCell>
                     <TableCell className="text-right">

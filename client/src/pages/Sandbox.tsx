@@ -401,7 +401,7 @@ export default function Sandbox() {
                           selectedSubmission.verdict === "suspicious" ? "text-orange-500" :
                           "text-green-500"
                         }`}>
-                          {selectedSubmission.verdict.toUpperCase()}
+                          {(selectedSubmission.verdict ?? "").toUpperCase()}
                         </div>
                         {selectedSubmission.score !== undefined && (
                           <div>

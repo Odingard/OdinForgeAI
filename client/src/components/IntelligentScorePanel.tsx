@@ -58,24 +58,24 @@ export function IntelligentScorePanel({ score }: IntelligentScorePanelProps) {
         <div className="flex items-center gap-4">
           <div className="relative">
             <div className="w-20 h-20 rounded-full border-4 border-muted flex items-center justify-center">
-              <span className="text-2xl font-bold text-foreground">{score.riskRank.overallScore}</span>
+              <span className="text-2xl font-bold text-foreground">{score?.riskRank?.overallScore}</span>
             </div>
             <div className="absolute -bottom-1 -right-1">
-              {getTrendIcon(score.riskRank.trendIndicator)}
+              {getTrendIcon(score?.riskRank?.trendIndicator)}
             </div>
           </div>
           <div>
-            <Badge className={getRiskLevelColor(score.riskRank.riskLevel)}>
-              {score.riskRank.riskLevel.toUpperCase()}
+            <Badge className={getRiskLevelColor(score?.riskRank?.riskLevel ?? "")}>
+              {(score?.riskRank?.riskLevel ?? "").toUpperCase()}
             </Badge>
-            <p className="text-lg font-semibold text-foreground mt-1">{score.riskRank.executiveLabel}</p>
-            <p className="text-sm text-muted-foreground">Fix Priority: #{score.riskRank.fixPriority}</p>
+            <p className="text-lg font-semibold text-foreground mt-1">{score?.riskRank?.executiveLabel}</p>
+            <p className="text-sm text-muted-foreground">Fix Priority: #{score?.riskRank?.fixPriority}</p>
           </div>
         </div>
         <div className="text-right">
           <Badge className="bg-cyan-500/10 text-cyan-400 border-cyan-500/30 gap-1">
             <Clock className="h-3 w-3" />
-            {getTimeframeLabel(score.riskRank.recommendation.timeframe)}
+            {getTimeframeLabel(score?.riskRank?.recommendation?.timeframe ?? "")}
           </Badge>
         </div>
       </div>
@@ -84,8 +84,8 @@ export function IntelligentScorePanel({ score }: IntelligentScorePanelProps) {
         <div className="flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-foreground">{score.riskRank.recommendation.action}</p>
-            <p className="text-sm text-muted-foreground mt-1">{score.riskRank.recommendation.justification}</p>
+            <p className="font-medium text-foreground">{score?.riskRank?.recommendation?.action}</p>
+            <p className="text-sm text-muted-foreground mt-1">{score?.riskRank?.recommendation?.justification}</p>
           </div>
         </div>
       </div>
@@ -159,27 +159,27 @@ export function IntelligentScorePanel({ score }: IntelligentScorePanelProps) {
                   </Badge>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {score.methodology.includes("EPSS") && (
+                  {score.methodology?.includes("EPSS") && (
                     <Badge className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/30">
-                      {score.methodology.match(/EPSS [^|]*/)?.[0] || "EPSS"}
+                      {score.methodology?.match(/EPSS [^|]*/)?.[0] || "EPSS"}
                     </Badge>
                   )}
-                  {score.methodology.includes("CVSS") && (
+                  {score.methodology?.includes("CVSS") && (
                     <Badge className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
-                      {score.methodology.match(/CVSS [^|]*/)?.[0] || "CVSS"}
+                      {score.methodology?.match(/CVSS [^|]*/)?.[0] || "CVSS"}
                     </Badge>
                   )}
-                  {score.methodology.includes("CISA KEV") && (
+                  {score.methodology?.includes("CISA KEV") && (
                     <Badge className="text-xs bg-red-500/10 text-red-400 border-red-500/30">
                       CISA KEV
                     </Badge>
                   )}
-                  {score.methodology.includes("[Ransomware]") && (
+                  {score.methodology?.includes("[Ransomware]") && (
                     <Badge className="text-xs bg-red-600/10 text-red-300 border-red-600/30">
                       Known Ransomware
                     </Badge>
                   )}
-                  {!score.methodology.includes("EPSS") && !score.methodology.includes("CISA KEV") && (
+                  {!score.methodology?.includes("EPSS") && !score.methodology?.includes("CISA KEV") && (
                     <span className="text-xs text-muted-foreground">No external threat intel enrichment</span>
                   )}
                 </div>

@@ -90,7 +90,7 @@ export default function Sessions() {
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
             <span className="text-xs font-bold text-white">
-              {session.username.charAt(0).toUpperCase()}
+              {(session.username ?? "U").charAt(0).toUpperCase()}
             </span>
           </div>
           <span className="font-medium">{session.username}</span>
