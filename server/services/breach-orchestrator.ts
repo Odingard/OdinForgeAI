@@ -37,6 +37,18 @@ import { kubernetesPentestService } from "./container-security/kubernetes-pentes
 import { lateralMovementService } from "./lateral-movement";
 import { storage } from "../storage";
 import { wsService } from "./websocket";
+import { getCredentialBus } from "./aev/credential-bus";
+import type { HarvestedCredential } from "./aev/credential-bus";
+
+// ── ATT&CK technique IDs exercised per breach phase ──────────────────────────
+const PHASE_ATTACK_TECHNIQUES: Record<string, string[]> = {
+  application_compromise: ["T1190", "T1059.001", "T1203", "T1071.001"],
+  credential_extraction:  ["T1003", "T1552", "T1555", "T1040"],
+  cloud_iam_escalation:   ["T1078.004", "T1484.001", "T1098", "T1580"],
+  container_k8s_breakout: ["T1611", "T1610", "T1543.003", "T1609"],
+  lateral_movement:       ["T1021.001", "T1550.002", "T1563.002", "T1570"],
+  impact_assessment:      ["T1486", "T1485", "T1565.001", "T1560"],
+};
 
 // ============================================================================
 // TYPES
@@ -302,6 +314,21 @@ export async function runBreachChain(
       // Merge output context
       if (phaseResult.status === "completed") {
         context = mergeContexts(context, phaseResult.outputContext);
+
+        // Publish newly discovered credentials to the CredentialBus
+        for (const cred of phaseResult.outputContext.credentials) {
+          getCredentialBus().publish(chainId, {
+            id: cred.id,
+            engagementId: chainId,
+            username: cred.username || cred.type,
+            hash: cred.valueHash,
+            privilegeTier: cred.accessLevel === "admin" ? "local_admin" : "standard_user",
+            sourceSystem: cred.source || phaseName,
+            sourceNodeId: `breach-${phaseName}`,
+            sourceTactic: phaseDef.displayName,
+            discoveredAt: cred.discoveredAt || new Date().toISOString(),
+          });
+        }
       }
 
       // Build incremental attack graph from all completed results so far
@@ -1845,6 +1872,34 @@ function buildUnifiedAttackGraph(
     const phaseAssets = phase.outputContext.compromisedAssets.map(a => a.name);
     const phaseTactic = tacticMap[phase.phaseName] as AttackNode["tactic"] || "execution";
     const phaseCompromise = compromiseMap[phase.phaseName] || "limited";
+
+    // Build node artifacts from phase output
+    const phaseAtkIds = (PHASE_ATTACK_TECHNIQUES[phase.phaseName] || []);
+    const phaseNodeCredentials = phase.outputContext.credentials
+      .filter(c => !!c.username)
+      .map(c => ({
+        username: c.username!,
+        hash: c.valueHash,
+        privilegeTier: (c.accessLevel === "admin" ? "local_admin" : "standard_user") as "local_admin" | "standard_user",
+        sourceSystem: c.source || phase.phaseName,
+      }));
+    const defensesFired: string[] = [];
+    const defensesMissed: string[] = phase.findings
+      .filter(f => f.severity === "critical" || f.severity === "high")
+      .map(f => f.technique || f.title)
+      .filter(Boolean) as string[];
+
+    const phaseArtifacts = {
+      hostname: phase.outputContext.compromisedAssets[0]?.name,
+      credentials: phaseNodeCredentials.length > 0 ? phaseNodeCredentials : undefined,
+      attackTechniqueId: phaseAtkIds[0],
+      attackTechniqueName: PHASE_DEFINITIONS[phase.phaseName].displayName,
+      procedure: PHASE_DEFINITIONS[phase.phaseName].description,
+      defensesFired: defensesFired.length > 0 ? defensesFired : undefined,
+      defensesMissed: defensesMissed.length > 0 ? defensesMissed : undefined,
+      discoveredAt: phase.startedAt,
+    };
+
     nodes.push({
       id: phaseNodeId,
       label: PHASE_DEFINITIONS[phase.phaseName].displayName,
@@ -1855,6 +1910,7 @@ function buildUnifiedAttackGraph(
       assets: phaseAssets,
       discoveredBy: "exploit",
       businessImpact: deriveBusinessImpact(phaseTactic, phaseCompromise, phaseAssets, PHASE_DEFINITIONS[phase.phaseName].displayName),
+      artifacts: phaseArtifacts,
     });
 
     // Derive complexity from phase findings
@@ -1908,6 +1964,13 @@ function buildUnifiedAttackGraph(
         compromiseLevel: findingCompromise,
         discoveredBy: "exploit",
         businessImpact: deriveBusinessImpact(findingTactic, findingCompromise, [], finding.title),
+        artifacts: {
+          attackTechniqueId: (finding as any).mitreId || phaseAtkIds[0],
+          attackTechniqueName: finding.technique || finding.title,
+          procedure: finding.description,
+          defensesMissed: [finding.technique || finding.title].filter(Boolean),
+          discoveredAt: phase.startedAt,
+        },
       });
 
       // Finding-level timeEstimate by severity
@@ -2106,6 +2169,13 @@ function buildPhaseResult(
     system: "system",
   };
 
+  // Derive ATT&CK technique IDs for this phase — include per-phase baseline + any
+  // technique IDs explicitly referenced in findings
+  const attackTechniqueIds = [
+    ...(PHASE_ATTACK_TECHNIQUES[phaseName] || []),
+    ...output.findings.map(f => f.mitreId).filter(Boolean),
+  ].filter((v, i, arr) => arr.indexOf(v) === i); // dedup
+
   return {
     phaseName,
     status: "completed",
@@ -2124,7 +2194,8 @@ function buildPhaseResult(
       evidenceArtifacts: [],
       currentPrivilegeLevel: privilegeMap[maxAssetAccess] || "none",
       domainsCompromised,
-    },
+      attackTechniqueIds,
+    } as BreachPhaseContext & { attackTechniqueIds: string[] },
     evaluationIds: output.evaluationIds,
     findings: output.findings,
   };

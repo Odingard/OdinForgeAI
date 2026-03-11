@@ -83,9 +83,13 @@ export function EngagementConfigModal({
 
   const { mutate: saveConfig, isPending } = useMutation({
     mutationFn: async (cfg: EngagementConfig) => {
+      const accessToken = localStorage.getItem("odinforge_access_token");
       const res = await fetch(`/api/breach-chains/${breachChainId}/config`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { "Authorization": `Bearer ${accessToken}` } : {}),
+        },
         credentials: "include",
         body: JSON.stringify({
           engagement: {
