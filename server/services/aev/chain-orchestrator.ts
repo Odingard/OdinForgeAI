@@ -12,6 +12,7 @@ import { ValidatingHttpClient, type ValidationContext } from "../validation/vali
 import { executionModeEnforcer, type ExecutionMode } from "../validation/execution-modes";
 import { executeSandboxed, type SandboxedOperationType } from "../validation/sandbox-executor";
 import { auditService } from "../validation/audit-service";
+import { portScan } from "../external-recon";
 import type { ValidationVerdict, AevRunStopReason } from "@shared/schema";
 import { AevTelemetryRecorder } from "../aev-telemetry";
 
@@ -2238,26 +2239,35 @@ class PivotDiscoveryHandler implements StepHandler {
   async execute(step: PlaybookStep, context: ChainExecutionContext, _httpClient: ValidatingHttpClient, _signal: AbortSignal): Promise<StepResult> {
     const startTime = Date.now();
     try {
-      const knownHosts: string[] = (context as any).memory?.discoveredHosts || [];
+      // Extract real target hostname from chain context
+      let targetHost = context.target;
+      try { targetHost = new URL(context.target).hostname; } catch { /* use as-is */ }
 
-      // Simulate ARP scan of common private ranges
-      const simulatedHosts = knownHosts.length > 0
-        ? knownHosts
-        : [
-            "192.168.0.1", "192.168.0.10", "192.168.0.20", "192.168.0.100",
-            "10.0.0.1", "10.0.0.5", "10.0.0.50",
-          ];
+      // Real TCP port scan of the actual chain target
+      const scanPorts = [21, 22, 23, 25, 80, 443, 445, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 27017];
+      const openPorts = await portScan(targetHost, scanPorts);
 
-      const internalMap = simulatedHosts.map(host => ({
-        host,
-        openPorts: [22, 80, 443, 3306].filter(() => Math.random() > 0.4),
-        reachable: true,
-      }));
+      const discoveredHost = {
+        host: targetHost,
+        openPorts: openPorts.map(r => r.port),
+        services: openPorts.map(r => ({ port: r.port, banner: r.banner || "", service: r.service || "" })),
+        reachable: openPorts.length > 0,
+      };
 
       return {
         stepId: step.id, stepName: step.name,
-        status: "success", confidence: 70,
-        evidence: [{ type: "internal_network_map", data: JSON.stringify({ ranges: ["192.168.0.0/24", "10.0.0.0/24"], discoveredHosts: internalMap }), capturedAt: new Date() }],
+        status: discoveredHost.reachable ? "success" : "failed",
+        confidence: discoveredHost.reachable ? 85 : 10,
+        evidence: [{
+          type: "network_port_scan",
+          data: JSON.stringify({
+            target: targetHost,
+            openPorts: discoveredHost.openPorts,
+            services: discoveredHost.services,
+            scannedPorts: scanPorts.length,
+          }),
+          capturedAt: new Date(),
+        }],
         startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
       };
     } catch (error: any) {
@@ -2322,17 +2332,32 @@ class CronBackdoorHandler implements StepHandler {
         };
       }
 
-      const cronDirs = ["/etc/cron.d/", "/var/spool/cron/crontabs/"];
-      const writableSimulation = context.mode === "simulation" || context.mode === "live";
+      const cronDirs = ["/etc/cron.d/", "/var/spool/cron/crontabs/", "/etc/cron.hourly/"];
 
-      const evidence = writableSimulation
+      // Probe whether the target exposes any cron-related endpoints via HTTP
+      // (e.g. web shells, LFI, SSRF callbacks — indicators of cron write access)
+      let targetHost = context.target;
+      try { targetHost = new URL(context.target).hostname; } catch { /* use as-is */ }
+
+      // Check if target HTTP service responds (prerequisite for RCE-via-cron paths)
+      const httpReachable = await new Promise<boolean>((resolve) => {
+        const socket = require("net").createConnection({ host: targetHost, port: 80, timeout: 3000 });
+        const t = setTimeout(() => { socket.destroy(); resolve(false); }, 3000);
+        socket.on("connect", () => { clearTimeout(t); socket.destroy(); resolve(true); });
+        socket.on("error", () => { clearTimeout(t); resolve(false); });
+      });
+
+      const evidence = httpReachable
         ? [{
-            type: "cron_backdoor_test",
+            type: "cron_backdoor_assessment",
             data: JSON.stringify({
               testedDirs: cronDirs,
-              simulatedPayload: "*/5 * * * * /tmp/.backdoor",
-              note: "Simulation only — no actual cron entry written",
-              writableCheck: "www-data write access simulated on /etc/cron.d/",
+              targetHost,
+              httpReachable,
+              note: context.mode === "live"
+                ? "Target is HTTP-reachable — cron write access requires authenticated RCE or file write vulnerability"
+                : "Simulation: cron persistence would require file write access to cron dirs",
+              recommendation: "Verify file write permissions via LFI/SSRF/RCE chain if vulnerability confirmed",
             }),
             capturedAt: new Date(),
           }]
@@ -2340,8 +2365,8 @@ class CronBackdoorHandler implements StepHandler {
 
       return {
         stepId: step.id, stepName: step.name,
-        status: writableSimulation ? "success" : "failed",
-        confidence: writableSimulation ? 55 : 0,
+        status: httpReachable ? "success" : "failed",
+        confidence: httpReachable ? 45 : 0,
         evidence,
         startedAt: new Date(startTime), completedAt: new Date(), durationMs: Date.now() - startTime, retryCount: 0,
       };

@@ -1,5 +1,37 @@
 import { randomUUID } from "crypto";
 
+// Real HTTP request helper for workflow fuzzing
+async function realRequest(
+  method: string,
+  url: string,
+  headers: Record<string, string> = {},
+  body?: unknown,
+  timeoutMs = 10000
+): Promise<{ statusCode: number; headers: Record<string, string>; body: string; timing: number }> {
+  const startTime = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const opts: RequestInit = {
+      method: method.toUpperCase(),
+      headers: { "Content-Type": "application/json", "User-Agent": "OdinForge-WorkflowFuzzer/1.0", ...headers },
+      signal: controller.signal,
+    };
+    if (body !== undefined && !["GET", "HEAD"].includes(method.toUpperCase())) {
+      opts.body = typeof body === "string" ? body : JSON.stringify(body);
+    }
+    const res = await fetch(url, opts);
+    const text = await res.text().catch(() => "");
+    const resHeaders: Record<string, string> = {};
+    res.headers.forEach((v, k) => { resHeaders[k] = v; });
+    return { statusCode: res.status, headers: resHeaders, body: text.substring(0, 5000), timing: Date.now() - startTime };
+  } catch (err: any) {
+    return { statusCode: 0, headers: {}, body: err?.message || "Request failed", timing: Date.now() - startTime };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface WorkflowFuzzResult {
   id: string;
   workflowName: string;
@@ -318,25 +350,25 @@ class WorkflowFuzzerService {
       stepsExecuted++;
 
       if (config.enableRaceConditionTesting) {
-        const raceResults = this.testRaceConditions(step, config.parallelRequestCount || 10);
+        const raceResults = await this.testRaceConditions(step, config.parallelRequestCount || 10);
         raceConditions.push(...raceResults);
       }
 
       if (config.enableTransactionManipulation) {
-        const txResults = this.testTransactionManipulation(step);
+        const txResults = await this.testTransactionManipulation(step);
         transactionManipulations.push(...txResults);
       }
 
-      const paramVulns = this.testParameterInjection(step, i);
+      const paramVulns = await this.testParameterInjection(step, i);
       vulnerabilities.push(...paramVulns);
     }
 
     if (config.enableAuthBypassTesting && config.steps.length > 1) {
-      const bypassResults = this.testAuthBypass(config);
+      const bypassResults = await this.testAuthBypass(config);
       authBypassChains.push(...bypassResults);
     }
 
-    const stateViolationResults = this.testStateViolations(config);
+    const stateViolationResults = await this.testStateViolations(config);
     stateViolations.push(...stateViolationResults);
 
     const allFindings = [
@@ -400,36 +432,93 @@ class WorkflowFuzzerService {
     };
   }
 
-  private testRaceConditions(step: WorkflowStep, parallelCount: number): RaceConditionResult[] {
+  private async testRaceConditions(step: WorkflowStep, parallelCount: number): Promise<RaceConditionResult[]> {
     const results: RaceConditionResult[] = [];
     const endpointLower = step.endpoint.toLowerCase();
 
     for (const test of RACE_CONDITION_TESTS) {
       const matches = test.targetPatterns.some(p => endpointLower.includes(p));
-      
-      if (matches) {
-        const successfulRaces = Math.random() > 0.5 ? Math.floor(Math.random() * test.parallelRequests / 2) : 0;
-        
+      if (!matches) continue;
+
+      const n = Math.min(test.parallelRequests, parallelCount);
+      const responses = await Promise.all(
+        Array.from({ length: n }, () =>
+          realRequest(step.method, step.endpoint, step.headers || {}, step.body)
+        )
+      );
+
+      const timings = responses.map(r => r.timing);
+      const statuses = responses.map(r => `${r.statusCode}`);
+      const uniqueStatuses = Array.from(new Set(statuses));
+      const successCount = responses.filter(r => r.statusCode === 200).length;
+      // Race condition detected: multiple 200s (server accepted duplicate ops)
+      const successfulRaces = successCount > 1 ? successCount - 1 : 0;
+
+      results.push({
+        id: `race-${randomUUID().slice(0, 8)}`,
+        name: test.name,
+        severity: test.severity,
+        endpoint: step.endpoint,
+        method: step.method,
+        description: test.description,
+        parallelRequests: n,
+        successfulRaces,
+        impact: test.impact,
+        remediation: test.remediation,
+        mitreId: test.mitreId,
+        evidence: {
+          requestTimings: timings,
+          responseVariations: uniqueStatuses.map(s => `${s} (${statuses.filter(x => x === s).length}x)`),
+        },
+      });
+    }
+
+    return results;
+  }
+
+  private async testTransactionManipulation(step: WorkflowStep): Promise<TransactionManipulationResult[]> {
+    const results: TransactionManipulationResult[] = [];
+    if (!step.body || typeof step.body !== "object") return results;
+
+    const bodyStr = JSON.stringify(step.body);
+
+    for (const test of TRANSACTION_MANIPULATION_TESTS) {
+      const hasField = test.fieldPatterns.some(p => bodyStr.toLowerCase().includes(p));
+      if (!hasField) continue;
+
+      for (const manipulation of test.manipulations) {
+        // Find which field matches and inject the manipulated value
+        const manipulatedBody = { ...(step.body as Record<string, unknown>) };
+        for (const pattern of test.fieldPatterns) {
+          for (const key of Object.keys(manipulatedBody)) {
+            if (key.toLowerCase().includes(pattern)) {
+              manipulatedBody[key] = manipulation.value;
+              break;
+            }
+          }
+        }
+
+        const originalValue = String(
+          Object.values(step.body as Record<string, unknown>)[0] || "100.00"
+        );
+
+        const res = await realRequest(step.method, step.endpoint, step.headers || {}, manipulatedBody);
+        // "accepted" = server returned 2xx with no error body indicating rejection
+        const accepted = res.statusCode >= 200 && res.statusCode < 300 &&
+          !res.body.toLowerCase().includes("invalid") &&
+          !res.body.toLowerCase().includes("error");
+
         results.push({
-          id: `race-${randomUUID().slice(0, 8)}`,
-          name: test.name,
+          id: `txman-${randomUUID().slice(0, 8)}`,
+          name: `${test.name} (${manipulation.type})`,
           severity: test.severity,
-          endpoint: step.endpoint,
-          method: step.method,
-          description: test.description,
-          parallelRequests: test.parallelRequests,
-          successfulRaces,
+          manipulationType: manipulation.type,
+          originalValue,
+          manipulatedValue: manipulation.value,
+          accepted,
           impact: test.impact,
           remediation: test.remediation,
           mitreId: test.mitreId,
-          evidence: {
-            requestTimings: Array.from({ length: test.parallelRequests }, () => 
-              Math.floor(Math.random() * 100)
-            ),
-            responseVariations: successfulRaces > 0 ? 
-              ["200 OK", "409 Conflict", "200 OK (duplicate)"] : 
-              ["409 Conflict", "409 Conflict", "409 Conflict"],
-          },
         });
       }
     }
@@ -437,43 +526,9 @@ class WorkflowFuzzerService {
     return results;
   }
 
-  private testTransactionManipulation(step: WorkflowStep): TransactionManipulationResult[] {
-    const results: TransactionManipulationResult[] = [];
-    
-    if (!step.body || typeof step.body !== "object") {
-      return results;
-    }
-
-    const bodyStr = JSON.stringify(step.body);
-
-    for (const test of TRANSACTION_MANIPULATION_TESTS) {
-      const hasField = test.fieldPatterns.some(p => bodyStr.toLowerCase().includes(p));
-      
-      if (hasField) {
-        for (const manipulation of test.manipulations) {
-          const accepted = Math.random() > 0.7;
-          
-          results.push({
-            id: `txman-${randomUUID().slice(0, 8)}`,
-            name: `${test.name} (${manipulation.type})`,
-            severity: test.severity,
-            manipulationType: manipulation.type,
-            originalValue: "100.00",
-            manipulatedValue: manipulation.value,
-            accepted,
-            impact: test.impact,
-            remediation: test.remediation,
-            mitreId: test.mitreId,
-          });
-        }
-      }
-    }
-
-    return results;
-  }
-
-  private testParameterInjection(step: WorkflowStep, stepIndex: number): VulnerabilityFinding[] {
+  private async testParameterInjection(step: WorkflowStep, stepIndex: number): Promise<VulnerabilityFinding[]> {
     const findings: VulnerabilityFinding[] = [];
+    if (!step.body || typeof step.body !== "object") return findings;
 
     const injectionTests = [
       {
@@ -482,6 +537,7 @@ class WorkflowFuzzerService {
         type: "SQL Injection",
         severity: "critical" as const,
         mitreId: "T1190",
+        errorPatterns: ["sql", "syntax", "mysql", "postgres", "sqlite", "ora-", "odbc", "jdbc"],
       },
       {
         name: "NoSQL Injection in Workflow Parameter",
@@ -489,73 +545,108 @@ class WorkflowFuzzerService {
         type: "NoSQL Injection",
         severity: "critical" as const,
         mitreId: "T1190",
+        errorPatterns: ["mongodb", "mongoose", "bson", "castError", "$gt"],
       },
       {
         name: "Command Injection in Workflow Parameter",
-        payload: "; cat /etc/passwd",
+        payload: "; id",
         type: "Command Injection",
         severity: "critical" as const,
         mitreId: "T1059",
+        errorPatterns: ["uid=", "gid=", "groups=", "root:", "daemon:"],
       },
     ];
 
-    if (step.body && typeof step.body === "object") {
-      for (const test of injectionTests) {
-        const vulnerable = Math.random() > 0.8;
-        
-        if (vulnerable) {
-          findings.push({
-            id: `inj-${randomUUID().slice(0, 8)}`,
-            type: test.type,
-            name: test.name,
-            severity: test.severity,
-            description: `Potential ${test.type} detected in workflow step ${stepIndex + 1}`,
-            step: stepIndex + 1,
-            request: {
-              method: step.method,
-              url: step.endpoint,
-              headers: step.headers || {},
-              body: JSON.stringify({ ...step.body, injected: test.payload }),
-            },
-            response: {
-              statusCode: 500,
-              headers: {},
-              body: "Error processing request",
-              timing: 250,
-            },
-            exploitSteps: [
-              `Identify injectable parameter in ${step.endpoint}`,
-              `Inject payload: ${test.payload}`,
-              "Observe error response indicating injection vulnerability",
-            ],
-            impact: `Potential ${test.type.toLowerCase()} allowing unauthorized data access or code execution`,
-            remediation: "Use parameterized queries and input validation",
-            mitreId: test.mitreId,
-          });
-        }
+    for (const test of injectionTests) {
+      const injectedBody = { ...(step.body as Record<string, unknown>), q: test.payload, search: test.payload };
+      const res = await realRequest(step.method, step.endpoint, step.headers || {}, injectedBody);
+      const bodyLower = res.body.toLowerCase();
+      const vulnerable = res.statusCode === 500 ||
+        test.errorPatterns.some(p => bodyLower.includes(p));
+
+      if (vulnerable) {
+        findings.push({
+          id: `inj-${randomUUID().slice(0, 8)}`,
+          type: test.type,
+          name: test.name,
+          severity: test.severity,
+          description: `${test.type} detected in workflow step ${stepIndex + 1} — server returned status ${res.statusCode} with injection indicators`,
+          step: stepIndex + 1,
+          request: {
+            method: step.method,
+            url: step.endpoint,
+            headers: step.headers || {},
+            body: JSON.stringify(injectedBody),
+          },
+          response: {
+            statusCode: res.statusCode,
+            headers: res.headers,
+            body: res.body.substring(0, 500),
+            timing: res.timing,
+          },
+          exploitSteps: [
+            `Identified injectable parameter in ${step.endpoint}`,
+            `Injected payload: ${test.payload}`,
+            `Server responded with ${res.statusCode} — matched pattern indicating injection vulnerability`,
+          ],
+          impact: `${test.type} allowing unauthorized data access or code execution`,
+          remediation: "Use parameterized queries and input validation",
+          mitreId: test.mitreId,
+        });
       }
     }
 
     return findings;
   }
 
-  private testAuthBypass(config: WorkflowConfig): AuthBypassChain[] {
+  private async testAuthBypass(config: WorkflowConfig): Promise<AuthBypassChain[]> {
     const results: AuthBypassChain[] = [];
 
     for (const test of AUTH_BYPASS_TESTS) {
-      const bypassSuccessful = Math.random() > 0.7;
-      
+      const stepResults: { step: number; action: string; endpoint: string; result: string }[] = [];
+      let bypassSuccessful = false;
+
+      if (test.bypassType === "step_skip" && config.steps.length > 1) {
+        // Skip the first step (auth) and directly call the last step
+        const lastStep = config.steps[config.steps.length - 1];
+        const res = await realRequest(lastStep.method, lastStep.endpoint, {}, lastStep.body);
+        // Bypass successful if we get 200 without going through auth
+        bypassSuccessful = res.statusCode === 200;
+        stepResults.push({
+          step: 1, action: "Skipped (auth step)", endpoint: config.steps[0].endpoint, result: "Skipped",
+        });
+        stepResults.push({
+          step: config.steps.length, action: "Direct access", endpoint: lastStep.endpoint,
+          result: bypassSuccessful ? `Bypass successful (HTTP ${res.statusCode})` : `Blocked (HTTP ${res.statusCode})`,
+        });
+      } else if (test.bypassType === "method_bypass" && config.steps.length > 0) {
+        // Try alternative HTTP methods
+        const step = config.steps[0];
+        const altMethod = step.method.toUpperCase() === "POST" ? "GET" : "POST";
+        const res = await realRequest(altMethod, step.endpoint, {}, undefined);
+        bypassSuccessful = res.statusCode === 200;
+        stepResults.push({
+          step: 1, action: `${altMethod} instead of ${step.method}`, endpoint: step.endpoint,
+          result: bypassSuccessful ? `Bypass successful (HTTP ${res.statusCode})` : `Blocked (HTTP ${res.statusCode})`,
+        });
+      } else {
+        // parameter_pollution: add duplicate params
+        const step = config.steps[0];
+        const pollutedUrl = `${step.endpoint}?admin=true&role=admin&bypass=1`;
+        const res = await realRequest(step.method, pollutedUrl, {}, step.body);
+        bypassSuccessful = res.statusCode === 200;
+        stepResults.push({
+          step: 1, action: "Parameter pollution", endpoint: pollutedUrl,
+          result: bypassSuccessful ? `Bypass successful (HTTP ${res.statusCode})` : `Blocked (HTTP ${res.statusCode})`,
+        });
+      }
+
       results.push({
         id: `authbypass-${randomUUID().slice(0, 8)}`,
         name: test.name,
         severity: test.severity,
         bypassType: test.bypassType,
-        steps: config.steps.slice(0, 3).map((step, i) => ({
-          step: i + 1,
-          action: test.bypassType === "step_skip" ? "Skipped" : "Modified",
-          endpoint: step.endpoint,
-          result: bypassSuccessful ? "Bypass successful" : "Blocked",
-        })),
+        steps: stepResults,
         successfulBypass: bypassSuccessful,
         impact: test.impact,
         remediation: test.remediation,
@@ -566,7 +657,7 @@ class WorkflowFuzzerService {
     return results;
   }
 
-  private testStateViolations(config: WorkflowConfig): StateViolation[] {
+  private async testStateViolations(config: WorkflowConfig): Promise<StateViolation[]> {
     const violations: StateViolation[] = [];
 
     const stateTests = [
@@ -602,10 +693,16 @@ class WorkflowFuzzerService {
       },
     ];
 
+    // For each state test, try to call a later workflow step directly
     for (const test of stateTests) {
-      const hasViolation = Math.random() > 0.6;
-      
-      if (hasViolation) {
+      if (config.steps.length < 2) break;
+
+      // Attempt the final step without going through prerequisite steps
+      const finalStep = config.steps[config.steps.length - 1];
+      const res = await realRequest(finalStep.method, finalStep.endpoint, finalStep.headers || {}, finalStep.body);
+
+      // State violation detected if server accepts the out-of-order request (2xx)
+      if (res.statusCode >= 200 && res.statusCode < 300) {
         violations.push({
           id: `state-${randomUUID().slice(0, 8)}`,
           ...test,

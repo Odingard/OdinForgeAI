@@ -6,6 +6,8 @@
  */
 
 import { createHash } from "crypto";
+import * as net from "net";
+import { createCredentialProbe } from "../../validation/probes/credential-probe";
 import type { AgentInfo } from "./agent-mesh-client";
 
 export interface PivotTarget {
@@ -93,7 +95,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("smb", target.host, cred);
+    const connectionSuccess = await this.realConnectionCheck("smb", target.host, target.port || 445, cred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "smb");
@@ -136,7 +138,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("rdp", target.host, cred);
+    const connectionSuccess = await this.realConnectionCheck("rdp", target.host, target.port || 3389, cred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "rdp");
@@ -171,7 +173,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("ssh", target.host, cred);
+    const connectionSuccess = await this.realConnectionCheck("ssh", target.host, target.port || 22, cred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "ssh");
@@ -205,7 +207,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("pth", target.host, hashCred);
+    const connectionSuccess = await this.realConnectionCheck("pth", target.host, 445, hashCred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "pth");
@@ -238,7 +240,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("ptt", target.host, ticketCred);
+    const connectionSuccess = await this.realConnectionCheck("ptt", target.host, 445, ticketCred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "ptt");
@@ -273,7 +275,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("wmi", target.host, cred);
+    const connectionSuccess = await this.realConnectionCheck("wmi", target.host, 135, cred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "wmi");
@@ -308,7 +310,7 @@ export class PivotExecutor {
       };
     }
 
-    const connectionSuccess = this.simulateConnection("psexec", target.host, cred);
+    const connectionSuccess = await this.realConnectionCheck("psexec", target.host, 445, cred);
 
     if (connectionSuccess) {
       const newAgent = this.createAgentFromPivot(target, "psexec");
@@ -329,10 +331,34 @@ export class PivotExecutor {
     };
   }
 
-  private simulateConnection(protocol: string, host: string, credential: Credential): boolean {
-    const hasValidCred = !!(credential.value && credential.value.length > 0);
-    const randomSuccess = Math.random() > 0.2;
-    return hasValidCred && randomSuccess;
+  private async realConnectionCheck(protocol: string, host: string, port: number, credential: Credential): Promise<boolean> {
+    if (!credential.value || credential.value.length === 0) return false;
+
+    // SSH: use real credential probe for actual authentication
+    if (protocol === "ssh") {
+      try {
+        const probe = createCredentialProbe({
+          host,
+          port,
+          service: "ssh",
+          timeout: 8000,
+          customCredentials: [{ username: credential.username || "root", password: credential.value }],
+        });
+        const result = await probe.probe();
+        return result.defaultCredentialsFound;
+      } catch {
+        return false;
+      }
+    }
+
+    // For other protocols: verify TCP port is actually open
+    return new Promise((resolve) => {
+      const socket = net.createConnection({ host, port, timeout: 5000 });
+      const timer = setTimeout(() => { socket.destroy(); resolve(false); }, 5000);
+      socket.on("connect", () => { clearTimeout(timer); socket.destroy(); resolve(true); });
+      socket.on("error", () => { clearTimeout(timer); resolve(false); });
+      socket.on("timeout", () => { socket.destroy(); clearTimeout(timer); resolve(false); });
+    });
   }
 
   private createAgentFromPivot(target: PivotTarget, method: string): AgentInfo {
@@ -353,12 +379,26 @@ export class PivotExecutor {
   }
 
   async checkCapabilities(host: string): Promise<PivotCapabilities> {
+    const probe = (port: number) => new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port, timeout: 3000 });
+      const t = setTimeout(() => { socket.destroy(); resolve(false); }, 3000);
+      socket.on("connect", () => { clearTimeout(t); socket.destroy(); resolve(true); });
+      socket.on("error", () => { clearTimeout(t); resolve(false); });
+    });
+
+    const [smb, ssh, rdp, wmi] = await Promise.all([
+      probe(445),
+      probe(22),
+      probe(3389),
+      probe(135),
+    ]);
+
     return {
-      smbAvailable: Math.random() > 0.3,
-      sshAvailable: Math.random() > 0.5,
-      rdpAvailable: Math.random() > 0.4,
-      wmiAvailable: Math.random() > 0.4,
-      psexecAvailable: Math.random() > 0.3,
+      smbAvailable: smb,
+      sshAvailable: ssh,
+      rdpAvailable: rdp,
+      wmiAvailable: wmi,
+      psexecAvailable: smb,  // PSExec requires SMB
     };
   }
 
