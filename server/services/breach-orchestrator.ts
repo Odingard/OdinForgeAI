@@ -1459,6 +1459,55 @@ function extractCredentialsFromFindings(
   return creds;
 }
 
+function deriveBusinessImpact(
+  tactic: string,
+  compromiseLevel: string,
+  assets: string[],
+  label: string
+): AttackNode["businessImpact"] {
+  const blastRadius: "contained" | "department" | "organization" | "customer-facing" =
+    compromiseLevel === "system" || compromiseLevel === "admin" ? "organization" :
+    compromiseLevel === "user" ? "department" : "contained";
+
+  const regulatoryRisk =
+    tactic === "exfiltration" || tactic === "credential-access"
+      ? "GDPR breach notification likely required. PCI-DSS incident response required if payment data in scope."
+      : tactic === "impact"
+      ? "Regulatory reporting obligations triggered. Legal counsel engagement recommended."
+      : undefined;
+
+  const dataExposed =
+    tactic === "exfiltration"
+      ? `Potential access to application data on ${assets[0] ?? "target system"}`
+      : tactic === "credential-access"
+      ? "Credentials exposed — all systems using same credentials at risk"
+      : tactic === "initial-access"
+      ? "Entry point established — all internal resources potentially reachable"
+      : undefined;
+
+  const financialImpact =
+    compromiseLevel === "system"
+      ? "Estimated $5M-$20M exposure (breach notification, remediation, regulatory fines)"
+      : compromiseLevel === "admin"
+      ? "Estimated $1M-$5M exposure"
+      : compromiseLevel === "user"
+      ? "Estimated $100K-$500K exposure"
+      : undefined;
+
+  const summary =
+    compromiseLevel === "system"
+      ? `Full system control achieved on ${assets[0] ?? label}. Attacker has unrestricted access.`
+      : compromiseLevel === "admin"
+      ? `Administrative access to ${assets[0] ?? label}. Can modify, exfiltrate, or destroy data.`
+      : compromiseLevel === "user"
+      ? `User-level access to ${assets[0] ?? label}. Attacker can read user data and pivot.`
+      : compromiseLevel === "limited"
+      ? `Limited foothold on ${assets[0] ?? label}. Constrained but inside the perimeter.`
+      : `Reachable attack vector via ${label}.`;
+
+  return { summary, dataExposed, systemsReachable: assets, regulatoryRisk, estimatedBlastRadius: blastRadius, financialImpact };
+}
+
 function buildUnifiedAttackGraph(
   phaseResults: BreachPhaseResult[],
   context: BreachPhaseContext
@@ -1478,6 +1527,7 @@ function buildUnifiedAttackGraph(
     tactic: "initial-access",
     compromiseLevel: "none",
     discoveredBy: "recon",
+    businessImpact: deriveBusinessImpact("initial-access", "none", [], "Initial Access"),
   });
 
   const completedPhases = phaseResults.filter(
@@ -1509,15 +1559,19 @@ function buildUnifiedAttackGraph(
       impact_assessment: "system",
     };
 
+    const phaseAssets = phase.outputContext.compromisedAssets.map(a => a.name);
+    const phaseTactic = tacticMap[phase.phaseName] as AttackNode["tactic"] || "execution";
+    const phaseCompromise = compromiseMap[phase.phaseName] || "limited";
     nodes.push({
       id: phaseNodeId,
       label: PHASE_DEFINITIONS[phase.phaseName].displayName,
       description: PHASE_DEFINITIONS[phase.phaseName].description,
       nodeType: phase.phaseName === "impact_assessment" ? "objective" : "pivot",
-      tactic: tacticMap[phase.phaseName] as any || "execution",
-      compromiseLevel: compromiseMap[phase.phaseName] || "limited",
-      assets: phase.outputContext.compromisedAssets.map(a => a.name),
+      tactic: phaseTactic,
+      compromiseLevel: phaseCompromise,
+      assets: phaseAssets,
       discoveredBy: "exploit",
+      businessImpact: deriveBusinessImpact(phaseTactic, phaseCompromise, phaseAssets, PHASE_DEFINITIONS[phase.phaseName].displayName),
     });
 
     // Derive complexity from phase findings
@@ -1560,14 +1614,17 @@ function buildUnifiedAttackGraph(
     // Add individual finding nodes for critical/high findings
     for (const finding of phase.findings.filter(f => f.severity === "critical" || f.severity === "high")) {
       const findingNodeId = `finding-${finding.id}`;
+      const findingTactic = tacticMap[phase.phaseName] as AttackNode["tactic"] || "execution";
+      const findingCompromise: AttackNode["compromiseLevel"] = finding.severity === "critical" ? "admin" : "user";
       nodes.push({
         id: findingNodeId,
         label: finding.title,
         description: finding.description,
         nodeType: "pivot",
-        tactic: tacticMap[phase.phaseName] as any || "execution",
-        compromiseLevel: finding.severity === "critical" ? "admin" : "user",
+        tactic: findingTactic,
+        compromiseLevel: findingCompromise,
         discoveredBy: "exploit",
+        businessImpact: deriveBusinessImpact(findingTactic, findingCompromise, [], finding.title),
       });
 
       // Finding-level timeEstimate by severity

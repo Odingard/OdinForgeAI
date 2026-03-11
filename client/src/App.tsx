@@ -19,18 +19,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
   Zap,
-  AlertCircle,
   Shield,
-  Activity,
   FileText,
   Server,
   Settings,
   Calendar,
   Radar,
-  Link2,
-  ChevronRight,
   LogOut,
-  Bell,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -104,11 +99,12 @@ function Router() {
     <AppErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Switch>
-        <Route path="/" component={DashboardPage} />
-        <Route path="/login"><Redirect to="/" /></Route>
-        <Route path="/signup"><Redirect to="/" /></Route>
-        <Route path="/risk"><Redirect to="/" /></Route>
-        <Route path="/dashboard/ciso"><Redirect to="/" /></Route>
+        <Route path="/"><Redirect to="/breach-chains" /></Route>
+        <Route path="/dashboard" component={DashboardPage} />
+        <Route path="/login"><Redirect to="/breach-chains" /></Route>
+        <Route path="/signup"><Redirect to="/breach-chains" /></Route>
+        <Route path="/risk"><Redirect to="/breach-chains" /></Route>
+        <Route path="/dashboard/ciso"><Redirect to="/dashboard" /></Route>
         <Route path="/assets" component={Assets} />
         <Route path="/infrastructure"><Redirect to="/admin/settings?tab=integrations" /></Route>
         <Route path="/reports" component={Reports} />
@@ -141,10 +137,11 @@ function Router() {
 
 /* ── Route labels ── */
 const ROUTE_LABELS: Record<string, [string, string]> = {
-  "/": ["Operations", "Dashboard"],
+  "/": ["Operations", "Breach Chain Intelligence"],
+  "/dashboard": ["Operations", "Dashboard"],
+  "/breach-chains": ["Operations", "Breach Chain Intelligence"],
   "/assets": ["Intelligence", "Assets"],
   "/full-assessment": ["Operations", "Assessments"],
-  "/breach-chains": ["Operations", "Breach Chains"],
   "/scans": ["Operations", "Live Scans"],
   "/scheduled-scans": ["Operations", "Scheduled Scans"],
   "/reports": ["Intelligence", "Reports"],
@@ -301,8 +298,6 @@ function FalconSidebar() {
   const { data: evaluations = [] } = useQuery<any[]>({ queryKey: ["/api/aev/evaluations"] });
   const { data: assets = [] } = useQuery<any[]>({ queryKey: ["/api/assets"] });
 
-  const critCount = evaluations.filter((e: any) => (e.priority || e.severity || "").toLowerCase() === "critical").length;
-  const activeCount = evaluations.filter((e: any) => e.status === "in_progress" || e.status === "pending").length;
   const breachCount = evaluations.filter((e: any) => e.exploitable).length;
 
   const isActive = (href: string) => {
@@ -310,17 +305,16 @@ function FalconSidebar() {
     return location.startsWith(href);
   };
 
-  const coreItems: NavItem[] = [
-    { icon: LayoutDashboard, title: "Dashboard", href: "/" },
+  const primaryItems: NavItem[] = [
+    { icon: Shield, title: "Breach Chains", href: "/breach-chains", badge: breachCount > 0 ? { count: breachCount, style: "r" } : undefined },
     { icon: Server, title: "Assets", href: "/assets", badge: assets.length > 0 ? { count: assets.length, style: "d" } : undefined },
-    { icon: Shield, title: "Assessments", href: "/full-assessment", badge: activeCount > 0 ? { count: activeCount, style: "d" } : undefined },
-    { icon: Link2, title: "Breach Chains", href: "/breach-chains", badge: breachCount > 0 ? { count: breachCount, style: "r" } : undefined },
+    { icon: Radar, title: "Assess", href: "/assess" },
+    { icon: Zap, title: "Agents", href: "/agents", aevHidden: true },
   ];
 
-  const opsItems: NavItem[] = [
-    { icon: Radar, title: "Live Scans", href: "/scans", badge: activeCount > 0 ? { count: activeCount, style: "d" } : undefined },
-    { icon: Calendar, title: "Scheduled Scans", href: "/scheduled-scans", aevHidden: true },
+  const toolsItems: NavItem[] = [
     { icon: FileText, title: "Reports", href: "/reports" },
+    { icon: Calendar, title: "Scheduled Scans", href: "/scheduled-scans", aevHidden: true },
   ];
 
   const showSettings = hasPermission("org:manage_settings") || hasPermission("org:manage_users");
@@ -358,28 +352,21 @@ function FalconSidebar() {
       className="flex flex-col pt-4 overflow-hidden"
       style={{ background: "var(--falcon-nav)", borderRight: "1px solid var(--falcon-border)" }}
     >
-      {/* Core section */}
-      <div className="mb-1">
-        <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
-          Core
-        </div>
-        {coreItems.map(renderItem)}
-      </div>
-
-      {/* Operations section */}
+      {/* Primary section */}
       <div className="mb-1">
         <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
           Operations
         </div>
-        {opsItems.map(renderItem)}
+        {primaryItems.map(renderItem)}
       </div>
 
-      {/* Admin section */}
-      {showSettings && (
-        <div className="mb-1">
-          <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
-            Admin
-          </div>
+      {/* Settings & Tools section */}
+      <div className="mb-1">
+        <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
+          Settings &amp; Tools
+        </div>
+        {toolsItems.map(renderItem)}
+        {showSettings && (
           <Link href="/admin/settings">
             <div
               className="flex items-center gap-[11px] py-[9px] px-[18px] cursor-pointer text-[13px] transition-all select-none"
@@ -396,8 +383,8 @@ function FalconSidebar() {
               Settings
             </div>
           </Link>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="flex-1" />
 

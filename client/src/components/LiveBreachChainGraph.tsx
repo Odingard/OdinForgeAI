@@ -32,6 +32,14 @@ interface LayoutNode {
   collapsedCount: number;   // number of hidden children (for "+N" badge)
   radius: number;           // render size
   remediationStatus?: "open" | "in_progress" | "verified_fixed" | "accepted_risk";
+  businessImpact?: {
+    summary: string;
+    dataExposed?: string;
+    systemsReachable?: string[];
+    regulatoryRisk?: string;
+    estimatedBlastRadius: "contained" | "department" | "organization" | "customer-facing";
+    financialImpact?: string;
+  };
 }
 
 interface LayoutEdge {
@@ -305,6 +313,7 @@ function makeLayoutNode(
     collapsedCount,
     radius,
     remediationStatus: node.remediationStatus,
+    businessImpact: node.businessImpact,
   };
 }
 
@@ -1050,6 +1059,53 @@ export function LiveBreachChainGraph({
                       {asset}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Business Impact */}
+              {node.businessImpact && (
+                <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 12 }}>
+                  <div style={{ fontSize: 11, color: "var(--falcon-t3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Business Impact</div>
+
+                  {/* Blast radius indicator */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11 }}>Blast Radius:</span>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+                      background: node.businessImpact.estimatedBlastRadius === "customer-facing" ? "#ef4444" :
+                                  node.businessImpact.estimatedBlastRadius === "organization" ? "#f97316" :
+                                  node.businessImpact.estimatedBlastRadius === "department" ? "#eab308" : "#6b7280",
+                      color: "#fff",
+                    }}>
+                      {node.businessImpact.estimatedBlastRadius.toUpperCase().replace("-", " ")}
+                    </span>
+                  </div>
+
+                  {/* Summary */}
+                  <p style={{ fontSize: 12, color: "var(--falcon-t2)", margin: "0 0 8px" }}>
+                    {node.businessImpact.summary}
+                  </p>
+
+                  {/* Data exposed */}
+                  {node.businessImpact.dataExposed && (
+                    <div style={{ fontSize: 11, color: "#f97316", marginBottom: 6 }}>
+                      ⚠ {node.businessImpact.dataExposed}
+                    </div>
+                  )}
+
+                  {/* Regulatory risk */}
+                  {node.businessImpact.regulatoryRisk && (
+                    <div style={{ fontSize: 11, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 6, padding: "6px 10px", color: "#fca5a5" }}>
+                      🔴 {node.businessImpact.regulatoryRisk}
+                    </div>
+                  )}
+
+                  {/* Financial impact */}
+                  {node.businessImpact.financialImpact && (
+                    <div style={{ fontSize: 11, color: "var(--falcon-t3)", marginTop: 6 }}>
+                      💰 {node.businessImpact.financialImpact}
+                    </div>
+                  )}
                 </div>
               )}
 

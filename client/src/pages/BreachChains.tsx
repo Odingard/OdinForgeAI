@@ -1320,9 +1320,9 @@ export default function BreachChains() {
       {/* Page Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: "var(--falcon-t1)", margin: 0 }}>Cross-Domain Breach Chains</h1>
+          <h1 style={{ fontSize: 18, fontWeight: 700, color: "var(--falcon-t1)", margin: 0 }}>Breach Chain Intelligence</h1>
           <p style={{ fontSize: 11, color: "var(--falcon-t3)", marginTop: 4, fontFamily: "var(--font-mono)" }}>
-            // chain exploits across domains
+            Real attack paths. Verified exploitation. Proven risk.
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>

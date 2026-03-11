@@ -690,6 +690,14 @@ export const attackNodeSchema = z.object({
   remediatedAt: z.string().optional(),
   remediatedBy: z.string().optional(),
   remediationNotes: z.string().optional(),
+  businessImpact: z.object({
+    summary: z.string(),
+    dataExposed: z.string().optional(),
+    systemsReachable: z.array(z.string()).optional(),
+    regulatoryRisk: z.string().optional(),
+    estimatedBlastRadius: z.enum(["contained", "department", "organization", "customer-facing"]),
+    financialImpact: z.string().optional(),
+  }).optional(),
 });
 
 // Attack Graph Edge - represents a technique/transition between nodes
