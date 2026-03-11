@@ -8,6 +8,7 @@ import {
   Calendar,
   FileText,
   Settings,
+  Globe,
 } from "lucide-react";
 import { ShieldValknut } from "./OdinForgeLogo";
 import {
@@ -36,6 +37,7 @@ interface NavItem {
 
 const coreItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Attack Surface", href: "/attack-surface", icon: Globe },
   { title: "Assets", href: "/assets", icon: Server },
   { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },

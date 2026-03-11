@@ -266,6 +266,7 @@ export interface IStorage {
   // Recon Scan operations
   createReconScan(data: InsertReconScan): Promise<ReconScan>;
   getReconScan(id: string): Promise<ReconScan | undefined>;
+  getReconScans(organizationId?: string): Promise<ReconScan[]>;
   updateReconScan(id: string, updates: Partial<ReconScan>): Promise<void>;
   
   // Tenant operations
@@ -2043,6 +2044,10 @@ export class DatabaseStorage implements IStorage {
       .from(reconScans)
       .where(eq(reconScans.id, id));
     return result;
+  }
+
+  async getReconScans(organizationId?: string): Promise<ReconScan[]> {
+    return db.select().from(reconScans).orderBy(reconScans.createdAt);
   }
 
   async updateReconScan(id: string, updates: Partial<ReconScan>): Promise<void> {

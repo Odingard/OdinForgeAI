@@ -2219,6 +2219,189 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================================================
+  // ATTACK SURFACE INTELLIGENCE MAP
+  // ============================================================================
+
+  app.get("/api/attack-surface", apiRateLimiter, uiAuthMiddleware, requirePermission("assets:read"), async (req: any, res) => {
+    try {
+      const { getEPSSScores } = await import("./services/threat-intel/epss-client");
+
+      // Fetch all data sources in parallel
+      const [discoveredAssetsList, cloudAssetsList, vulnImports, allEvaluations, allReconScans] = await Promise.all([
+        storage.getDiscoveredAssets(),
+        storage.getCloudAssets(),
+        storage.getVulnerabilityImports(),
+        storage.getEvaluations(),
+        storage.getReconScans ? storage.getReconScans() : Promise.resolve([]),
+      ]);
+
+      // Collect all CVE IDs for EPSS enrichment
+      const allCveIds = vulnImports
+        .filter(v => v.cveId)
+        .map(v => v.cveId as string);
+      const epssMap = allCveIds.length > 0
+        ? await getEPSSScores(Array.from(new Set(allCveIds))).catch(() => new Map())
+        : new Map();
+
+      // Build vuln lookup by asset identifier
+      const vulnsByAsset = new Map<string, typeof vulnImports>();
+      for (const v of vulnImports) {
+        const key = v.assetId || v.affectedHost || "";
+        if (!key) continue;
+        if (!vulnsByAsset.has(key)) vulnsByAsset.set(key, []);
+        vulnsByAsset.get(key)!.push(v);
+      }
+
+      // Build evaluation lookup by assetId
+      const evalsByAsset = new Map<string, typeof allEvaluations>();
+      for (const e of allEvaluations) {
+        if (!evalsByAsset.has(e.assetId)) evalsByAsset.set(e.assetId, []);
+        evalsByAsset.get(e.assetId)!.push(e);
+      }
+
+      // Build recon lookup by target
+      const reconByTarget = new Map<string, any>();
+      for (const r of allReconScans) {
+        reconByTarget.set(r.target, r);
+      }
+
+      // Normalise all assets to a unified shape
+      const normalise = (raw: any, source: "discovered" | "cloud") => {
+        const ips: string[] = raw.ipAddresses || [];
+        const primaryIp = ips[0] || "";
+        const hostname = raw.hostname || raw.displayName || raw.assetIdentifier || "";
+
+        // Determine subnet group
+        const subnetGroup = (() => {
+          if (!primaryIp) return "Unresolved / No IP";
+          if (source === "cloud") return `Cloud / ${raw.cloudProvider || "Unknown"}`;
+          const parts = primaryIp.split(".");
+          if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+          return "External / Internet-Facing";
+        })();
+
+        // Enrich vulns with EPSS
+        const vulnsRaw = vulnsByAsset.get(raw.id) || vulnsByAsset.get(primaryIp) || vulnsByAsset.get(hostname) || [];
+        const vulns = vulnsRaw.map(v => ({
+          id: v.id,
+          title: v.title,
+          severity: v.severity,
+          cveId: v.cveId,
+          cvssScore: v.cvssScore,
+          epssScore: v.cveId ? (epssMap.get(v.cveId)?.epss ?? v.epssScore ?? null) : v.epssScore,
+          epssPercentile: v.cveId ? (epssMap.get(v.cveId)?.percentile ?? null) : null,
+          isKevListed: v.isKevListed,
+          affectedPort: v.affectedPort,
+          affectedService: v.affectedService,
+          status: v.status,
+          solution: v.solution,
+        }));
+
+        // Risk score: weighted by severity + KEV + EPSS
+        const riskScore = Math.min(100, vulns.reduce((acc, v) => {
+          const base = v.severity === "critical" ? 25 : v.severity === "high" ? 15 : v.severity === "medium" ? 7 : 3;
+          const kevBonus = v.isKevListed ? 15 : 0;
+          const epssBonus = v.epssScore ? Math.round(v.epssScore * 10) : 0;
+          return acc + base + kevBonus + epssBonus;
+        }, 0));
+
+        const evals = evalsByAsset.get(raw.id) || evalsByAsset.get(raw.assetIdentifier) || [];
+        const recon = reconByTarget.get(hostname) || reconByTarget.get(primaryIp) || null;
+
+        return {
+          id: raw.id,
+          assetIdentifier: raw.assetIdentifier,
+          displayName: raw.displayName || hostname,
+          assetType: raw.assetType || source,
+          status: raw.status || "active",
+          criticality: raw.criticality || "medium",
+          ipAddresses: ips,
+          hostname,
+          fqdn: raw.fqdn || null,
+          operatingSystem: raw.operatingSystem || null,
+          osVersion: raw.osVersion || null,
+          cloudProvider: raw.cloudProvider || null,
+          cloudRegion: raw.cloudRegion || null,
+          environment: raw.environment || null,
+          discoverySource: raw.discoverySource || source,
+          lastSeen: raw.lastSeen || raw.updatedAt || null,
+          firstDiscovered: raw.firstDiscovered || raw.createdAt || null,
+          openPorts: raw.openPorts || [],
+          installedSoftware: raw.installedSoftware || [],
+          vulns,
+          topVulns: vulns
+            .sort((a, b) => {
+              const sevOrder = { critical: 4, high: 3, medium: 2, low: 1 };
+              return (sevOrder[b.severity as keyof typeof sevOrder] || 0) - (sevOrder[a.severity as keyof typeof sevOrder] || 0);
+            })
+            .slice(0, 5),
+          riskScore,
+          kevCount: vulns.filter(v => v.isKevListed).length,
+          criticalCount: vulns.filter(v => v.severity === "critical").length,
+          evaluationCount: evals.length,
+          lastEvaluatedAt: evals.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())[0]?.createdAt || null,
+          hasRecon: !!recon,
+          recon: recon ? {
+            portScan: recon.portScan || [],
+            httpFingerprint: recon.httpFingerprint || null,
+            sslCheck: recon.sslCheck || null,
+            dnsEnum: recon.dnsEnum || null,
+            attackReadiness: recon.attackReadiness || null,
+            networkExposure: recon.networkExposure || null,
+          } : null,
+          subnetGroup,
+          source,
+        };
+      };
+
+      const allAssets = [
+        ...discoveredAssetsList.map(a => normalise(a, "discovered")),
+        ...cloudAssetsList.map(a => normalise(a, "cloud")),
+      ];
+
+      // Group by subnet
+      const groupMap = new Map<string, typeof allAssets>();
+      for (const asset of allAssets) {
+        if (!groupMap.has(asset.subnetGroup)) groupMap.set(asset.subnetGroup, []);
+        groupMap.get(asset.subnetGroup)!.push(asset);
+      }
+
+      // Sort groups: external first, then subnets, cloud last
+      const groups = Array.from(groupMap.entries())
+        .sort(([a], [b]) => {
+          if (a.startsWith("External")) return -1;
+          if (b.startsWith("External")) return 1;
+          if (a.startsWith("Cloud")) return 1;
+          if (b.startsWith("Cloud")) return -1;
+          return a.localeCompare(b);
+        })
+        .map(([subnet, assets]) => ({
+          subnet,
+          label: subnet,
+          assetCount: assets.length,
+          highestRisk: Math.max(...assets.map(a => a.riskScore), 0),
+          criticalCount: assets.reduce((n, a) => n + a.criticalCount, 0),
+          kevCount: assets.reduce((n, a) => n + a.kevCount, 0),
+          assets: assets.sort((a, b) => b.riskScore - a.riskScore),
+        }));
+
+      const summary = {
+        totalAssets: allAssets.length,
+        internetFacing: allAssets.filter(a => a.subnetGroup.startsWith("External")).length,
+        criticalFindings: allAssets.reduce((n, a) => n + a.criticalCount, 0),
+        kevListedCount: allAssets.reduce((n, a) => n + a.kevCount, 0),
+        highRiskAssets: allAssets.filter(a => a.riskScore >= 50).length,
+        totalVulns: allAssets.reduce((n, a) => n + a.vulns.length, 0),
+      };
+
+      res.json({ groups, summary });
+    } catch (error: any) {
+      console.error("[AttackSurface] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Asset drift history (continuous validation trend tracking)
   app.get("/api/assets/:assetId/drift", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: any, res) => {
     try {
