@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 
 interface TrendPoint {
-  chainId: string;
-  assetIds?: string[];
-  overallRiskScore: number;
-  createdAt: string;
+  id: string;
+  name: string;
+  overallRiskScore: number | null;
+  completedAt: string | null;
+  nodeCount: number;
+  criticalPathLength: number;
 }
 
 interface ChainSparklineProps {
@@ -25,10 +27,11 @@ export function ChainSparkline({ chainId, width = 80, height = 24 }: ChainSparkl
     return <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>—</span>;
   }
 
-  const points = (data ?? [])
-    .filter((p) => p.chainId === chainId)
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    .map((p) => p.overallRiskScore);
+  const rows = Array.isArray(data) ? data : [];
+  const points = rows
+    .filter((p) => p.id === chainId)
+    .sort((a, b) => new Date(a.completedAt ?? 0).getTime() - new Date(b.completedAt ?? 0).getTime())
+    .map((p) => p.overallRiskScore ?? 0);
 
   if (points.length === 0) {
     return <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>—</span>;
