@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "@shared/schema";
+
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -430,7 +430,3 @@ export function CredentialWeb({ breachChainId, isRunning, onClose }: CredentialW
   );
 }
 
-export function CredentialWebGated(props: CredentialWebProps) {
-  if (!isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.CREDENTIAL_WEB)) return null;
-  return <CredentialWeb {...props} />;
-}

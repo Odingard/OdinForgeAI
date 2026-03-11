@@ -48,6 +48,10 @@ import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
 import { ChainComparison } from "@/components/ChainComparison";
 import { ChainSparkline } from "@/components/ChainSparkline";
 import { ExposureDashboard } from "@/components/ExposureDashboard";
+import { AttackHeatmap } from "@/components/AttackHeatmap";
+import { CredentialWeb } from "@/components/CredentialWeb";
+import { DefenseGapPanel } from "@/components/DefenseGapPanel";
+import { EngagementConfigModal } from "@/components/EngagementConfigModal";
 
 // Phase metadata for display
 const PHASE_META: Record<string, { label: string; icon: typeof Shield; color: string; description: string }> = {
@@ -566,6 +570,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const [tab, setTab] = useState(hasGraph ? "graph" : "overview");
   const [showExport, setShowExport] = useState(false);
   const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
+  const [showEngagementConfig, setShowEngagementConfig] = useState(false);
 
   // Narrative query
   const { data: narrative } = useQuery({
@@ -609,6 +614,9 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
         </button>
         <button className={`f-tab ${tab === "phases" ? "active" : ""}`} onClick={() => setTab("phases")}>Phase Results</button>
         <button className={`f-tab ${tab === "context" ? "active" : ""}`} onClick={() => setTab("context")}>Breach Context</button>
+        <button className={`f-tab ${tab === "heatmap" ? "active" : ""}`} onClick={() => setTab("heatmap")}>ATT&CK Heatmap</button>
+        <button className={`f-tab ${tab === "credentials" ? "active" : ""}`} onClick={() => setTab("credentials")}>Credential Web</button>
+        <button className={`f-tab ${tab === "defenses" ? "active" : ""}`} onClick={() => setTab("defenses")}>Defense Gaps</button>
         {chain.executiveSummary && <button className={`f-tab ${tab === "summary" ? "active" : ""}`} onClick={() => setTab("summary")}>Executive Summary</button>}
       </div>
 
@@ -715,6 +723,14 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Export button row */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 2px" }}>
+            <button
+              className="f-btn f-btn-ghost"
+              style={{ fontSize: 11, padding: "4px 10px" }}
+              onClick={() => setShowEngagementConfig(true)}
+            >
+              <Settings2 style={{ width: 12, height: 12, marginRight: 5 }} />
+              Configure Engagement
+            </button>
             <button
               className="f-btn f-btn-secondary"
               style={{ fontSize: 11, padding: "4px 10px" }}
@@ -991,6 +1007,40 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             {chain.executiveSummary}
           </div>
         </div>
+      )}
+
+      {tab === "heatmap" && (
+        <AttackHeatmap
+          breachChainId={chain.id}
+          isRunning={chain.status === "running"}
+        />
+      )}
+
+      {tab === "credentials" && (
+        <CredentialWeb
+          breachChainId={chain.id}
+          isRunning={chain.status === "running"}
+        />
+      )}
+
+      {tab === "defenses" && (
+        <DefenseGapPanel
+          breachChainId={chain.id}
+          isRunning={chain.status === "running"}
+        />
+      )}
+
+      {/* Engagement Config Modal */}
+      {showEngagementConfig && (
+        <EngagementConfigModal
+          breachChainId={chain.id}
+          currentConfig={chain.config as any}
+          onClose={() => setShowEngagementConfig(false)}
+          onConfigured={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
+            setShowEngagementConfig(false);
+          }}
+        />
       )}
     </div>
   );

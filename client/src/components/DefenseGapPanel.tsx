@@ -8,7 +8,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "@shared/schema";
+
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -249,8 +249,3 @@ function CloseBtn({ onClick }: { onClick: () => void }) {
   );
 }
 
-// Wrapper with feature flag gate
-export function DefenseGapPanelGated(props: DefenseGapPanelProps) {
-  if (!isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.DEFENSE_GAP_PANEL)) return null;
-  return <DefenseGapPanel {...props} />;
-}

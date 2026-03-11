@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "@shared/schema";
+
 import type { BreachChainConfig } from "@shared/schema";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -449,8 +449,3 @@ function hexToRgb(hex: string): string {
   return `${r},${g},${b}`;
 }
 
-// Wrapper with feature flag gate
-export function EngagementConfigModalGated(props: EngagementConfigModalProps) {
-  if (!isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.ENGAGEMENT_CONFIG)) return null;
-  return <EngagementConfigModal {...props} />;
-}

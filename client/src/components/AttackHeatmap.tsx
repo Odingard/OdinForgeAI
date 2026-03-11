@@ -9,7 +9,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "@shared/schema";
+
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -239,8 +239,3 @@ export function AttackHeatmap({ breachChainId, isRunning, onClose }: AttackHeatm
   );
 }
 
-// Wrapper with feature flag gate
-export function AttackHeatmapGated(props: AttackHeatmapProps) {
-  if (!isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.ATTACK_HEATMAP)) return null;
-  return <AttackHeatmap {...props} />;
-}

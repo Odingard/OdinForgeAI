@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AttackGraph, AttackNode, AttackEdge } from "@shared/schema";
-import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "@shared/schema";
 
 // ============================================================================
 // TYPES
@@ -919,8 +918,8 @@ export function LiveBreachChainGraph({
           }}
         />
 
-        {/* Hover Tooltip (spec v1.0 §8.1 — additive, feature-flagged) */}
-        {isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.NODE_TOOLTIP) && hoveredNode && tooltipPos && (() => {
+        {/* Hover Tooltip (spec v1.0 §8.1) */}
+        {hoveredNode && tooltipPos && (() => {
           const node = layoutRef.current.layoutNodes.find(n => n.id === hoveredNode);
           if (!node) return null;
           const art = node.artifacts;
@@ -1189,7 +1188,7 @@ export function LiveBreachChainGraph({
               </div>
 
               {/* ── Enriched Artifact Sections (spec v1.0 §4.2) ── */}
-              {isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.NODE_DRILLDOWN) && node.artifacts && (() => {
+              {node.artifacts && (() => {
                 const art = node.artifacts;
                 return (
                   <div style={{ marginTop: 12, borderTop: "1px solid rgba(56,189,248,0.15)", paddingTop: 12 }}>
