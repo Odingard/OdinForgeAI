@@ -17,14 +17,10 @@ import { TrialBanner } from "./components/TrialBanner";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  LayoutDashboard,
-  Zap,
   Shield,
   FileText,
-  Server,
+  FlaskConical,
   Settings,
-  Calendar,
-  Radar,
   LogOut,
 } from "lucide-react";
 import {
@@ -137,16 +133,16 @@ function Router() {
 
 /* ── Route labels ── */
 const ROUTE_LABELS: Record<string, [string, string]> = {
-  "/": ["Operations", "Breach Chain Intelligence"],
-  "/dashboard": ["Operations", "Dashboard"],
-  "/breach-chains": ["Operations", "Breach Chain Intelligence"],
-  "/assets": ["Intelligence", "Assets"],
-  "/full-assessment": ["Operations", "Assessments"],
-  "/scans": ["Operations", "Live Scans"],
-  "/scheduled-scans": ["Operations", "Scheduled Scans"],
-  "/reports": ["Intelligence", "Reports"],
-  "/admin/settings": ["Admin", "Settings"],
-  "/assess": ["Operations", "Assessment Wizard"],
+  "/": ["", "Breach Chain Intelligence"],
+  "/breach-chains": ["", "Breach Chain Intelligence"],
+  "/full-assessment": ["", "Validate"],
+  "/assets": ["", "Validate"],
+  "/scans": ["", "Validate"],
+  "/scheduled-scans": ["", "Validate"],
+  "/assess": ["", "Validate"],
+  "/reports": ["", "Reports"],
+  "/admin/settings": ["", "Settings"],
+  "/dashboard": ["", "Dashboard"],
 };
 
 /* ══════════════════════════
@@ -159,7 +155,7 @@ function TopBar() {
 
   const handleLogout = async () => { await logout(); window.location.reload(); };
 
-  const [, page] = ROUTE_LABELS[location] || ["Operations", "Page"];
+  const [, page] = ROUTE_LABELS[location] || ["", "Page"];
   const critCount = evaluations.filter((e: any) => (e.priority || e.severity || "").toLowerCase() === "critical").length;
   const activeCount = evaluations.filter((e: any) => e.status === "in_progress").length;
   const breachCount = evaluations.filter((e: any) => e.exploitable).length;
@@ -283,49 +279,54 @@ function TopBarStat({ value, label, color }: { value: string; label: string; col
    SIDEBAR
 ══════════════════════════ */
 interface NavItem {
-  icon: typeof LayoutDashboard;
+  icon: typeof Shield;
   title: string;
   href: string;
+  matchPaths?: string[];
   badge?: { count: number; style: "r" | "d" };
-  aevHidden?: boolean;
 }
 
 function FalconSidebar() {
   const [location] = useLocation();
-  const isAevOnly = useAevOnlyMode();
   const { hasPermission } = useAuth();
   const { user: uiUser } = useUIAuth();
   const { data: evaluations = [] } = useQuery<any[]>({ queryKey: ["/api/aev/evaluations"] });
-  const { data: assets = [] } = useQuery<any[]>({ queryKey: ["/api/assets"] });
 
   const breachCount = evaluations.filter((e: any) => e.exploitable).length;
 
-  const isActive = (href: string) => {
-    if (href === "/") return location === "/";
-    return location.startsWith(href);
+  const isActive = (item: NavItem) => {
+    if (location.startsWith(item.href)) return true;
+    return (item.matchPaths || []).some((p) => location.startsWith(p));
   };
 
-  const primaryItems: NavItem[] = [
-    { icon: Shield, title: "Breach Chains", href: "/breach-chains", badge: breachCount > 0 ? { count: breachCount, style: "r" } : undefined },
-    { icon: Server, title: "Assets", href: "/assets", badge: assets.length > 0 ? { count: assets.length, style: "d" } : undefined },
-    { icon: Radar, title: "Assess", href: "/assess" },
-    { icon: Zap, title: "Agents", href: "/agents", aevHidden: true },
-  ];
-
-  const toolsItems: NavItem[] = [
-    { icon: FileText, title: "Reports", href: "/reports" },
-    { icon: Calendar, title: "Scheduled Scans", href: "/scheduled-scans", aevHidden: true },
+  const coreItems: NavItem[] = [
+    {
+      icon: Shield,
+      title: "Breach Chains",
+      href: "/breach-chains",
+      badge: breachCount > 0 ? { count: breachCount, style: "r" } : undefined,
+    },
+    {
+      icon: FlaskConical,
+      title: "Validate",
+      href: "/full-assessment",
+      matchPaths: ["/assets", "/scans", "/scheduled-scans", "/assess", "/agents"],
+    },
+    {
+      icon: FileText,
+      title: "Reports",
+      href: "/reports",
+    },
   ];
 
   const showSettings = hasPermission("org:manage_settings") || hasPermission("org:manage_users");
 
   const renderItem = (item: NavItem) => {
-    if (isAevOnly && item.aevHidden) return null;
-    const active = isActive(item.href);
+    const active = isActive(item);
     return (
-      <Link key={item.href + item.title} href={item.href}>
+      <Link key={item.href} href={item.href}>
         <div
-          className="flex items-center gap-[11px] py-[9px] px-[18px] cursor-pointer text-[13px] transition-all select-none"
+          className="flex items-center gap-[11px] py-[10px] px-[18px] cursor-pointer text-[13px] transition-all select-none"
           style={{
             color: active ? "var(--falcon-t1)" : "var(--falcon-t2)",
             background: active ? "rgba(255,255,255,0.05)" : undefined,
@@ -335,7 +336,7 @@ function FalconSidebar() {
           onMouseEnter={(e) => { if (!active) { e.currentTarget.style.color = "var(--falcon-t1)"; e.currentTarget.style.background = "var(--falcon-hover)"; }}}
           onMouseLeave={(e) => { if (!active) { e.currentTarget.style.color = "var(--falcon-t2)"; e.currentTarget.style.background = ""; }}}
         >
-          <item.icon className="w-4 h-4 shrink-0" />
+          <item.icon className="w-[15px] h-[15px] shrink-0" />
           {item.title}
           {item.badge && (
             <span className={`f-nav-badge ${item.badge.style === "r" ? "f-nb-r" : "f-nb-d"}`}>
@@ -349,60 +350,54 @@ function FalconSidebar() {
 
   return (
     <div
-      className="flex flex-col pt-4 overflow-hidden"
+      className="flex flex-col overflow-hidden"
       style={{ background: "var(--falcon-nav)", borderRight: "1px solid var(--falcon-border)" }}
     >
-      {/* Primary section */}
-      <div className="mb-1">
-        <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
-          Operations
-        </div>
-        {primaryItems.map(renderItem)}
-      </div>
+      {/* Spacer under topbar */}
+      <div className="h-5" />
 
-      {/* Settings & Tools section */}
-      <div className="mb-1">
-        <div className="font-mono text-[9px] font-normal tracking-[0.24em] uppercase px-[18px] py-[6px] pb-[5px]" style={{ color: "var(--falcon-t4)" }}>
-          Settings &amp; Tools
-        </div>
-        {toolsItems.map(renderItem)}
-        {showSettings && (
-          <Link href="/admin/settings">
-            <div
-              className="flex items-center gap-[11px] py-[9px] px-[18px] cursor-pointer text-[13px] transition-all select-none"
-              style={{
-                color: location.startsWith("/admin/settings") ? "var(--falcon-t1)" : "var(--falcon-t2)",
-                background: location.startsWith("/admin/settings") ? "rgba(255,255,255,0.05)" : undefined,
-                borderLeft: location.startsWith("/admin/settings") ? "2px solid var(--falcon-red)" : "2px solid transparent",
-                fontWeight: location.startsWith("/admin/settings") ? 500 : 400,
-              }}
-              onMouseEnter={(e) => { if (!location.startsWith("/admin/settings")) { e.currentTarget.style.color = "var(--falcon-t1)"; e.currentTarget.style.background = "var(--falcon-hover)"; }}}
-              onMouseLeave={(e) => { if (!location.startsWith("/admin/settings")) { e.currentTarget.style.color = "var(--falcon-t2)"; e.currentTarget.style.background = ""; }}}
-            >
-              <Settings className="w-4 h-4 shrink-0" />
-              Settings
-            </div>
-          </Link>
-        )}
+      {/* 3 core surfaces */}
+      <div className="flex flex-col gap-[2px] px-3">
+        {coreItems.map(renderItem)}
       </div>
 
       <div className="flex-1" />
 
+      {/* Settings */}
+      {showSettings && (
+        <div className="px-3 pb-2">
+          <Link href="/admin/settings">
+            <div
+              className="flex items-center gap-[11px] py-[9px] px-[9px] cursor-pointer text-[13px] transition-all select-none rounded"
+              style={{
+                color: location.startsWith("/admin/settings") ? "var(--falcon-t1)" : "var(--falcon-t3)",
+                fontWeight: location.startsWith("/admin/settings") ? 500 : 400,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--falcon-t1)"; e.currentTarget.style.background = "var(--falcon-hover)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = location.startsWith("/admin/settings") ? "var(--falcon-t1)" : "var(--falcon-t3)"; e.currentTarget.style.background = ""; }}
+            >
+              <Settings className="w-[15px] h-[15px] shrink-0" />
+              Settings
+            </div>
+          </Link>
+        </div>
+      )}
+
       {/* User footer */}
       <div
-        className="flex items-center gap-[11px] px-[18px] py-3 cursor-pointer transition-colors"
+        className="flex items-center gap-[10px] px-[18px] py-3 cursor-pointer transition-colors"
         style={{ borderTop: "1px solid var(--falcon-border)" }}
         onMouseEnter={(e) => { e.currentTarget.style.background = "var(--falcon-hover)"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
       >
         <div
-          className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-bold shrink-0"
+          className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0"
           style={{ background: "var(--falcon-red)", color: "#fff" }}
         >
           {(uiUser?.displayName?.charAt(0) || uiUser?.email?.charAt(0) || "U").toUpperCase()}
         </div>
         <div>
-          <div className="text-[12px] font-semibold" style={{ color: "var(--falcon-t1)" }}>
+          <div className="text-[12px] font-semibold leading-none mb-[2px]" style={{ color: "var(--falcon-t1)" }}>
             {uiUser?.displayName || uiUser?.email || "User"}
           </div>
           <div className="font-mono text-[9px] tracking-[0.06em]" style={{ color: "var(--falcon-t3)" }}>

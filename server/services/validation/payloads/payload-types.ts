@@ -1,4 +1,4 @@
-export type PayloadCategory = 
+export type PayloadCategory =
   | "sqli"
   | "xss"
   | "command_injection"
@@ -6,7 +6,15 @@ export type PayloadCategory =
   | "ssrf"
   | "auth_bypass"
   | "header_injection"
-  | "template_injection";
+  | "template_injection"
+  | "nosql_injection"
+  | "xxe"
+  | "open_redirect"
+  | "mass_assignment"
+  | "deserialization"
+  | "http_request_smuggling"
+  | "crlf_injection"
+  | "graphql_injection";
 
 export type PayloadRiskLevel = "safe" | "low" | "medium" | "high";
 
@@ -20,7 +28,16 @@ export type PayloadTechnique =
   | "stored"
   | "dom_based"
   | "blind"
-  | "out_of_band";
+  | "out_of_band"
+  | "operator_injection"
+  | "entity_injection"
+  | "parameter_pollution"
+  | "gadget_chain"
+  | "te_cl"
+  | "cl_te"
+  | "newline_injection"
+  | "introspection"
+  | "batching";
 
 export interface Payload {
   id: string;

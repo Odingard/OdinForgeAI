@@ -5,3 +5,4 @@ export * from "./command-injection-payloads";
 export * from "./path-traversal-payloads";
 export * from "./ssrf-payloads";
 export * from "./auth-bypass-payloads";
+export * from "./advanced-payloads";

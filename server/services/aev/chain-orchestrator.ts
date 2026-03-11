@@ -39,15 +39,25 @@ export type ExploitCategory =
   | "cloud_misconfig"
   | "privilege_escalation"
   | "persistence"
-  | "data_exfiltration";
+  | "data_exfiltration"
+  | "nosql_injection"
+  | "oauth_attack"
+  | "graphql"
+  | "websocket_attack"
+  | "supply_chain"
+  | "deserialization"
+  | "cicd"
+  | "k8s"
+  | "serverless";
 
-export type StepType = 
+export type StepType =
   | "validate"      // Initial vulnerability validation
   | "exploit"       // Active exploitation attempt
   | "exfiltrate"    // Data extraction proof
   | "escalate"      // Privilege escalation
   | "pivot"         // Lateral movement
   | "persist"       // Persistence mechanism
+  | "recon"         // Reconnaissance / discovery
   | "cleanup";      // Post-exploitation cleanup
 
 export interface PlaybookStep {
@@ -703,6 +713,8 @@ export class ChainOrchestrator {
       case "pivot":
       case "persist":
         return "exploit_execution";
+      case "recon":
+      case "validate":
       default:
         return "vulnerability_scan";
     }
