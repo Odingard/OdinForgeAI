@@ -118,6 +118,8 @@ export interface OrchestratorOptions {
   skipPhaseTracking?: boolean;
   /** Scheduled scan ID for drift tracking (set by scan scheduler) */
   scheduledScanId?: string;
+  /** Live-mode enforcement directive injected into all AI agent prompts (breach chain use) */
+  breachDirective?: string;
 }
 
 export async function runAgentOrchestrator(
@@ -223,7 +225,12 @@ async function runPipeline(
     realScanData,
   };
 
-  const memory: AgentMemory = { context, safetyDecisions: [], groundTruth: realScanData };
+  const memory: AgentMemory = {
+    context,
+    safetyDecisions: [],
+    groundTruth: realScanData,
+    ...(options?.breachDirective ? { breachDirective: options.breachDirective } : {}),
+  };
 
   const guardianContext = {
     organizationId: options?.organizationId,

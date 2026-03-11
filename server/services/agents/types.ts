@@ -268,6 +268,8 @@ export interface AgentMemory {
     epssScores: Array<{ cve: string; epss: number; percentile: number }>;
     kevCves: string[];
   };
+  /** Live-mode enforcement directive injected into all agent system prompts (breach chain context) */
+  breachDirective?: string;
 }
 
 export interface AgentResult<T> {

@@ -56,6 +56,74 @@ type PhaseExecutor = (
 ) => Promise<BreachPhaseResult>;
 
 // ============================================================================
+// LIVE MODE ENFORCEMENT DIRECTIVES
+// ============================================================================
+
+/**
+ * Full system directive injected into all AI calls made within the breach chain.
+ * Every LLM call that produces phase output must honor this constraint.
+ */
+export const BREACH_CHAIN_LIVE_DIRECTIVE = `
+# ODINFORGE BREACH CHAIN — LIVE MODE DIRECTIVE
+
+You are operating as a live AEV (Automated Evidence Validation) breach chain assistant.
+This is a production environment. All behavior must reflect real, verified, live data at every phase.
+
+## PRIME DIRECTIVE
+Every phase and every tool in this breach chain must operate in LIVE MODE ONLY.
+You are strictly prohibited from simulating, mocking, fabricating, estimating, or
+substituting placeholder data at any step, in any phase, for any reason.
+
+If a tool cannot return a live, verified, real-time result — STOP the chain entirely
+and report the failure clearly before proceeding. There are NO exceptions.
+
+## PHASES: Discovery → Verification → Notification → Remediation → AEV Pentesting
+Each phase requires:
+- Real tool execution with real network responses
+- AEV evidence captured live and traceable to a confirmed source
+- No carried-forward unverified data
+
+## FAILURE PROTOCOL
+If any tool fails to return a live result:
+1. STOP the chain immediately
+2. Identify which tool failed and at which phase
+3. Report the failure with tool name, phase, and reason
+4. Do NOT continue or skip ahead
+5. Wait for human instruction before resuming
+
+Live. Verified. Always.
+`.trim();
+
+/**
+ * Shorter per-phase enforcement block for attaching to individual tool calls.
+ */
+export const BREACH_CHAIN_PHASE_DIRECTIVE = (phaseName: string) =>
+  `[PHASE: ${phaseName.toUpperCase()} | LIVE MODE ENFORCED] ` +
+  `Use only real, verified network data. No simulation. No fabrication. ` +
+  `If this tool cannot return a live result, stop and report the failure.`;
+
+/**
+ * Validates that a breach chain has a real, non-empty target before execution begins.
+ * Returns an error string if validation fails, or null if valid.
+ */
+function validateLiveTarget(chain: BreachChain): string | null {
+  const assetId = chain.assetIds?.[0];
+  if (!assetId || assetId.trim() === "") {
+    return "LIVE MODE HALT: No target asset specified. Breach chain cannot run without a real target.";
+  }
+  let hostname: string;
+  try {
+    hostname = new URL(assetId).hostname;
+  } catch {
+    hostname = assetId;
+  }
+  if (!hostname || hostname === "localhost" || hostname === "127.0.0.1") {
+    return `LIVE MODE HALT: Target '${hostname}' is not a valid live target. Localhost targets are not permitted.`;
+  }
+  return null;
+}
+
+// ============================================================================
 // PHASE DEFINITIONS
 // ============================================================================
 
@@ -116,6 +184,18 @@ export async function runBreachChain(
   const chain = await storage.getBreachChain(chainId);
   if (!chain) throw new Error(`Breach chain ${chainId} not found`);
 
+  // === LIVE MODE ENFORCEMENT: validate target before any phase executes ===
+  const targetValidationError = validateLiveTarget(chain);
+  if (targetValidationError) {
+    console.error(`[BreachOrchestrator] ${targetValidationError}`);
+    await storage.updateBreachChain(chainId, {
+      status: "failed",
+      completedAt: new Date(),
+    });
+    throw new Error(targetValidationError);
+  }
+  console.info(`[BreachOrchestrator] LIVE MODE ACTIVE — chain ${chainId} — target: ${chain.assetIds?.[0]}`);
+
   const config = chain.config as BreachChainConfig;
   const startTime = Date.now();
 
@@ -124,7 +204,7 @@ export async function runBreachChain(
     startedAt: new Date(),
   });
 
-  broadcastBreachProgress(chainId, "starting", 0, "Breach chain initiated");
+  broadcastBreachProgress(chainId, "starting", 0, "Breach chain initiated — LIVE MODE ENFORCED");
 
   // Initialize or restore context
   let context: BreachPhaseContext = (chain.currentContext as BreachPhaseContext) ?? {
@@ -204,6 +284,7 @@ export async function runBreachChain(
         currentPhase: phaseName,
         progress: phaseDef.progressRange[0],
       });
+      console.info(`[BreachOrchestrator] ${BREACH_CHAIN_PHASE_DIRECTIVE(phaseName)}`);
       broadcastBreachProgress(
         chainId, phaseName, phaseDef.progressRange[0],
         `Starting ${phaseDef.displayName}...`
@@ -569,6 +650,7 @@ async function executeApplicationCompromise(
             adversaryProfile: config.adversaryProfile as any,
             organizationId: chain.organizationId,
             executionMode: config.executionMode,
+            breachDirective: BREACH_CHAIN_LIVE_DIRECTIVE,
           }
         );
 
@@ -919,6 +1001,7 @@ async function executeCloudIAMEscalation(
             adversaryProfile: config.adversaryProfile as any,
             organizationId: chain.organizationId,
             executionMode: config.executionMode,
+            breachDirective: BREACH_CHAIN_LIVE_DIRECTIVE,
           }
         );
 

@@ -58,7 +58,11 @@ export async function runPlanAgent(
     }
   }
 
-  const systemPrompt = `You are the PLAN AGENT for OdinForge AI.
+  const liveDirective = memory.breachDirective
+    ? `\n\n${memory.breachDirective}\n`
+    : "";
+
+  const systemPrompt = `You are the PLAN AGENT for OdinForge AI.${liveDirective}
 
 Given reconnaissance data, produce a prioritized attack plan that the exploit agent will follow.
 
@@ -68,7 +72,8 @@ RULES:
 - Include MITRE ATT&CK technique IDs where applicable
 - Skip vectors that are clearly low-value or unreachable
 - Be concrete: specify exact endpoints, parameters, and techniques
-- If external recon found open ports or missing security headers, prioritize those vectors`;
+- If external recon found open ports or missing security headers, prioritize those vectors
+- All attack vectors must target the ACTUAL live target — do not plan attacks against unreachable hosts`;
 
   const userPrompt = `Create an attack plan for:
 
