@@ -44,6 +44,8 @@ import {
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
 import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
+import { ChainComparison } from "@/components/ChainComparison";
+import { ChainSparkline } from "@/components/ChainSparkline";
 
 // Phase metadata for display
 const PHASE_META: Record<string, { label: string; icon: typeof Shield; color: string; description: string }> = {
@@ -986,13 +988,16 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   );
 }
 
-function ChainCard({ chain, onView, onDelete, onResume, onAbort, onGenerateReport }: {
+function ChainCard({ chain, onView, onDelete, onResume, onAbort, onGenerateReport, compareMode, isSelectedForCompare, onToggleCompare }: {
   chain: BreachChain;
   onView: () => void;
   onDelete: () => void;
   onResume: () => void;
   onAbort: () => void;
   onGenerateReport?: () => void;
+  compareMode?: boolean;
+  isSelectedForCompare?: boolean;
+  onToggleCompare?: () => void;
 }) {
   const isRunning = chain.status === "running";
   const isPaused = chain.status === "paused";
@@ -1004,13 +1009,27 @@ function ChainCard({ chain, onView, onDelete, onResume, onAbort, onGenerateRepor
   const sty = STATUS_STYLES[chain.status] || STATUS_STYLES.pending;
 
   return (
-    <div className="f-panel" style={{ position: "relative", overflow: "visible" }}>
+    <div className="f-panel" style={{ position: "relative", overflow: "visible", outline: compareMode && isSelectedForCompare ? "2px solid var(--falcon-blue-hi)" : "none" }}>
+      {compareMode && (
+        <div
+          style={{ position: "absolute", top: 10, right: 10, zIndex: 2, cursor: "pointer" }}
+          onClick={(e) => { e.stopPropagation(); onToggleCompare?.(); }}
+        >
+          <input
+            type="checkbox"
+            checked={!!isSelectedForCompare}
+            onChange={() => onToggleCompare?.()}
+            style={{ width: 16, height: 16, cursor: "pointer" }}
+          />
+        </div>
+      )}
       <div className="f-panel-head">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, flexWrap: "wrap", flex: 1 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="f-panel-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Link2 style={{ width: 16, height: 16, color: "var(--falcon-red)", flexShrink: 0 }} />
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chain.name}</span>
+              <ChainSparkline chainId={chain.id} width={80} height={20} />
             </div>
             <p style={{ fontSize: 10, color: "var(--falcon-t4)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {chain.description || "Cross-domain breach chain"}
@@ -1136,6 +1155,10 @@ export default function BreachChains() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedChain, setSelectedChain] = useState<BreachChain | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -1330,6 +1353,17 @@ export default function BreachChains() {
             <RefreshCw style={{ width: 13, height: 13, marginRight: 6 }} />
             Refresh
           </button>
+          <button
+            className={`f-btn ${compareMode ? "f-btn-primary" : "f-btn-ghost"}`}
+            onClick={() => { setCompareMode(!compareMode); setSelectedForCompare([]); }}
+          >
+            {compareMode ? `Comparing (${selectedForCompare.length}/2)` : "Compare Chains"}
+          </button>
+          {compareMode && selectedForCompare.length === 2 && (
+            <button className="f-btn f-btn-primary" onClick={() => setShowComparison(true)}>
+              Compare Now
+            </button>
+          )}
           <button
             className="f-btn f-btn-primary"
             disabled={!canCreate}
@@ -1635,11 +1669,30 @@ export default function BreachChains() {
                   onResume={() => resumeMutation.mutate(chain.id)}
                   onAbort={() => abortMutation.mutate(chain.id)}
                   onGenerateReport={() => generateReportMutation.mutate(chain.id)}
+                  compareMode={compareMode}
+                  isSelectedForCompare={selectedForCompare.includes(chain.id)}
+                  onToggleCompare={() => {
+                    setSelectedForCompare(prev =>
+                      prev.includes(chain.id)
+                        ? prev.filter(id => id !== chain.id)
+                        : prev.length < 2
+                          ? [...prev, chain.id]
+                          : prev
+                    );
+                  }}
                 />
               ))}
             </div>
           )}
         </>
+      )}
+
+      {showComparison && selectedForCompare.length === 2 && (
+        <ChainComparison
+          chainA={{ id: selectedForCompare[0], name: chains.find(c => c.id === selectedForCompare[0])?.name ?? "" }}
+          chainB={{ id: selectedForCompare[1], name: chains.find(c => c.id === selectedForCompare[1])?.name ?? "" }}
+          onClose={() => { setShowComparison(false); setCompareMode(false); setSelectedForCompare([]); }}
+        />
       )}
     </div>
   );

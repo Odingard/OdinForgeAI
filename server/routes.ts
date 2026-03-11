@@ -51,6 +51,7 @@ import { fullRecon, reconToExposures, type ReconResult } from "./services/extern
 import { runFullAssessment } from "./services/full-assessment";
 import { runBreachChain, resumeBreachChain, abortBreachChain } from "./services/breach-orchestrator";
 import { generateNarrative } from "./services/breach-chain/narrative-generator";
+import { compareChains } from "./services/breach-chain/chain-differ";
 import { runActiveExploitEngine, type ActiveExploitTarget } from "./services/active-exploit-engine";
 import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware, getOrganizationId } from "./middleware/tenant";
@@ -7482,6 +7483,78 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get breach chains error:", error);
       res.status(500).json({ error: "Failed to fetch breach chains" });
+    }
+  });
+
+  // Compare two breach chains side-by-side — must appear BEFORE /:id to avoid route shadowing
+  app.get("/api/breach-chains/compare", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { a, b } = req.query as { a?: string; b?: string };
+      if (!a || !b) {
+        return res.status(400).json({ error: "Query params ?a=chainId&b=chainId are required" });
+      }
+      const [chainA, chainB] = await Promise.all([
+        storage.getBreachChain(a),
+        storage.getBreachChain(b),
+      ]);
+      if (!chainA) return res.status(404).json({ error: `Breach chain ${a} not found` });
+      if (!chainB) return res.status(404).json({ error: `Breach chain ${b} not found` });
+      if (!chainA.unifiedAttackGraph || !chainB.unifiedAttackGraph) {
+        return res.status(400).json({ error: "Both chains must be completed with attack graphs" });
+      }
+      const comparison = compareChains(
+        {
+          id: chainA.id,
+          name: chainA.name,
+          completedAt: chainA.completedAt ? chainA.completedAt.toISOString() : null,
+          overallRiskScore: chainA.overallRiskScore,
+          unifiedAttackGraph: chainA.unifiedAttackGraph,
+        },
+        {
+          id: chainB.id,
+          name: chainB.name,
+          completedAt: chainB.completedAt ? chainB.completedAt.toISOString() : null,
+          overallRiskScore: chainB.overallRiskScore,
+          unifiedAttackGraph: chainB.unifiedAttackGraph,
+        }
+      );
+      res.json({ comparison });
+    } catch (error) {
+      console.error("Compare breach chains error:", error);
+      res.status(500).json({ error: "Failed to compare breach chains" });
+    }
+  });
+
+  // Trend history — last 10 completed chains for an org, optionally filtered by assetId
+  app.get("/api/breach-chains/trend", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const orgId = req.uiUser?.organizationId;
+      const { assetId } = req.query as { assetId?: string };
+      const allChains = await storage.getBreachChains(orgId);
+      const completed = allChains
+        .filter((c) => c.status === "completed" && c.completedAt != null)
+        .filter((c) => {
+          if (!assetId) return true;
+          return Array.isArray(c.assetIds) && c.assetIds.includes(assetId);
+        })
+        .sort((a, b) => {
+          const tA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
+          const tB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+          return tA - tB;
+        })
+        .slice(-10)
+        .map((c) => ({
+          id: c.id,
+          name: c.name,
+          completedAt: c.completedAt,
+          overallRiskScore: c.overallRiskScore,
+          nodeCount: c.unifiedAttackGraph?.nodes?.length ?? 0,
+          criticalPathLength: c.unifiedAttackGraph?.criticalPath?.length ?? 0,
+        }));
+      res.json(completed);
+    } catch (error) {
+      console.error("Breach chain trend error:", error);
+      res.status(500).json({ error: "Failed to fetch breach chain trend" });
     }
   });
 
