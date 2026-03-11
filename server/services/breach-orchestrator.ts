@@ -901,12 +901,19 @@ async function executeCloudIAMEscalation(
     ["api_key", "iam_role", "service_account", "token"].includes(c.type)
   );
 
-  if (cloudCreds.length > 0) {
-    onProgress(chain.id, "cloud_iam_escalation", 40, `Analyzing IAM escalation for ${cloudCreds.length} credentials`);
+  // Only run IAM analysis on credentials that are confirmed real — not inferred
+  const confirmedCloudCreds = cloudCreds.filter(c =>
+    c.source === "active_exploit_engine" ||
+    c.source === "application_compromise" ||
+    c.source === "credential_extraction"
+  );
+
+  if (confirmedCloudCreds.length > 0) {
+    onProgress(chain.id, "cloud_iam_escalation", 40, `Analyzing IAM escalation for ${confirmedCloudCreds.length} confirmed cloud credentials`);
 
     try {
-      // Derive permissions from credential types for IAM analysis
-      const inferredPermissions = cloudCreds.flatMap(c => {
+      // Build permission set from confirmed credential metadata only
+      const inferredPermissions = confirmedCloudCreds.flatMap(c => {
         if (c.type === "iam_role") return ["iam:*", "sts:AssumeRole"];
         if (c.type === "api_key") return ["ec2:Describe*", "s3:List*", "iam:List*"];
         if (c.type === "service_account") return ["iam:PassRole", "lambda:CreateFunction"];
@@ -915,8 +922,8 @@ async function executeCloudIAMEscalation(
 
       const iamResult = await awsPentestService.analyzeIAMPrivilegeEscalation(
         inferredPermissions,
-        cloudCreds[0]?.username || "breach-chain-principal",
-        cloudCreds[0]?.username || "breach-chain-principal"
+        confirmedCloudCreds[0]?.username || "breach-chain-principal",
+        confirmedCloudCreds[0]?.username || "breach-chain-principal"
       );
 
       for (const path of iamResult.escalationPaths) {
@@ -1062,122 +1069,295 @@ async function executeContainerK8sBreakout(
   const newCredentials: BreachCredential[] = [];
   const newAssets: CompromisedAsset[] = [];
 
-  onProgress(chain.id, "container_k8s_breakout", 60, "Analyzing Kubernetes RBAC for escalation paths");
+  // Extract real target hostname
+  let targetHost = (chain.assetIds as string[])[0] || "";
+  try { targetHost = new URL(targetHost).hostname; } catch { /* use as-is */ }
 
-  try {
-    // Build a K8s config from context — use compromised cloud credentials
-    // to simulate what access the attacker would have
-    const k8sConfig = {
-      clusterContext: "breach-chain-analysis",
-      namespace: "default",
-      pods: [] as any[],
-      serviceAccounts: context.credentials
-        .filter(c => c.type === "service_account" || c.type === "token")
-        .map(c => ({
-          name: c.username || "default",
-          namespace: "default",
-          automountToken: true,
-        })),
-      roles: [
-        // Simulate common roles an attacker might encounter after cloud escalation
-        {
-          name: "developer-role",
-          namespace: "default",
-          isClusterRole: false,
-          rules: [
-            { resources: ["pods"], verbs: ["get", "list", "create", "delete"], apiGroups: [""] },
-            { resources: ["pods/exec"], verbs: ["create"], apiGroups: [""] },
-            { resources: ["secrets"], verbs: ["get", "list"], apiGroups: [""] },
-            { resources: ["configmaps"], verbs: ["get", "list"], apiGroups: [""] },
-          ],
-        },
-      ],
-      roleBindings: [
-        {
-          name: "developer-binding",
-          namespace: "default",
-          isClusterRoleBinding: false,
-          roleRef: "developer-role",
-          subjects: [{ kind: "ServiceAccount", name: "default", namespace: "default" }],
-        },
-      ],
-      networkPolicies: [],
-      secrets: [
-        {
-          name: "db-credentials",
-          namespace: "default",
-          type: "Opaque",
-          accessibleByPods: ["app-pod", "worker-pod"],
-        },
-      ],
-    };
+  onProgress(chain.id, "container_k8s_breakout", 57, `Probing ${targetHost} for Kubernetes attack surface`);
 
-    const k8sResult = await kubernetesPentestService.testKubernetesAbuse(k8sConfig);
+  // ── Step 1: Real port probes for K8s components ──────────────────────────
+  const K8S_PORTS = [
+    { port: 6443,  label: "K8s API Server (TLS)",   protocol: "https" },
+    { port: 8443,  label: "K8s API Server (alt)",   protocol: "https" },
+    { port: 10250, label: "Kubelet API",             protocol: "https" },
+    { port: 10255, label: "Kubelet read-only",       protocol: "http"  },
+    { port: 2379,  label: "etcd client",             protocol: "http"  },
+    { port: 2380,  label: "etcd peer",               protocol: "http"  },
+  ];
 
-    // Process RBAC escalation findings
-    for (const escalation of k8sResult.rbacEscalations) {
-      findings.push({
+  const net = await import("net");
+  const tcpProbe = (host: string, port: number): Promise<boolean> =>
+    new Promise(resolve => {
+      const s = net.createConnection({ host, port, timeout: 3000 });
+      const t = setTimeout(() => { s.destroy(); resolve(false); }, 3000);
+      s.on("connect", () => { clearTimeout(t); s.destroy(); resolve(true); });
+      s.on("error",   () => { clearTimeout(t); resolve(false); });
+    });
+
+  const portResults = await Promise.all(
+    K8S_PORTS.map(async p => ({ ...p, open: await tcpProbe(targetHost, p.port) }))
+  );
+  const openPorts = portResults.filter(p => p.open);
+
+  if (openPorts.length === 0) {
+    console.info(`[BreachOrchestrator] No K8s ports open on ${targetHost} — skipping container phase`);
+    return buildPhaseResult("container_k8s_breakout", startTime, context, {
+      credentials: [], assets: [],
+      findings: [{
         id: `bf-${randomUUID().slice(0, 8)}`,
-        severity: escalation.severity as "critical" | "high" | "medium" | "low",
-        title: `K8s RBAC Escalation: ${escalation.name}`,
-        description: `${escalation.escalationPath.join(" → ")}. Remediation: ${escalation.remediation}`,
-        technique: escalation.escalationPath[0],
-      });
-    }
+        severity: "low",
+        title: "No Kubernetes Attack Surface Found",
+        description: `Probed ${targetHost} on ports ${K8S_PORTS.map(p => p.port).join(", ")}. None are open — no K8s or container orchestration exposure on this target.`,
+        technique: "T1046",
+      }],
+      evaluationIds: [],
+      domain: "kubernetes",
+    });
+  }
 
-    // Process API abuse vectors
-    for (const vector of k8sResult.apiAbuseVectors) {
-      if (vector.exploitable) {
+  onProgress(chain.id, "container_k8s_breakout", 62,
+    `Found ${openPorts.length} open K8s port(s): ${openPorts.map(p => `${p.port} (${p.label})`).join(", ")}`);
+
+  // ── Step 2: Probe unauthenticated K8s API endpoints ──────────────────────
+  const fetchK8s = async (url: string): Promise<{ ok: boolean; body: string; status: number }> => {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 6000);
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { "User-Agent": "OdinForge-AEV/1.0" },
+      });
+      const body = await res.text().catch(() => "");
+      return { ok: res.ok, body: body.substring(0, 4000), status: res.status };
+    } catch {
+      return { ok: false, body: "", status: 0 };
+    } finally {
+      clearTimeout(t);
+    }
+  };
+
+  // Attempt unauthenticated access to K8s API discovery endpoints
+  const apiHost = openPorts.find(p => p.port === 6443 || p.port === 8443);
+  const kubeletReadonly = openPorts.find(p => p.port === 10255);
+  const etcd = openPorts.find(p => p.port === 2379);
+
+  const discoveredPods: string[] = [];
+  const discoveredSecrets: string[] = [];
+  const k8sVersion: string | null = null;
+  let unauthApiAccess = false;
+
+  if (apiHost) {
+    const versionRes = await fetchK8s(`https://${targetHost}:${apiHost.port}/version`);
+    if (versionRes.ok && versionRes.body.includes("gitVersion")) {
+      unauthApiAccess = true;
+      try {
+        const v = JSON.parse(versionRes.body);
         findings.push({
           id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: vector.severity as "critical" | "high" | "medium" | "low",
-          title: `K8s API Abuse: ${vector.name}`,
-          description: `${vector.impact}. Exploitability: ${vector.exploitability}`,
-          technique: vector.apiEndpoint,
+          severity: "critical",
+          title: "Unauthenticated K8s API Server Access",
+          description: `K8s API server on ${targetHost}:${apiHost.port} responds to unauthenticated /version — version: ${v.gitVersion || "unknown"}. Full API may be accessible without credentials.`,
+          technique: "T1613",
+          mitreId: "T1613",
+        });
+      } catch {
+        findings.push({
+          id: `bf-${randomUUID().slice(0, 8)}`,
+          severity: "critical",
+          title: "Unauthenticated K8s API Server Access",
+          description: `K8s API server on ${targetHost}:${apiHost.port} responds to unauthenticated requests — no authentication required.`,
+          technique: "T1613",
+          mitreId: "T1613",
         });
       }
-    }
 
-    // Secret exposures yield new credentials
-    for (const secret of k8sResult.secretExposures) {
-      newCredentials.push({
-        id: `bc-${randomUUID().slice(0, 8)}`,
-        type: "token",
-        username: secret.secretName,
-        valueHash: hashValue(`k8s-secret-${secret.secretName}-${chain.id}`),
-        source: "container_k8s_breakout",
-        accessLevel: secret.severity === "high" ? "admin" : "user",
-        validatedTargets: secret.accessibleBy,
-        discoveredAt: new Date().toISOString(),
-      });
-    }
+      // Try to list namespaces — high-value unauthenticated access
+      const nsRes = await fetchK8s(`https://${targetHost}:${apiHost.port}/api/v1/namespaces`);
+      if (nsRes.ok) {
+        findings.push({
+          id: `bf-${randomUUID().slice(0, 8)}`,
+          severity: "critical",
+          title: "K8s Namespace Enumeration Without Auth",
+          description: `Unauthenticated namespace listing succeeded on ${targetHost}:${apiHost.port}/api/v1/namespaces. Full cluster enumeration possible.`,
+          technique: "T1613",
+          mitreId: "T1613",
+        });
+      }
 
-    // K8s lateral movement paths
-    for (const path of k8sResult.lateralMovementPaths) {
+      // Try to list secrets
+      const secretsRes = await fetchK8s(`https://${targetHost}:${apiHost.port}/api/v1/secrets`);
+      if (secretsRes.ok && secretsRes.body.includes("Secret")) {
+        findings.push({
+          id: `bf-${randomUUID().slice(0, 8)}`,
+          severity: "critical",
+          title: "K8s Secrets Exposed Without Authentication",
+          description: `Unauthenticated access to /api/v1/secrets on ${targetHost}:${apiHost.port}. Kubernetes secrets (tokens, passwords, certificates) are readable without credentials.`,
+          technique: "T1552.007",
+          mitreId: "T1552.007",
+        });
+        discoveredSecrets.push("cluster-secrets");
+      }
+    }
+  }
+
+  // Kubelet read-only port — no auth required by design (deprecated but common)
+  if (kubeletReadonly) {
+    const podsRes = await fetchK8s(`http://${targetHost}:10255/pods`);
+    if (podsRes.ok && (podsRes.body.includes("Pod") || podsRes.body.includes("containers"))) {
       findings.push({
         id: `bf-${randomUUID().slice(0, 8)}`,
-        severity: path.severity as "critical" | "high" | "medium" | "low",
-        title: `K8s Lateral: ${path.technique}`,
-        description: `${path.sourcePod} → ${path.targetPod} via ${path.technique}`,
-        technique: path.technique,
-        mitreId: path.mitreId,
+        severity: "high",
+        title: "Kubelet Read-Only Port Exposed",
+        description: `Kubelet read-only API on ${targetHost}:10255 is accessible without authentication. Pod listing and container metadata enumeration possible.`,
+        technique: "T1613",
+        mitreId: "T1613",
       });
+      try {
+        const podData = JSON.parse(podsRes.body);
+        const podNames: string[] = (podData?.items || []).map((p: any) => p?.metadata?.name).filter(Boolean);
+        discoveredPods.push(...podNames.slice(0, 10));
+      } catch { /* non-JSON response still indicates exposure */ }
     }
+  }
 
-    if (findings.length > 0) {
-      newAssets.push({
-        id: `ca-${randomUUID().slice(0, 8)}`,
-        assetId: "k8s-cluster",
-        assetType: "container",
-        name: "Kubernetes Cluster",
-        accessLevel: k8sResult.rbacEscalations.length > 0 ? "admin" : "user",
-        compromisedBy: "container_k8s_breakout",
-        accessMethod: "rbac_escalation",
-        timestamp: new Date().toISOString(),
+  // etcd — unauthenticated access is catastrophic (contains all cluster state)
+  if (etcd) {
+    const etcdRes = await fetchK8s(`http://${targetHost}:2379/version`);
+    if (etcdRes.ok && etcdRes.body.includes("etcdserver")) {
+      findings.push({
+        id: `bf-${randomUUID().slice(0, 8)}`,
+        severity: "critical",
+        title: "etcd Exposed Without Authentication",
+        description: `etcd on ${targetHost}:2379 is accessible without TLS or authentication. etcd stores all Kubernetes state including secrets, service account tokens, and configuration. Full cluster compromise via etcd key enumeration.`,
+        technique: "T1552.007",
+        mitreId: "T1552.007",
       });
     }
-  } catch (error) {
-    console.error("[BreachOrchestrator] K8s breakout analysis failed:", error);
+  }
+
+  // ── Step 3: Build real K8s config from discovered surface ─────────────────
+  const hasExecAccess = unauthApiAccess; // unauthenticated API = assume exec may be possible
+  const k8sConfig = {
+    clusterContext: `${targetHost}-breach-chain`,
+    namespace: "default",
+    pods: discoveredPods.map(name => ({
+      name,
+      namespace: "default",
+      serviceAccount: "default",
+      containers: [{ name: "app", image: "unknown" }],
+      hostNetwork: false,
+      hostPID: false,
+      hostIPC: false,
+    })),
+    serviceAccounts: context.credentials
+      .filter(c => c.type === "service_account" || c.type === "token")
+      .map(c => ({ name: c.username || "default", namespace: "default", automountToken: true })),
+    roles: hasExecAccess ? [
+      {
+        name: "anonymous-access",
+        namespace: "default",
+        isClusterRole: false,
+        rules: [
+          { resources: ["pods"], verbs: ["get", "list", ...(unauthApiAccess ? ["create", "delete"] : [])], apiGroups: [""] },
+          ...(unauthApiAccess ? [{ resources: ["pods/exec"], verbs: ["create"], apiGroups: [""] }] : []),
+          ...(discoveredSecrets.length > 0 ? [{ resources: ["secrets"], verbs: ["get", "list"], apiGroups: [""] }] : []),
+        ],
+      },
+    ] : [],
+    roleBindings: hasExecAccess ? [
+      {
+        name: "anonymous-binding",
+        namespace: "default",
+        isClusterRoleBinding: false,
+        roleRef: "anonymous-access",
+        subjects: [{ kind: "User", name: "system:anonymous", namespace: "default" }],
+      },
+    ] : [],
+    networkPolicies: [],
+    secrets: discoveredSecrets.map(name => ({
+      name,
+      namespace: "default",
+      type: "Opaque",
+      accessibleByPods: discoveredPods,
+    })),
+  };
+
+  if (k8sConfig.roles.length > 0 || openPorts.length > 0) {
+    try {
+      const k8sResult = await kubernetesPentestService.testKubernetesAbuse(k8sConfig);
+
+      for (const escalation of k8sResult.rbacEscalations) {
+        findings.push({
+          id: `bf-${randomUUID().slice(0, 8)}`,
+          severity: escalation.severity as "critical" | "high" | "medium" | "low",
+          title: `K8s RBAC Escalation: ${escalation.name}`,
+          description: `Confirmed on ${targetHost}. ${escalation.escalationPath.join(" → ")}. Remediation: ${escalation.remediation}`,
+          technique: escalation.escalationPath[0],
+        });
+      }
+
+      for (const vector of k8sResult.apiAbuseVectors) {
+        if (vector.exploitable) {
+          findings.push({
+            id: `bf-${randomUUID().slice(0, 8)}`,
+            severity: vector.severity as "critical" | "high" | "medium" | "low",
+            title: `K8s API Abuse: ${vector.name}`,
+            description: `Confirmed on ${targetHost}:${apiHost?.port || "K8s API"}. ${vector.impact}`,
+            technique: vector.apiEndpoint,
+          });
+        }
+      }
+
+      for (const secret of k8sResult.secretExposures) {
+        newCredentials.push({
+          id: `bc-${randomUUID().slice(0, 8)}`,
+          type: "token",
+          username: secret.secretName,
+          valueHash: hashValue(`k8s-secret-${secret.secretName}-${chain.id}`),
+          source: "container_k8s_breakout",
+          accessLevel: secret.severity === "high" ? "admin" : "user",
+          validatedTargets: secret.accessibleBy,
+          discoveredAt: new Date().toISOString(),
+        });
+      }
+
+      for (const path of k8sResult.lateralMovementPaths) {
+        findings.push({
+          id: `bf-${randomUUID().slice(0, 8)}`,
+          severity: path.severity as "critical" | "high" | "medium" | "low",
+          title: `K8s Lateral Movement: ${path.technique}`,
+          description: `${path.sourcePod} → ${path.targetPod} via ${path.technique} on ${targetHost}`,
+          technique: path.technique,
+          mitreId: path.mitreId,
+        });
+      }
+    } catch (err) {
+      console.error("[BreachOrchestrator] K8s RBAC analysis failed:", err);
+    }
+  }
+
+  // Open ports alone are a finding even if API is auth-gated
+  if (openPorts.length > 0 && !unauthApiAccess) {
+    findings.push({
+      id: `bf-${randomUUID().slice(0, 8)}`,
+      severity: "medium",
+      title: "Kubernetes Infrastructure Exposed to Internet",
+      description: `K8s ports confirmed open on ${targetHost}: ${openPorts.map(p => `${p.port} (${p.label})`).join(", ")}. APIs are authentication-gated but publicly reachable — increases attack surface and brute-force risk.`,
+      technique: "T1046",
+    });
+  }
+
+  if (findings.some(f => f.severity === "critical" || f.severity === "high")) {
+    newAssets.push({
+      id: `ca-${randomUUID().slice(0, 8)}`,
+      assetId: `k8s-${targetHost}`,
+      assetType: "container",
+      name: `Kubernetes Cluster (${targetHost})`,
+      accessLevel: unauthApiAccess ? "admin" : "user",
+      compromisedBy: "container_k8s_breakout",
+      accessMethod: unauthApiAccess ? "unauthenticated_api" : "exposed_port",
+      timestamp: new Date().toISOString(),
+    });
   }
 
   return buildPhaseResult("container_k8s_breakout", startTime, context, {
