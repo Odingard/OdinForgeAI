@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AttackGraph, AttackNode, AttackEdge } from "@shared/schema";
+import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "@shared/schema";
 
 // ============================================================================
 // TYPES
@@ -40,6 +41,8 @@ interface LayoutNode {
     estimatedBlastRadius: "contained" | "department" | "organization" | "customer-facing";
     financialImpact?: string;
   };
+  // Enriched artifact data (spec v1.0 §4.1)
+  artifacts?: AttackNode["artifacts"];
 }
 
 interface LayoutEdge {
@@ -314,6 +317,7 @@ function makeLayoutNode(
     radius,
     remediationStatus: node.remediationStatus,
     businessImpact: node.businessImpact,
+    artifacts: node.artifacts,
   };
 }
 
@@ -347,6 +351,7 @@ export function LiveBreachChainGraph({
   const timeRef = useRef(0);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const [dims, setDims] = useState({ w: 1200, h: 700 });
   const layoutRef = useRef<{ layoutNodes: LayoutNode[]; layoutEdges: LayoutEdge[] }>({
     layoutNodes: [],
@@ -417,6 +422,12 @@ export function LiveBreachChainGraph({
       }
     }
     setHoveredNode(found);
+    if (found) {
+      // Tooltip position: offset from cursor so it doesn't obscure the node
+      setTooltipPos({ x: e.clientX - rect.left + 16, y: e.clientY - rect.top + 90 + 12 });
+    } else {
+      setTooltipPos(null);
+    }
   }, []);
 
   // Canvas animation loop
@@ -908,6 +919,65 @@ export function LiveBreachChainGraph({
           }}
         />
 
+        {/* Hover Tooltip (spec v1.0 §8.1 — additive, feature-flagged) */}
+        {isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.NODE_TOOLTIP) && hoveredNode && tooltipPos && (() => {
+          const node = layoutRef.current.layoutNodes.find(n => n.id === hoveredNode);
+          if (!node) return null;
+          const art = node.artifacts;
+          return (
+            <div
+              style={{
+                position: "absolute",
+                left: tooltipPos.x,
+                top: tooltipPos.y,
+                pointerEvents: "none",
+                zIndex: 20,
+                background: "rgba(6,9,15,0.95)",
+                border: "1px solid rgba(56,189,248,0.3)",
+                borderRadius: 6,
+                padding: "8px 12px",
+                minWidth: 200,
+                maxWidth: 280,
+                backdropFilter: "blur(8px)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
+                fontFamily: "'IBM Plex Mono', monospace",
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#f1f5f9", marginBottom: 4 }}>
+                {node.label}
+              </div>
+              {art?.ip && (
+                <div style={{ fontSize: 10, color: "#38bdf8" }}>IP: {art.ip}</div>
+              )}
+              {art?.hostname && (
+                <div style={{ fontSize: 10, color: "#94a3b8" }}>Host: {art.hostname}</div>
+              )}
+              {art?.attackTechniqueId && (
+                <div style={{ fontSize: 10, color: "#a78bfa" }}>
+                  {art.attackTechniqueId} — {art.attackTechniqueName || ""}
+                </div>
+              )}
+              {art?.subAgentId && (
+                <div style={{ fontSize: 9, color: "#475569", marginTop: 2 }}>
+                  Agent: {art.subAgentId}
+                  {art.subAgentStatus && (
+                    <span style={{
+                      marginLeft: 6,
+                      color: art.subAgentStatus === "active" ? "#22c55e"
+                           : art.subAgentStatus === "dead-end" ? "#ef4444" : "#94a3b8",
+                    }}>
+                      [{art.subAgentStatus}]
+                    </span>
+                  )}
+                </div>
+              )}
+              <div style={{ fontSize: 9, color: "#475569", marginTop: 4 }}>
+                Click for full details
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Legend */}
         <div
           style={{
@@ -1117,6 +1187,205 @@ export function LiveBreachChainGraph({
               }}>
                 Phase: {TACTIC_PLAIN_ENGLISH[node.tactic] || node.tactic}
               </div>
+
+              {/* ── Enriched Artifact Sections (spec v1.0 §4.2) ── */}
+              {isBreachFlagEnabled(BREACH_ENHANCEMENT_FLAGS.NODE_DRILLDOWN) && node.artifacts && (() => {
+                const art = node.artifacts;
+                return (
+                  <div style={{ marginTop: 12, borderTop: "1px solid rgba(56,189,248,0.15)", paddingTop: 12 }}>
+
+                    {/* Network Artifacts */}
+                    {(art.ip || art.hostname || art.subnet || art.domain) && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#38bdf8", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          Network Artifacts
+                        </div>
+                        {art.ip && <div style={{ fontSize: 10, color: "#94a3b8" }}>IP: <span style={{ color: "#38bdf8" }}>{art.ip}</span></div>}
+                        {art.hostname && <div style={{ fontSize: 10, color: "#94a3b8" }}>Host: <span style={{ color: "#e2e8f0" }}>{art.hostname}</span></div>}
+                        {art.subnet && <div style={{ fontSize: 10, color: "#94a3b8" }}>Subnet: <span style={{ color: "#e2e8f0" }}>{art.subnet}</span></div>}
+                        {art.domain && <div style={{ fontSize: 10, color: "#94a3b8" }}>Domain: <span style={{ color: "#e2e8f0" }}>{art.domain}</span></div>}
+                      </div>
+                    )}
+
+                    {/* ATT&CK Technique */}
+                    {art.attackTechniqueId && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#a78bfa", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          MITRE ATT&CK
+                        </div>
+                        <div style={{ fontSize: 10, color: "#e2e8f0", fontFamily: "'IBM Plex Mono', monospace" }}>
+                          {art.attackTechniqueId}
+                          {art.subTechniqueId && <span style={{ color: "#94a3b8" }}>.{art.subTechniqueId}</span>}
+                          {" — "}{art.attackTechniqueName || ""}
+                        </div>
+                        {art.attackTacticName && (
+                          <div style={{ fontSize: 9, color: "#64748b" }}>Tactic: {art.attackTacticName}</div>
+                        )}
+                        {art.procedure && (
+                          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2, lineHeight: 1.5 }}>{art.procedure}</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Exploit Details */}
+                    {(art.exploitMethod || art.exploitResult) && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#f59e0b", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          Exploit
+                        </div>
+                        {art.exploitMethod && (
+                          <div style={{ fontSize: 10, color: "#94a3b8" }}>Method: <span style={{ color: "#fbbf24" }}>{art.exploitMethod}</span></div>
+                        )}
+                        {art.exploitResult && (
+                          <div style={{ fontSize: 10, color: "#94a3b8" }}>Result: <span style={{ color: "#e2e8f0" }}>{art.exploitResult}</span></div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Open Ports */}
+                    {art.openPorts && art.openPorts.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          Open Ports
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {art.openPorts.slice(0, 12).map((p, i) => (
+                            <span key={i} style={{
+                              fontSize: 10, color: "#38bdf8", background: "rgba(56,189,248,0.08)",
+                              border: "1px solid rgba(56,189,248,0.2)", borderRadius: 3, padding: "1px 5px",
+                              fontFamily: "'IBM Plex Mono', monospace",
+                            }}>
+                              {p.port}{p.service ? `/${p.service}` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* CVE IDs */}
+                    {art.cveIds && art.cveIds.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          CVEs
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                          {art.cveIds.slice(0, 6).map((cve, i) => (
+                            <span key={i} style={{
+                              fontSize: 10, color: "#fca5a5", background: "rgba(239,68,68,0.08)",
+                              border: "1px solid rgba(239,68,68,0.2)", borderRadius: 3, padding: "1px 5px",
+                              fontFamily: "'IBM Plex Mono', monospace",
+                            }}>
+                              {cve}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Credentials */}
+                    {art.credentials && art.credentials.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#f97316", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          Credentials Harvested
+                        </div>
+                        {art.credentials.slice(0, 4).map((cred, i) => (
+                          <div key={i} style={{
+                            background: "rgba(249,115,22,0.06)", border: "1px solid rgba(249,115,22,0.15)",
+                            borderRadius: 4, padding: "5px 8px", marginBottom: 4,
+                          }}>
+                            <div style={{ fontSize: 10, color: "#fb923c", fontFamily: "'IBM Plex Mono', monospace" }}>
+                              {cred.username}
+                              <span style={{
+                                marginLeft: 6, fontSize: 9, padding: "1px 4px", borderRadius: 2,
+                                background: cred.privilegeTier === "domain_admin" ? "#ef4444"
+                                          : cred.privilegeTier === "local_admin" ? "#f97316"
+                                          : cred.privilegeTier === "service_account" ? "#eab308" : "#6b7280",
+                                color: "#fff",
+                              }}>
+                                {cred.privilegeTier.replace("_", " ").toUpperCase()}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: 9, color: "#64748b" }}>
+                              Source: {cred.sourceSystem}
+                              {cred.reusedOn && cred.reusedOn.length > 0 && ` · Reused on ${cred.reusedOn.length} system${cred.reusedOn.length > 1 ? "s" : ""}`}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Commands Run */}
+                    {art.commandsRun && art.commandsRun.length > 0 && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          Commands Executed
+                        </div>
+                        {art.commandsRun.slice(0, 5).map((cmd, i) => (
+                          <div key={i} style={{
+                            fontSize: 10, color: "#94a3b8", fontFamily: "'IBM Plex Mono', monospace",
+                            background: "rgba(15,23,42,0.8)", border: "1px solid rgba(255,255,255,0.05)",
+                            borderRadius: 3, padding: "2px 6px", marginBottom: 2,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            $ {cmd}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Defense Coverage */}
+                    {((art.defensesFired && art.defensesFired.length > 0) || (art.defensesMissed && art.defensesMissed.length > 0)) && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 9, color: "#64748b", fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                          Defense Coverage
+                        </div>
+                        {art.defensesFired && art.defensesFired.length > 0 && (
+                          <div style={{ marginBottom: 4 }}>
+                            <span style={{ fontSize: 9, color: "#22c55e" }}>✓ FIRED: </span>
+                            <span style={{ fontSize: 9, color: "#4ade80" }}>{art.defensesFired.join(", ")}</span>
+                          </div>
+                        )}
+                        {art.defensesMissed && art.defensesMissed.length > 0 && (
+                          <div>
+                            <span style={{ fontSize: 9, color: "#ef4444" }}>✗ MISSED: </span>
+                            <span style={{ fontSize: 9, color: "#fca5a5" }}>{art.defensesMissed.join(", ")}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Sub-Agent Info */}
+                    {art.subAgentId && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 9, color: "#475569", fontFamily: "'IBM Plex Mono', monospace" }}>
+                          Sub-Agent: {art.subAgentId}
+                          {art.subAgentStatus && (
+                            <span style={{
+                              marginLeft: 6,
+                              color: art.subAgentStatus === "active" ? "#22c55e"
+                                   : art.subAgentStatus === "dead-end" ? "#ef4444" : "#64748b",
+                            }}>
+                              [{art.subAgentStatus}]
+                            </span>
+                          )}
+                        </div>
+                        {art.childNodeIds && art.childNodeIds.length > 0 && (
+                          <div style={{ fontSize: 9, color: "#475569" }}>
+                            {art.childNodeIds.length} child node{art.childNodeIds.length > 1 ? "s" : ""} spawned
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Discovered At */}
+                    {art.discoveredAt && (
+                      <div style={{ fontSize: 9, color: "#334155", fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>
+                        Discovered: {new Date(art.discoveredAt).toLocaleTimeString()}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}

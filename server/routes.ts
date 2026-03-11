@@ -7889,6 +7889,170 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Breach Chain Enhancement API (spec v1.0) ──────────────────────────────
+
+  /** GET /api/breach-chains/:id/heatmap — ATT&CK technique coverage for this chain */
+  app.get("/api/breach-chains/:id/heatmap", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { getAttackEngine } = await import("./services/aev/attack-engine");
+      const engine = getAttackEngine();
+
+      // Collect all technique IDs exercised across all phase results
+      const exercisedTechniqueIds: string[] = [];
+      const phaseResults = (chain.phaseResults as any[]) || [];
+      for (const phase of phaseResults) {
+        if (phase?.outputContext?.attackTechniqueIds) {
+          exercisedTechniqueIds.push(...phase.outputContext.attackTechniqueIds);
+        }
+      }
+      // Also check graph nodes for artifacts
+      const graph = chain.unifiedAttackGraph as any;
+      if (graph?.nodes) {
+        for (const node of graph.nodes) {
+          if (node?.artifacts?.attackTechniqueId) {
+            exercisedTechniqueIds.push(node.artifacts.attackTechniqueId);
+          }
+        }
+      }
+
+      const heatmap = engine.getHeatmapData([]);
+      const exercisedSet = new Set(exercisedTechniqueIds);
+      const result = heatmap.map(entry => ({
+        ...entry,
+        status: exercisedSet.has(entry.techniqueId) ? "exercised" : "untested",
+        color: exercisedSet.has(entry.techniqueId) ? "#ef4444" : "#1e293b",
+      }));
+
+      res.json(result);
+    } catch (error) {
+      console.error("Heatmap error:", error);
+      res.status(500).json({ error: "Failed to generate heatmap" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/credentials — harvested credentials for this chain */
+  app.get("/api/breach-chains/:id/credentials", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { getCredentialBus } = await import("./services/aev/credential-bus");
+      const bus = getCredentialBus();
+      const creds = bus.getCredentialWebData(req.params.id);
+
+      // Also extract from graph node artifacts if bus is empty (after restart)
+      if (creds.length === 0) {
+        const graph = chain.unifiedAttackGraph as any;
+        const extracted: any[] = [];
+        if (graph?.nodes) {
+          for (const node of graph.nodes) {
+            if (node?.artifacts?.credentials) {
+              for (const cred of node.artifacts.credentials) {
+                extracted.push({
+                  id: `${node.id}-${cred.username}`,
+                  username: cred.username,
+                  privilegeTier: cred.privilegeTier,
+                  sourceSystem: cred.sourceSystem,
+                  discoveredAt: node.artifacts.discoveredAt || new Date().toISOString(),
+                  reusedOn: (cred.reusedOn || []).map((t: string) => ({ target: t, timestamp: new Date().toISOString(), success: true })),
+                  unlocked: cred.unlocked || [],
+                  hasHash: !!cred.hash,
+                  hasCleartext: !!cred.cleartext,
+                });
+              }
+            }
+          }
+        }
+        return res.json(extracted);
+      }
+
+      res.json(creds);
+    } catch (error) {
+      console.error("Credentials error:", error);
+      res.status(500).json({ error: "Failed to fetch credentials" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/defense-gaps — defense gap analysis for this chain */
+  app.get("/api/breach-chains/:id/defense-gaps", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const graph = chain.unifiedAttackGraph as any;
+      const events: any[] = [];
+      let totalDetected = 0;
+      let totalMissed = 0;
+      const byTactic: Record<string, { detected: number; missed: number }> = {};
+
+      if (graph?.nodes) {
+        for (const node of graph.nodes) {
+          const art = node?.artifacts;
+          if (!art) continue;
+          const fired = art.defensesFired || [];
+          const missed = art.defensesMissed || [];
+          if (fired.length === 0 && missed.length === 0) continue;
+
+          totalDetected += fired.length;
+          totalMissed += missed.length;
+
+          const tactic = node.tactic || "unknown";
+          if (!byTactic[tactic]) byTactic[tactic] = { detected: 0, missed: 0 };
+          byTactic[tactic].detected += fired.length;
+          byTactic[tactic].missed += missed.length;
+
+          events.push({
+            nodeId: node.id,
+            nodeLabel: node.label,
+            tactic,
+            techniqueId: art.attackTechniqueId,
+            techniqueName: art.attackTechniqueName,
+            timestamp: art.discoveredAt || new Date().toISOString(),
+            detectionsFired: fired,
+            detectionsMissed: missed,
+          });
+        }
+      }
+
+      const totalTechniques = totalDetected + totalMissed;
+      const coveragePct = totalTechniques > 0 ? Math.round((totalDetected / totalTechniques) * 100) : 0;
+
+      res.json({ totalTechniques, totalDetected, totalMissed, coveragePct, byTactic, events });
+    } catch (error) {
+      console.error("Defense gaps error:", error);
+      res.status(500).json({ error: "Failed to compute defense gaps" });
+    }
+  });
+
+  /** PATCH /api/breach-chains/:id/config — update engagement configuration */
+  app.patch("/api/breach-chains/:id/config", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      if (chain.status === "running") {
+        return res.status(400).json({ error: "Cannot modify config while engagement is running" });
+      }
+
+      const { engagement, executionMode } = req.body;
+      const currentConfig = chain.config as any;
+      const updatedConfig = {
+        ...currentConfig,
+        ...(executionMode ? { executionMode } : {}),
+        ...(engagement ? { engagement } : {}),
+      };
+
+      await storage.updateBreachChain(req.params.id, { config: updatedConfig } as any);
+      res.json({ success: true, config: updatedConfig });
+    } catch (error) {
+      console.error("Config patch error:", error);
+      res.status(500).json({ error: "Failed to update engagement config" });
+    }
+  });
+
   // ─── v3.0 Continuous Exposure ──────────────────────────────────────────────
 
   /** GET /api/breach-chains/exposure-summary — org-wide exposure trend & SLA status */

@@ -676,6 +676,19 @@ export const killChainTactics = [
 
 export type KillChainTactic = typeof killChainTactics[number];
 
+// Enriched artifact for a discovered credential (cross-phase credential tracking)
+export const nodeCredentialSchema = z.object({
+  username: z.string(),
+  hash: z.string().optional(),
+  cleartext: z.string().optional(),
+  sourceSystem: z.string(),
+  privilegeTier: z.enum(["domain_admin", "local_admin", "service_account", "standard_user"]),
+  reusedOn: z.array(z.string()).optional(),
+  unlocked: z.array(z.string()).optional(),
+});
+
+export type NodeCredential = z.infer<typeof nodeCredentialSchema>;
+
 // Attack Graph Node - represents a state/position in the attack
 export const attackNodeSchema = z.object({
   id: z.string(),
@@ -697,6 +710,36 @@ export const attackNodeSchema = z.object({
     regulatoryRisk: z.string().optional(),
     estimatedBlastRadius: z.enum(["contained", "department", "organization", "customer-facing"]),
     financialImpact: z.string().optional(),
+  }).optional(),
+  // --- Enriched artifact fields (spec v1.0 §4.1) ---
+  artifacts: z.object({
+    hostname: z.string().optional(),
+    ip: z.string().optional(),
+    subnet: z.string().optional(),
+    domain: z.string().optional(),
+    openPorts: z.array(z.object({
+      port: z.number(),
+      service: z.string().optional(),
+      version: z.string().optional(),
+    })).optional(),
+    cveIds: z.array(z.string()).optional(),
+    credentials: z.array(nodeCredentialSchema).optional(),
+    attackTechniqueId: z.string().optional(),
+    attackTechniqueName: z.string().optional(),
+    attackTacticName: z.string().optional(),
+    subTechniqueId: z.string().optional(),
+    procedure: z.string().optional(),
+    defensesFired: z.array(z.string()).optional(),
+    defensesMissed: z.array(z.string()).optional(),
+    subAgentId: z.string().optional(),
+    subAgentStatus: z.enum(["active", "retired", "dead-end"]).optional(),
+    childNodeIds: z.array(z.string()).optional(),
+    exploitMethod: z.string().optional(),
+    exploitResult: z.string().optional(),
+    commandsRun: z.array(z.string()).optional(),
+    filesDropped: z.array(z.string()).optional(),
+    dataCollected: z.string().optional(),
+    discoveredAt: z.string().optional(),
   }).optional(),
 });
 
@@ -5290,6 +5333,24 @@ export interface BreachChainConfig {
   phaseTimeoutMs: number;
   totalTimeoutMs: number;
   pauseOnCritical: boolean;
+  // --- Engagement configuration (spec v1.0 §7) ---
+  engagement?: {
+    objective: "data_exfiltration" | "credential_compromise" | "ransomware_simulation" | "full_kill_chain" | "custom";
+    noiseLevel: "silent" | "moderate" | "aggressive";
+    evasionPosture: "none" | "basic" | "advanced";
+    threatActorProfile: string;               // APT name or "custom"
+    customTTPWeights?: Record<string, number>; // techniqueId → weight 0-1
+    maxAssetsToTouch: number;
+    subAgentRecursionDepth: number;           // default 5
+    credentialReusePolicy: "reuse_allowed" | "report_only";
+    defenseValidationMode: "active_probing" | "passive_observation";
+    timeWindowStart?: string;                 // ISO timestamp
+    timeWindowEnd?: string;
+    targetIPRanges?: string[];
+    targetDomains?: string[];
+    targetCloudEnvs?: string[];
+    safeTargets?: string[];
+  };
 }
 
 // Cross-Domain Breach Chain table
@@ -5592,3 +5653,58 @@ export type NewEgFinding      = typeof egFindings.$inferInsert;
 export type EgAssessment      = typeof egAssessments.$inferSelect;
 export type NewEgAssessment   = typeof egAssessments.$inferInsert;
 export type EgRiskSnapshot    = typeof egRiskSnapshots.$inferSelect;
+
+// ── Breach Chain Enhancement Feature Flags (spec v1.0 §9) ──────────────────
+// All new features are off by default until validated.
+export const BREACH_ENHANCEMENT_FLAGS = {
+  ENRICHED_NODES:        "BREACH_CHAIN_ENRICHED_NODES",
+  NODE_TOOLTIP:          "BREACH_CHAIN_NODE_TOOLTIP",
+  NODE_DRILLDOWN:        "BREACH_CHAIN_NODE_DRILLDOWN",
+  SUB_AGENT_ENGINE:      "BREACH_CHAIN_SUB_AGENT_ENGINE",
+  CREDENTIAL_BUS:        "BREACH_CHAIN_CREDENTIAL_BUS",
+  ATTACK_ENGINE:         "BREACH_CHAIN_ATTACK_ENGINE",
+  ATTACK_HEATMAP:        "BREACH_CHAIN_ATTACK_HEATMAP",
+  CREDENTIAL_WEB:        "BREACH_CHAIN_CREDENTIAL_WEB",
+  DEFENSE_GAP_PANEL:     "BREACH_CHAIN_DEFENSE_GAP",
+  ENGAGEMENT_CONFIG:     "BREACH_CHAIN_ENGAGEMENT_CONFIG",
+} as const;
+
+export type BreachEnhancementFlag = typeof BREACH_ENHANCEMENT_FLAGS[keyof typeof BREACH_ENHANCEMENT_FLAGS];
+
+// Feature flag check — reads from env (server) or window.__ODINFORGE_FLAGS__ (client)
+export function isBreachFlagEnabled(flag: BreachEnhancementFlag): boolean {
+  if (typeof process !== "undefined" && process.env) {
+    return process.env[flag] === "true" || process.env[flag] === "1";
+  }
+  if (typeof window !== "undefined") {
+    const flags = (window as any).__ODINFORGE_FLAGS__ as Record<string, boolean> | undefined;
+    return flags?.[flag] === true;
+  }
+  return false;
+}
+
+// ── Engagement State Machine (spec v1.0 §7.2) ─────────────────────────────
+export const engagementStates = [
+  "configured",
+  "initializing",
+  "active",
+  "paused",
+  "complete",
+  "reporting",
+] as const;
+
+export type EngagementState = typeof engagementStates[number];
+
+// Valid state transitions — enforced server-side
+export const ENGAGEMENT_TRANSITIONS: Record<EngagementState, EngagementState[]> = {
+  configured:   ["initializing"],
+  initializing: ["active", "configured"],
+  active:       ["paused", "complete"],
+  paused:       ["active", "complete"],
+  complete:     ["reporting"],
+  reporting:    [],
+};
+
+export function isValidEngagementTransition(from: EngagementState, to: EngagementState): boolean {
+  return ENGAGEMENT_TRANSITIONS[from]?.includes(to) ?? false;
+}
