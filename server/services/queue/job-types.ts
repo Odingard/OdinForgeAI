@@ -228,6 +228,12 @@ export const endpointScanJobDataSchema = baseJobDataSchema.extend({
   hostname: z.string().optional(),
 });
 
+export const breachChainJobDataSchema = baseJobDataSchema.extend({
+  type: z.literal("breach_chain"),
+  chainId: z.string(),
+  isScheduledRun: z.boolean().optional(),
+});
+
 export type EvaluationJobData = z.infer<typeof evaluationJobDataSchema>;
 export type FullAssessmentJobData = z.infer<typeof fullAssessmentJobDataSchema>;
 export type NetworkScanJobData = z.infer<typeof networkScanJobDataSchema>;
@@ -244,6 +250,7 @@ export type ProtocolProbeJobData = z.infer<typeof protocolProbeJobDataSchema>;
 export type ReconScanJobData = z.infer<typeof reconScanJobDataSchema>;
 export type CloudScanJobData = z.infer<typeof cloudScanJobDataSchema>;
 export type EndpointScanJobData = z.infer<typeof endpointScanJobDataSchema>;
+export type BreachChainJobData = z.infer<typeof breachChainJobDataSchema>;
 
 export type AnyJobData =
   | EvaluationJobData
@@ -262,7 +269,8 @@ export type AnyJobData =
   | ReconScanJobData
   | MimirTriggeredEvaluationJobData
   | CloudScanJobData
-  | EndpointScanJobData;
+  | EndpointScanJobData
+  | BreachChainJobData;
 
 export interface JobResult {
   success: boolean;

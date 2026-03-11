@@ -859,7 +859,13 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             ) : narrative ? (
               // Render API narrative sections
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {(narrative as any)?.sections?.map((section: any, idx: number) => {
+                {(narrative as any)?.narrative?.headline && (
+                  <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)" }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "var(--falcon-t1)", margin: "0 0 4px 0" }}>{(narrative as any).narrative.headline}</p>
+                    <p style={{ fontSize: 11, color: "var(--falcon-t3)", margin: 0 }}>{(narrative as any).narrative.riskSentence}</p>
+                  </div>
+                )}
+                {(narrative as any)?.narrative?.sections?.map((section: any, idx: number) => {
                   const sev = section.severity || "low";
                   const sevC = sev === "critical" ? "var(--falcon-red)" : sev === "high" ? "var(--falcon-orange)" : sev === "medium" ? "var(--falcon-yellow)" : "var(--falcon-green)";
                   const sevBg = sev === "critical" ? "rgba(239,68,68,0.07)" : sev === "high" ? "rgba(249,115,22,0.07)" : sev === "medium" ? "rgba(234,179,8,0.07)" : "rgba(34,197,94,0.07)";
@@ -1355,7 +1361,7 @@ export default function BreachChains() {
           {/* Page-level view toggle */}
           <div style={{ display: "flex", gap: 2, background: "var(--falcon-panel-2)", borderRadius: 6, padding: 2, border: "1px solid var(--falcon-border)" }}>
             <button
-              className={`f-btn f-btn-xs ${pageView === "chains" ? "f-btn-primary" : "f-btn-ghost"}`}
+              className={`f-btn ${pageView === "chains" ? "f-btn-primary" : "f-btn-ghost"}`}
               style={{ padding: "4px 10px", fontSize: 11 }}
               onClick={() => { setPageView("chains"); setSelectedChain(null); }}
             >
@@ -1363,7 +1369,7 @@ export default function BreachChains() {
               Chains
             </button>
             <button
-              className={`f-btn f-btn-xs ${pageView === "exposure" ? "f-btn-primary" : "f-btn-ghost"}`}
+              className={`f-btn ${pageView === "exposure" ? "f-btn-primary" : "f-btn-ghost"}`}
               style={{ padding: "4px 10px", fontSize: 11 }}
               onClick={() => { setPageView("exposure"); setSelectedChain(null); }}
             >

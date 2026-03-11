@@ -237,6 +237,7 @@ async function processDueBreachChains(): Promise<void> {
           {
             type: "breach_chain",
             chainId: chain.id,
+            tenantId: "default",
             organizationId: chain.organizationId,
             isScheduledRun: true,
           },
