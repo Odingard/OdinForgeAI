@@ -43,7 +43,6 @@ const LiveScans = lazy(() => import("@/pages/LiveScans"));
 const ScheduledScans = lazy(() => import("@/pages/ScheduledScans"));
 const Simulations = lazy(() => import("@/pages/Simulations"));
 const BreachChains = lazy(() => import("@/pages/BreachChains"));
-const AttackSurface = lazy(() => import("@/pages/AttackSurface"));
 const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
 const DashboardPage = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -121,7 +120,6 @@ function Router() {
         <Route path="/sandbox"><Redirect to="/full-assessment?tab=sandbox" /></Route>
         {!isAevOnly && <Route path="/simulations" component={Simulations} />}
         <Route path="/breach-chains" component={BreachChains} />
-        <Route path="/attack-surface" component={AttackSurface} />
         <Route path="/assess" component={AssessmentWizard} />
         {!isAevOnly && <Route path="/billing"><Redirect to="/admin/settings?tab=billing" /></Route>}
         <Route path="/admin/users"><Redirect to="/admin/settings?tab=users" /></Route>
