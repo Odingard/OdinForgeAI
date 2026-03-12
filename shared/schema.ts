@@ -5254,6 +5254,8 @@ export interface BreachCredential {
   username?: string;
   domain?: string;
   valueHash: string;
+  /** AES-256-GCM ciphertext (IV:cipher:tag). Decrypt via credentialStore.decrypt() at auth time only. */
+  authValue?: string;
   source: string;
   accessLevel: "none" | "user" | "admin" | "system" | "cloud_admin";
   validatedTargets: string[];

@@ -158,30 +158,63 @@ async function testSMB(
     banner: tcpResult.banner,
   };
 
-  if (tcpResult.banner) {
-    const smbSignatures = [
-      /SMB/i,
-      /Windows/i,
-      /Samba/i,
-      /\x00SMB/,
-      /microsoft-ds/i,
-    ];
-    
-    const isSmbService = smbSignatures.some(sig => sig.test(tcpResult.banner!));
-    evidence.smbService = isSmbService;
+  // If credentials were provided, attempt real SMB authentication via smb2.
+  // Port-open alone is NOT a success — only a confirmed auth handshake is.
+  if (request.username && request.credential) {
+    evidence.authAttempted = true;
+    try {
+      const SMB2 = require("smb2");
+      const smb = new SMB2({
+        share: `\\\\${request.targetHost}\\IPC$`,
+        domain: request.domain || "WORKGROUP",
+        username: request.username,
+        password: request.credential,
+        autoCloseTimeout: timeout,
+      });
+      const shares: string[] = await new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("SMB auth timeout")), timeout);
+        smb.readdir("", (err: any, files: string[]) => {
+          clearTimeout(t);
+          if (err) reject(err);
+          else resolve(files || []);
+        });
+      });
+      smb.disconnect?.();
+      evidence.authResult = "success";
+      evidence.credentialsFound = true;
+      evidence.shares = shares.slice(0, 10);
+      return {
+        success: true, connected: true, portOpen: true, responseReceived: true,
+        banner: tcpResult.banner, authResult: "success",
+        responseData: `Shares: ${shares.join(", ") || "(none visible)"}`,
+        timing: { connectMs: tcpResult.timing, totalMs: Date.now() - startTime },
+        evidence,
+      };
+    } catch (err: any) {
+      const msg = (err.message || "").toLowerCase();
+      const authResult: ConnectionResult["authResult"] =
+        (msg.includes("access denied") || msg.includes("logon failure")) ? "failure" : "unknown";
+      evidence.authResult = authResult;
+      evidence.authError = err.message;
+      return {
+        success: false, connected: true, portOpen: true, responseReceived: false,
+        banner: tcpResult.banner, authResult,
+        error: `SMB auth failed: ${err.message}`,
+        timing: { connectMs: tcpResult.timing, totalMs: Date.now() - startTime },
+        evidence,
+      };
+    }
   }
 
-  const authResult = request.username && request.credential ? "unknown" : undefined;
-  evidence.authAttempted = !!request.username;
-  evidence.authResult = authResult;
-
+  // No credentials — report port exposure only, not a successful pivot
+  evidence.authAttempted = false;
   return {
-    success: true,
+    success: false,
     connected: true,
     portOpen: true,
     responseReceived: !!tcpResult.banner,
     banner: tcpResult.banner,
-    authResult,
+    authResult: undefined,
     timing: { connectMs: tcpResult.timing, totalMs: Date.now() - startTime },
     evidence,
   };

@@ -3,6 +3,7 @@ import { storage } from "../../storage";
 import { testProtocolConnection, probeHost, type ConnectionResult } from "./protocol-connectors";
 import { portScan } from "../external-recon";
 import { createCredentialProbe } from "../validation/probes/credential-probe";
+import { credentialStore } from "../credential-store";
 import type {
   DiscoveredCredential,
   LateralMovementFinding,
@@ -34,6 +35,8 @@ export interface LateralMovementTestRequest {
     username: string;
     domain?: string;
     value: string;
+    /** AES-256-GCM ciphertext — decrypt via credentialStore.decrypt() at auth time */
+    authValue?: string;
   };
 }
 
@@ -321,19 +324,24 @@ class LateralMovementService {
           success = false;
         }
       } else if (protocol) {
-        // SMB, WinRM, RDP, WMI — TCP banner + port check (auth requires domain membership)
         connectionResult = await testProtocolConnection({
           targetHost: request.targetHost,
           port: this.getDefaultPort(protocol),
           protocol: protocol as "smb" | "winrm" | "ssh" | "rdp" | "wmi",
           username: request.customCredential?.username,
           domain: request.customCredential?.domain,
-          credential: request.customCredential?.value,
+          // Decrypt authValue at the point of auth — never store plaintext
+          credential: request.customCredential?.authValue
+            ? (() => { try { return credentialStore.decrypt(request.customCredential!.authValue!); } catch { return request.customCredential!.value || ""; } })()
+            : request.customCredential?.value || "",
           timeout: options?.timeout || 8000,
         });
-        // Port open + valid banner = service exposed (potential for credential stuffing)
-        success = connectionResult.portOpen;
-        accessLevel = success ? "unknown" : "none";
+        // Port open alone is NOT success — must have auth confirmation
+        // authResult "success" means protocol-level authentication accepted
+        success = connectionResult.authResult === "success";
+        accessLevel = success
+          ? (connectionResult.evidence?.credentialsFound ? "user" : "read")
+          : "none";
       }
     }
 

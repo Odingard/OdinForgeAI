@@ -28,10 +28,13 @@ import type { OrchestratorResult } from "./agents/types";
 import {
   runActiveExploitEngine,
   mapToBreachPhaseContext,
+  CREDENTIAL_PATTERNS,
   type ActiveExploitTarget,
   type ActiveExploitResult,
+  type ExploitAttempt,
   type ExposureType,
 } from "./active-exploit-engine";
+import { credentialStore } from "./credential-store";
 import { awsPentestService } from "./cloud-pentest/aws-pentest-service";
 import { kubernetesPentestService } from "./container-security/kubernetes-pentest-service";
 import { lateralMovementService } from "./lateral-movement";
@@ -39,6 +42,16 @@ import { storage } from "../storage";
 import { wsService } from "./websocket";
 import { getCredentialBus } from "./aev/credential-bus";
 import type { HarvestedCredential } from "./aev/credential-bus";
+import { PivotQueue, LateralMovementSubAgent, breachCredToHarvested, type PivotFinding } from "./aev/pivot-queue";
+
+/**
+ * Module-level store for Phase 1A raw evidence.
+ * Keyed by chainId — written by executeApplicationCompromise,
+ * read by executeCredentialExtraction to parse credentials from
+ * actual HTTP response bodies without a separate LLM evaluation.
+ * Cleared after Phase 2 consumes it.
+ */
+const phase1AEvidenceStore = new Map<string, ExploitAttempt[]>();
 
 // ── ATT&CK technique IDs exercised per breach phase ──────────────────────────
 const PHASE_ATTACK_TECHNIQUES: Record<string, string[]> = {
@@ -570,6 +583,12 @@ async function executeApplicationCompromise(
           }
         );
 
+        // Store raw validated attempts for Phase 2 direct evidence parsing
+        // Phase 2 reads response bodies from these to extract credentials without
+        // running a separate LLM evaluation.
+        const existingEvidence = phase1AEvidenceStore.get(chain.id) || [];
+        phase1AEvidenceStore.set(chain.id, [...existingEvidence, ...activeExploitResult.validated]);
+
         // Map active results into breach phase format
         const mapped = mapToBreachPhaseContext(activeExploitResult);
 
@@ -807,94 +826,136 @@ async function executeCredentialExtraction(
   const evaluationIds: string[] = [];
   const newCredentials: BreachCredential[] = [];
 
-  // Check if active exploitation already provided real credentials
+  // ── Step 1: Re-use credentials already extracted by Phase 1A regex engine ──
+  // These are encrypted (authValue) and ready for auth — do not re-extract.
   const activeCredentials = context.credentials.filter(c =>
     c.source === "active_exploit_engine" || c.source?.includes("active_exploit")
   );
-
   if (activeCredentials.length > 0) {
-    onProgress(chain.id, "credential_extraction", 25,
-      `${activeCredentials.length} credentials already extracted via active exploitation`);
+    onProgress(chain.id, "credential_extraction", 22,
+      `${activeCredentials.length} credentials carried forward from Phase 1A active exploitation`);
   }
 
-  // For each compromised app, run data_exfiltration to find credentials
-  const compromisedAppAssets = context.compromisedAssets.filter(
-    a => a.assetType === "application"
-  );
+  // ── Step 2: Parse Phase 1A HTTP response bodies for credentials ──────────
+  // This is deterministic — no LLM, no circuit breaker dependency.
+  const phase1Attempts = phase1AEvidenceStore.get(chain.id) || [];
+  if (phase1Attempts.length > 0) {
+    onProgress(chain.id, "credential_extraction", 25,
+      `Parsing ${phase1Attempts.length} Phase 1A HTTP responses for credentials...`);
 
-  for (const asset of compromisedAppAssets) {
-    const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
-    const contextDescription = [
-      `Breach chain ${chain.id}: Credential Extraction phase.`,
-      `Prior access: ${asset.accessLevel} on ${asset.name} via ${asset.accessMethod}.`,
-      `Known credentials: ${context.credentials.length}.`,
-      `Goal: Extract tokens, API keys, service account credentials, database credentials.`,
-      `Search environment variables, config files, database tables with credential columns.`,
-    ].join(" ");
+    for (const attempt of phase1Attempts) {
+      const body = attempt.response.body;
+      const headers = attempt.response.headers;
+      // Search response body + headers for credentials
+      const searchTargets = [
+        body,
+        ...Object.entries(headers).map(([k, v]) => `${k}: ${v}`),
+      ];
 
-    // Skip AI pipeline if OpenAI circuit is open
-    if (isCircuitOpen("openai")) {
-      console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping credential extraction for ${asset.assetId}`);
-      continue;
-    }
+      for (const target of searchTargets) {
+        for (const pattern of CREDENTIAL_PATTERNS) {
+          // Reset lastIndex on global regexps to avoid state bugs
+          pattern.pattern.lastIndex = 0;
+          const matches = Array.from(target.matchAll(pattern.pattern));
+          for (const match of matches) {
+            const plaintext = match[1] || match[0];
+            if (plaintext.length < 4) continue;
+            const cred = credentialStore.create({
+              type: pattern.type as any,
+              plaintext,
+              source: "credential_extraction",
+              context: `Phase 1A response body: ${attempt.endpoint.url} via ${attempt.payload.name}`,
+              accessLevel: pattern.accessLevel as any,
+            });
 
-    try {
-      await storage.createEvaluation({
-        assetId: asset.assetId,
-        exposureType: "data_exfiltration",
-        priority: "high",
-        description: contextDescription,
-        organizationId: chain.organizationId,
-        executionMode: config.executionMode,
-        status: "pending",
-      });
-
-      const result = await runAgentOrchestrator(
-        asset.assetId,
-        "data_exfiltration",
-        "high",
-        contextDescription,
-        evaluationId,
-        (agentName, stage, progress, message) => {
-          onProgress(chain.id, "credential_extraction", progress, `[${agentName}] ${message}`);
-        },
-        {
-          adversaryProfile: config.adversaryProfile as any,
-          organizationId: chain.organizationId,
-          executionMode: config.executionMode,
-        }
-      );
-
-      evaluationIds.push(evaluationId);
-
-      await storage.createResult({
-        id: `res-${randomUUID().slice(0, 8)}`,
-        evaluationId,
-        exploitable: result.exploitable,
-        confidence: result.confidence,
-        score: result.score,
-        attackPath: result.attackPath,
-        attackGraph: result.attackGraph,
-        impact: null,
-        recommendations: null,
-        duration: Date.now() - startTime,
-      });
-
-      if (result.exploitable) {
-        for (const step of result.attackPath || []) {
-          findings.push({
-            id: `bf-${randomUUID().slice(0, 8)}`,
-            severity: step.severity,
-            title: step.title,
-            description: step.description,
-            technique: step.technique,
-          });
+            // Dedup against existing credentials by hash
+            if (!newCredentials.find(c => c.valueHash === cred.hash) &&
+                !activeCredentials.find(c => c.valueHash === cred.hash)) {
+              newCredentials.push({
+                id: cred.id,
+                type: pattern.type as BreachCredential["type"],
+                valueHash: cred.hash,
+                source: "credential_extraction",
+                accessLevel: cred.accessLevel === "admin" ? "admin" : "user",
+                validatedTargets: [attempt.endpoint.url],
+                discoveredAt: new Date().toISOString(),
+                // Store encrypted authValue for Phase 5 consumption
+                username: attempt.endpoint.url,
+                ...(cred as any),
+              });
+              findings.push({
+                id: `bf-${randomUUID().slice(0, 8)}`,
+                severity: pattern.accessLevel === "admin" ? "critical" : "high",
+                title: `Credential Extracted: ${pattern.type}`,
+                description: `${pattern.type} credential found in Phase 1A HTTP response from ${attempt.endpoint.url} (${attempt.payload.name}). Display: ${cred.displayValue}`,
+                technique: "T1552",
+                mitreId: "T1552",
+              });
+            }
+          }
         }
       }
+    }
 
-      newCredentials.push(...extractCredentialsFromFindings(result, "credential_extraction"));
-    } catch (error) {
-      console.error(`[BreachOrchestrator] Credential extraction failed for ${asset.assetId}:`, error);
+    // Clear Phase 1A evidence — consumed, no longer needed in memory
+    phase1AEvidenceStore.delete(chain.id);
+    onProgress(chain.id, "credential_extraction", 60,
+      `Evidence parsing complete — ${newCredentials.length} credentials extracted from HTTP responses`);
+  }
+
+  // ── Step 3: LLM fallback ONLY when parser produced zero results on non-empty evidence ──
+  if (newCredentials.length === 0 && phase1Attempts.length === 0) {
+    const compromisedAppAssets = context.compromisedAssets.filter(
+      a => a.assetType === "application"
+    );
+    for (const asset of compromisedAppAssets) {
+      if (isCircuitOpen("openai")) {
+        console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping LLM credential fallback for ${asset.assetId}`);
+        continue;
+      }
+      const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
+      try {
+        await storage.createEvaluation({
+          assetId: asset.assetId,
+          exposureType: "data_exfiltration",
+          priority: "high",
+          description: `[LLM FALLBACK] Breach chain ${chain.id}: No credentials found in Phase 1A evidence. LLM analysis for ${asset.name}.`,
+          organizationId: chain.organizationId,
+          executionMode: config.executionMode,
+          status: "pending",
+        });
+        const result = await runAgentOrchestrator(
+          asset.assetId,
+          "data_exfiltration",
+          "high",
+          `Breach chain ${chain.id}: Credential Extraction LLM fallback. Prior access: ${asset.accessLevel} on ${asset.name}. No credentials were found in HTTP evidence — use reasoning to identify likely credential exposure vectors.`,
+          evaluationId,
+          (agentName, _stage, progress, message) => {
+            onProgress(chain.id, "credential_extraction", 60 + Math.round(progress * 0.3), `[LLM Fallback] [${agentName}] ${message}`);
+          },
+          {
+            adversaryProfile: config.adversaryProfile as any,
+            organizationId: chain.organizationId,
+            executionMode: config.executionMode,
+          }
+        );
+        evaluationIds.push(evaluationId);
+        const llmCreds = extractCredentialsFromFindings(result, "credential_extraction");
+        // Mark as low-confidence LLM-inferred credentials
+        for (const c of llmCreds) {
+          findings.push({
+            id: `bf-${randomUUID().slice(0, 8)}`,
+            severity: "low",
+            title: `[LLM Inferred] Potential Credential: ${c.type}`,
+            description: `LLM analysis suggests credential exposure. Confidence: low — not extracted from real HTTP evidence. Requires manual validation.`,
+            technique: "T1552",
+            mitreId: "T1552",
+          });
+        }
+        newCredentials.push(...llmCreds);
+      } catch (error) {
+        console.error(`[BreachOrchestrator] LLM credential fallback failed for ${asset.assetId}:`, error);
+      }
     }
   }
 
@@ -1411,115 +1472,106 @@ async function executeLateralMovement(
   const newCredentials: BreachCredential[] = [];
   const newAssets: CompromisedAsset[] = [];
 
-  // Test credential reuse for each harvested credential
-  const passwordCreds = context.credentials.filter(c =>
-    ["password", "hash", "ticket"].includes(c.type)
+  // ── Seed PivotQueue ─────────────────────────────────────────────────────────
+  const maxDepth = (config as any).pivotDepth ?? 3;
+  const pivotQueue = new PivotQueue(maxDepth);
+
+  // Seed with Phase 1A compromised assets (hosts where we already have a foothold)
+  for (const asset of context.compromisedAssets) {
+    const host = asset.name || asset.assetId;
+    if (host) pivotQueue.enqueue(host, 0, "phase1_compromise");
+  }
+
+  // Fall back to chain's primary target if no compromised assets yet
+  if (pivotQueue.getVisited().length === 0) {
+    const primaryHost = (() => {
+      const raw = chain.assetIds[0] || "";
+      try { return new URL(raw).hostname; } catch { return raw; }
+    })();
+    if (primaryHost) pivotQueue.enqueue(primaryHost, 0, "chain_target");
+  }
+
+  // Seed shared credential store with all credentials harvested so far
+  for (const cred of context.credentials) {
+    pivotQueue.addCredential(breachCredToHarvested(cred));
+  }
+
+  onProgress(chain.id, "lateral_movement", 74,
+    `Starting multi-hop pivot from ${pivotQueue.getVisited().length} entry point(s) with ${pivotQueue.getCredentialCount()} credentials`
   );
 
-  for (const cred of passwordCreds) {
-    onProgress(
-      chain.id, "lateral_movement", 75,
-      `Testing credential reuse for ${cred.username || "unknown"}`
+  // ── Drain: each host spawns a LateralMovementSubAgent ────────────────────────
+  try {
+    const pivotResults = await pivotQueue.drain(
+      async (item) => {
+        const agent = new LateralMovementSubAgent({
+          target: item.host,
+          credentials: item.credentialSnapshot,
+          depth: item.depth,
+        });
+        return agent.execute();
+      },
+      (msg, depth) => {
+        const progress = Math.min(74 + depth * 4, 88);
+        onProgress(chain.id, "lateral_movement", progress, msg);
+      }
     );
 
-    try {
-      // Extract real hostname from chain's primary asset as fallback target
-      const chainTargetHost = (() => {
-        const primaryAsset = chain.assetIds[0] || "";
-        try { return new URL(primaryAsset).hostname; } catch { return primaryAsset; }
-      })();
-
-      const reuseResult = await lateralMovementService.testCredentialReuse({
-        credentialType: cred.type,
-        username: cred.username || "unknown",
-        domain: cred.domain,
-        credentialValue: cred.valueHash,
-        targetHosts: cred.validatedTargets.length > 0
-          ? cred.validatedTargets.map(t => { try { return new URL(t).hostname; } catch { return t; } })
-          : [chainTargetHost].filter(Boolean),
-        techniques: ["credential_reuse", "ssh_pivot"],
-      });
-
-      for (const finding of reuseResult.findings) {
-        if (finding.success) {
+    // ── Convert PivotNodeResults → BreachPhaseResult shape ────────────────────
+    for (const nodeResult of pivotResults) {
+      // Findings — only include confirmed auth successes and high-value exposures
+      for (const pf of nodeResult.findings) {
+        if (pf.authResult === "success" || pf.severity === "critical" || pf.severity === "high") {
           findings.push({
             id: `bf-${randomUUID().slice(0, 8)}`,
-            severity: finding.severity as "critical" | "high" | "medium" | "low",
-            title: `Lateral Movement: ${finding.technique} to ${finding.targetHost}`,
-            description: `${finding.sourceHost} → ${finding.targetHost} via ${finding.technique}. Access: ${finding.accessLevel}`,
-            technique: finding.technique,
-            mitreId: finding.mitreAttackId || undefined,
-          });
-
-          newAssets.push({
-            id: `ca-${randomUUID().slice(0, 8)}`,
-            assetId: finding.targetHost,
-            assetType: "server",
-            name: finding.targetHost,
-            accessLevel: finding.accessLevel === "admin" ? "admin" : "user",
-            compromisedBy: "lateral_movement",
-            accessMethod: finding.technique,
-            timestamp: new Date().toISOString(),
+            severity: pf.severity,
+            title: `[Hop ${nodeResult.depth}] ${pf.technique} → ${nodeResult.host}`,
+            description: pf.evidence,
+            technique: pf.technique,
+            mitreId: pf.mitreId,
           });
         }
       }
-    } catch (error) {
-      console.error(`[BreachOrchestrator] Credential reuse test failed for ${cred.username}:`, error);
-    }
-  }
 
-  // Discover pivot points — use compromised asset name or fall back to chain's primary target
-  const entryPoint = context.compromisedAssets[0];
-  const pivotTarget = entryPoint?.name || chain.assetIds[0] || "";
-  if (pivotTarget) {
-    onProgress(chain.id, "lateral_movement", 80, `Port scanning ${pivotTarget} for exposed services...`);
-
-    try {
-      const pivotResult = await lateralMovementService.discoverPivotPoints({
-        startingHost: pivotTarget,
-        scanDepth: 3,
-        techniques: ["ssh_pivot", "rdp_pivot", "smb_relay", "credential_reuse"],
-      });
-
-      for (const pivot of pivotResult.pivotPoints) {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: pivot.pivotScore && pivot.pivotScore >= 70 ? "high" : "medium",
-          title: `Pivot Point: ${pivot.hostname}`,
-          description: `Strategic value: ${pivot.strategicValue}. Reachable from: ${(pivot.reachableFrom as string[] || []).join(", ")}`,
-          technique: pivot.accessMethod || "network_pivot",
-        });
-
+      // Confirmed compromised assets — only if auth actually succeeded
+      const confirmedAuth = nodeResult.findings.some(f => f.authResult === "success");
+      if (confirmedAuth) {
+        const accessLevel = nodeResult.findings.find(f => f.authResult === "success")?.accessLevel ?? "user";
         newAssets.push({
           id: `ca-${randomUUID().slice(0, 8)}`,
-          assetId: pivot.hostname,
+          assetId: nodeResult.host,
           assetType: "server",
-          name: pivot.hostname,
-          accessLevel: pivot.accessLevel === "admin" ? "admin" : "user",
+          name: nodeResult.host,
+          accessLevel: accessLevel === "admin" ? "admin" : "user",
           compromisedBy: "lateral_movement",
-          accessMethod: pivot.accessMethod || "pivot",
+          accessMethod: nodeResult.findings.find(f => f.authResult === "success")?.technique || "credential_reuse",
           timestamp: new Date().toISOString(),
         });
       }
 
-      // Newly discovered credentials from pivot point harvesting
-      for (const discoveredCred of pivotResult.credentialsDiscovered) {
+      // New credentials harvested at this node — carry forward with authValue intact
+      for (const hc of nodeResult.newCredentials) {
         newCredentials.push({
           id: `bc-${randomUUID().slice(0, 8)}`,
-          type: discoveredCred.credentialType as BreachCredential["type"],
-          username: discoveredCred.username || undefined,
-          domain: discoveredCred.domain || undefined,
-          valueHash: discoveredCred.credentialHash || hashValue(`lateral-${randomUUID()}`),
+          type: hc.type as BreachCredential["type"],
+          username: hc.username,
+          domain: hc.domain,
+          valueHash: hc.hash,
+          authValue: hc.authValue,
           source: "lateral_movement",
-          accessLevel: discoveredCred.privilegeLevel === "admin" ? "admin" : "user",
-          validatedTargets: (discoveredCred.validatedOn as string[]) || [],
+          accessLevel: (hc.accessLevel === "admin" || hc.accessLevel === "write") ? "admin" : "user",
+          validatedTargets: [nodeResult.host],
           discoveredAt: new Date().toISOString(),
         });
       }
-    } catch (error) {
-      console.error("[BreachOrchestrator] Pivot point discovery failed:", error);
     }
+  } catch (error) {
+    console.error("[BreachOrchestrator] PivotQueue drain failed:", error);
   }
+
+  onProgress(chain.id, "lateral_movement", 89,
+    `Lateral movement complete: ${newAssets.length} host(s) compromised, ${newCredentials.length} new credentials`
+  );
 
   return buildPhaseResult("lateral_movement", startTime, context, {
     credentials: newCredentials,

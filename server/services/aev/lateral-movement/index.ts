@@ -1,16 +1,11 @@
 /**
  * Lateral Movement Coordination Module
- * 
- * Coordinates multi-agent attack chains across network segments.
- * Uses the endpoint agent mesh for distributed execution.
+ *
+ * PivotExecutor and AgentMeshClient remain for protocol-level work.
+ * LateralMovementCoordinator has been removed — it contained hardcoded
+ * credentials and fake discovery results. Use PivotQueue (pivot-queue.ts)
+ * for multi-hop lateral movement orchestration.
  */
 
-export { LateralMovementCoordinator } from "./coordinator";
 export { PivotExecutor } from "./pivot-executor";
 export { AgentMeshClient } from "./agent-mesh-client";
-export type { 
-  LateralMovementPlan,
-  MovementStep,
-  PivotResult,
-  MeshStatus 
-} from "./coordinator";
