@@ -81,6 +81,53 @@ Each step has `requiredConfidence`, `dependsOn`, `requiredEvidence`, and `abortO
 
 **Files:** `server/services/aev/chain-orchestrator.ts` (2,425 lines), `server/services/aev/playbooks/` (844 lines), `server/services/aev/credential-bus.ts`
 
+### Parallel micro-agent orchestrator (v1.1)
+Fans out one specialized agent per (endpoint × vulnerability class) combination for massively parallel exploitation. Replaces sequential Phase 1B with concurrent dispatch.
+
+- **50 concurrent agents** — semaphore-gated, token-bucket rate limited (50 req/sec per target)
+- **10 vulnerability classes:** sqli, xss, ssti, cmdi, path_traversal, ssrf, auth_bypass, idor, header_injection, open_redirect
+- **Applicability filter** — skips ~30-40% unnecessary agents (e.g., no sqli on static endpoints, no ssrf on non-URL params)
+- **LLM Boundary hard gate** — findings without `RealHttpEvidence` are discarded with audit log
+- **Two-tier dispatch** — Tier 1 (deterministic HTTP payloads, zero LLM) → Tier 2 (AI classifier reads real response bodies)
+- **WebSocket progress** — per-agent `breach_chain_agent_dispatch` events stream to frontend
+
+**Files:** `server/services/aev/micro-agent-orchestrator.ts`, `server/services/agent-rate-limiter.ts`, `server/lib/semaphore.ts`
+
+### Runtime context broker (v1.1)
+Pulls Go agent telemetry (ports, services, config files) and injects deterministic signals into LLM prompts for Cloud IAM Escalation (Phase 3) and Lateral Movement (Phase 5).
+
+- **Deterministic signal derivation** — maps well-known ports/services to security signals (database exposure, K8s components, container runtime, SSH, message queues)
+- **Config file scanner** (Go agent) — detects `.env`, `.aws/credentials`, `.kube/config` files, reports key names only (values never transmitted)
+- **Boundary instruction** — formatted prompt blocks include "Reason ONLY from the data above. Do not extrapolate."
+
+**Files:** `server/services/aev/runtime-context-broker.ts`, `odinforge-agent/internal/collector/config_files.go`
+
+### Auto-remediation loop (v1.1)
+Generates fix proposals for proven vulnerabilities and verifies fixes by re-firing the original exploit payload.
+
+- **Evidence quality gate** — only PROVEN or CORROBORATED findings eligible (throws for INFERRED)
+- **Fix types** — WAF rules, IAM policies, network controls, config changes, code fixes
+- **Verification** — zero-LLM HTTP re-test: fires original payload, checks if vulnerability indicators are gone
+- **Background generation** — automatically generates up to 20 fix proposals after breach chain completion
+- **API endpoints** — `POST /generate-fix`, `GET /fix-proposals`, `POST /verify-fix-proposal`
+
+**Files:** `server/services/agents/remediation-engine.ts`
+
+### LLM boundary enforcement (v1.1)
+Structural contract that ensures LLM is a classifier only — never generates findings, estimates vulnerabilities, or produces synthetic responses.
+
+| Enforcement point | Mechanism |
+|---|---|
+| `RealHttpEvidence` type | Runtime constructor throws on statusCode ≤ 0 or empty response body |
+| `firePayloadBatch()` | Zero LLM — pure `fetch()`, returns `RealHttpEvidence` via `makeRealHttpEvidence()` |
+| `buildFinding()` | Throws if `confirmedEvidence.length === 0` |
+| `mergeMicroResults()` | Discards findings with empty evidence array (audit logged) |
+| `EvidenceQualityGate` | No source + no real evidence → UNVERIFIABLE |
+| Report generator | INFERRED/UNVERIFIABLE suppressed from customer reports |
+| CI guard script | Grep-based check: zero LLM imports in `active-exploit-engine.ts` |
+
+**Files:** `server/lib/real-evidence.ts`, `server/services/evidence-quality-gate.ts`, `scripts/ci/check-phase1a-no-llm.sh`
+
 ### Scoring engine
 Deterministic formula — no LLM in the scoring loop:
 
@@ -112,7 +159,7 @@ Standalone endpoint agent with systemd integration. Cross-platform: Linux, macOS
 
 - **Implant framework:** `CommandHandler` interface with `Dispatcher` for modular command routing
 - **3 handlers:** Checkin (telemetry + heartbeat), Scan (system snapshot), Probe (extensible)
-- **10 collector modules:** System, network, ports, services, containers, plus platform-specific metrics
+- **11 collector modules:** System, network, ports, services, containers, config files (env/credential scanner), plus platform-specific metrics
 - **Firewall manager:** Auto-configures ufw/firewalld/iptables rules on install, removes on uninstall
 - **Self-update, watchdog, BoltDB queue, TLS transport**
 
@@ -142,14 +189,20 @@ Shared intelligence layer connecting assets, vulnerabilities, findings, and rela
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Frontend (React)                          │
 │  26 pages · JWT auth · RBAC · Real-time WebSocket · Attack viz   │
+│  Agent dispatch progress · Fix proposal management               │
 ├──────────────────────────────────────────────────────────────────┤
 │                     API Layer (Express)                           │
-│  407 endpoints · Permission-gated · Multi-tenant RLS             │
+│  410+ endpoints · Permission-gated · Multi-tenant RLS            │
 ├────────────┬────────────┬──────────────┬────────────┬───────────┤
 │  Recon     │  Exploit   │  Breach      │  Scoring   │  Reports  │
 │  Engine    │  Agent     │  Chain       │  Engine    │  + SARIF  │
 │  8 modules │  9 tools   │  11 playbooks│  EPSS/CVSS │  PDF/HTML │
 │  6 agents  │  12 turns  │  17 categories│  KEV      │  JSON     │
+├────────────┼────────────┼──────────────┼────────────┼───────────┤
+│  Parallel  │  Runtime   │  Auto-       │  LLM      │  Evidence │
+│  MicroAgent│  Context   │  Remediation │  Boundary  │  Quality  │
+│  50 concur.│  Broker    │  Loop        │  Contract  │  Gate     │
+│  10 vulns  │  Go agent  │  Fix+Verify  │  CI guard  │  4-tier   │
 ├────────────┴────────────┴──────────────┴────────────┴───────────┤
 │                    Data Layer                                     │
 │  PostgreSQL (75 tables) · Redis · BullMQ · MinIO · WebSocket     │
@@ -291,17 +344,20 @@ Open `http://localhost:5000`. First login triggers org bootstrap.
 
 | Component | Lines | Key stat |
 |-----------|-------|----------|
-| API routes | 13,477 | 407 endpoints |
-| Database schema | 5,710 | 75 tables |
-| Storage layer | 3,368 | interface methods |
+| API routes | 13,600+ | 410+ endpoints |
+| Database schema | 5,800+ | 75 tables |
+| Storage layer | 3,450+ | interface methods |
+| Breach orchestrator | 2,770+ | 6 phases, parallel dispatch |
 | Chain orchestrator | 2,425 | 17 categories, 11 playbooks |
 | Exploit agent + tools | 3,760 | 9 tools, 12-turn loop |
+| Micro-agent orchestrator | ~650 | 50 concurrent, 10 vuln classes |
 | Validation engine | ~4,200 | 6 validators, 8 payload sets |
 | Scoring engine | 764 | Deterministic v3.0 |
-| Report generator | 1,716 | PDF, HTML, SARIF, JSON |
-| Go agent | ~3,000 | v1.1.0, 3 handlers, 10 collectors |
+| Report generator | 1,750+ | PDF, HTML, SARIF, JSON |
+| Go agent | ~3,200 | v1.1.0, 3 handlers, 11 collectors |
 | Frontend | 26 pages | Full RBAC, real-time viz |
-| WebSocket service | 726 | 11 event types |
+| WebSocket service | 726 | 12 event types |
+| Tests | 247 | 22 test files, 100% pass |
 
 ---
 
