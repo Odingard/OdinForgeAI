@@ -1483,6 +1483,33 @@ export class DatabaseStorage implements IStorage {
     return telemetry;
   }
 
+  async getAgentByAssetId(assetId: string): Promise<EndpointAgent | undefined> {
+    // Check cloudAssets first (has agentId FK)
+    const [cloudAsset] = await db
+      .select({ agentId: cloudAssets.agentId })
+      .from(cloudAssets)
+      .where(eq(cloudAssets.id, assetId))
+      .limit(1);
+    if (cloudAsset?.agentId) {
+      return this.getEndpointAgent(cloudAsset.agentId);
+    }
+    // Fall back to discoveredAssets hostname match against endpoint agents
+    const [asset] = await db
+      .select({ hostname: discoveredAssets.hostname })
+      .from(discoveredAssets)
+      .where(eq(discoveredAssets.id, assetId))
+      .limit(1);
+    if (asset?.hostname) {
+      const [agent] = await db
+        .select()
+        .from(endpointAgents)
+        .where(eq(endpointAgents.hostname, asset.hostname))
+        .limit(1);
+      return agent;
+    }
+    return undefined;
+  }
+
   // Agent Finding operations
   async createAgentFinding(data: InsertAgentFinding): Promise<AgentFinding> {
     const id = `finding-${randomUUID().slice(0, 8)}`;
@@ -1956,6 +1983,34 @@ export class DatabaseStorage implements IStorage {
       .update(breachChainAlerts)
       .set({ dismissed: true, dismissedAt: new Date() })
       .where(eq(breachChainAlerts.id, alertId));
+  }
+
+  // Fix Proposal operations (Auto-Remediation Loop)
+  async storeFixProposal(chainId: string, proposal: any): Promise<void> {
+    const chain = await this.getBreachChain(chainId);
+    if (!chain) throw new Error(`Breach chain ${chainId} not found`);
+    const existing = (chain.fixProposals || []) as any[];
+    existing.push(proposal);
+    await db.update(breachChains).set({
+      fixProposals: existing,
+      updatedAt: new Date(),
+    }).where(eq(breachChains.id, chainId));
+  }
+
+  async getFixProposals(chainId: string): Promise<any[]> {
+    const chain = await this.getBreachChain(chainId);
+    return (chain?.fixProposals || []) as any[];
+  }
+
+  async storeFixVerification(chainId: string, verification: any): Promise<void> {
+    const chain = await this.getBreachChain(chainId);
+    if (!chain) throw new Error(`Breach chain ${chainId} not found`);
+    const existing = (chain.fixVerifications || []) as any[];
+    existing.push(verification);
+    await db.update(breachChains).set({
+      fixVerifications: existing,
+      updatedAt: new Date(),
+    }).where(eq(breachChains.id, chainId));
   }
 
   // Evaluation History (drift detection)

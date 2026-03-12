@@ -83,6 +83,30 @@ export class EvidenceQualityGate {
    * Classify a single finding through the evidence quality chain.
    */
   evaluate(finding: EvaluatedFinding): QualityVerdict {
+    // 0. Pre-validation: warn on missing source field per LLM Boundary Amendment.
+    //    Findings with real HTTP evidence (statusCode + responseBody) or real protocol
+    //    evidence can still be classified as PROVEN/CORROBORATED. But findings that
+    //    reach the INFERRED/UNVERIFIABLE tier without a source get UNVERIFIABLE.
+    if (!finding.source) {
+      const hasRealEvidence = this.hasRealHttpEvidence(finding) ||
+        this.hasRealProtocolAuthSuccess(finding) ||
+        this.isRealAttemptWithFailure(finding);
+      if (!hasRealEvidence) {
+        console.error(
+          `[QualityGate] Finding '${finding.title}' has no source field and no real evidence. ` +
+          `Classifying as UNVERIFIABLE. Set source='active_exploit_engine' or ` +
+          `'real_http_response' from real execution.`
+        );
+        return {
+          quality: EvidenceQuality.UNVERIFIABLE,
+          passed: false,
+          reason: "Missing source field — cannot determine evidence origin",
+          requiresManualReview: true,
+          finding,
+        };
+      }
+    }
+
     // 1. Real HTTP response with status code and body → PROVEN
     if (this.hasRealHttpEvidence(finding)) {
       return {

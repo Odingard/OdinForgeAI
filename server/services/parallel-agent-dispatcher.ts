@@ -69,10 +69,12 @@ interface DispatcherConfig {
   vulnerabilityTypes: VulnerabilityType[];
   tenantId?: string;
   organizationId?: string;
+  /** Optional per-task status callback for WebSocket granularity */
+  onTaskStatusChange?: (taskId: string, status: string, findingsCount: number) => void;
 }
 
 const DEFAULT_CONFIG: DispatcherConfig = {
-  maxConcurrentAgents: 5,
+  maxConcurrentAgents: 10,
   timeoutPerTaskMs: 30000,
   enableLLMValidation: true,
   filterBelowConfidence: 50,
@@ -265,44 +267,50 @@ async function runTasksInParallel(
 ): Promise<AgentTask[]> {
   const results: AgentTask[] = [];
   const pending = [...tasks];
-  const running: Promise<AgentTask>[] = [];
+  // Track running promises by index for correct removal after Promise.race
+  const running = new Map<number, Promise<{ index: number; result: AgentTask }>>();
+  let nextIndex = 0;
   let completed = 0;
   let findingsFound = 0;
-  
-  while (pending.length > 0 || running.length > 0) {
+
+  while (pending.length > 0 || running.size > 0) {
     // Start new tasks up to max concurrency
-    while (pending.length > 0 && running.length < config.maxConcurrentAgents) {
+    while (pending.length > 0 && running.size < config.maxConcurrentAgents) {
       const task = pending.shift()!;
+      const idx = nextIndex++;
+
+      config.onTaskStatusChange?.(task.id, "running", 0);
+
       const taskPromise = runAgentTask(task, config).then(result => {
         completed++;
+        let taskFindings = 0;
         if (result.result?.vulnerable) {
-          findingsFound += result.result.vulnerabilities.filter(v => v.result.vulnerable).length;
+          taskFindings = result.result.vulnerabilities.filter(v => v.result.vulnerable).length;
+          findingsFound += taskFindings;
         }
-        
+
+        config.onTaskStatusChange?.(result.id, result.status, taskFindings);
+
         const progress = Math.round((completed / tasks.length) * 100);
         onProgress?.("validation", progress, `Validating endpoints... (${completed}/${tasks.length})`, {
           tasksCompleted: completed,
           tasksTotal: tasks.length,
           findingsFound,
         });
-        
-        return result;
+
+        return { index: idx, result };
       });
-      running.push(taskPromise);
+      running.set(idx, taskPromise);
     }
-    
+
     // Wait for at least one task to complete
-    if (running.length > 0) {
-      const completedTask = await Promise.race(running);
-      results.push(completedTask);
-      running.splice(running.indexOf(running.find(p => p === Promise.resolve(completedTask))!), 1);
+    if (running.size > 0) {
+      const { index, result } = await Promise.race(running.values());
+      results.push(result);
+      running.delete(index);
     }
   }
-  
-  // Wait for any remaining tasks
-  const remaining = await Promise.all(running);
-  results.push(...remaining);
-  
+
   return results;
 }
 

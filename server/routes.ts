@@ -168,6 +168,21 @@ function getServerUrl(req: any): string {
   return `${protocol}://${host}`;
 }
 
+/** Transform Go agent configFiles array into the configData shape expected by RuntimeContextBroker */
+function buildConfigDataFromSignals(configFiles: any): Record<string, any> | null {
+  if (!Array.isArray(configFiles) || configFiles.length === 0) return null;
+  const envFiles: Array<{ path: string; keys: string[] }> = [];
+  const cloudCredentialFiles: Array<{ path: string; type: string }> = [];
+  for (const sig of configFiles) {
+    if (sig.type === "env_file" || sig.type === "db_config") {
+      envFiles.push({ path: sig.path, keys: sig.keys || [] });
+    } else if (sig.type === "cloud_credential" || sig.type === "k8s_config") {
+      cloudCredentialFiles.push({ path: sig.path, type: sig.type });
+    }
+  }
+  return { envFiles, cloudCredentialFiles };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -5701,7 +5716,7 @@ export async function registerRoutes(
             openPorts: event.payload.ports || event.payload.openPorts || event.payload.open_ports || null,
             networkConnections: event.payload.networkConnections || event.payload.network_connections || null,
             installedSoftware: event.payload.installedSoftware || event.payload.installed_software || null,
-            configData: event.payload.configData || event.payload.config_data || null,
+            configData: event.payload.configData || event.payload.config_data || buildConfigDataFromSignals(event.payload.configFiles) || null,
             securityFindings: event.payload.securityFindings || event.payload.security_findings || null,
             collectedAt: event.timestamp_utc || event.collectedAt,
           };
@@ -7864,6 +7879,95 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Node remediation error:", error);
       res.status(500).json({ error: "Failed to update node remediation status" });
+    }
+  });
+
+  // ── Auto-Remediation: Generate fix proposals for breach chain findings ──
+  app.post("/api/breach-chains/:id/generate-fix", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { id: chainId } = req.params;
+      const chain = await storage.getBreachChain(chainId);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { generateFixProposal } = await import("./services/agents/remediation-engine");
+
+      // Generate proposals for PROVEN/CORROBORATED findings only
+      const phaseResults = (chain.phaseResults || []) as any[];
+      const proposals: any[] = [];
+      let skipped = 0;
+
+      for (const phase of phaseResults) {
+        for (const finding of phase.findings || []) {
+          const quality = finding.evidenceQuality || "unverifiable";
+          if (quality !== "proven" && quality !== "corroborated") {
+            skipped++;
+            continue;
+          }
+          if (proposals.length >= 20) break; // cap at 20
+
+          try {
+            const proposal = generateFixProposal({
+              findingId: finding.id,
+              severity: finding.severity || "medium",
+              title: finding.title || "Unknown",
+              description: finding.description || "",
+              technique: finding.technique,
+              evidenceQuality: quality,
+              targetUrl: finding.targetUrl,
+              requestPayload: finding.requestPayload,
+              responseBody: finding.responseBody,
+            }, chainId);
+            proposals.push(proposal);
+            await storage.storeFixProposal(chainId, proposal);
+          } catch (err) {
+            console.warn(`[FixGen] Skipped finding ${finding.id}:`, err);
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        chainId,
+        proposalsGenerated: proposals.length,
+        findingsSkipped: skipped,
+        proposals,
+      });
+    } catch (error) {
+      console.error("Fix proposal generation error:", error);
+      res.status(500).json({ error: "Failed to generate fix proposals" });
+    }
+  });
+
+  // ── Auto-Remediation: Get fix proposals for a breach chain ──
+  app.get("/api/breach-chains/:id/fix-proposals", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const proposals = await storage.getFixProposals(req.params.id);
+      res.json({ proposals });
+    } catch (error) {
+      console.error("Get fix proposals error:", error);
+      res.status(500).json({ error: "Failed to get fix proposals" });
+    }
+  });
+
+  // ── Auto-Remediation: Verify a fix proposal ──
+  app.post("/api/breach-chains/:id/verify-fix-proposal", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
+    try {
+      const { id: chainId } = req.params;
+      const { proposalId } = req.body as { proposalId: string };
+      if (!proposalId) return res.status(400).json({ error: "proposalId is required" });
+
+      const proposals = await storage.getFixProposals(chainId);
+      const proposal = proposals.find((p: any) => p.id === proposalId);
+      if (!proposal) return res.status(404).json({ error: "Fix proposal not found" });
+
+      const { verifyFix } = await import("./services/agents/remediation-engine");
+      const verification = await verifyFix(proposal);
+      await storage.storeFixVerification(chainId, verification);
+
+      res.json({ success: true, verification });
+    } catch (error) {
+      console.error("Fix verification error:", error);
+      res.status(500).json({ error: "Failed to verify fix" });
     }
   });
 

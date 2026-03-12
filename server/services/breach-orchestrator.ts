@@ -43,6 +43,9 @@ import { wsService } from "./websocket";
 import { getCredentialBus } from "./aev/credential-bus";
 import type { HarvestedCredential } from "./aev/credential-bus";
 import { PivotQueue, LateralMovementSubAgent, breachCredToHarvested, type PivotFinding } from "./aev/pivot-queue";
+import { MicroAgentOrchestrator, mergeMicroResults, type MicroAgentResult } from "./aev/micro-agent-orchestrator";
+import { RuntimeContextBroker } from "./aev/runtime-context-broker";
+import { destroyAllRateLimiters } from "./agent-rate-limiter";
 import { engagementLogger } from "./logger";
 import { evidenceQualityGate, EvidenceQuality, type EvaluatedFinding, type BatchVerdict } from "./evidence-quality-gate";
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
@@ -564,6 +567,11 @@ export async function runBreachChain(
       console.error(`[BreachOrchestrator] Failed to create purple team findings for chain ${chainId}:`, err);
     });
 
+    // Auto-Remediation Loop: Generate fix proposals for PROVEN/CORROBORATED findings
+    generateFixProposalsForChain(chainId, finalQualityVerdict).catch(err => {
+      console.error(`[BreachOrchestrator] Fix proposal generation failed for chain ${chainId}:`, err);
+    });
+
     // v3.0: Append risk snapshot for continuous exposure trending
     import("./breach-chain/continuous-exposure").then(({ appendRiskSnapshot, initializeSla }) => {
       const nodeCount = unifiedGraph?.nodes?.length ?? 0;
@@ -694,20 +702,24 @@ async function executeApplicationCompromise(
   const newAssets: CompromisedAsset[] = [];
   const subAgentRuns: NonNullable<BreachPhaseResult["subAgentRuns"]> = [];
 
+  let microDispatchSummaryOuter: BreachPhaseResult["agentDispatchSummary"] | undefined;
+
   for (const assetId of chain.assetIds as string[]) {
     // ─────────────────────────────────────────────────────────────────
     // Phase 1A: Run Active Exploit Engine against the live target
     // ─────────────────────────────────────────────────────────────────
     let activeExploitResult: ActiveExploitResult | null = null;
+    let targetUrl: string | null = null;
+    let exploitTarget: ActiveExploitTarget | null = null;
 
     try {
-      const targetUrl = await resolveAssetUrl(assetId);
+      targetUrl = await resolveAssetUrl(assetId);
 
       if (targetUrl) {
         onProgress(chain.id, "application_compromise", 5,
           `Running active exploitation against ${targetUrl}`);
 
-        const exploitTarget: ActiveExploitTarget = {
+        exploitTarget = {
           baseUrl: targetUrl,
           assetId,
           scope: {
@@ -805,15 +817,152 @@ async function executeApplicationCompromise(
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Phase 1B: Run AI Agent Pipeline (existing, now enhanced with
-    //           active exploit evidence for context)
+    // Phase 1B-micro: Parallel Specialized Agent Dispatch
+    // Fan out micro-agents per (endpoint × vulnClass) for parallel
+    // deterministic payload execution. Per LLM Boundary Amendment:
+    // firePayloadBatch() is zero-LLM, findings require real evidence.
     // ─────────────────────────────────────────────────────────────────
-    onProgress(chain.id, "application_compromise", 50,
-      `Running AI analysis pipeline for ${assetId}`);
+    const MAX_CONCURRENT_MICRO_AGENTS = 50;
+    let microAgentFindings = 0;
+    let microDispatchSummary: BreachPhaseResult["agentDispatchSummary"] | undefined; // scoped inside loop
+
+    if (activeExploitResult && exploitTarget && targetUrl && activeExploitResult.crawl.endpoints.length > 0) {
+      try {
+        onProgress(chain.id, "application_compromise", 45,
+          `Dispatching parallel micro-agents across ${activeExploitResult.crawl.endpoints.length} endpoints`);
+
+        const microOrchestrator = new MicroAgentOrchestrator({
+          maxConcurrent: MAX_CONCURRENT_MICRO_AGENTS,
+          payloadTimeoutMs: 6000,
+          targetRequestsPerSecond: 50,
+        });
+
+        const agentSpecs = microOrchestrator.buildAgentSpecs(
+          activeExploitResult.crawl.endpoints,
+          exploitTarget.scope.exposureTypes,
+          chain.id,
+          targetUrl
+        );
+
+        if (agentSpecs.length > 0) {
+          onProgress(chain.id, "application_compromise", 46,
+            `[MicroAgents] Dispatching ${agentSpecs.length} specialized agents (${MAX_CONCURRENT_MICRO_AGENTS} concurrent)`);
+
+          const microResults = await microOrchestrator.dispatch(agentSpecs,
+            (completed, total, result) => {
+              onProgress(chain.id, "application_compromise",
+                46 + Math.round((completed / total) * 30), // 46-76% of phase
+                `[MicroAgent ${completed}/${total}] ${result.spec.vulnClass} @ ${result.spec.endpoint.url}` +
+                (result.finding ? ` → ${result.finding.severity} finding` : "")
+              );
+              // Broadcast per-agent progress via WebSocket
+              wsService.broadcastToChannel(`breach_chain:${chain.organizationId}`, {
+                type: "breach_chain_agent_dispatch",
+                chainId: chain.id,
+                completed,
+                total,
+                agentId: result.agentId,
+                vulnClass: result.spec.vulnClass,
+                endpoint: result.spec.endpoint.url,
+                hasFinding: result.finding !== null,
+                findingSeverity: result.finding?.severity,
+                durationMs: result.durationMs,
+              });
+            }
+          );
+
+          // Merge results with LLM Boundary hard gate
+          const merged = mergeMicroResults(microResults);
+          microAgentFindings = merged.findings.length;
+
+          for (const f of merged.findings) {
+            findings.push({
+              id: f.id,
+              severity: f.severity,
+              title: f.title,
+              description: f.description,
+              technique: f.technique,
+              mitreId: f.mitreId,
+            });
+          }
+
+          for (const cred of merged.credentials) {
+            const hash = createHash("sha256").update(cred.value).digest("hex");
+            if (!newCredentials.find(c => c.valueHash === hash)) {
+              const credType = (["password", "hash", "token", "key", "api_key"].includes(cred.type)
+                ? cred.type : "token") as BreachCredential["type"];
+              newCredentials.push({
+                id: `cred-${randomUUID().slice(0, 8)}`,
+                type: credType,
+                valueHash: hash,
+                authValue: cred.value,
+                source: "micro_agent_dispatch",
+                accessLevel: "none",
+                validatedTargets: [],
+                discoveredAt: new Date().toISOString(),
+              });
+            }
+          }
+
+          subAgentRuns.push({
+            name: `Parallel MicroAgents (${agentSpecs.length} agents)`,
+            status: "completed",
+            findingsCount: merged.findings.length,
+            durationMs: merged.agentDispatchSummary.executionTimeMs,
+          });
+
+          microDispatchSummary = {
+            totalAgents: merged.agentDispatchSummary.totalAgents,
+            tier1Completed: merged.agentDispatchSummary.completedWithFindings + merged.agentDispatchSummary.completedWithoutFindings,
+            tier2Completed: 0,
+            totalFindings: merged.agentDispatchSummary.totalFindings,
+            falsePositivesFiltered: merged.agentDispatchSummary.discardedFindings,
+            executionTimeMs: merged.agentDispatchSummary.executionTimeMs,
+          };
+          microDispatchSummaryOuter = microDispatchSummary;
+
+          console.info(
+            `[BreachOrchestrator] MicroAgent dispatch complete: ` +
+            `${agentSpecs.length} agents, ${merged.findings.length} findings, ` +
+            `${merged.agentDispatchSummary.discardedFindings} discarded (no evidence)`
+          );
+        }
+      } catch (err: any) {
+        console.warn(`[BreachOrchestrator] MicroAgent dispatch error:`, err.message);
+        subAgentRuns.push({
+          name: `Parallel MicroAgents`,
+          status: "failed",
+          error: err.message,
+        });
+      } finally {
+        // Clean up rate limiters to prevent timer leaks
+        destroyAllRateLimiters();
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 1B: Run AI Agent Pipeline (fallback if micro-agents
+    //           produced zero findings, or additive for app_logic/cve/api_sequence)
+    // ─────────────────────────────────────────────────────────────────
+    // Skip AI pipeline if micro-agents already found substantial results
+    const skipAIPipeline = microAgentFindings >= 3;
+
+    if (skipAIPipeline) {
+      onProgress(chain.id, "application_compromise", 80,
+        `[AI Pipeline] Skipped — ${microAgentFindings} findings from parallel agents`);
+      subAgentRuns.push({
+        name: "AI Pipeline (skipped — sufficient micro-agent findings)",
+        status: "skipped",
+      });
+    } else {
+      onProgress(chain.id, "application_compromise", 78,
+        `Running AI analysis pipeline for ${assetId}`);
+    }
 
     const exposureTypes = ["app_logic", "cve", "api_sequence_abuse"];
 
     for (const exposureType of exposureTypes) {
+      if (skipAIPipeline) break;
       const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
 
       // Build description with active exploit context if available
@@ -918,6 +1067,113 @@ async function executeApplicationCompromise(
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // Phase 1C: Subdomain Agent Dispatch
+  // Enumerate alive subdomains from the recon that ran inside Phase 1B's
+  // orchestrator, then dispatch the active exploit engine against each one.
+  // This ensures we attack the full discovered surface, not just chain.assetIds.
+  // ─────────────────────────────────────────────────────────────────
+  try {
+    const { analyzeSubdomains } = await import("../services/recon/index").catch(() => import("./recon/index"));
+    const MAX_SUBDOMAIN_AGENTS = 5; // cap concurrency — don't flood the target
+    const primaryHosts = (chain.assetIds as string[]).map(id => {
+      try { return new URL(id).hostname; } catch { return id; }
+    });
+
+    const subdomainResults = await Promise.allSettled(
+      primaryHosts.map(host => analyzeSubdomains(host))
+    );
+
+    const aliveSubdomainUrls: string[] = [];
+    for (const result of subdomainResults) {
+      if (result.status === "fulfilled" && result.value?.subdomains) {
+        for (const sub of result.value.subdomains) {
+          if (sub.isAlive && sub.subdomain) {
+            // Skip exact matches to primary hosts (already processed above)
+            if (!primaryHosts.some(h => sub.subdomain === h)) {
+              aliveSubdomainUrls.push(`https://${sub.subdomain}`);
+            }
+          }
+        }
+      }
+    }
+
+    if (aliveSubdomainUrls.length > 0) {
+      onProgress(chain.id, "application_compromise", 92,
+        `Dispatching subdomain agents against ${aliveSubdomainUrls.length} live subdomains (capped at ${MAX_SUBDOMAIN_AGENTS})`);
+
+      const targetsToScan = aliveSubdomainUrls.slice(0, MAX_SUBDOMAIN_AGENTS);
+
+      const subdomainAgentResults = await Promise.allSettled(
+        targetsToScan.map(async (subUrl) => {
+          const exploitTarget: ActiveExploitTarget = {
+            baseUrl: subUrl,
+            assetId: subUrl,
+            scope: {
+              exposureTypes: ["sqli", "xss", "ssrf", "auth_bypass", "idor", "command_injection"] as ExposureType[],
+              excludePaths: ["\\.pdf$", "\\.png$", "\\.jpg$", "\\.css$", "\\.js$"],
+              maxEndpoints: 50,  // tighter cap per subdomain
+            },
+            timeout: 8000,
+            maxRequests: 100,
+            crawlDepth: 2,
+          };
+
+          const result = await runActiveExploitEngine(exploitTarget, () => {});
+          return { subUrl, result };
+        })
+      );
+
+      for (const settled of subdomainAgentResults) {
+        if (settled.status === "rejected") {
+          subAgentRuns.push({ name: `Subdomain Agent (error)`, status: "failed", error: String(settled.reason) });
+          continue;
+        }
+        const { subUrl, result } = settled.value;
+
+        // Store subdomain evidence in phase1A store so Phase 2 can parse it
+        if (result.validated.length > 0) {
+          const existing = phase1AEvidenceStore.get(chain.id) || [];
+          phase1AEvidenceStore.set(chain.id, [...existing, ...result.validated]);
+        }
+
+        const mapped = mapToBreachPhaseContext(result);
+        for (const cred of mapped.credentials) {
+          newCredentials.push({
+            id: `bc-${randomUUID().slice(0, 8)}`,
+            type: cred.type as BreachCredential["type"],
+            valueHash: cred.hash,
+            source: "active_exploit_engine",
+            accessLevel: cred.accessLevel === "admin" ? "admin" : "user",
+            validatedTargets: [subUrl],
+            discoveredAt: new Date().toISOString(),
+          });
+        }
+        for (const finding of mapped.findings) {
+          findings.push({
+            id: `bf-${randomUUID().slice(0, 8)}`,
+            severity: finding.severity as "critical" | "high" | "medium" | "low",
+            title: `[Subdomain: ${new URL(subUrl).hostname}] ${finding.title}`,
+            description: finding.description,
+            technique: finding.exploitChain,
+          });
+        }
+        subAgentRuns.push({
+          name: `Subdomain Agent (${new URL(subUrl).hostname})`,
+          status: "completed",
+          findingsCount: mapped.findings.length,
+          durationMs: result.durationMs,
+        });
+      }
+
+      onProgress(chain.id, "application_compromise", 98,
+        `Subdomain sweep complete: ${subAgentRuns.filter(r => r.status === "completed" && r.name.startsWith("Subdomain")).length}/${targetsToScan.length} agents finished`);
+    }
+  } catch (subdomainErr: any) {
+    console.warn("[BreachOrchestrator] Subdomain agent dispatch failed (non-fatal):", subdomainErr?.message);
+    subAgentRuns.push({ name: "Subdomain Agent Dispatcher", status: "failed", error: subdomainErr?.message });
+  }
+
   return buildPhaseResult("application_compromise", startTime, context, {
     credentials: newCredentials,
     assets: newAssets,
@@ -925,6 +1181,7 @@ async function executeApplicationCompromise(
     evaluationIds,
     domain: "application",
     subAgentRuns,
+    agentDispatchSummary: microDispatchSummaryOuter,
   });
 }
 
@@ -1223,12 +1480,25 @@ async function executeCloudIAMEscalation(
   for (const assetId of chain.assetIds as string[]) {
     for (const exposureType of cloudExposureTypes) {
       const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
-      const contextDescription = [
+      const contextParts = [
         `Breach chain ${chain.id}: Cloud IAM Escalation phase.`,
         `Prior access: ${context.currentPrivilegeLevel}.`,
         `Harvested ${context.credentials.length} credentials from prior phases.`,
         `Compromised assets: ${context.compromisedAssets.map(a => a.name).join(", ")}.`,
-      ].join(" ");
+      ];
+
+      // Inject runtime context from Go agent telemetry (Capability 2)
+      try {
+        const runtimeBroker = new RuntimeContextBroker();
+        const runtimeCtx = await runtimeBroker.getContextForAsset(assetId);
+        if (runtimeCtx) {
+          contextParts.push("", runtimeBroker.formatForPrompt(runtimeCtx));
+        }
+      } catch (err) {
+        console.warn(`[BreachOrchestrator] Runtime context fetch failed for ${assetId}:`, err);
+      }
+
+      const contextDescription = contextParts.join(" ");
 
       // Skip AI pipeline if OpenAI circuit is open
       if (isCircuitOpen("openai")) {
@@ -1640,6 +1910,17 @@ async function executeLateralMovement(
   const maxDepth = (config as any).pivotDepth ?? 3;
   const pivotQueue = new PivotQueue(maxDepth);
 
+  // Fetch runtime contexts for all compromised assets (Capability 2)
+  let runtimeContexts = new Map<string, string>();
+  try {
+    const runtimeBroker = new RuntimeContextBroker();
+    const assetIds = context.compromisedAssets.map(a => a.assetId).filter(Boolean);
+    const ctxMap = await runtimeBroker.getContextsForAssets(assetIds);
+    ctxMap.forEach((ctx, id) => runtimeContexts.set(id, runtimeBroker.formatForPrompt(ctx)));
+  } catch (err) {
+    console.warn("[BreachOrchestrator] Runtime context fetch for lateral movement failed:", err);
+  }
+
   // Seed with Phase 1A compromised assets (hosts where we already have a foothold)
   for (const asset of context.compromisedAssets) {
     const host = asset.name || asset.assetId;
@@ -1668,10 +1949,17 @@ async function executeLateralMovement(
   try {
     const pivotResults = await pivotQueue.drain(
       async (item) => {
+        // Find runtime context for this host (if available from Go agent)
+        const hostAsset = context.compromisedAssets.find(a =>
+          a.name === item.host || a.assetId === item.host
+        );
+        const hostRuntimeCtx = hostAsset ? runtimeContexts.get(hostAsset.assetId) : undefined;
+
         const agent = new LateralMovementSubAgent({
           target: item.host,
           credentials: item.credentialSnapshot,
           depth: item.depth,
+          runtimeContext: hostRuntimeCtx,
         });
         return agent.execute();
       },
@@ -2061,6 +2349,8 @@ function buildUnifiedAttackGraph(
   );
 
   let previousNodeId = entryNodeId;
+  // Accumulate realistic phase estimates (not wall-clock execution time) for timeToCompromise
+  let totalRealisticMinutes = 0;
 
   for (const phase of completedPhases) {
     const phaseNodeId = `breach-${phase.phaseName}-${nodeCounter++}`;
@@ -2136,11 +2426,10 @@ function buildUnifiedAttackGraph(
       ? "medium"
       : "high";
 
-    // Compute realistic timeEstimate (minutes) based on phase type and complexity
+    // Compute realistic timeEstimate (minutes) based on phase type and complexity.
+    // NOTE: always use phase-specific realistic estimates — never raw execution wall-clock.
+    // Real-world attack phases take orders of magnitude longer than automated execution.
     const phaseTimeEstimateMinutes = (() => {
-      const rawMs = phase.durationMs || 0;
-      if (rawMs > 0) return rawMs / 60000;
-      // Phase-based defaults when no timing data
       switch (phase.phaseName) {
         case "application_compromise": return phaseComplexity === "low" ? 5 : phaseComplexity === "medium" ? 15 : 30;
         case "credential_extraction":  return phaseComplexity === "low" ? 10 : phaseComplexity === "medium" ? 20 : 45;
@@ -2151,6 +2440,9 @@ function buildUnifiedAttackGraph(
         default:                       return 15;
       }
     })();
+
+    // Accumulate realistic total for timeToCompromise — this is the key variable
+    totalRealisticMinutes += phaseTimeEstimateMinutes;
 
     // Edge from previous phase to this phase
     edges.push({
@@ -2234,8 +2526,10 @@ function buildUnifiedAttackGraph(
     killChainCoverage.push("exfiltration", "impact");
   }
 
-  const totalDurationMs = completedPhases.reduce((sum, p) => sum + (p.durationMs || 0), 0);
-  const durationMinutes = Math.max(1, Math.round(totalDurationMs / 60000));
+  // Use accumulated realistic phase estimates (not wall-clock) for timeToCompromise.
+  // totalRealisticMinutes reflects what a real attacker would need for each phase
+  // based on complexity — not how fast our engine ran it.
+  const estimatedMinutes = Math.max(15, Math.round(totalRealisticMinutes));
 
   return {
     nodes,
@@ -2246,9 +2540,9 @@ function buildUnifiedAttackGraph(
     killChainCoverage: killChainCoverage as any[],
     complexityScore: Math.min(100, completedPhases.length * 18),
     timeToCompromise: {
-      minimum: Math.max(1, durationMinutes - 5),
-      expected: durationMinutes,
-      maximum: durationMinutes * 2,
+      minimum: Math.max(15, Math.round(estimatedMinutes * 0.6)),
+      expected: estimatedMinutes,
+      maximum: Math.round(estimatedMinutes * 2.5),
       unit: "minutes",
     },
     chainedExploits: completedPhases.map(p => ({
@@ -2357,6 +2651,7 @@ function buildPhaseResult(
     evaluationIds: string[];
     domain?: string;
     subAgentRuns?: BreachPhaseResult["subAgentRuns"];
+    agentDispatchSummary?: BreachPhaseResult["agentDispatchSummary"];
   }
 ): BreachPhaseResult {
   const attackPathSteps = output.findings.map((f, i) => ({
@@ -2416,6 +2711,7 @@ function buildPhaseResult(
     evaluationIds: output.evaluationIds,
     findings: output.findings,
     subAgentRuns: output.subAgentRuns,
+    agentDispatchSummary: output.agentDispatchSummary,
   };
 }
 
@@ -2452,3 +2748,53 @@ async function phaseTimeout(timeoutMs: number, phaseName: string): Promise<Breac
 }
 
 const defaultProgress: BreachOrchestratorProgressCallback = () => {};
+
+// ============================================================================
+// AUTO-REMEDIATION: Background fix proposal generation
+// ============================================================================
+
+async function generateFixProposalsForChain(
+  chainId: string,
+  qualityVerdict: { summary: { proven: number; corroborated: number }; passed: any[] },
+): Promise<void> {
+  const { generateFixProposal } = await import("./agents/remediation-engine");
+
+  const eligibleFindings = qualityVerdict.passed || [];
+  if (eligibleFindings.length === 0) {
+    console.info(`[FixGen] No PROVEN/CORROBORATED findings for chain ${chainId} — skipping fix generation`);
+    return;
+  }
+
+  // Only generate for critical/high severity, cap at 20
+  const highPriority = eligibleFindings.filter((f: any) =>
+    f.finding?.severity === "critical" || f.finding?.severity === "high"
+  ).slice(0, 20);
+
+  let generated = 0;
+  for (const verdict of highPriority) {
+    const finding = verdict.finding || verdict;
+    try {
+      const quality = verdict.quality === "proven" ? "proven" : "corroborated";
+      const proposal = generateFixProposal({
+        findingId: finding.id || `f-${generated}`,
+        severity: finding.severity || "high",
+        title: finding.title || "Unknown Finding",
+        description: finding.description || "",
+        technique: finding.technique,
+        evidenceQuality: quality,
+        targetUrl: finding.targetUrl,
+        requestPayload: finding.requestPayload,
+        responseBody: finding.responseBody,
+      }, chainId);
+
+      await storage.storeFixProposal(chainId, proposal);
+      generated++;
+    } catch (err) {
+      console.warn(`[FixGen] Skipped finding:`, err);
+    }
+  }
+
+  if (generated > 0) {
+    console.info(`[FixGen] Generated ${generated} fix proposals for chain ${chainId}`);
+  }
+}

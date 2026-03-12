@@ -40,13 +40,16 @@ func (c *Collector) CollectTelemetry(ctx context.Context) (Event, error) {
         ports := GetOpenPorts()
         container := GetContainerInfo()
 
+        configSignals := GetConfigFileSignals()
+
         payload := map[string]interface{}{
-                "system":    sys,
-                "metrics":   met,
-                "network":   net,
-                "services":  services,
-                "ports":     ports,
-                "container": container,
+                "system":      sys,
+                "metrics":     met,
+                "network":     net,
+                "services":    services,
+                "ports":       ports,
+                "container":   container,
+                "configFiles": configSignals,
         }
 
         return Event{

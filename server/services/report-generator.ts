@@ -101,13 +101,18 @@ export class ReportGenerator {
    * Split findings into primary (PROVEN/CORROBORATED) and observations (INFERRED/UNVERIFIABLE)
    * for visual separation in customer reports per GTM plan Section 7.
    */
+  /**
+   * Split findings by evidence quality. Per LLM Boundary Amendment:
+   * - PROVEN + CORROBORATED → primaryFindings (shown to customers)
+   * - INFERRED + UNVERIFIABLE → suppressedFindings (logged internally, never shown)
+   */
   private separateByQuality(findings: ReportFinding[]): {
     primaryFindings: ReportFinding[];
-    additionalObservations: ReportFinding[];
+    suppressedFindings: ReportFinding[];
     qualitySummary: { proven: number; corroborated: number; inferred: number; unverifiable: number };
   } {
     const primaryFindings: ReportFinding[] = [];
-    const additionalObservations: ReportFinding[] = [];
+    const suppressedFindings: ReportFinding[] = [];
     const qualitySummary = { proven: 0, corroborated: 0, inferred: 0, unverifiable: 0 };
 
     for (const f of findings) {
@@ -116,10 +121,14 @@ export class ReportGenerator {
       if (q === "proven" || q === "corroborated") {
         primaryFindings.push(f);
       } else {
-        additionalObservations.push(f);
+        suppressedFindings.push(f);
+        console.info(
+          `[QualityGate] Suppressed '${f.title}' (${q}) from customer report — ` +
+          `only PROVEN and CORROBORATED findings are included`
+        );
       }
     }
-    return { primaryFindings, additionalObservations, qualitySummary };
+    return { primaryFindings, suppressedFindings, qualitySummary };
   }
 
   private async fetchEvidenceForEvaluations(
@@ -621,15 +630,24 @@ WRITING RULES — follow these precisely:
       };
     });
 
-    // GTM v1.0: Separate findings by evidence quality for visual distinction in reports
-    const { primaryFindings, additionalObservations, qualitySummary } =
+    // LLM Boundary Amendment: Suppress INFERRED/UNVERIFIABLE from customer reports entirely.
+    // They are logged internally but never shown to customers.
+    const { primaryFindings, suppressedFindings, qualitySummary } =
       this.separateByQuality(enhancedFindings);
+
+    if (suppressedFindings.length > 0) {
+      console.info(
+        `[ReportGenerator] ${suppressedFindings.length} finding(s) suppressed from report ` +
+        `(${qualitySummary.inferred} inferred, ${qualitySummary.unverifiable} unverifiable)`
+      );
+    }
 
     return {
       ...baseReport,
       executiveSummary: aiNarrative.executiveSummary,
       findings: primaryFindings,
-      additionalObservations,
+      // additionalObservations intentionally omitted per LLM Boundary Amendment —
+      // INFERRED findings never reach the customer report
       evidenceQualitySummary: qualitySummary,
       recommendations: aiNarrative.recommendations,
     };

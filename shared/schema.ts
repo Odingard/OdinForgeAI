@@ -5338,6 +5338,14 @@ export interface BreachPhaseResult {
     durationMs?: number;
     error?: string;
   }>;
+  agentDispatchSummary?: {
+    totalAgents: number;
+    tier1Completed: number;
+    tier2Completed: number;
+    totalFindings: number;
+    falsePositivesFiltered: number;
+    executionTimeMs: number;
+  };
   error?: string;
 }
 
@@ -5450,6 +5458,30 @@ export const breachChains = pgTable("breach_chains", {
 
   // GTM v1.0: Defender's Mirror detection rules (Sigma/YARA/Splunk SPL)
   detectionRules: jsonb("detection_rules"),
+
+  // v1.1: Auto-Remediation Loop — fix proposals and verifications
+  fixProposals: jsonb("fix_proposals").$type<Array<{
+    id: string;
+    findingId: string;
+    chainId: string;
+    type: string;
+    title: string;
+    description: string;
+    content: string;
+    priority: string;
+    verificationPayload: any;
+    evidenceQuality: string;
+    generatedAt: string;
+  }>>().default([]),
+
+  fixVerifications: jsonb("fix_verifications").$type<Array<{
+    proposalId: string;
+    findingId: string;
+    status: string;
+    evidence: any;
+    verifiedAt: string;
+    durationMs: number;
+  }>>().default([]),
 
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

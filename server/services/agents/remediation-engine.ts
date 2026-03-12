@@ -676,10 +676,320 @@ function generateExecutiveSummary(
 ): string {
   const immediateActions = actions.filter(a => a.effort === "low").length;
   const codeChanges = actions.filter(a => a.type === "code_fix").length;
-  
-  return `A ${context.priority} severity ${context.exposureType.replace(/_/g, " ")} vulnerability has been identified affecting ${context.assetId}. ${context.exploitable ? "This vulnerability has been confirmed as exploitable." : "This vulnerability requires further validation."} 
 
-Our analysis recommends ${actions.length} remediation actions that collectively reduce risk by ${totalRiskReduction}%. ${immediateActions} actions can be implemented immediately with low effort, including WAF rules and enhanced monitoring. ${codeChanges > 0 ? `${codeChanges} code-level fixes are recommended for permanent remediation.` : ""} 
+  return `A ${context.priority} severity ${context.exposureType.replace(/_/g, " ")} vulnerability has been identified affecting ${context.assetId}. ${context.exploitable ? "This vulnerability has been confirmed as exploitable." : "This vulnerability requires further validation."}
+
+Our analysis recommends ${actions.length} remediation actions that collectively reduce risk by ${totalRiskReduction}%. ${immediateActions} actions can be implemented immediately with low effort, including WAF rules and enhanced monitoring. ${codeChanges > 0 ? `${codeChanges} code-level fixes are recommended for permanent remediation.` : ""}
 
 Priority should be given to compensating controls for immediate risk reduction while longer-term fixes are developed and tested.`;
+}
+
+// ============================================================================
+// AUTO-REMEDIATION LOOP — Capability 3
+// Fix Proposal Generation + Verification
+// ============================================================================
+
+export type EvidenceQualityLevel = "proven" | "corroborated";
+
+export interface FixProposal {
+  id: string;
+  findingId: string;
+  chainId: string;
+  type: "code_fix" | "waf_rule" | "iam_policy" | "network_control" | "config_change";
+  title: string;
+  description: string;
+  content: string;
+  priority: "critical" | "high" | "medium" | "low";
+  verificationPayload: {
+    targetUrl: string;
+    method: string;
+    payload: string;
+    expectedVulnIndicators: string[];
+  } | null;
+  evidenceQuality: EvidenceQualityLevel;
+  generatedAt: string;
+}
+
+export interface FixVerification {
+  proposalId: string;
+  findingId: string;
+  status: "confirmed_fixed" | "still_vulnerable" | "partially_fixed" | "error";
+  evidence: {
+    statusCode: number;
+    responseContainsIndicator: boolean;
+    matchedIndicators: string[];
+    rawResponseSnippet: string;
+  } | null;
+  verifiedAt: string;
+  durationMs: number;
+}
+
+export interface FixProposalInput {
+  findingId: string;
+  severity: string;
+  title: string;
+  description: string;
+  technique?: string;
+  evidenceQuality: EvidenceQualityLevel;
+  targetUrl?: string;
+  requestPayload?: string;
+  responseBody?: string;
+}
+
+/**
+ * Generate a fix proposal for a PROVEN or CORROBORATED finding.
+ * LLM Boundary: This uses deterministic pattern-matching for fix suggestions.
+ * Throws if evidence quality is not PROVEN or CORROBORATED.
+ */
+export function generateFixProposal(
+  input: FixProposalInput,
+  chainId: string,
+): FixProposal {
+  if (input.evidenceQuality !== "proven" && input.evidenceQuality !== "corroborated") {
+    throw new Error(
+      `[RemediationEngine] Cannot generate fix proposal for ${input.evidenceQuality} finding "${input.title}". ` +
+      `Only PROVEN or CORROBORATED findings are eligible.`
+    );
+  }
+
+  const fixType = inferFixType(input);
+  const fix = buildFixContent(input, fixType);
+  const verificationPayload = buildVerificationPayload(input);
+
+  return {
+    id: `fix-${randomUUID().slice(0, 8)}`,
+    findingId: input.findingId,
+    chainId,
+    type: fixType,
+    title: fix.title,
+    description: fix.description,
+    content: fix.content,
+    priority: mapSeverityToPriority(input.severity),
+    verificationPayload,
+    evidenceQuality: input.evidenceQuality,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Verify a fix by re-firing the original payload and checking if vulnerability indicators are gone.
+ * ZERO LLM — pure HTTP re-test.
+ */
+export async function verifyFix(
+  proposal: FixProposal,
+): Promise<FixVerification> {
+  if (!proposal.verificationPayload) {
+    return {
+      proposalId: proposal.id,
+      findingId: proposal.findingId,
+      status: "error",
+      evidence: null,
+      verifiedAt: new Date().toISOString(),
+      durationMs: 0,
+    };
+  }
+
+  const { targetUrl, method, payload, expectedVulnIndicators } = proposal.verificationPayload;
+  const startTime = Date.now();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const fetchOpts: RequestInit = {
+      method,
+      signal: controller.signal,
+      headers: { "Content-Type": "text/plain", "User-Agent": "OdinForge-FixVerifier/1.0" },
+    };
+    if (method !== "GET" && payload) {
+      fetchOpts.body = payload;
+    }
+
+    const response = await fetch(targetUrl, fetchOpts);
+    clearTimeout(timeout);
+
+    const body = await response.text();
+    const snippet = body.slice(0, 500);
+    const matchedIndicators = expectedVulnIndicators.filter((ind) =>
+      body.includes(ind)
+    );
+
+    const durationMs = Date.now() - startTime;
+
+    let status: FixVerification["status"];
+    if (matchedIndicators.length === 0) {
+      status = "confirmed_fixed";
+    } else if (matchedIndicators.length < expectedVulnIndicators.length) {
+      status = "partially_fixed";
+    } else {
+      status = "still_vulnerable";
+    }
+
+    return {
+      proposalId: proposal.id,
+      findingId: proposal.findingId,
+      status,
+      evidence: {
+        statusCode: response.status,
+        responseContainsIndicator: matchedIndicators.length > 0,
+        matchedIndicators,
+        rawResponseSnippet: snippet,
+      },
+      verifiedAt: new Date().toISOString(),
+      durationMs,
+    };
+  } catch (error: any) {
+    return {
+      proposalId: proposal.id,
+      findingId: proposal.findingId,
+      status: "error",
+      evidence: null,
+      verifiedAt: new Date().toISOString(),
+      durationMs: Date.now() - startTime,
+    };
+  }
+}
+
+// ── Fix generation helpers (deterministic, no LLM) ─────────────────────
+
+function inferFixType(input: FixProposalInput): FixProposal["type"] {
+  const tech = (input.technique || "").toLowerCase();
+  const title = input.title.toLowerCase();
+
+  if (tech.includes("iam") || title.includes("iam")) return "iam_policy";
+  if (tech.includes("waf") || title.includes("xss") || title.includes("sqli") || title.includes("injection")) return "waf_rule";
+  if (tech.includes("network") || title.includes("port") || title.includes("firewall")) return "network_control";
+  if (title.includes("config") || title.includes("misconfiguration")) return "config_change";
+  return "code_fix";
+}
+
+function buildFixContent(
+  input: FixProposalInput,
+  fixType: FixProposal["type"],
+): { title: string; description: string; content: string } {
+  const titleLower = input.title.toLowerCase();
+
+  if (fixType === "waf_rule") {
+    if (titleLower.includes("sqli") || titleLower.includes("sql injection")) {
+      return {
+        title: `WAF Rule: Block SQL Injection on ${input.targetUrl || "affected endpoint"}`,
+        description: "Add WAF rule to detect and block SQL injection patterns in request parameters.",
+        content: `SecRule ARGS "@detectSQLi" "id:1001,phase:2,deny,status:403,msg:'SQL Injection Detected',log"`,
+      };
+    }
+    if (titleLower.includes("xss") || titleLower.includes("cross-site")) {
+      return {
+        title: `WAF Rule: Block XSS on ${input.targetUrl || "affected endpoint"}`,
+        description: "Add WAF rule to detect and block cross-site scripting payloads.",
+        content: `SecRule ARGS "@detectXSS" "id:1002,phase:2,deny,status:403,msg:'XSS Detected',log"`,
+      };
+    }
+    return {
+      title: `WAF Rule: Block ${input.technique || "attack"} pattern`,
+      description: `WAF rule to mitigate ${input.title}`,
+      content: `SecRule REQUEST_URI|ARGS "@rx ${input.requestPayload?.slice(0, 50) || "malicious_pattern"}" "id:1099,phase:2,deny,status:403,log"`,
+    };
+  }
+
+  if (fixType === "iam_policy") {
+    return {
+      title: `IAM Policy: Restrict permissions exploited by ${input.technique || "escalation"}`,
+      description: "Apply least-privilege IAM policy to prevent privilege escalation.",
+      content: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+          Effect: "Deny",
+          Action: ["iam:CreateUser", "iam:AttachUserPolicy", "iam:PutUserPolicy"],
+          Resource: "*",
+          Condition: { StringNotEquals: { "aws:PrincipalTag/Role": "SecurityAdmin" } },
+        }],
+      }, null, 2),
+    };
+  }
+
+  if (fixType === "network_control") {
+    return {
+      title: `Network Control: Restrict access to ${input.targetUrl || "affected service"}`,
+      description: "Apply network-level controls to limit exposure.",
+      content: `# iptables rule to restrict access\niptables -A INPUT -p tcp --dport <PORT> -s <ALLOWED_CIDR> -j ACCEPT\niptables -A INPUT -p tcp --dport <PORT> -j DROP`,
+    };
+  }
+
+  if (fixType === "config_change") {
+    return {
+      title: `Config Fix: Harden configuration for ${input.title}`,
+      description: "Apply secure configuration to prevent exploitation.",
+      content: `# Review and apply the following configuration changes:\n# 1. Disable debug mode\n# 2. Set secure headers\n# 3. Enable authentication on exposed endpoints`,
+    };
+  }
+
+  // Default: code_fix
+  return {
+    title: `Code Fix: Remediate ${input.title}`,
+    description: `Code-level fix to address the ${input.severity} vulnerability: ${input.description.slice(0, 200)}`,
+    content: `// TODO: Apply input validation and output encoding\n// Affected endpoint: ${input.targetUrl || "unknown"}\n// Vulnerability: ${input.technique || input.title}`,
+  };
+}
+
+function buildVerificationPayload(
+  input: FixProposalInput,
+): FixProposal["verificationPayload"] {
+  if (!input.targetUrl || !input.requestPayload) return null;
+
+  const indicators = deriveVulnIndicators(input);
+  if (indicators.length === 0) return null;
+
+  return {
+    targetUrl: input.targetUrl,
+    method: "GET",
+    payload: input.requestPayload,
+    expectedVulnIndicators: indicators,
+  };
+}
+
+function deriveVulnIndicators(input: FixProposalInput): string[] {
+  const indicators: string[] = [];
+  const title = input.title.toLowerCase();
+  const response = input.responseBody || "";
+
+  // SQL injection indicators
+  if (title.includes("sqli") || title.includes("sql injection")) {
+    indicators.push("syntax error", "mysql", "postgresql", "sqlite", "ORA-", "SQLSTATE");
+  }
+
+  // XSS indicators
+  if (title.includes("xss") || title.includes("cross-site")) {
+    indicators.push("<script", "onerror=", "javascript:", "alert(");
+  }
+
+  // Command injection indicators
+  if (title.includes("command") || title.includes("cmdi") || title.includes("rce")) {
+    indicators.push("uid=", "root:", "/bin/", "whoami");
+  }
+
+  // Path traversal indicators
+  if (title.includes("path traversal") || title.includes("lfi") || title.includes("directory")) {
+    indicators.push("root:x:", "[boot loader]", "etc/passwd");
+  }
+
+  // SSTI indicators
+  if (title.includes("ssti") || title.includes("template")) {
+    indicators.push("49", "7777777");
+  }
+
+  // If we have a response body, check for reflected payload
+  if (input.requestPayload && response.includes(input.requestPayload)) {
+    indicators.push(input.requestPayload);
+  }
+
+  return indicators;
+}
+
+function mapSeverityToPriority(severity: string): FixProposal["priority"] {
+  switch (severity.toLowerCase()) {
+    case "critical": return "critical";
+    case "high": return "high";
+    case "medium": return "medium";
+    default: return "low";
+  }
 }

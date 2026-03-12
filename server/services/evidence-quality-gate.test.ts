@@ -69,9 +69,20 @@ describe("EvidenceQualityGate", () => {
     expect(verdict.requiresManualReview).toBe(true);
   });
 
-  it("classifies title containing [LLM Inferred] as INFERRED", () => {
+  it("classifies title containing [LLM Inferred] without source as UNVERIFIABLE (stricter gate)", () => {
+    // Per LLM Boundary Amendment: no source + no real evidence → UNVERIFIABLE
     const finding = makeFinding({
       title: "Possible XSS [LLM Inferred]",
+    });
+    const verdict = gate.evaluate(finding);
+    expect(verdict.quality).toBe(EvidenceQuality.UNVERIFIABLE);
+    expect(verdict.passed).toBe(false);
+  });
+
+  it("classifies title containing [LLM Inferred] with source as INFERRED", () => {
+    const finding = makeFinding({
+      title: "Possible XSS [LLM Inferred]",
+      source: "llm_inference_v2",
     });
     const verdict = gate.evaluate(finding);
     expect(verdict.quality).toBe(EvidenceQuality.INFERRED);

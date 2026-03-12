@@ -493,6 +493,47 @@ function PhaseResultsDetail({ phaseResults }: { phaseResults: BreachPhaseResult[
                   </div>
                 )}
 
+                {/* Agent Dispatch Summary (Parallel Micro-Agent stats) */}
+                {(result as any).agentDispatchSummary && (
+                  <div style={{
+                    padding: "8px 12px",
+                    borderRadius: 6,
+                    background: "linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(59, 130, 246, 0.08))",
+                    border: "1px solid rgba(99, 102, 241, 0.2)",
+                    fontSize: 11,
+                  }}>
+                    <span style={{ fontWeight: 600, color: "var(--falcon-t1)", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      Parallel Agent Dispatch
+                    </span>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginTop: 6 }}>
+                      <div>
+                        <span style={{ color: "var(--falcon-t4)" }}>Agents: </span>
+                        <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>{(result as any).agentDispatchSummary.totalAgents}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "var(--falcon-t4)" }}>Tier 1: </span>
+                        <span style={{ fontWeight: 600, color: "var(--falcon-green)" }}>{(result as any).agentDispatchSummary.tier1Completed}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "var(--falcon-t4)" }}>Findings: </span>
+                        <span style={{ fontWeight: 600, color: (result as any).agentDispatchSummary.totalFindings > 0 ? "var(--falcon-red)" : "var(--falcon-t3)" }}>
+                          {(result as any).agentDispatchSummary.totalFindings}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ color: "var(--falcon-t4)" }}>Filtered: </span>
+                        <span style={{ fontWeight: 600, color: "var(--falcon-t3)" }}>{(result as any).agentDispatchSummary.falsePositivesFiltered}</span>
+                      </div>
+                      <div style={{ gridColumn: "span 2" }}>
+                        <span style={{ color: "var(--falcon-t4)" }}>Time: </span>
+                        <span style={{ fontWeight: 600, color: "var(--falcon-t1)" }}>
+                          {((result as any).agentDispatchSummary.executionTimeMs / 1000).toFixed(1)}s
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, fontSize: 11 }}>
                   <div style={{ padding: 8, borderRadius: 4, border: "1px solid var(--falcon-border)" }}>
                     <span style={{ color: "var(--falcon-t4)" }}>Input Credentials:</span>{" "}

@@ -140,15 +140,18 @@ export class LateralMovementSubAgent {
   private target: string;
   private credentials: HarvestedCredential[];
   private depth: number;
+  private runtimeContext: string | undefined;
 
   constructor(params: {
     target: string;
     credentials: HarvestedCredential[];
     depth: number;
+    runtimeContext?: string;
   }) {
     this.target = params.target;
     this.credentials = params.credentials;
     this.depth = params.depth;
+    this.runtimeContext = params.runtimeContext;
   }
 
   async execute(): Promise<PivotNodeResult> {
