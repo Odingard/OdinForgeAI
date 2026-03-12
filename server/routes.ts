@@ -214,6 +214,17 @@ export async function registerRoutes(
     });
   });
 
+  // Prometheus metrics endpoint (no auth — scraped by Prometheus)
+  app.get("/metrics", async (_req, res) => {
+    try {
+      const { metricsRegistry } = await import("./services/metrics");
+      res.set("Content-Type", metricsRegistry.contentType);
+      res.end(await metricsRegistry.metrics());
+    } catch (error) {
+      res.status(500).end("Metrics unavailable");
+    }
+  });
+
   // Platform mode (always available, no auth)
   app.get("/api/mode", (_req, res) => {
     res.json({ aevOnly: AEV_ONLY_MODE });
@@ -8060,6 +8071,141 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Config patch error:", error);
       res.status(500).json({ error: "Failed to update engagement config" });
+    }
+  });
+
+  // ─── GTM v1.0: Replay, Defender's Mirror, Reachability, Evidence Quality ──
+
+  /** GET /api/breach-chains/:id/replay — full engagement replay manifest */
+  app.get("/api/breach-chains/:id/replay", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const manifest = (chain as any).replayManifest;
+      if (!manifest) return res.status(404).json({ error: "Replay not available — chain may still be running" });
+      res.json(manifest);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get replay manifest" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/replay/events — filtered, paginated replay events */
+  app.get("/api/breach-chains/:id/replay/events", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const manifest = (chain as any).replayManifest;
+      if (!manifest?.events) return res.status(404).json({ error: "Replay not available" });
+
+      let events = manifest.events as any[];
+      const { phase, outcome, type, limit, offset } = req.query;
+      if (phase) events = events.filter((e: any) => e.phase === parseInt(phase as string));
+      if (outcome) events = events.filter((e: any) => e.outcome === outcome);
+      if (type) events = events.filter((e: any) => e.eventType === type);
+      const off = parseInt(offset as string) || 0;
+      const lim = parseInt(limit as string) || 50;
+      res.json({ total: events.length, events: events.slice(off, off + lim) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get replay events" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/replay/export — export replay as PDF-ready text or JSON */
+  app.get("/api/breach-chains/:id/replay/export", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (!(chain as any).replayManifest) return res.status(404).json({ error: "Replay not available" });
+
+      const { format } = req.query;
+      if (format === "json") {
+        const report = reportGenerator.generateReplayReport(chain);
+        res.json(report);
+      } else {
+        // Default: text/markdown format suitable for PDF rendering
+        const text = reportGenerator.exportReplayToText(chain);
+        res.type("text/markdown").send(text);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to export replay" });
+    }
+  });
+
+  /** POST /api/breach-chains/:id/replay/snapshot — state at a specific sequence index */
+  app.post("/api/breach-chains/:id/replay/snapshot", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const manifest = (chain as any).replayManifest;
+      if (!manifest?.events) return res.status(404).json({ error: "Replay not available" });
+
+      const { atSequenceIndex } = req.body;
+      if (typeof atSequenceIndex !== "number") return res.status(400).json({ error: "atSequenceIndex required" });
+
+      const events = (manifest.events as any[]).filter((e: any) => e.sequenceIndex <= atSequenceIndex);
+      const allCreds = new Set<string>();
+      const allHosts = new Set<string>();
+      for (const e of events) {
+        if (e.credentialsHarvested) e.credentialsHarvested.forEach((c: string) => allCreds.add(c));
+        if (e.outcome === "success") allHosts.add(e.target);
+      }
+      res.json({ events, credentialCount: allCreds.size, hostsReached: Array.from(allHosts) });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get replay snapshot" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/detection-rules — Defender's Mirror rules for this chain */
+  app.get("/api/breach-chains/:id/detection-rules", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const rules = (chain as any).detectionRules || [];
+      const { format } = req.query;
+      if (format === "sigma") {
+        res.json(rules.map((r: any) => ({ id: r.id, mitreAttackId: r.mitreAttackId, rule: r.sigmaRule })));
+      } else if (format === "yara") {
+        res.json(rules.map((r: any) => ({ id: r.id, mitreAttackId: r.mitreAttackId, rule: r.yaraRule })));
+      } else if (format === "splunk") {
+        res.json(rules.map((r: any) => ({ id: r.id, mitreAttackId: r.mitreAttackId, rule: r.splunkSPL })));
+      } else {
+        res.json({ total: rules.length, rules });
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get detection rules" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/reachability — reachability chain graph */
+  app.get("/api/breach-chains/:id/reachability", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const reachability = (chain as any).reachabilityChain;
+      if (!reachability) return res.status(404).json({ error: "Reachability chain not available" });
+      const { format } = req.query;
+      if (format === "dot") {
+        res.type("text/plain").send(reachability.graphFormat?.dot || "");
+      } else if (format === "d3") {
+        res.json(JSON.parse(reachability.graphFormat?.json || "{}"));
+      } else {
+        res.json(reachability);
+      }
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get reachability chain" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/evidence-quality — evidence quality summary */
+  app.get("/api/breach-chains/:id/evidence-quality", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      const quality = (chain as any).evidenceQualitySummary;
+      if (!quality) return res.status(404).json({ error: "Evidence quality data not available" });
+      res.json(quality);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get evidence quality" });
     }
   });
 

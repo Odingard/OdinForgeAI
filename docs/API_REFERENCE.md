@@ -1108,6 +1108,158 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" \
 
 ---
 
+## 12. GTM v1.0 — New Endpoints (March 2026)
+
+### Evidence Quality Gate
+
+#### `GET /api/breach-chains/:id/evidence-quality`
+
+Returns the evidence quality classification for all findings in a breach chain.
+
+**Response:**
+```json
+{
+  "qualitySummary": {
+    "proven": 8,
+    "corroborated": 3,
+    "inferred": 2,
+    "unverifiable": 0,
+    "passRate": 84.6
+  },
+  "verdicts": [
+    {
+      "findingId": "f-001",
+      "quality": "proven",
+      "passed": true,
+      "reason": "Real HTTP evidence with response body",
+      "requiresManualReview": false
+    }
+  ]
+}
+```
+
+### Defender's Mirror (Detection Rules)
+
+#### `GET /api/breach-chains/:id/detection-rules`
+
+Returns all detection rule sets generated during the engagement.
+
+**Response:**
+```json
+{
+  "rules": [
+    {
+      "id": "dr-abc123",
+      "attackEvidenceRef": "ev-001",
+      "engagementId": "eng-001",
+      "phase": "application_compromise",
+      "techniqueCategory": "sqli",
+      "mitreAttackId": "T1190",
+      "mitreAttackName": "Exploit Public-Facing Application",
+      "mitreAttackUrl": "https://attack.mitre.org/techniques/T1190",
+      "sigmaRule": "title: OdinForge SQLi Detection...",
+      "yaraRule": "rule odinforge_sqli_detect {...}",
+      "splunkSPL": "index=web sourcetype=access_combined...",
+      "generatedAt": "2026-03-12T00:00:00Z"
+    }
+  ]
+}
+```
+
+### Reachability Chain
+
+#### `GET /api/breach-chains/:id/reachability`
+
+Returns the proven network reachability graph.
+
+**Response:**
+```json
+{
+  "engagementId": "eng-001",
+  "entryPoint": { "host": "target.example.com", "port": 443 },
+  "nodes": [...],
+  "edges": [...],
+  "deepestNode": { "host": "10.0.0.3", "depth": 2 },
+  "totalProvenHops": 3,
+  "graphFormat": {
+    "dot": "digraph BreachChain { ... }",
+    "json": "{\"nodes\":[...],\"links\":[...]}"
+  }
+}
+```
+
+### Breach Chain Replay
+
+#### `GET /api/breach-chains/:id/replay`
+
+Returns the full replay manifest for a completed engagement.
+
+**Response:**
+```json
+{
+  "engagementId": "eng-001",
+  "targetScope": "https://target.example.com",
+  "startedAt": "2026-03-12T00:00:00Z",
+  "completedAt": "2026-03-12T00:12:34Z",
+  "totalDurationMs": 754000,
+  "events": [...],
+  "summary": {
+    "totalTechniquesAttempted": 15,
+    "totalTechniquesSucceeded": 8,
+    "credentialsHarvested": 3,
+    "uniqueHostsReached": 4
+  }
+}
+```
+
+#### `GET /api/breach-chains/:id/replay/events`
+
+Returns filtered, paginated replay events.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `phase` | number | Filter by phase (1-6) |
+| `outcome` | string | Filter by outcome: `success`, `failure`, `partial`, `skipped` |
+| `limit` | number | Max events to return (default: 50) |
+| `offset` | number | Pagination offset (default: 0) |
+
+#### `GET /api/breach-chains/:id/replay/export`
+
+Export the replay as a report.
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `format` | string | `json` or `text` (default: text/markdown) |
+
+**Response (text):** Markdown-formatted replay report with timeline table, evidence quality summary, and detection rules.
+
+**Response (json):**
+```json
+{
+  "title": "Breach Chain Replay Report — eng-001",
+  "summary": {...},
+  "timeline": [...],
+  "evidenceQuality": {...},
+  "detectionRules": [...],
+  "reachabilityGraph": { "dot": "...", "hops": 3, "deepestNode": "10.0.0.3" }
+}
+```
+
+#### `POST /api/breach-chains/:id/replay/snapshot`
+
+Returns engagement state at a specific point in time.
+
+**Request Body:**
+```json
+{ "atSequenceIndex": 47 }
+```
+
+**Response:** Events 0..47 with credential count, hosts reached, and active phases at that moment.
+
+---
+
 ## Support & Resources
 
 - **GitHub:** https://github.com/Odingard/OdinForgeAI

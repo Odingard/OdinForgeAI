@@ -43,6 +43,11 @@ import { wsService } from "./websocket";
 import { getCredentialBus } from "./aev/credential-bus";
 import type { HarvestedCredential } from "./aev/credential-bus";
 import { PivotQueue, LateralMovementSubAgent, breachCredToHarvested, type PivotFinding } from "./aev/pivot-queue";
+import { engagementLogger } from "./logger";
+import { evidenceQualityGate, EvidenceQuality, type EvaluatedFinding, type BatchVerdict } from "./evidence-quality-gate";
+import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
+import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
+import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
 
 /**
  * Module-level store for Phase 1A raw evidence.
@@ -219,7 +224,8 @@ export async function runBreachChain(
     });
     throw new Error(targetValidationError);
   }
-  console.info(`[BreachOrchestrator] LIVE MODE ACTIVE — chain ${chainId} — target: ${chain.assetIds?.[0]}`);
+  const log = engagementLogger(chainId);
+  log.info({ target: chain.assetIds?.[0] }, "LIVE MODE ACTIVE — breach chain starting");
 
   const config = chain.config as BreachChainConfig;
   const startTime = Date.now();
@@ -250,6 +256,11 @@ export async function runBreachChain(
   const enabledPhases = PHASE_ORDER.filter(p =>
     config.enabledPhases.includes(p)
   );
+
+  // ── GTM v1.0 Feature Instances (per-engagement lifecycle) ──────────────
+  const replayRecorder = new ReplayRecorder(chainId);
+  const defendersMirror = new DefendersMirror();
+  const reachabilityBuilder = new ReachabilityChainBuilder();
 
   try {
     for (const phaseName of enabledPhases) {
@@ -309,11 +320,14 @@ export async function runBreachChain(
         currentPhase: phaseName,
         progress: phaseDef.progressRange[0],
       });
-      console.info(`[BreachOrchestrator] ${BREACH_CHAIN_PHASE_DIRECTIVE(phaseName)}`);
+      log.info({ phase: phaseName }, `Phase starting: ${phaseDef.displayName}`);
       broadcastBreachProgress(
         chainId, phaseName, phaseDef.progressRange[0],
         `Starting ${phaseDef.displayName}...`
       );
+
+      // GTM v1.0: Replay — record phase start
+      replayRecorder.recordPhaseStart(phaseName, chain.assetIds?.[0] || "unknown");
 
       // Execute phase with timeout
       const executor = getPhaseExecutor(phaseName);
@@ -344,6 +358,52 @@ export async function runBreachChain(
         }
       }
 
+      // ── GTM v1.0: Replay Recorder — record phase completion ──────────────
+      replayRecorder.recordPhaseComplete(phaseName, chain.assetIds?.[0] || "unknown", phaseResult.findings.length);
+
+      // ── GTM v1.0: Evidence Quality Gate — classify all findings ──────────
+      const evaluatedFindings: EvaluatedFinding[] = phaseResult.findings.map(f => ({
+        ...f,
+        source: phaseName,
+      }));
+      const qualityVerdict = evidenceQualityGate.evaluateBatch(evaluatedFindings);
+
+      // ── GTM v1.0: Defender's Mirror — generate detection rules per finding ─
+      const phaseEvidence: AttackEvidence[] = phaseResult.findings
+        .filter(f => f.severity === "critical" || f.severity === "high")
+        .map(f => ({
+          id: f.id,
+          engagementId: chainId,
+          phase: phaseName,
+          techniqueCategory: f.technique || phaseName,
+          targetUrl: chain.assetIds?.[0],
+          networkProtocol: "http",
+          success: phaseResult.status === "completed",
+        }));
+      const detectionRules = defendersMirror.generateBatch(phaseEvidence);
+
+      // Record each finding as a replay event with quality + mirror refs
+      for (let i = 0; i < phaseResult.findings.length; i++) {
+        const f = phaseResult.findings[i];
+        const verdict = qualityVerdict.passed.find(v => v.finding.id === f.id)
+          || qualityVerdict.failed.find(v => v.finding.id === f.id);
+        const mirrorRule = detectionRules.find(r => r.attackEvidenceRef === f.id);
+
+        replayRecorder.record({
+          eventType: f.severity === "critical" ? "exploit_success" : "exploit_attempt",
+          phase: enabledPhases.indexOf(phaseName) + 1,
+          phaseName,
+          target: chain.assetIds?.[0] || "unknown",
+          techniqueName: f.title,
+          techniqueCategory: f.technique || phaseName,
+          mitreAttackId: f.mitreId || "",
+          outcome: phaseResult.status === "completed" ? "success" : "failure",
+          evidenceSummary: f.description,
+          evidenceQuality: verdict?.quality,
+          defendersMirrorRef: mirrorRule?.id,
+        });
+      }
+
       // Build incremental attack graph from all completed results so far
       const incrementalGraph = buildUnifiedAttackGraph(phaseResults, context);
 
@@ -357,7 +417,7 @@ export async function runBreachChain(
 
       broadcastBreachProgress(
         chainId, phaseName, phaseDef.progressRange[1],
-        `${phaseDef.displayName} complete: ${phaseResult.findings.length} findings`
+        `${phaseDef.displayName} complete: ${phaseResult.findings.length} findings (${qualityVerdict.summary.proven} proven, ${qualityVerdict.summary.corroborated} corroborated)`
       );
 
       // Broadcast progressive graph update via WebSocket
@@ -383,10 +443,57 @@ export async function runBreachChain(
       }
     }
 
+    // ── GTM v1.0: Engagement Duration Guard ────────────────────────────
+    // An engagement completing in under 2 minutes on a non-trivial target
+    // is running simulations, not real attacks. Log a warning for audit.
+    const engagementDurationMs = Date.now() - startTime;
+    const MIN_ENGAGEMENT_DURATION_MS = 2 * 60 * 1000; // 2 minutes
+    if (engagementDurationMs < MIN_ENGAGEMENT_DURATION_MS) {
+      const phasesRun = phaseResults.filter(r => r.status === "completed").length;
+      log.warn(
+        { durationMs: engagementDurationMs, phasesRun, threshold: MIN_ENGAGEMENT_DURATION_MS },
+        `DURATION WARNING: Engagement completed in ${Math.round(engagementDurationMs / 1000)}s — below 2-minute threshold`
+      );
+      // Record as a replay event for audit trail
+      replayRecorder.record({
+        eventType: "phase_complete",
+        target: chain.assetIds?.[0] || "unknown",
+        phaseName: "duration_audit",
+        outcome: "partial",
+        evidenceSummary: `Engagement completed in ${Math.round(engagementDurationMs / 1000)}s — below 2-minute minimum threshold. Evidence review recommended.`,
+      });
+    }
+
     // Build unified attack graph spanning all domains
     const unifiedGraph = buildUnifiedAttackGraph(phaseResults, context);
     const overallRiskScore = calculateBreachRiskScore(phaseResults, context);
     const executiveSummary = generateBreachExecutiveSummary(phaseResults, context, overallRiskScore);
+
+    // ── GTM v1.0: Finalize Replay Manifest ──────────────────────────────
+    const replayManifest = replayRecorder.finalize();
+
+    // ── GTM v1.0: Build Reachability Chain from lateral movement results ─
+    const lateralPhase = phaseResults.find(p => p.phaseName === "lateral_movement" && p.status === "completed");
+    const pivotResults: PivotResult[] = (lateralPhase?.findings || []).map(f => ({
+      host: f.title?.match(/→\s*(.+)$/)?.[1] || chain.assetIds?.[0] || "unknown",
+      depth: parseInt(f.title?.match(/Hop (\d+)/)?.[1] || "0"),
+      technique: f.technique || "credential_reuse",
+      authResult: "success" as const,
+      accessLevel: "user",
+      protocol: f.technique || "credential_reuse",
+    }));
+    let entryHost = chain.assetIds?.[0] || "unknown";
+    try { entryHost = new URL(entryHost).hostname; } catch { /* use as-is */ }
+    const reachabilityChain = buildReachabilityChain(chainId, entryHost, pivotResults);
+
+    // ── GTM v1.0: Final Evidence Quality Summary across all phases ──────
+    const allFindings: EvaluatedFinding[] = phaseResults.flatMap(pr =>
+      pr.findings.map(f => ({ ...f, source: pr.phaseName }))
+    );
+    const finalQualityVerdict = evidenceQualityGate.evaluateBatch(allFindings);
+
+    // ── GTM v1.0: All Defender's Mirror rules for this engagement ───────
+    const allDetectionRules = defendersMirror.getRulesForEngagement(chainId);
 
     await storage.updateBreachChain(chainId, {
       status: "completed",
@@ -403,6 +510,11 @@ export async function runBreachChain(
       executiveSummary,
       completedAt: new Date(),
       durationMs: Date.now() - startTime,
+      // GTM v1.0 feature data
+      replayManifest: replayManifest as any,
+      reachabilityChain: reachabilityChain as any,
+      evidenceQualitySummary: finalQualityVerdict.summary as any,
+      detectionRules: allDetectionRules as any,
     });
 
     // Broadcast final graph update
@@ -410,7 +522,8 @@ export async function runBreachChain(
       chainId, "completed", unifiedGraph,
       enabledPhases.length, enabledPhases.length
     );
-    broadcastBreachProgress(chainId, "completed", 100, "Breach chain complete");
+    broadcastBreachProgress(chainId, "completed", 100,
+      `Breach chain complete — ${finalQualityVerdict.summary.proven} proven, ${allDetectionRules.length} detection rules generated`);
 
     // Auto-generate Purple Team findings from completed breach chain
     createPurpleTeamFindingsFromChain(chainId, chain.organizationId, phaseResults).catch(err => {
@@ -430,7 +543,7 @@ export async function runBreachChain(
       initializeSla(chainId, overallRiskScore).catch(() => {});
     }).catch(() => {});
   } catch (error) {
-    console.error(`[BreachOrchestrator] Chain ${chainId} failed:`, error);
+    log.error({ err: error }, "Breach chain failed");
     await storage.updateBreachChain(chainId, {
       status: "failed",
       currentContext: context,

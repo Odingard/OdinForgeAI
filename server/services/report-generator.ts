@@ -37,6 +37,7 @@ import {
   type ComputedTechnicalReport,
   type EvidenceArtifactData,
 } from "./report-logic";
+import { evidenceQualityGate, EvidenceQuality } from "./evidence-quality-gate";
 
 // Create OpenAI client lazily to handle missing API key gracefully
 let openaiClient: OpenAI | null = null;
@@ -67,7 +68,60 @@ interface AIResponse {
 }
 
 export class ReportGenerator {
-  
+
+  /**
+   * Classify a report finding through the Evidence Quality Gate.
+   * Returns evidenceQuality + evidenceQualityReason fields to attach to ReportFinding.
+   */
+  private classifyFindingQuality(result: any): {
+    evidenceQuality: "proven" | "corroborated" | "inferred" | "unverifiable";
+    evidenceQualityReason: string;
+  } {
+    if (!result) {
+      return { evidenceQuality: "unverifiable", evidenceQualityReason: "No evaluation result available" };
+    }
+    // Build an EvaluatedFinding-compatible object from the result
+    const finding = {
+      id: result.id || result.evaluationId || "unknown",
+      evidenceType: result.evidenceType || result.attackType || undefined,
+      source: result.source || (result.exploitable ? "phasela_exploit" : undefined),
+      success: result.exploitable ?? false,
+      statusCode: result.statusCode || (result.httpResponse as any)?.statusCode || undefined,
+      responseBody: result.responseBody || (result.httpResponse as any)?.body || undefined,
+      error: result.error || undefined,
+    };
+    const verdict = evidenceQualityGate.evaluate(finding as any);
+    return {
+      evidenceQuality: verdict.quality.toLowerCase() as any,
+      evidenceQualityReason: verdict.reason,
+    };
+  }
+
+  /**
+   * Split findings into primary (PROVEN/CORROBORATED) and observations (INFERRED/UNVERIFIABLE)
+   * for visual separation in customer reports per GTM plan Section 7.
+   */
+  private separateByQuality(findings: ReportFinding[]): {
+    primaryFindings: ReportFinding[];
+    additionalObservations: ReportFinding[];
+    qualitySummary: { proven: number; corroborated: number; inferred: number; unverifiable: number };
+  } {
+    const primaryFindings: ReportFinding[] = [];
+    const additionalObservations: ReportFinding[] = [];
+    const qualitySummary = { proven: 0, corroborated: 0, inferred: 0, unverifiable: 0 };
+
+    for (const f of findings) {
+      const q = f.evidenceQuality || "unverifiable";
+      qualitySummary[q]++;
+      if (q === "proven" || q === "corroborated") {
+        primaryFindings.push(f);
+      } else {
+        additionalObservations.push(f);
+      }
+    }
+    return { primaryFindings, additionalObservations, qualitySummary };
+  }
+
   private async fetchEvidenceForEvaluations(
     evaluations: Array<{ id: string; organizationId?: string }>
   ): Promise<EvidenceArtifactData[]> {
@@ -493,6 +547,7 @@ WRITING RULES — follow these precisely:
       bySeverity[evaluation.priority] = (bySeverity[evaluation.priority] || 0) + 1;
       byAsset[evaluation.assetId] = (byAsset[evaluation.assetId] || 0) + 1;
       
+      const quality = this.classifyFindingQuality(result);
       findings.push({
         id: evaluation.id,
         evaluationId: evaluation.id,
@@ -504,6 +559,8 @@ WRITING RULES — follow these precisely:
         description: evaluation.description,
         impact: result?.impact || undefined,
         recommendation: result?.recommendations?.[0]?.description,
+        evidenceQuality: quality.evidenceQuality,
+        evidenceQualityReason: quality.evidenceQualityReason,
       });
       
       if (result?.attackPath) {
@@ -564,14 +621,20 @@ WRITING RULES — follow these precisely:
       };
     });
 
+    // GTM v1.0: Separate findings by evidence quality for visual distinction in reports
+    const { primaryFindings, additionalObservations, qualitySummary } =
+      this.separateByQuality(enhancedFindings);
+
     return {
       ...baseReport,
       executiveSummary: aiNarrative.executiveSummary,
-      findings: enhancedFindings,
+      findings: primaryFindings,
+      additionalObservations,
+      evidenceQualitySummary: qualitySummary,
       recommendations: aiNarrative.recommendations,
     };
   }
-  
+
   async generateComplianceReport(
     framework: ComplianceFramework,
     from: Date,
@@ -1278,6 +1341,10 @@ Write in clear, professional language. Be specific about what the evidence demon
     };
     evaluation: any;
     result: any;
+    evidenceQuality: {
+      evidenceQuality: "proven" | "corroborated" | "inferred" | "unverifiable";
+      evidenceQualityReason: string;
+    };
     vulnerability: {
       info: VulnerabilityInfo;
       humanReadableName: string;
@@ -1435,6 +1502,9 @@ Write in clear, professional language. Be specific about what the evidence demon
       }>,
     };
     
+    // GTM v1.0: Classify this finding's evidence quality
+    const quality = this.classifyFindingQuality(result);
+
     return {
       reportMetadata: {
         generatedAt: new Date().toISOString(),
@@ -1443,6 +1513,7 @@ Write in clear, professional language. Be specific about what the evidence demon
       },
       evaluation,
       result,
+      evidenceQuality: quality,
       vulnerability: vulnerabilityData,
       remediationGuidance: remediationData,
       killChain: {
@@ -1710,6 +1781,141 @@ Write in clear, professional language. Be specific about what the evidence demon
         byPriority: priorityCounts,
       },
     };
+  }
+  // ── GTM v1.0: Breach Chain Replay Report ─────────────────────────────────
+
+  /**
+   * Generate a structured replay report from a breach chain's replay manifest.
+   * Output is a self-contained HTML/text structure suitable for PDF rendering.
+   */
+  generateReplayReport(chain: any): {
+    title: string;
+    summary: any;
+    timeline: Array<{
+      index: number;
+      time: string;
+      phase: string;
+      event: string;
+      target: string;
+      outcome: string;
+      quality: string;
+      mitreId: string;
+      detectionRule: string;
+    }>;
+    evidenceQuality: any;
+    detectionRules: Array<{ id: string; technique: string; mitreId: string; formats: string[] }>;
+    reachabilityGraph: { dot: string; hops: number; deepestNode: string } | null;
+  } {
+    const manifest = chain.replayManifest;
+    const qualitySummary = chain.evidenceQualitySummary;
+    const rules = chain.detectionRules || [];
+    const reachability = chain.reachabilityChain;
+
+    // Build timeline from replay events
+    const events = (manifest?.events || []) as any[];
+    const timeline = events
+      .filter((e: any) => !["phase_start", "defenders_mirror_rule", "evidence_gate_verdict"].includes(e.eventType))
+      .map((e: any) => ({
+        index: e.sequenceIndex,
+        time: `+${Math.round((e.relativeTimestampMs || 0) / 1000)}s`,
+        phase: e.phaseName || "unknown",
+        event: e.techniqueName || e.eventType,
+        target: e.target || "",
+        outcome: e.outcome || "unknown",
+        quality: e.evidenceQuality || "unclassified",
+        mitreId: e.mitreAttackId || "",
+        detectionRule: e.defendersMirrorRef || "",
+      }));
+
+    // Build detection rules summary
+    const detectionRulesSummary = (rules as any[]).map((r: any) => ({
+      id: r.id,
+      technique: r.techniqueCategory,
+      mitreId: r.mitreAttackId,
+      formats: [
+        r.sigmaRule ? "Sigma" : null,
+        r.yaraRule ? "YARA" : null,
+        r.splunkSPL ? "Splunk" : null,
+      ].filter(Boolean) as string[],
+    }));
+
+    // Build reachability summary
+    const reachabilityGraph = reachability ? {
+      dot: reachability.graphFormat?.dot || "",
+      hops: reachability.totalProvenHops || 0,
+      deepestNode: reachability.deepestNode?.host || "none",
+    } : null;
+
+    return {
+      title: `Breach Chain Replay Report — ${chain.name || chain.id}`,
+      summary: manifest?.summary || {},
+      timeline,
+      evidenceQuality: qualitySummary || {},
+      detectionRules: detectionRulesSummary,
+      reachabilityGraph,
+    };
+  }
+
+  /**
+   * Export replay report as formatted text for PDF rendering pipelines.
+   */
+  exportReplayToText(chain: any): string {
+    const report = this.generateReplayReport(chain);
+    const lines: string[] = [];
+
+    lines.push(`# ${report.title}`);
+    lines.push(`Generated: ${new Date().toISOString()}`);
+    lines.push("");
+
+    // Summary
+    lines.push("## Engagement Summary");
+    const s = report.summary;
+    lines.push(`- Techniques attempted: ${s.totalTechniquesAttempted || 0}`);
+    lines.push(`- Techniques succeeded: ${s.totalTechniquesSucceeded || 0}`);
+    lines.push(`- Credentials harvested: ${s.credentialsHarvested || 0}`);
+    lines.push(`- Unique hosts reached: ${s.uniqueHostsReached || 0}`);
+    lines.push(`- Duration: ${Math.round((s.timelineMs || 0) / 1000)}s`);
+    lines.push("");
+
+    // Evidence Quality
+    lines.push("## Evidence Quality");
+    const eq = report.evidenceQuality;
+    lines.push(`- Proven: ${eq.proven || 0}`);
+    lines.push(`- Corroborated: ${eq.corroborated || 0}`);
+    lines.push(`- Inferred: ${eq.inferred || 0}`);
+    lines.push(`- Unverifiable: ${eq.unverifiable || 0}`);
+    lines.push(`- Pass rate: ${eq.passRate || 0}%`);
+    lines.push("");
+
+    // Timeline
+    lines.push("## Attack Timeline");
+    lines.push("| # | Time | Phase | Technique | Target | Outcome | Quality | MITRE |");
+    lines.push("|---|------|-------|-----------|--------|---------|---------|-------|");
+    for (const t of report.timeline) {
+      lines.push(`| ${t.index} | ${t.time} | ${t.phase} | ${t.event} | ${t.target} | ${t.outcome} | ${t.quality} | ${t.mitreId} |`);
+    }
+    lines.push("");
+
+    // Detection Rules
+    if (report.detectionRules.length > 0) {
+      lines.push("## Defender's Mirror — Detection Rules");
+      lines.push(`${report.detectionRules.length} detection rule sets generated.`);
+      lines.push("");
+      for (const r of report.detectionRules) {
+        lines.push(`- **${r.technique}** (${r.mitreId}): ${r.formats.join(", ")}`);
+      }
+      lines.push("");
+    }
+
+    // Reachability
+    if (report.reachabilityGraph) {
+      lines.push("## Reachability Chain");
+      lines.push(`- Proven hops: ${report.reachabilityGraph.hops}`);
+      lines.push(`- Deepest node: ${report.reachabilityGraph.deepestNode}`);
+      lines.push("");
+    }
+
+    return lines.join("\n");
   }
 }
 

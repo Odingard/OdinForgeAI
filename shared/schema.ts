@@ -1420,6 +1420,8 @@ export const reportFindingSchema = z.object({
     description: z.string(),
   })).optional(),
   evidence: z.array(z.string()).optional(),
+  evidenceQuality: z.enum(["proven", "corroborated", "inferred", "unverifiable"]).optional(),
+  evidenceQualityReason: z.string().optional(),
 });
 
 export type ReportFinding = z.infer<typeof reportFindingSchema>;
@@ -1499,6 +1501,13 @@ export const technicalReportSchema = z.object({
   })),
   executiveSummary: z.string().optional(),
   recommendations: z.array(z.string()).optional(),
+  additionalObservations: z.array(reportFindingSchema).optional(),
+  evidenceQualitySummary: z.object({
+    proven: z.number(),
+    corroborated: z.number(),
+    inferred: z.number(),
+    unverifiable: z.number(),
+  }).optional(),
 });
 
 export type TechnicalReport = z.infer<typeof technicalReportSchema>;
@@ -5422,6 +5431,18 @@ export const breachChains = pgTable("breach_chains", {
     completedAt: string;
     runId?: string;
   }>>().default([]),
+
+  // GTM v1.0: Replay manifest (full engagement playback)
+  replayManifest: jsonb("replay_manifest"),
+
+  // GTM v1.0: Reachability chain (proven network kill chain graph)
+  reachabilityChain: jsonb("reachability_chain"),
+
+  // GTM v1.0: Evidence quality summary (proven/corroborated/inferred/unverifiable)
+  evidenceQualitySummary: jsonb("evidence_quality_summary"),
+
+  // GTM v1.0: Defender's Mirror detection rules (Sigma/YARA/Splunk SPL)
+  detectionRules: jsonb("detection_rules"),
 
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
