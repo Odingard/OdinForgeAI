@@ -16,7 +16,11 @@ const juiceShopScenarios: BreachChainScenario[] = [
     target: "juice-shop",
     playbookId: "sqli-exfil-chain",
     targetEndpoint: "/rest/products/search?q=test",
-    parameters: {},
+    parameters: {
+      parameter: "q",
+      parameterLocation: "url_param",
+      method: "GET",
+    },
     expectedOutcome: {
       minStepsCompleted: 2,
       minConfidence: 40,
@@ -29,7 +33,11 @@ const juiceShopScenarios: BreachChainScenario[] = [
     target: "juice-shop",
     playbookId: "auth-bypass-escalation",
     targetEndpoint: "/rest/user/login",
-    parameters: {},
+    parameters: {
+      parameter: "email",
+      parameterLocation: "body_param",
+      method: "POST",
+    },
     expectedOutcome: {
       minStepsCompleted: 1,
       minConfidence: 40,
@@ -45,6 +53,7 @@ const juiceShopScenarios: BreachChainScenario[] = [
     parameters: {
       parameter: "file",
       parameterLocation: "path",
+      method: "GET",
     },
     expectedOutcome: {
       minStepsCompleted: 1,
@@ -58,7 +67,11 @@ const juiceShopScenarios: BreachChainScenario[] = [
     target: "juice-shop",
     playbookId: "multi-vector-chain",
     targetEndpoint: "/rest/products/search?q=test",
-    parameters: {},
+    parameters: {
+      parameter: "q",
+      parameterLocation: "url_param",
+      method: "GET",
+    },
     expectedOutcome: {
       minStepsCompleted: 2,
       minConfidence: 30,
@@ -76,7 +89,11 @@ const dvwaScenarios: BreachChainScenario[] = [
     target: "dvwa",
     playbookId: "cmd-injection-rce",
     targetEndpoint: "/vulnerabilities/exec/",
-    parameters: {},
+    parameters: {
+      parameter: "ip",
+      parameterLocation: "body_param",
+      method: "POST",
+    },
     expectedOutcome: {
       minStepsCompleted: 1,
       minConfidence: 40,
@@ -89,7 +106,11 @@ const dvwaScenarios: BreachChainScenario[] = [
     target: "dvwa",
     playbookId: "sqli-exfil-chain",
     targetEndpoint: "/vulnerabilities/sqli/",
-    parameters: {},
+    parameters: {
+      parameter: "id",
+      parameterLocation: "url_param",
+      method: "GET",
+    },
     expectedOutcome: {
       minStepsCompleted: 2,
       minConfidence: 50,
@@ -102,7 +123,11 @@ const dvwaScenarios: BreachChainScenario[] = [
     target: "dvwa",
     playbookId: "ssrf-internal-pivot",
     targetEndpoint: "/vulnerabilities/fi/",
-    parameters: {},
+    parameters: {
+      parameter: "page",
+      parameterLocation: "url_param",
+      method: "GET",
+    },
     expectedOutcome: {
       minStepsCompleted: 1,
       minConfidence: 30,
@@ -120,7 +145,11 @@ const webgoatScenarios: BreachChainScenario[] = [
     target: "webgoat",
     playbookId: "sqli-exfil-chain",
     targetEndpoint: "/WebGoat/SqlInjection/attack",
-    parameters: {},
+    parameters: {
+      parameter: "query",
+      parameterLocation: "body_param",
+      method: "POST",
+    },
     expectedOutcome: {
       minStepsCompleted: 1,
       minConfidence: 40,
@@ -133,7 +162,12 @@ const webgoatScenarios: BreachChainScenario[] = [
     target: "webgoat",
     playbookId: "auth-bypass-escalation",
     targetEndpoint: "/WebGoat/JWT/",
-    parameters: {},
+    parameters: {
+      parameter: "token",
+      parameterLocation: "header",
+      method: "POST",
+      analyzeJwt: true,
+    },
     expectedOutcome: {
       minStepsCompleted: 1,
       minConfidence: 30,

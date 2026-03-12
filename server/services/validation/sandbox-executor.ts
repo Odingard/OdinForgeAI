@@ -253,11 +253,12 @@ class SandboxExecutor {
     return { allowed: true };
   }
 
-  checkLiveModeApproval(executionMode: "safe" | "simulation" | "live", approvalId?: string): { allowed: boolean; reason?: string } {
-    if (executionMode === "live" && this.config.requireApprovalForLiveMode && !approvalId) {
-      return { 
-        allowed: false, 
-        reason: "Live mode operations require prior approval. Please obtain approval before executing." 
+  checkLiveModeApproval(executionMode: "safe" | "simulation" | "live", approvalId?: string, tenantId?: string): { allowed: boolean; reason?: string } {
+    const config = tenantId ? this.getTenantConfig(tenantId) : this.config;
+    if (executionMode === "live" && config.requireApprovalForLiveMode && !approvalId) {
+      return {
+        allowed: false,
+        reason: "Live mode operations require prior approval. Please obtain approval before executing."
       };
     }
     return { allowed: true };
@@ -362,13 +363,13 @@ class SandboxExecutor {
       }
     }
 
-    const liveModeCheck = this.checkLiveModeApproval(executionMode, options.approvalId);
+    const liveModeCheck = this.checkLiveModeApproval(executionMode, options.approvalId, tenantId);
     if (!liveModeCheck.allowed) {
-      return { 
-        success: false, 
-        error: liveModeCheck.reason, 
-        operationId, 
-        executionTimeMs: 0 
+      return {
+        success: false,
+        error: liveModeCheck.reason,
+        operationId,
+        executionTimeMs: 0
       };
     }
 

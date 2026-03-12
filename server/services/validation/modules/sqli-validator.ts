@@ -178,7 +178,7 @@ export class SqliValidator {
     let detectedDb: SqliValidationResult["dbType"] = null;
     let bestEvidence = "";
 
-    for (const payload of payloads.slice(0, 7)) {
+    for (const payload of payloads.slice(0, 12)) {
       try {
         const req = this.buildRequest(ctx, payload.value);
         const { response } = await this.client.request({
@@ -193,6 +193,7 @@ export class SqliValidator {
         let confidence = 0;
         let dbType: SqliValidationResult["dbType"] = null;
 
+        // Check for DB-specific error patterns
         for (const [db, patterns] of Object.entries(DB_ERROR_PATTERNS)) {
           for (const pattern of patterns) {
             if (pattern.test(response.body)) {
@@ -213,6 +214,18 @@ export class SqliValidator {
               break;
             }
           }
+        }
+
+        // Data dump detection: OR/UNION payloads that return significantly
+        // more data than baseline indicate the injected condition worked.
+        // Common with LIKE-context closures (e.g. ')) OR 1=1--).
+        const isOrPayloadGeneric = /\bOR\b.*(?:1=1|TRUE)/i.test(payload.value);
+        const responseSizeRatio = baseline.body.length > 0
+          ? response.body.length / baseline.body.length
+          : 0;
+        if (isOrPayloadGeneric && responseSizeRatio > 5 && response.body.length > 500) {
+          matchedIndicators.push(`Data dump: ${response.body.length} bytes vs ${baseline.body.length} baseline (${responseSizeRatio.toFixed(1)}x)`);
+          confidence = Math.max(confidence, 85);
         }
 
         for (const indicator of payload.successIndicators) {

