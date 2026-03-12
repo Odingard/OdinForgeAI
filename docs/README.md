@@ -75,11 +75,11 @@ OdinForge AI is an enterprise security platform that automates exploit validatio
 1. **Web Application** - React frontend with Express backend, live breach chain visualization, CISO dashboard
 2. **AI Engine** - 8-agent pipeline with multi-model alloy rotation (GPT-4o, Claude, Gemini)
 3. **Threat Intel** - EPSS, CVSS v2/v3.x, CISA KEV, deterministic scoring v3.0
-4. **Exploit Agent** - Multi-turn tool-calling loop with 6 security tools and HTTP evidence
+4. **Exploit Agent** - Multi-turn tool-calling loop with 9 security tools and HTTP evidence
 5. **Cloud Scanners** - AWS, Azure, GCP, K8s with abstract base, retry/backoff, entity graph integration
 6. **Endpoint Agents** - TypeScript agents for Linux, macOS, Windows plus Go agent (v1.1.0) with systemd
 7. **Entity Graph** - PostgreSQL-backed shared intelligence layer with cross-product correlation
-8. **Database** - PostgreSQL 15+ with 50+ tables, RLS, pgvector embeddings
+8. **Database** - PostgreSQL 15+ with 75 tables, RLS, pgvector embeddings
 9. **Job Queue** - BullMQ with 17 job types, Redis-backed, in-memory fallback for development
 10. **Billing** - Stripe integration with subscription plans, usage metering, and quota enforcement
 

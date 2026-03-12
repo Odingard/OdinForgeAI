@@ -2,6 +2,9 @@
 
 ![CI](https://github.com/Odingard/OdinForgeAI/actions/workflows/ci.yml/badge.svg)
 ![Benchmark](https://github.com/Odingard/OdinForgeAI/actions/workflows/benchmark.yml/badge.svg)
+![CodeQL](https://github.com/Odingard/OdinForgeAI/actions/workflows/codeql.yml/badge.svg)
+![SBOM](https://github.com/Odingard/OdinForgeAI/actions/workflows/sbom.yml/badge.svg)
+![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-blue.svg)
 
 Agentic Exploit Validation (AEV) platform. OdinForge discovers vulnerabilities, proves they're exploitable with HTTP evidence, and chains them into multi-step breach paths — replacing manual penetration testing with autonomous, auditable validation.
 
@@ -24,9 +27,9 @@ Every finding includes the HTTP request and response that prove it. Every tool c
 ## Platform capabilities
 
 ### Reconnaissance engine
-8 scanning modules — DNS enumeration, subdomain discovery, port scanning, SSL/TLS analysis, security header detection, technology fingerprinting, WAF detection, API endpoint discovery. Results feed into 6 verification agents that confirm what's actually exploitable. Outputs an `AttackGraph` with 28 finding-to-tactic mappings (MITRE ATT&CK aligned).
+8 scanning modules — DNS enumeration, subdomain discovery (5-phase pipeline: wildcard detection → 6 OSINT sources → 10K+ brute-force → permutation engine → HTTP probe), port scanning, SSL/TLS analysis, security header detection, technology fingerprinting, WAF detection, API endpoint discovery. Results feed into 6 verification agents that confirm what's actually exploitable. Outputs an `AttackGraph` with 34 finding-to-tactic mappings (MITRE ATT&CK aligned).
 
-**Files:** `server/services/recon/` (8 modules + 6 agents + AEV mapper, ~1,500 lines)
+**Files:** `server/services/recon/` (8 modules + 6 agents + AEV mapper)
 
 ### Exploit agent
 Agentic tool-calling loop — up to 12 turns, 110s timeout, 120s circuit breaker. Adapts strategy based on what each tool returns.
@@ -39,7 +42,7 @@ Agentic tool-calling loop — up to 12 turns, 110s timeout, 120s circuit breaker
 | `fuzz_endpoint` | simulation+ | Smart fuzzing with type mutation, null injection, boundary values, encoding tricks |
 | `test_payloads` | simulation+ | Fires all payloads for 9 categories (ssti, sqli, cmdi, path_traversal, idor, xss, auth_bypass, ldap, header_injection) against a parameter |
 | `send_http_request` | simulation+ | Arbitrary HTTP requests for manual exploitation after detection |
-| `test_jwt` | simulation+ | 6 JWT attack techniques: alg "none" bypass, weak secret brute-force (20 secrets), RS256-to-HS256 confusion, KID injection, JKU injection, endpoint discovery |
+| `test_jwt` | simulation+ | 6 JWT attack techniques: alg "none" bypass, weak secret brute-force (20 secrets), RS256→HS256 confusion, KID injection, JKU injection, endpoint discovery |
 | `http_fingerprint` | safe+ | Discovers endpoints, forms, parameters, tech stack, auth surface, inline JS API calls |
 | `port_scan` | safe+ | TCP port discovery with service identification and banners |
 | `check_ssl_tls` | safe+ | Certificate validity, protocol versions, cipher suites, known weaknesses |
@@ -47,15 +50,15 @@ Agentic tool-calling loop — up to 12 turns, 110s timeout, 120s circuit breaker
 
 **Execution modes:** `safe` (passive only), `simulation` (safe payloads), `live` (full exploitation with approval gates)
 
-**Files:** `server/services/agents/exploit.ts` (592 lines), `server/services/agents/exploit-tools.ts` (1,584 lines)
+**Files:** `server/services/agents/exploit.ts`, `server/services/agents/exploit-tools.ts` (3,760 lines combined)
 
 ### Validation engine
-6 dedicated validators with payload libraries covering 8 injection locations (query, body_form, body_json, path, raw_body, header, cookie, url_param). Evidence capture includes HTTP request/response pairs with timing, confidence scoring (0-100), and verdict classification (confirmed / likely / theoretical / false_positive).
+6 dedicated validators with payload libraries covering 8 injection locations (query, body_form, body_json, path, raw_body, header, cookie, url_param). Evidence capture includes HTTP request/response pairs with timing, confidence scoring (0–100), and verdict classification (confirmed / likely / theoretical / false_positive).
 
-**Files:** `server/services/validation/` — 7 validator modules + 8 payload sets (~4,200 lines)
+**Files:** `server/services/validation/` — 7 validator modules + 8 payload sets
 
 ### Breach chain orchestrator
-Chains individual findings into multi-step attack sequences with confidence-gated progression.
+Chains individual findings into multi-step attack sequences with confidence-gated progression. Real-time graph updates stream over WebSocket after each phase.
 
 **17 exploit categories:** sqli, xss, command_injection, path_traversal, ssrf, auth_bypass, jwt_attack, session_attack, business_logic, lateral_movement, credential_attack, idor, race_condition, workflow_bypass, iam_escalation, cloud_storage_exposure, cloud_misconfig
 
@@ -74,7 +77,9 @@ Chains individual findings into multi-step attack sequences with confidence-gate
 
 Each step has `requiredConfidence`, `dependsOn`, `requiredEvidence`, and `abortOn` conditions. Live execution steps require human approval.
 
-**Files:** `server/services/aev/chain-orchestrator.ts` (1,995 lines), `server/services/aev/playbooks/` (844 lines)
+**CredentialBus:** Every credential discovered at any phase is immediately broadcast to all active sub-agents (<500ms delivery SLA). Successful credential reuse spawns new nodes in the attack graph. MITRE ATT&CK technique IDs flow to every phase output.
+
+**Files:** `server/services/aev/chain-orchestrator.ts` (2,425 lines), `server/services/aev/playbooks/` (844 lines), `server/services/aev/credential-bus.ts`
 
 ### Scoring engine
 Deterministic formula — no LLM in the scoring loop:
@@ -87,7 +92,7 @@ Score = EPSS (45%) + CVSS (35%) + Agent exploitability (20%)
 - **CVSS:** Parser for v2/v3.0/v3.1 vectors, derives network exposure + auth requirements
 - **KEV override:** If CVE appears on CISA Known Exploited Vulnerabilities catalog, exploitability floor = 85
 - **Ransomware amplifier:** +10 if `knownRansomwareCampaignUse`
-- **Asset criticality:** Multiplier from 0.7x (low) to 1.3x (critical)
+- **Asset criticality:** Multiplier from 0.7× (low) to 1.3× (critical)
 - **Confidence tracking:** Data richness score (EPSS +30, CVSS +25, KEV +15, agent +20, findings +10)
 
 Methodology string for audit: `"OdinForge Deterministic v3.0 | EPSS 97.2% (P100) | CVSS 3.1 9.8 | CISA KEV"`
@@ -118,7 +123,7 @@ Standalone endpoint agent with systemd integration. Cross-platform: Linux, macOS
 - **SARIF:** CWE relationships, MITRE ATT&CK tags, KEV/EPSS properties per result
 - **Report types:** Executive summary, technical report, compliance report
 
-**Files:** `server/services/report-generator.ts` (2,008 lines), `server/services/sarif-exporter.ts`
+**Files:** `server/services/report-generator.ts` (1,716 lines), `server/services/sarif-exporter.ts`
 
 ### Entity graph
 Shared intelligence layer connecting assets, vulnerabilities, findings, and relationships across all scan types.
@@ -136,28 +141,28 @@ Shared intelligence layer connecting assets, vulnerabilities, findings, and rela
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                        Frontend (React)                          │
-│  27 pages · JWT auth · RBAC · Real-time WebSocket · Attack viz   │
+│  26 pages · JWT auth · RBAC · Real-time WebSocket · Attack viz   │
 ├──────────────────────────────────────────────────────────────────┤
 │                     API Layer (Express)                           │
-│  389 endpoints · Permission-gated · Multi-tenant RLS             │
+│  407 endpoints · Permission-gated · Multi-tenant RLS             │
 ├────────────┬────────────┬──────────────┬────────────┬───────────┤
 │  Recon     │  Exploit   │  Breach      │  Scoring   │  Reports  │
 │  Engine    │  Agent     │  Chain       │  Engine    │  + SARIF  │
-│  8 modules │  9 tools  │  11 playbooks│  EPSS/CVSS │  PDF/HTML │
+│  8 modules │  9 tools   │  11 playbooks│  EPSS/CVSS │  PDF/HTML │
 │  6 agents  │  12 turns  │  17 categories│  KEV      │  JSON     │
 ├────────────┴────────────┴──────────────┴────────────┴───────────┤
 │                    Data Layer                                     │
-│  PostgreSQL (73 tables) · Redis · BullMQ · MinIO · WebSocket     │
+│  PostgreSQL (75 tables) · Redis · BullMQ · MinIO · WebSocket     │
 ├──────────────────────────────────────────────────────────────────┤
 │  Go Agent (v1.1.0) · Cloud Tools (AWS) · Entity Graph            │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Data model:** 73 database tables, 43 granular permissions (action:resource pattern), 9 roles across 4 categories (platform, organization, specialized, system). Full RBAC with row-level security per tenant.
+**Data model:** 75 database tables, 43 granular permissions (action:resource pattern), 9 roles across 4 categories (platform, organization, specialized, system). Full RBAC with row-level security per tenant.
 
 **Real-time:** 11 WebSocket event types — evaluation progress, breach chain graph updates, safety blocks, reasoning traces, HITL approval requests, heartbeats.
 
-**Infrastructure:** Express + React, PostgreSQL (pgvector), Redis, BullMQ (17 job types), MinIO (evidence artifacts), Caddy (reverse proxy + TLS). Production runs 6 containers: app, worker, postgres, redis, minio, caddy.
+**Infrastructure:** Express + React, PostgreSQL (pgvector), Redis, BullMQ (17 job types), MinIO (evidence artifacts), Caddy (reverse proxy). Production runs 6 containers: app, worker, postgres, redis, minio, caddy.
 
 ---
 
@@ -179,11 +184,11 @@ Mode:      simulation
 Scenarios: 6
 
   PASS  OS Command Injection via Spawn Endpoint        (22.2s)
-  PASS  SSRF via File Retrieval Endpoint                (15.7s)
-  PASS  JWT Authentication Bypass                       (31.5s)
-  PASS  Multi-Vector XSS (Reflected + Stored + DOM)     (24.7s)
-  PASS  Server-Side Template Injection via Render        (14.3s)
-  PASS  LDAP Injection and Sensitive Data Exposure       (29.4s)
+  PASS  SSRF via File Retrieval Endpoint               (15.7s)
+  PASS  JWT Authentication Bypass                      (31.5s)
+  PASS  Multi-Vector XSS (Reflected + Stored + DOM)    (24.7s)
+  PASS  Server-Side Template Injection via Render       (14.3s)
+  PASS  LDAP Injection and Sensitive Data Exposure      (29.4s)
 
 Scenarios: 6/6 passed (100%) | Detection: 88.9% | 21 tool calls | 137.8s
 ```
@@ -206,13 +211,13 @@ OdinForge AI — XBOW CTF Benchmark
 Mode:      simulation (black-box)
 Challenges: 10 (first batch)
 
-> XBEN-002  Auth IDOR chain (creds from HTML -> login -> archive)    SOLVED  (38.7s)
-> XBEN-004  XSS blacklist bypass (onfocus autofocus)                 SOLVED  (43.1s)
-> XBEN-005  Mass assignment (OAuth2 -> level escalation)             SOLVED  (12.9s)
-> XBEN-006  SQLi via JS-extracted API field                          SOLVED  (22.0s)
-> XBEN-007  GraphQL IDOR (hidden flag field, userId IDOR)            SOLVED  (19.9s)
-> XBEN-008  XSS WAF bypass (onfocus, server-side PhantomJS)          SOLVED  (63.4s)
-> XBEN-009  SSTI exploitation                                        SOLVED  (12.5s)
+> XBEN-002  Auth IDOR chain (creds from HTML → login → archive)    SOLVED  (38.7s)
+> XBEN-004  XSS blacklist bypass (onfocus autofocus)                SOLVED  (43.1s)
+> XBEN-005  Mass assignment (OAuth2 → level escalation)             SOLVED  (12.9s)
+> XBEN-006  SQLi via JS-extracted API field                         SOLVED  (22.0s)
+> XBEN-007  GraphQL IDOR (hidden flag field, userId IDOR)           SOLVED  (19.9s)
+> XBEN-008  XSS WAF bypass (onfocus, server-side PhantomJS)         SOLVED  (63.4s)
+> XBEN-009  SSTI exploitation                                       SOLVED  (12.5s)
 
 Solved: 7/10 (70%) | Runnable: 7/8 (87.5%) | Avg: 27.2s | Median: 16.3s
 ```
@@ -269,7 +274,7 @@ Open `http://localhost:5000`. First login triggers org bootstrap.
 
 ## CI/CD
 
-19 GitHub Actions workflows:
+20 GitHub Actions workflows:
 
 | Category | Workflows |
 |----------|-----------|
@@ -286,24 +291,23 @@ Open `http://localhost:5000`. First login triggers org bootstrap.
 
 | Component | Lines | Key stat |
 |-----------|-------|----------|
-| API routes | 12,779 | 389 endpoints |
-| Database schema | 5,527 | 73 tables |
-| Storage layer | 3,314 | 169 interface methods |
-| Chain orchestrator | 1,995 | 17 categories, 11 playbooks |
-| Exploit agent + tools | 2,176 | 9 tools, 12-turn loop |
-| Recon engine | ~1,500 | 8 modules, 6 agents |
+| API routes | 13,477 | 407 endpoints |
+| Database schema | 5,710 | 75 tables |
+| Storage layer | 3,368 | interface methods |
+| Chain orchestrator | 2,425 | 17 categories, 11 playbooks |
+| Exploit agent + tools | 3,760 | 9 tools, 12-turn loop |
 | Validation engine | ~4,200 | 6 validators, 8 payload sets |
 | Scoring engine | 764 | Deterministic v3.0 |
-| Report generator | 2,008 | PDF, HTML, SARIF, JSON |
+| Report generator | 1,716 | PDF, HTML, SARIF, JSON |
 | Go agent | ~3,000 | v1.1.0, 3 handlers, 10 collectors |
-| Frontend | 27 pages | Full RBAC, real-time viz |
+| Frontend | 26 pages | Full RBAC, real-time viz |
 | WebSocket service | 726 | 11 event types |
 
 ---
 
 ## Documentation
 
-- [API reference](docs/API_REFERENCE.md) — 389 REST endpoints
+- [API reference](docs/API_REFERENCE.md) — 407 REST endpoints
 - [Scoring engine](docs/SCORING_ENGINE.md) — EPSS + CVSS + KEV formula
 - [Benchmark system](docs/BENCHMARKS.md) — Run benchmarks, add targets, CI integration
 - [Server setup](docs/server/installation.md) | [Configuration](docs/server/configuration.md) | [Production deploy](docs/server/production.md)
@@ -314,7 +318,7 @@ Open `http://localhost:5000`. First login triggers org bootstrap.
 ## Contact
 
 - **Website:** [odinforgeai.com](https://www.odinforgeai.com)
-- **Email:** [contact@Odingard.com](mailto:contact@Odingard.com)
+- **Email:** [contact@odingard.com](mailto:contact@odingard.com)
 - **Issues:** [GitHub Issues](https://github.com/Odingard/OdinForgeAI/issues)
 - **Security:** See [SECURITY.md](SECURITY.md)
 
