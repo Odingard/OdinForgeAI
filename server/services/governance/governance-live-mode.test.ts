@@ -3,12 +3,12 @@
  *
  * Tests for the live mode approval gate fix — requireAuthorizationForLive=false
  * must allow breach chains through without a manual approval step.
- *
- * Uses a mock CredentialStore getGovernance path via vi.spyOn so no DB needed.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { validateOperation } from "../validation/execution-modes";
+import { GovernanceEnforcementService } from "./governance-enforcement";
+import type { OrganizationGovernance } from "@shared/schema";
 
 // ─── validateOperation (pure) — approval gate behavior ───────────────────────
 
@@ -30,91 +30,102 @@ describe("validateOperation — live mode approval gate", () => {
     expect(result.requiredApprovalLevel).toBe("security_lead");
   });
 
-  it("all live mode operations are allowed (just approval-gated)", () => {
-    // Every operation IS in the allowedOperations list for live mode
-    // — the gate is approval, not capability
-    const ops = [
-      "bannerGrabbing",
-      "versionDetection",
-      "portScanning",
-      "credentialTesting",
-      "payloadInjection",
-      "exploitExecution",
-      "dataExfiltration",
-    ] as const;
-    // All should hit the requiresApproval path, not the "not allowed in mode" path
-    for (const op of ops) {
-      const result = validateOperation("live", op);
-      if (!result.allowed) {
-        expect(result.requiresApproval).toBe(true);
-      }
-    }
-  });
-});
-
-// ─── governance enforcement logic (pure simulation) ──────────────────────────
-// We test the decision logic directly without instantiating the full service
-// (which needs a DB). The key invariant: when requiresApproval=true AND
-// requireAuthorizationForLive=false, the operation MUST be allowed.
-
-describe("governance bypass logic", () => {
-  /**
-   * Inline the exact conditional from governance-enforcement.ts so we can
-   * unit-test the decision without mocking storage.
-   */
-  function simulateCheckExecutionMode(
-    validationResult: { allowed: boolean; requiresApproval?: boolean },
-    requireAuthorizationForLive: boolean
-  ): { allowed: boolean; reason?: string } {
-    if (!validationResult.allowed) {
-      if (validationResult.requiresApproval && requireAuthorizationForLive === false) {
-        return { allowed: true };
-      }
-      if (validationResult.requiresApproval) {
-        return { allowed: false, reason: "requires approval" };
-      }
-      return { allowed: false, reason: "not allowed in mode" };
-    }
-    return { allowed: true };
-  }
-
-  it("blocks when requireAuthorizationForLive=true (default)", () => {
-    const validation = { allowed: false, requiresApproval: true };
-    expect(simulateCheckExecutionMode(validation, true).allowed).toBe(false);
-  });
-
-  it("allows when requireAuthorizationForLive=false", () => {
-    const validation = { allowed: false, requiresApproval: true };
-    expect(simulateCheckExecutionMode(validation, false).allowed).toBe(true);
-  });
-
-  it("blocks non-approval failures regardless of requireAuthorizationForLive", () => {
-    const validation = { allowed: false, requiresApproval: false };
-    expect(simulateCheckExecutionMode(validation, false).allowed).toBe(false);
-  });
-
-  it("allows when validation itself passes (no approval needed)", () => {
-    const validation = { allowed: true };
-    expect(simulateCheckExecutionMode(validation, true).allowed).toBe(true);
-    expect(simulateCheckExecutionMode(validation, false).allowed).toBe(true);
-  });
-
-  it("simulation mode never hits approval gate", () => {
+  it("simulation mode — credentialTesting is allowed without approval", () => {
     const result = validateOperation("simulation", "credentialTesting");
     expect(result.allowed).toBe(true);
     expect(result.requiresApproval).toBeFalsy();
   });
 
-  it("safe mode never hits approval gate", () => {
+  it("safe mode — portScanning is allowed without approval", () => {
     const result = validateOperation("safe", "portScanning");
     expect(result.allowed).toBe(true);
     expect(result.requiresApproval).toBeFalsy();
   });
 
-  it(".gov targets are blocked in live mode regardless of approval setting", () => {
+  it(".gov targets are blocked regardless of mode", () => {
     const result = validateOperation("live", "exploitExecution", "target.gov");
-    // Blocked by target pattern — not an approval issue
-    // requiresApproval would be undefined/false for blocked-target responses
     expect(result.allowed).toBe(false);
+  });
+});
+
+// ─── GovernanceEnforcementService.checkExecutionMode (real class, mocked DB) ──
+
+function makeGovernance(overrides: Partial<OrganizationGovernance> = {}): OrganizationGovernance {
+  return {
+    id: "gov-001",
+    organizationId: "org-test",
+    executionMode: "live",
+    killSwitchActive: false,
+    killSwitchActivatedAt: null,
+    killSwitchActivatedBy: null,
+    rateLimitPerHour: 100,
+    rateLimitPerDay: 1000,
+    concurrentEvaluationsLimit: 5,
+    currentConcurrentEvaluations: 0,
+    allowedTargetPatterns: [],
+    blockedTargetPatterns: [],
+    allowedNetworkRanges: [],
+    requireAuthorizationForLive: true,
+    autoKillOnCritical: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+describe("GovernanceEnforcementService.checkExecutionMode", () => {
+  let service: GovernanceEnforcementService;
+
+  beforeEach(() => {
+    service = new GovernanceEnforcementService();
+  });
+
+  it("blocks exploitExecution in live mode when requireAuthorizationForLive=true", async () => {
+    vi.spyOn(service as any, "getGovernance").mockResolvedValue(
+      makeGovernance({ executionMode: "live", requireAuthorizationForLive: true })
+    );
+    const result = await service.checkExecutionMode("org-test", "exploitExecution");
+    expect(result.allowed).toBe(false);
+    expect(result.requiresApproval).toBe(true);
+  });
+
+  it("allows exploitExecution in live mode when requireAuthorizationForLive=false", async () => {
+    vi.spyOn(service as any, "getGovernance").mockResolvedValue(
+      makeGovernance({ executionMode: "live", requireAuthorizationForLive: false })
+    );
+    const result = await service.checkExecutionMode("org-test", "exploitExecution");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows when no governance record exists (defaults to open)", async () => {
+    vi.spyOn(service as any, "getGovernance").mockResolvedValue(undefined);
+    const result = await service.checkExecutionMode("org-test", "exploitExecution");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks in safe mode for exploitExecution regardless of requireAuthorizationForLive", async () => {
+    vi.spyOn(service as any, "getGovernance").mockResolvedValue(
+      makeGovernance({ executionMode: "safe", requireAuthorizationForLive: false })
+    );
+    const result = await service.checkExecutionMode("org-test", "exploitExecution");
+    expect(result.allowed).toBe(false);
+    // Not an approval issue — the operation isn't allowed in safe mode at all
+    expect(result.requiresApproval).toBeFalsy();
+  });
+
+  it("allows portScanning in safe mode", async () => {
+    vi.spyOn(service as any, "getGovernance").mockResolvedValue(
+      makeGovernance({ executionMode: "safe", requireAuthorizationForLive: true })
+    );
+    const result = await service.checkExecutionMode("org-test", "portScanning");
+    expect(result.allowed).toBe(true);
+  });
+
+  it("allows credentialTesting in simulation mode", async () => {
+    vi.spyOn(service as any, "getGovernance").mockResolvedValue(
+      makeGovernance({ executionMode: "simulation", requireAuthorizationForLive: true })
+    );
+    const result = await service.checkExecutionMode("org-test", "credentialTesting");
+    expect(result.allowed).toBe(true);
   });
 });
