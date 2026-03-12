@@ -252,6 +252,55 @@ jobs:
         if: always()
         run: docker rm -f breach-chain-target || true
 
+  # ── AEV Priority Zero Fixes Validation (blocking — runs with primary) ──
+  aev-fixes:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      JWT_SECRET: ci-benchmark-jwt-secret-not-used-in-prod
+      DATABASE_URL: postgres://localhost:5432/benchmark_dummy
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Juice Shop container
+        run: |
+          docker run -d \
+            --name aev-fixes-target \
+            -p 3001:3000 \
+            --health-cmd "wget -q --spider http://localhost:3000 || exit 1" \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 15 \
+            --health-start-period 30s \
+            bkimminich/juice-shop:v17.1.1
+
+      - name: Wait for Juice Shop
+        run: npx --yes wait-on@7 -t 120000 http://localhost:3001
+
+      - name: Run AEV fixes validation benchmark
+        run: |
+          npx tsx server/benchmark/breach-chain/aev-fixes-benchmark.ts \
+            http://localhost:3001
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f aev-fixes-target || true
+
   # ── Alloy mode (manual only) ────────────────────────────────────────
   benchmark-alloy:
     if: github.event.inputs.run_alloy == 'true'
