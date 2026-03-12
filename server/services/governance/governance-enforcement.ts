@@ -112,8 +112,14 @@ export class GovernanceEnforcementService {
     
     const mode = (governance.executionMode || "safe") as ExecutionMode;
     const validation = validateOperation(mode, operation, target);
-    
+
     if (!validation.allowed) {
+      // If the only blocker is approval and the org has explicitly set
+      // requireAuthorizationForLive = false, treat it as self-authorized.
+      if (validation.requiresApproval && governance.requireAuthorizationForLive === false) {
+        return { allowed: true };
+      }
+
       if (validation.requiresApproval) {
         return {
           allowed: false,
@@ -123,14 +129,14 @@ export class GovernanceEnforcementService {
           approvalLevel: validation.requiredApprovalLevel,
         };
       }
-      
+
       return {
         allowed: false,
         reason: validation.reason || `Operation "${operation}" is not allowed in "${mode}" mode`,
         blockedBy: "execution_mode",
       };
     }
-    
+
     return { allowed: true };
   }
 
