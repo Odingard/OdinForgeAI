@@ -5331,6 +5331,13 @@ export interface BreachPhaseResult {
     action: string;
     reasoning: string;
   }>;
+  subAgentRuns?: Array<{
+    name: string;
+    status: "completed" | "failed" | "skipped" | "running";
+    findingsCount?: number;
+    durationMs?: number;
+    error?: string;
+  }>;
   error?: string;
 }
 

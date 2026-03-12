@@ -419,6 +419,18 @@ export function LiveBreachChainGraph({
         found = node.id;
         break;
       }
+      // Also detect hits on the "+N findings" badge
+      if (node.collapsedCount > 0) {
+        const badgeX = node.x + node.radius * 0.75;
+        const badgeY = node.y - node.radius * 0.75;
+        const bdx = mx - badgeX;
+        const bdy = my - badgeY;
+        const badgeHitR = 15; // generous badge hit area
+        if (bdx * bdx + bdy * bdy < badgeHitR * badgeHitR) {
+          found = node.id;
+          break;
+        }
+      }
     }
     setHoveredNode(found);
     if (found) {

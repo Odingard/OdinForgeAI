@@ -7722,7 +7722,15 @@ export async function registerRoutes(
           unifiedAttackGraph: chainB.unifiedAttackGraph,
         }
       );
-      res.json({ comparison });
+      // Transform to match frontend ComparisonData contract
+      const transformed = {
+        ...comparison,
+        verdict: comparison.verdict.toUpperCase() as "IMPROVED" | "REGRESSED" | "UNCHANGED",
+        attackSurfaceDelta: comparison.attackSurfaceChange,
+        criticalPathDelta: comparison.criticalPathChange,
+        riskScoreDelta: comparison.chainB.riskScore - comparison.chainA.riskScore,
+      };
+      res.json({ comparison: transformed });
     } catch (error) {
       console.error("Compare breach chains error:", error);
       res.status(500).json({ error: "Failed to compare breach chains" });

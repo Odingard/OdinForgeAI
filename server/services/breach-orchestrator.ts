@@ -692,6 +692,7 @@ async function executeApplicationCompromise(
   const evaluationIds: string[] = [];
   const newCredentials: BreachCredential[] = [];
   const newAssets: CompromisedAsset[] = [];
+  const subAgentRuns: NonNullable<BreachPhaseResult["subAgentRuns"]> = [];
 
   for (const assetId of chain.assetIds as string[]) {
     // ─────────────────────────────────────────────────────────────────
@@ -790,9 +791,16 @@ async function executeApplicationCompromise(
           attackPaths: activeExploitResult.summary.attackPathsFound,
           duration: `${activeExploitResult.durationMs}ms`,
         });
+        subAgentRuns.push({
+          name: `Active Exploit Engine (${assetId})`,
+          status: "completed",
+          findingsCount: mapped.findings.length,
+          durationMs: activeExploitResult.durationMs,
+        });
       }
     } catch (err: any) {
       console.warn(`[BreachOrchestrator] Active exploit engine error for ${assetId}:`, err.message);
+      subAgentRuns.push({ name: `Active Exploit Engine (${assetId})`, status: "failed", error: err.message });
       // Fall through to AI pipeline — active exploits are additive, not blocking
     }
 
@@ -855,8 +863,8 @@ async function executeApplicationCompromise(
           id: `res-${randomUUID().slice(0, 8)}`,
           evaluationId,
           exploitable: result.exploitable,
-          confidence: result.confidence,
-          score: result.score,
+          confidence: toInt100(result.confidence),
+          score: toInt100(result.score),
           attackPath: result.attackPath,
           attackGraph: result.attackGraph,
           impact: null,
@@ -898,8 +906,14 @@ async function executeApplicationCompromise(
             newCredentials.push(cred);
           }
         }
-      } catch (error) {
+        subAgentRuns.push({
+          name: `AI Pipeline: ${exposureType} (${assetId})`,
+          status: "completed",
+          findingsCount: result.attackPath?.length || 0,
+        });
+      } catch (error: any) {
         console.error(`[BreachOrchestrator] App compromise failed for ${assetId}/${exposureType}:`, error);
+        subAgentRuns.push({ name: `AI Pipeline: ${exposureType} (${assetId})`, status: "failed", error: error?.message });
       }
     }
   }
@@ -910,6 +924,7 @@ async function executeApplicationCompromise(
     findings,
     evaluationIds,
     domain: "application",
+    subAgentRuns,
   });
 }
 
@@ -1255,8 +1270,8 @@ async function executeCloudIAMEscalation(
           id: `res-${randomUUID().slice(0, 8)}`,
           evaluationId,
           exploitable: result.exploitable,
-          confidence: result.confidence,
-          score: result.score,
+          confidence: toInt100(result.confidence),
+          score: toInt100(result.score),
           attackPath: result.attackPath,
           attackGraph: result.attackGraph,
           impact: null,
@@ -2341,6 +2356,7 @@ function buildPhaseResult(
     findings: BreachPhaseResult["findings"];
     evaluationIds: string[];
     domain?: string;
+    subAgentRuns?: BreachPhaseResult["subAgentRuns"];
   }
 ): BreachPhaseResult {
   const attackPathSteps = output.findings.map((f, i) => ({
@@ -2399,6 +2415,7 @@ function buildPhaseResult(
     } as BreachPhaseContext & { attackTechniqueIds: string[] },
     evaluationIds: output.evaluationIds,
     findings: output.findings,
+    subAgentRuns: output.subAgentRuns,
   };
 }
 
@@ -2416,6 +2433,12 @@ function broadcastBreachProgress(
     message,
     timestamp: new Date().toISOString(),
   });
+}
+
+/** Normalize confidence/score to integer 0-100 (agent may return 0-1 floats) */
+function toInt100(val: number): number {
+  if (val > 0 && val <= 1) return Math.round(val * 100);
+  return Math.round(val);
 }
 
 function hashValue(input: string): string {
