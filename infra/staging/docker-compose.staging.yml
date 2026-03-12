@@ -1,16 +1,15 @@
 version: "3.8"
 
+# OdinForge Staging Environment
+# Mirror of production at 159.65.234.95
+
 services:
   caddy:
     image: caddy:2-alpine
-    container_name: odinforge-caddy
+    container_name: staging-caddy
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      DOMAIN: ${DOMAIN:-localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
@@ -20,38 +19,32 @@ services:
         condition: service_healthy
 
   app:
-    image: ${APP_IMAGE:-ghcr.io/odingard/odinforgeai:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: odinforge-app
+    image: ${APP_IMAGE:-odinforge-app:latest}
+    container_name: staging-app
     restart: unless-stopped
     expose:
       - "5000"
     environment:
       NODE_ENV: production
       PORT: 5000
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://odinforge:${POSTGRES_PASSWORD}@postgres:5432/odinforge
+      REDIS_URL: redis://redis:6379
       SESSION_SECRET: ${SESSION_SECRET}
       JWT_SECRET: ${JWT_SECRET}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
-      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-odinforge}
-      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-odinforge}
-      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
-      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_BUCKET_NAME: odinforge
+      STORAGE_ACCESS_KEY_ID: odinforge
+      STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      STORAGE_REGION: us-east-1
       STORAGE_FORCE_PATH_STYLE: "true"
-      SERVER_URL: ${SERVER_URL}
-      PUBLIC_ODINFORGE_URL: ${SERVER_URL}
+      SERVER_URL: ${SERVER_URL:-http://staging.odinforgeai.com}
+      PUBLIC_ODINFORGE_URL: ${SERVER_URL:-http://staging.odinforgeai.com}
       AGENT_REGISTRATION_TOKEN: ${AGENT_REGISTRATION_TOKEN:-}
       CLOUD_CREDENTIALS_KEY: ${CLOUD_CREDENTIALS_KEY:-}
-      REPORTS_V2_NARRATIVE: ${REPORTS_V2_NARRATIVE:-true}
       DISABLE_WORKER: "true"
-      # Breach Chain Enhancement v1.0 feature flags
+      # GTM v1.0 feature flags
       BREACH_CHAIN_ENRICHED_NODES: "true"
-      BREACH_CHAIN_NODE_TOOLTIP: "true"
-      BREACH_CHAIN_NODE_DRILLDOWN: "true"
       BREACH_CHAIN_SUB_AGENT_ENGINE: "true"
       BREACH_CHAIN_CREDENTIAL_BUS: "true"
       BREACH_CHAIN_ATTACK_ENGINE: "true"
@@ -74,25 +67,24 @@ services:
       start_period: 30s
 
   worker:
-    image: ${APP_IMAGE:-ghcr.io/odingard/odinforgeai:latest}
-    container_name: odinforge-worker
+    image: ${APP_IMAGE:-odinforge-app:latest}
+    container_name: staging-worker
     restart: unless-stopped
     command: ["node", "dist/worker.cjs"]
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgresql://odinforge:${POSTGRES_PASSWORD}@postgres:5432/odinforge
+      REDIS_URL: redis://redis:6379
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET}
       CLOUD_CREDENTIALS_KEY: ${CLOUD_CREDENTIALS_KEY:-}
       AGENT_REGISTRATION_TOKEN: ${AGENT_REGISTRATION_TOKEN:-}
-      STORAGE_ENDPOINT: ${STORAGE_ENDPOINT:-http://minio:9000}
-      STORAGE_BUCKET_NAME: ${STORAGE_BUCKET_NAME:-odinforge}
-      STORAGE_ACCESS_KEY_ID: ${STORAGE_ACCESS_KEY_ID:-odinforge}
-      STORAGE_SECRET_ACCESS_KEY: ${STORAGE_SECRET_ACCESS_KEY}
-      STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_BUCKET_NAME: odinforge
+      STORAGE_ACCESS_KEY_ID: odinforge
+      STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      STORAGE_REGION: us-east-1
       STORAGE_FORCE_PATH_STYLE: "true"
-      # Breach Chain Enhancement v1.0 feature flags
       BREACH_CHAIN_ENRICHED_NODES: "true"
       BREACH_CHAIN_SUB_AGENT_ENGINE: "true"
       BREACH_CHAIN_CREDENTIAL_BUS: "true"
@@ -107,7 +99,7 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg15
-    container_name: odinforge-postgres
+    container_name: staging-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: odinforge
@@ -123,7 +115,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: odinforge-redis
+    container_name: staging-redis
     restart: unless-stopped
     command: redis-server --appendonly yes
     volumes:
@@ -136,11 +128,11 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: odinforge-minio
+    container_name: staging-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-odinforge}
+      MINIO_ROOT_USER: odinforge
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
       - minio_data:/data
@@ -150,28 +142,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── GTM v1.0: Monitoring Stack ────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.51.0
-    container_name: odinforge-prometheus
+    container_name: staging-prometheus
     restart: unless-stopped
     volumes:
-      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
-    depends_on:
-      app:
-        condition: service_healthy
 
   grafana:
     image: grafana/grafana:10.4.0
-    container_name: odinforge-grafana
+    container_name: staging-grafana
     restart: unless-stopped
     ports:
       - "127.0.0.1:3001:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-odinforge}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-odinforge-staging}
       GF_AUTH_ANONYMOUS_ENABLED: "false"
-      GF_SERVER_ROOT_URL: ${SERVER_URL:-http://localhost}/grafana
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:
@@ -179,16 +166,9 @@ services:
 
 volumes:
   postgres_data:
-    driver: local
   redis_data:
-    driver: local
   minio_data:
-    driver: local
   caddy_data:
-    driver: local
   caddy_config:
-    driver: local
   prometheus_data:
-    driver: local
   grafana_data:
-    driver: local

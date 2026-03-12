@@ -48,6 +48,16 @@ import { evidenceQualityGate, EvidenceQuality, type EvaluatedFinding, type Batch
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
 import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
+import {
+  recordEngagementStart,
+  recordEngagementComplete,
+  recordPhaseComplete as recordPhaseMetric,
+  recordCredentialHarvested,
+  recordFindingQuality,
+  recordDetectionRules,
+  pivotDepthMax,
+  evidenceQualityRatio,
+} from "./metrics";
 
 /**
  * Module-level store for Phase 1A raw evidence.
@@ -262,6 +272,9 @@ export async function runBreachChain(
   const defendersMirror = new DefendersMirror();
   const reachabilityBuilder = new ReachabilityChainBuilder();
 
+  // ── GTM v1.0: Prometheus metrics — engagement start ──────────────────
+  recordEngagementStart();
+
   try {
     for (const phaseName of enabledPhases) {
       // Skip already completed phases (for resume)
@@ -360,6 +373,13 @@ export async function runBreachChain(
 
       // ── GTM v1.0: Replay Recorder — record phase completion ──────────────
       replayRecorder.recordPhaseComplete(phaseName, chain.assetIds?.[0] || "unknown", phaseResult.findings.length);
+
+      // ── GTM v1.0: Prometheus metrics — per-phase ──────────────────────────
+      const phaseElapsed = Date.now() - startTime; // approximate phase duration
+      recordPhaseMetric(phaseName, phaseElapsed, phaseResult.status === "completed");
+      if (phaseResult.outputContext?.credentials?.length) {
+        recordCredentialHarvested(phaseResult.outputContext.credentials.length);
+      }
 
       // ── GTM v1.0: Evidence Quality Gate — classify all findings ──────────
       const evaluatedFindings: EvaluatedFinding[] = phaseResult.findings.map(f => ({
@@ -525,6 +545,20 @@ export async function runBreachChain(
     broadcastBreachProgress(chainId, "completed", 100,
       `Breach chain complete — ${finalQualityVerdict.summary.proven} proven, ${allDetectionRules.length} detection rules generated`);
 
+    // ── GTM v1.0: Prometheus metrics — engagement complete ──────────────
+    recordEngagementComplete(Date.now() - startTime);
+    recordDetectionRules(allDetectionRules.length);
+    // Record quality distribution
+    for (const quality of ["proven", "corroborated", "inferred", "unverifiable"] as const) {
+      const count = finalQualityVerdict.summary[quality] || 0;
+      for (let i = 0; i < count; i++) recordFindingQuality(quality);
+    }
+    // Set gauge metrics
+    const maxDepth = reachabilityChain?.deepestNode?.depth ?? 0;
+    pivotDepthMax.set(maxDepth);
+    const totalFindings = allFindings.length || 1;
+    evidenceQualityRatio.set(finalQualityVerdict.summary.proven / totalFindings);
+
     // Auto-generate Purple Team findings from completed breach chain
     createPurpleTeamFindingsFromChain(chainId, chain.organizationId, phaseResults).catch(err => {
       console.error(`[BreachOrchestrator] Failed to create purple team findings for chain ${chainId}:`, err);
@@ -544,6 +578,8 @@ export async function runBreachChain(
     }).catch(() => {});
   } catch (error) {
     log.error({ err: error }, "Breach chain failed");
+    // Decrement active engagement gauge on failure
+    recordEngagementComplete(Date.now() - startTime);
     await storage.updateBreachChain(chainId, {
       status: "failed",
       currentContext: context,
