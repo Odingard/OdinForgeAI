@@ -5,7 +5,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { BreachTimeline } from "@/components/BreachTimeline";
 import { BreachChainExport } from "@/components/BreachChainExport";
 import {
   Link2,
@@ -39,15 +38,11 @@ import {
   ArrowRight,
   FileBarChart,
   Download,
-  BookOpen,
-  Activity,
-  TrendingUp,
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
 import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
 import { ChainComparison } from "@/components/ChainComparison";
 import { ChainSparkline } from "@/components/ChainSparkline";
-import { ExposureDashboard } from "@/components/ExposureDashboard";
 import { AttackHeatmap } from "@/components/AttackHeatmap";
 import { CredentialWeb } from "@/components/CredentialWeb";
 import { DefenseGapPanel } from "@/components/DefenseGapPanel";
@@ -604,20 +599,10 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
       <div className="f-tab-bar">
         <button className={`f-tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
         <button className={`f-tab ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>Attack Graph</button>
-        <button className={`f-tab ${tab === "timeline" ? "active" : ""}`} onClick={() => setTab("timeline")}>
-          <Activity style={{ width: 11, height: 11, marginRight: 4, display: "inline" }} />
-          Timeline
-        </button>
-        <button className={`f-tab ${tab === "story" ? "active" : ""}`} onClick={() => setTab("story")}>
-          <BookOpen style={{ width: 11, height: 11, marginRight: 4, display: "inline" }} />
-          Story
-        </button>
         <button className={`f-tab ${tab === "phases" ? "active" : ""}`} onClick={() => setTab("phases")}>Phase Results</button>
-        <button className={`f-tab ${tab === "context" ? "active" : ""}`} onClick={() => setTab("context")}>Breach Context</button>
-        <button className={`f-tab ${tab === "heatmap" ? "active" : ""}`} onClick={() => setTab("heatmap")}>ATT&CK Heatmap</button>
-        <button className={`f-tab ${tab === "credentials" ? "active" : ""}`} onClick={() => setTab("credentials")}>Credential Web</button>
+        <button className={`f-tab ${tab === "credentials" ? "active" : ""}`} onClick={() => setTab("credentials")}>Credentials</button>
+        <button className={`f-tab ${tab === "heatmap" ? "active" : ""}`} onClick={() => setTab("heatmap")}>ATT&CK Coverage</button>
         <button className={`f-tab ${tab === "defenses" ? "active" : ""}`} onClick={() => setTab("defenses")}>Defense Gaps</button>
-        {chain.executiveSummary && <button className={`f-tab ${tab === "summary" ? "active" : ""}`} onClick={() => setTab("summary")}>Executive Summary</button>}
       </div>
 
       {/* Export modal */}
@@ -689,6 +674,57 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
               ))}
             </div>
           ) : null}
+
+          {/* Breach context inline — credentials + assets */}
+          {context && (context.credentials?.length > 0 || context.compromisedAssets?.length > 0) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {context.credentials?.length > 0 && (
+                <div className="f-panel">
+                  <div className="f-panel-head">
+                    <div className="f-panel-title">
+                      <Key style={{ width: 13, height: 13, color: "var(--falcon-yellow)", marginRight: 6 }} />
+                      Harvested Credentials
+                    </div>
+                  </div>
+                  <div style={{ padding: "8px 16px 12px", display: "flex", flexDirection: "column", gap: 5 }}>
+                    {context.credentials.slice(0, 6).map((cred, idx) => (
+                      <div key={cred.id || idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, border: "1px solid var(--falcon-border)", fontSize: 11 }}>
+                        <span className="f-chip f-chip-gray" style={{ fontSize: 9, flexShrink: 0 }}>{cred.type}</span>
+                        <span style={{ color: "var(--falcon-t1)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cred.username || "—"}</span>
+                        {cred.domain && <span style={{ color: "var(--falcon-t4)", fontSize: 10 }}>@{cred.domain}</span>}
+                        <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 9, fontWeight: 600, padding: "2px 5px", borderRadius: 3, color: cred.accessLevel === "admin" || cred.accessLevel === "system" ? "var(--falcon-red)" : "var(--falcon-t3)", background: cred.accessLevel === "admin" || cred.accessLevel === "system" ? "rgba(239,68,68,0.15)" : "var(--falcon-panel-2)" }}>
+                          {cred.accessLevel}
+                        </span>
+                      </div>
+                    ))}
+                    {context.credentials.length > 6 && <span style={{ fontSize: 10, color: "var(--falcon-t4)", padding: "2px 8px" }}>+{context.credentials.length - 6} more — see Credentials tab</span>}
+                  </div>
+                </div>
+              )}
+              {context.compromisedAssets?.length > 0 && (
+                <div className="f-panel">
+                  <div className="f-panel-head">
+                    <div className="f-panel-title">
+                      <Server style={{ width: 13, height: 13, color: "var(--falcon-red)", marginRight: 6 }} />
+                      Compromised Assets
+                    </div>
+                  </div>
+                  <div style={{ padding: "8px 16px 12px", display: "flex", flexDirection: "column", gap: 5 }}>
+                    {context.compromisedAssets.slice(0, 6).map((asset, idx) => (
+                      <div key={asset.id || idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, border: "1px solid var(--falcon-border)", fontSize: 11 }}>
+                        <span className="f-chip f-chip-gray" style={{ fontSize: 9, flexShrink: 0 }}>{asset.assetType}</span>
+                        <span style={{ color: "var(--falcon-t1)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.name}</span>
+                        <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 9, fontWeight: 600, padding: "2px 5px", borderRadius: 3, color: asset.accessLevel === "admin" || asset.accessLevel === "system" ? "var(--falcon-red)" : "var(--falcon-t3)", background: asset.accessLevel === "admin" || asset.accessLevel === "system" ? "rgba(239,68,68,0.15)" : "var(--falcon-panel-2)" }}>
+                          {asset.accessLevel}
+                        </span>
+                      </div>
+                    ))}
+                    {context.compromisedAssets.length > 6 && <span style={{ fontSize: 10, color: "var(--falcon-t4)", padding: "2px 8px" }}>+{context.compromisedAssets.length - 6} more</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -704,23 +740,30 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
         </div>
       )}
 
-      {tab === "context" && (
-        <div className="f-panel">
-          <div className="f-panel-head">
-            <div className="f-panel-title">
-              <Zap style={{ width: 14, height: 14, color: "var(--falcon-yellow)", marginRight: 6 }} />
-              <span className="f-panel-dot" />Cumulative Breach Context
-            </div>
-            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Credentials, compromised assets, and attack path accumulated across all phases</span>
-          </div>
-          <div style={{ padding: "12px 16px" }}>
-            <ContextSummary context={context} />
-          </div>
-        </div>
-      )}
 
       {tab === "graph" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Live sub-agent activity strip */}
+          {chain.status === "running" && phaseResults.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 6, background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.2)", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "var(--falcon-green)", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--falcon-green)", display: "inline-block", boxShadow: "0 0 6px var(--falcon-green)", animation: "pulse 1.5s infinite" }} />
+                LIVE
+              </span>
+              <span style={{ fontSize: 10, color: "var(--falcon-t4)", flexShrink: 0 }}>Active phases:</span>
+              {phaseResults.map(r => {
+                const meta = PHASE_META[r.phaseName];
+                const isActive = r.status === "running";
+                const isDone = r.status === "completed" || r.status === "failed" || r.status === "skipped";
+                return (
+                  <span key={r.phaseName} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600, flexShrink: 0, color: isActive ? "var(--falcon-green)" : isDone ? "var(--falcon-t4)" : "var(--falcon-t3)", background: isActive ? "rgba(34,197,94,0.15)" : "transparent", border: isActive ? "1px solid rgba(34,197,94,0.3)" : "1px solid transparent" }}>
+                    {isActive && "⟳ "}{meta?.label || r.phaseName}
+                    {isDone && " ✓"}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           {/* Export button row */}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 2px" }}>
             <button
@@ -830,184 +873,6 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
         </div>
       )}
 
-      {tab === "timeline" && (
-        <div className="f-panel">
-          <div className="f-panel-head">
-            <div className="f-panel-title">
-              <Activity style={{ width: 14, height: 14, color: "var(--falcon-blue-hi)", marginRight: 6 }} />
-              Attack Timeline
-            </div>
-            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
-              Critical path progression — click a step to highlight it in the graph
-            </span>
-          </div>
-          <div style={{ padding: "16px" }}>
-            {hasGraph ? (
-              <BreachTimeline
-                graph={displayGraph}
-                activeNodeId={highlightedNode}
-                onNodeClick={(nodeId) => {
-                  setHighlightedNode(nodeId);
-                  setTab("graph");
-                }}
-              />
-            ) : (
-              <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>No attack graph data available yet.</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === "story" && (
-        <div className="f-panel">
-          <div className="f-panel-head">
-            <div className="f-panel-title">
-              <BookOpen style={{ width: 14, height: 14, color: "var(--falcon-blue-hi)", marginRight: 6 }} />
-              Attack Story
-            </div>
-            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
-              Plain English narrative of the full attack chain
-            </span>
-          </div>
-          <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: 14 }}>
-            {chain.status !== "completed" ? (
-              <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>Story becomes available after the chain completes.</p>
-            ) : narrative ? (
-              // Render API narrative sections
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {(narrative as any)?.narrative?.headline && (
-                  <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.2)" }}>
-                    <p style={{ fontSize: 13, fontWeight: 700, color: "var(--falcon-t1)", margin: "0 0 4px 0" }}>{(narrative as any).narrative.headline}</p>
-                    <p style={{ fontSize: 11, color: "var(--falcon-t3)", margin: 0 }}>{(narrative as any).narrative.riskSentence}</p>
-                  </div>
-                )}
-                {(narrative as any)?.narrative?.sections?.map((section: any, idx: number) => {
-                  const sev = section.severity || "low";
-                  const sevC = sev === "critical" ? "var(--falcon-red)" : sev === "high" ? "var(--falcon-orange)" : sev === "medium" ? "var(--falcon-yellow)" : "var(--falcon-green)";
-                  const sevBg = sev === "critical" ? "rgba(239,68,68,0.07)" : sev === "high" ? "rgba(249,115,22,0.07)" : sev === "medium" ? "rgba(234,179,8,0.07)" : "rgba(34,197,94,0.07)";
-                  return (
-                    <div key={idx} style={{
-                      display: "flex",
-                      gap: 14,
-                      padding: "14px 16px",
-                      borderRadius: 8,
-                      border: `1px solid ${sevC}33`,
-                      background: sevBg,
-                    }}>
-                      <div style={{
-                        width: 28, height: 28, borderRadius: "50%",
-                        border: `2px solid ${sevC}`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        flexShrink: 0, fontSize: 12, fontWeight: 700, color: sevC,
-                        background: `${sevC}22`,
-                      }}>
-                        {idx + 1}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: "var(--falcon-t1)" }}>
-                            {section.heading || section.title || `Step ${idx + 1}`}
-                          </span>
-                          <span className={`f-chip ${sev === "critical" ? "f-chip-crit" : sev === "high" ? "f-chip-high" : sev === "medium" ? "f-chip-med" : "f-chip-low"}`} style={{ fontSize: 9 }}>
-                            {sev}
-                          </span>
-                          {section.technique && (
-                            <span style={{
-                              fontSize: 10, padding: "2px 6px", borderRadius: 4,
-                              color: "#a78bfa", background: "rgba(167,139,250,0.15)",
-                              fontFamily: "var(--font-mono)",
-                            }}>
-                              {section.technique}
-                            </span>
-                          )}
-                          {section.timeEstimate && (
-                            <span style={{ fontSize: 10, color: "var(--falcon-t4)", fontFamily: "var(--font-mono)" }}>
-                              ~{section.timeEstimate}
-                            </span>
-                          )}
-                        </div>
-                        <p style={{ fontSize: 12, color: "var(--falcon-t2)", lineHeight: 1.7, margin: 0 }}>
-                          {section.body || section.description || ""}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              // Fallback: build story from attack graph critical path
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {displayGraph?.criticalPath?.length ? (
-                  displayGraph.criticalPath.map((nodeId, idx) => {
-                    const node = displayGraph.nodes.find(n => n.id === nodeId);
-                    if (!node) return null;
-                    const sev = node.compromiseLevel === "admin" || node.compromiseLevel === "system" ? "critical"
-                      : node.compromiseLevel === "user" ? "high"
-                      : node.compromiseLevel === "limited" ? "medium" : "low";
-                    const sevC = sev === "critical" ? "var(--falcon-red)" : sev === "high" ? "var(--falcon-orange)" : sev === "medium" ? "var(--falcon-yellow)" : "var(--falcon-green)";
-                    const sevBg = sev === "critical" ? "rgba(239,68,68,0.07)" : sev === "high" ? "rgba(249,115,22,0.07)" : sev === "medium" ? "rgba(234,179,8,0.07)" : "rgba(34,197,94,0.07)";
-                    return (
-                      <div key={nodeId} style={{
-                        display: "flex",
-                        gap: 14,
-                        padding: "12px 14px",
-                        borderRadius: 8,
-                        border: `1px solid ${sevC}33`,
-                        background: sevBg,
-                      }}>
-                        <div style={{
-                          width: 26, height: 26, borderRadius: "50%",
-                          border: `2px solid ${sevC}`,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          flexShrink: 0, fontSize: 11, fontWeight: 700, color: sevC,
-                        }}>
-                          {idx + 1}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: "var(--falcon-t1)" }}>{node.label}</span>
-                            <span className={`f-chip ${sev === "critical" ? "f-chip-crit" : sev === "high" ? "f-chip-high" : sev === "medium" ? "f-chip-med" : "f-chip-low"}`} style={{ fontSize: 9 }}>
-                              {sev}
-                            </span>
-                            {node.tactic && (
-                              <span style={{
-                                fontSize: 10, padding: "2px 6px", borderRadius: 4,
-                                color: "#a78bfa", background: "rgba(167,139,250,0.15)",
-                                fontFamily: "var(--font-mono)",
-                              }}>
-                                {node.tactic.replace(/-/g, " ")}
-                              </span>
-                            )}
-                          </div>
-                          <p style={{ fontSize: 12, color: "var(--falcon-t2)", lineHeight: 1.6, margin: 0 }}>
-                            {node.description || "No description available."}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p style={{ fontSize: 12, color: "var(--falcon-t4)" }}>No attack path data available yet.</p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === "summary" && chain.executiveSummary && (
-        <div className="f-panel">
-          <div className="f-panel-head">
-            <div className="f-panel-title">
-              <FileText style={{ width: 14, height: 14, color: "var(--falcon-t3)", marginRight: 6 }} />
-              <span className="f-panel-dot" />Executive Summary
-            </div>
-          </div>
-          <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--falcon-t2)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-            {chain.executiveSummary}
-          </div>
-        </div>
-      )}
 
       {tab === "heatmap" && (
         <AttackHeatmap
@@ -1210,7 +1075,6 @@ export default function BreachChains() {
   const canCreate = hasPermission("evaluations:create");
   const canDelete = hasPermission("evaluations:delete");
 
-  const [pageView, setPageView] = useState<"chains" | "exposure">("chains");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedChain, setSelectedChain] = useState<BreachChain | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -1408,60 +1272,34 @@ export default function BreachChains() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {/* Page-level view toggle */}
-          <div style={{ display: "flex", gap: 2, background: "var(--falcon-panel-2)", borderRadius: 6, padding: 2, border: "1px solid var(--falcon-border)" }}>
-            <button
-              className={`f-btn ${pageView === "chains" ? "f-btn-primary" : "f-btn-ghost"}`}
-              style={{ padding: "4px 10px", fontSize: 11 }}
-              onClick={() => { setPageView("chains"); setSelectedChain(null); }}
-            >
-              <Link2 style={{ width: 11, height: 11, marginRight: 4 }} />
-              Chains
+          <button className="f-btn f-btn-secondary" onClick={() => refetch()}>
+            <RefreshCw style={{ width: 13, height: 13, marginRight: 6 }} />
+            Refresh
+          </button>
+          <button
+            className={`f-btn ${compareMode ? "f-btn-primary" : "f-btn-ghost"}`}
+            onClick={() => { setCompareMode(!compareMode); setSelectedForCompare([]); }}
+          >
+            {compareMode ? `Comparing (${selectedForCompare.length}/2)` : "Compare Chains"}
+          </button>
+          {compareMode && selectedForCompare.length === 2 && (
+            <button className="f-btn f-btn-primary" onClick={() => setShowComparison(true)}>
+              Compare Now
             </button>
-            <button
-              className={`f-btn ${pageView === "exposure" ? "f-btn-primary" : "f-btn-ghost"}`}
-              style={{ padding: "4px 10px", fontSize: 11 }}
-              onClick={() => { setPageView("exposure"); setSelectedChain(null); }}
-            >
-              <TrendingUp style={{ width: 11, height: 11, marginRight: 4 }} />
-              Exposure
-            </button>
-          </div>
-          {pageView === "chains" && (
-            <>
-              <button className="f-btn f-btn-secondary" onClick={() => refetch()}>
-                <RefreshCw style={{ width: 13, height: 13, marginRight: 6 }} />
-                Refresh
-              </button>
-              <button
-                className={`f-btn ${compareMode ? "f-btn-primary" : "f-btn-ghost"}`}
-                onClick={() => { setCompareMode(!compareMode); setSelectedForCompare([]); }}
-              >
-                {compareMode ? `Comparing (${selectedForCompare.length}/2)` : "Compare Chains"}
-              </button>
-              {compareMode && selectedForCompare.length === 2 && (
-                <button className="f-btn f-btn-primary" onClick={() => setShowComparison(true)}>
-                  Compare Now
-                </button>
-              )}
-              <button
-                className="f-btn f-btn-primary"
-                disabled={!canCreate}
-                onClick={() => setIsCreateOpen(true)}
-              >
-                {canCreate ? <Play style={{ width: 13, height: 13, marginRight: 6 }} /> : <Lock style={{ width: 13, height: 13, marginRight: 6 }} />}
-                Start Breach Chain
-              </button>
-            </>
           )}
+          <button
+            className="f-btn f-btn-primary"
+            disabled={!canCreate}
+            onClick={() => setIsCreateOpen(true)}
+          >
+            {canCreate ? <Play style={{ width: 13, height: 13, marginRight: 6 }} /> : <Lock style={{ width: 13, height: 13, marginRight: 6 }} />}
+            Start Breach Chain
+          </button>
         </div>
       </div>
 
-      {/* Exposure Dashboard — page-level view */}
-      {pageView === "exposure" && <ExposureDashboard />}
-
-      {/* Chains view — list, detail, create modal */}
-      {pageView === "chains" && <>
+      {/* Chains view */}
+      {<>
 
       {/* Create Breach Chain Modal */}
       {isCreateOpen && (

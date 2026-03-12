@@ -172,8 +172,10 @@ export function CredentialWeb({ breachChainId, isRunning, onClose }: CredentialW
   const { data: credentials = [] } = useQuery<CredentialWebNode[]>({
     queryKey: ["/api/breach-chains", breachChainId, "credentials"],
     queryFn: async () => {
+      const token = localStorage.getItem("odinforge_access_token");
       const res = await fetch(`/api/breach-chains/${breachChainId}/credentials`, {
         credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return [];
       return res.json();

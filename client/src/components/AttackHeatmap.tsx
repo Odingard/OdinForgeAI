@@ -68,8 +68,10 @@ export function AttackHeatmap({ breachChainId, isRunning, onClose }: AttackHeatm
   const { data: heatmapData, refetch } = useQuery<HeatmapEntry[]>({
     queryKey: ["/api/breach-chains", breachChainId, "heatmap"],
     queryFn: async () => {
+      const token = localStorage.getItem("odinforge_access_token");
       const res = await fetch(`/api/breach-chains/${breachChainId}/heatmap`, {
         credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
