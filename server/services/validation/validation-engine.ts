@@ -5,6 +5,7 @@ import { createAuthBypassValidator, type AuthBypassValidationResult } from "./mo
 import { createCommandInjectionValidator, type CommandInjectionValidationResult } from "./modules/command-injection-validator";
 import { createPathTraversalValidator, type PathTraversalValidationResult } from "./modules/path-traversal-validator";
 import { createSsrfValidator, type SsrfValidationResult } from "./modules/ssrf-validator";
+import { createBflaValidator, type BflaValidationResult } from "./modules/bfla-validator";
 import type { PayloadExecutionContext, PayloadResult } from "./payloads/payload-types";
 import type { ValidationContext } from "./validating-http-client";
 import type { ValidationVerdict } from "@shared/schema";
@@ -17,7 +18,7 @@ import {
 import { type WafProfile, getWafProfile, evadePayload, buildEvasionHeaders } from "./payloads/waf-evasion";
 import { captureAndDiff, type DiffResult } from "./response-differ";
 
-export type VulnerabilityType = "sqli" | "xss" | "auth_bypass" | "command_injection" | "path_traversal" | "ssrf";
+export type VulnerabilityType = "sqli" | "xss" | "auth_bypass" | "command_injection" | "path_traversal" | "ssrf" | "bfla";
 
 export interface ValidationEngineConfig {
   maxPayloadsPerTest?: number;
@@ -42,7 +43,7 @@ export interface ValidationTarget {
   vulnerabilityTypes?: VulnerabilityType[];
 }
 
-export type ValidatorResult = SqliValidationResult | XssValidationResult | AuthBypassValidationResult | CommandInjectionValidationResult | PathTraversalValidationResult | SsrfValidationResult;
+export type ValidatorResult = SqliValidationResult | XssValidationResult | AuthBypassValidationResult | CommandInjectionValidationResult | PathTraversalValidationResult | SsrfValidationResult | BflaValidationResult;
 
 export interface UnifiedValidationResult {
   target: ValidationTarget;
@@ -221,6 +222,10 @@ export class ValidationEngine {
       }
       case "ssrf": {
         const validator = createSsrfValidator(this.validationContext);
+        return validator.validate(context);
+      }
+      case "bfla": {
+        const validator = createBflaValidator(this.validationContext);
         return validator.validate(context);
       }
       default:

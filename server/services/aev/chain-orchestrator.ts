@@ -49,7 +49,9 @@ export type ExploitCategory =
   | "deserialization"
   | "cicd"
   | "k8s"
-  | "serverless";
+  | "serverless"
+  | "bfla"
+  | "mass_assignment";
 
 export type StepType =
   | "validate"      // Initial vulnerability validation

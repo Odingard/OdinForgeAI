@@ -91,6 +91,7 @@ function mapVulnTypeToMitre(vulnType: VulnerabilityType): string {
     command_injection: "T1059",
     path_traversal: "T1083",
     ssrf: "T1071",
+    bfla: "T1548",
   };
   return mapping[vulnType] || "T1190";
 }
@@ -101,6 +102,7 @@ function determineSeverity(vulnType: VulnerabilityType, confidence: number): Val
     command_injection: 9,
     ssrf: 8,
     auth_bypass: 8,
+    bfla: 8,
     path_traversal: 7,
     xss: 6,
   };
@@ -132,6 +134,7 @@ function generateReproductionSteps(
     path_traversal: "../../../etc/passwd",
     ssrf: "http://169.254.169.254/latest/meta-data/",
     auth_bypass: "admin' --",
+    bfla: '{"role":"admin"}',
   };
   
   steps.push(`3. Inject test payload: ${payloadExamples[vulnType]}`);
@@ -150,6 +153,7 @@ function estimateCVSS(vulnType: VulnerabilityType, confidence: number): string {
     command_injection: 9.8,
     ssrf: 8.6,
     auth_bypass: 8.1,
+    bfla: 8.1,
     path_traversal: 7.5,
     xss: 6.1,
   };
@@ -429,6 +433,7 @@ export async function dispatchParallelAgents(
     command_injection: 0,
     path_traversal: 0,
     ssrf: 0,
+    bfla: 0,
   };
   
   for (const task of completedTasks) {

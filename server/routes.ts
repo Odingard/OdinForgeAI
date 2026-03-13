@@ -222,9 +222,52 @@ export async function registerRoutes(
   });
 
   app.get("/readyz", async (_req, res) => {
-    res.status(200).json({
-      ok: true,
-      ready: true,
+    const checks: Record<string, { ok: boolean; latencyMs?: number; error?: string }> = {};
+    let allHealthy = true;
+
+    // 1. PostgreSQL connectivity + basic query
+    try {
+      const dbStart = Date.now();
+      await db.execute(sql`SELECT 1`);
+      checks.postgres = { ok: true, latencyMs: Date.now() - dbStart };
+    } catch (err: any) {
+      checks.postgres = { ok: false, error: err.message };
+      allHealthy = false;
+    }
+
+    // 2. RLS context is functional (can set and clear)
+    try {
+      const rlsStart = Date.now();
+      await db.execute(sql`SELECT set_config('app.current_organization_id', '__readyz_probe__', TRUE)`);
+      const result = await db.execute(sql`SELECT current_setting('app.current_organization_id', TRUE) as v`);
+      const val = (result.rows[0] as any)?.v;
+      await db.execute(sql`SELECT set_config('app.current_organization_id', '', TRUE)`);
+      checks.rls = {
+        ok: val === "__readyz_probe__",
+        latencyMs: Date.now() - rlsStart,
+        ...(val !== "__readyz_probe__" ? { error: "RLS context set/get mismatch" } : {}),
+      };
+      if (!checks.rls.ok) allHealthy = false;
+    } catch (err: any) {
+      checks.rls = { ok: false, error: err.message };
+      allHealthy = false;
+    }
+
+    // 3. Redis / Queue service
+    try {
+      const { queueService } = await import("./services/queue/queue-service");
+      const redisUp = queueService.isUsingRedis();
+      checks.redis = { ok: true, error: redisUp ? undefined : "in-memory fallback" };
+      // Redis being unavailable degrades but doesn't fail readiness
+    } catch (err: any) {
+      checks.redis = { ok: true, error: "queue not initialized: " + err.message };
+    }
+
+    const status = allHealthy ? 200 : 503;
+    res.status(status).json({
+      ok: allHealthy,
+      ready: allHealthy,
+      checks,
       ts: new Date().toISOString(),
     });
   });

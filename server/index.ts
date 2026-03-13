@@ -288,4 +288,24 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  // Graceful shutdown — drain connections before exiting
+  const shutdown = async (signal: string) => {
+    log(`${signal} received, shutting down gracefully...`);
+    httpServer.close(() => {
+      log("HTTP server closed");
+    });
+    try {
+      await queueService.shutdown();
+      log("Queue service stopped");
+    } catch {}
+    try {
+      const { pool } = await import("./db");
+      await pool.end();
+      log("Database pool drained");
+    } catch {}
+    process.exit(0);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();
