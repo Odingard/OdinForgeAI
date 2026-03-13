@@ -11,7 +11,7 @@ Set Shell "bash"
 Set FontSize 14
 Set Width 1100
 Set Height 650
-Set Theme "Monokai"
+Set Theme "Molokai"
 Set Padding 20
 Set TypingSpeed 35ms
 Set CursorBlink false
