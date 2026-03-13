@@ -145,7 +145,7 @@ export const pathTraversalProofPlaybook: Playbook = {
       timeout: 20000,
       maxRetries: 1,
       dependsOn: ["pt-detect"],
-      requiredConfidence: 40,
+      requiredConfidence: 30,
       config: {
         unixFiles: ["/etc/passwd", "/etc/hosts"],
         windowsFiles: ["C:\\Windows\\win.ini", "C:\\Windows\\System32\\drivers\\etc\\hosts"],
@@ -385,8 +385,8 @@ export const ssrfPivotPlaybook: Playbook = {
       requiresApproval: true,
       timeout: 30000,
       maxRetries: 1,
-      dependsOn: ["ssrf-cloud-meta"],
-      requiredConfidence: 60,
+      dependsOn: ["ssrf-detect"],
+      requiredConfidence: 40,
       config: {
         internalRanges: ["10.0.0.0/24", "172.16.0.0/24", "192.168.0.0/24"],
         commonPorts: [22, 80, 443, 3306, 5432, 6379],

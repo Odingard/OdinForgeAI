@@ -217,7 +217,7 @@ async function validateFix3(findings: PivotFinding[]): Promise<void> {
   assert(
     invalidValues.length === 0,
     "All authResult values are valid enum members",
-    invalidValues.length > 0 ? `invalid values: ${[...new Set(invalidValues.map(f => f.authResult))].join(", ")}` : undefined
+    invalidValues.length > 0 ? `invalid values: ${Array.from(new Set(invalidValues.map(f => f.authResult))).join(", ")}` : undefined
   );
 
   // No finding with accessLevel != "none" should lack authResult "success"

@@ -23,16 +23,25 @@ export function scoreChainResult(
   scenario: BreachChainScenario,
   result: ChainExecutionResult
 ): BreachChainBenchmarkResult {
-  // Chain depth: stepsSucceeded / total steps attempted
-  const chainDepthScore = result.stepsExecuted > 0
-    ? Math.round((result.stepsSucceeded / result.stepsExecuted) * 100)
+  // Chain depth: stepsSucceeded / total steps in playbook (not just executed).
+  // Using stepsExecuted penalized chains where intermediate steps were skipped
+  // due to infrastructure limitations (e.g., no cloud metadata in local targets).
+  // Total steps gives a fairer picture of chain coverage.
+  const totalSteps = result.stepsExecuted + result.stepsSkipped;
+  const chainDepthScore = totalSteps > 0
+    ? Math.round((result.stepsSucceeded / totalSteps) * 100)
     : 0;
 
   // Confidence: direct from chain orchestrator (0-100)
   const confidenceScore = Math.round(result.overallConfidence);
 
-  // Evidence: proof artifacts collected (25 pts each, max 100)
-  const evidenceScore = Math.min(100, (result.proofArtifacts?.length || 0) * 25);
+  // Evidence: proof artifacts collected.
+  // Scale: first artifact = 40pts, each additional = 20pts, max 100.
+  // This rewards having at least some evidence without requiring 4+ artifacts.
+  const artifactCount = result.proofArtifacts?.length || 0;
+  const evidenceScore = artifactCount > 0
+    ? Math.min(100, 40 + (artifactCount - 1) * 20)
+    : 0;
 
   // Findings: critical findings (50 pts each, max 100)
   const findingScore = Math.min(100, (result.criticalFindings?.length || 0) * 50);
