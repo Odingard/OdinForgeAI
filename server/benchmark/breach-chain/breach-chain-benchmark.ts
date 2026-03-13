@@ -19,6 +19,7 @@
  *   npx tsx server/benchmark/breach-chain/breach-chain-benchmark.ts http://localhost:3002 simulation --target dvwa --scenario dvwa-sqli-chain
  */
 
+import "dotenv/config";
 import { writeFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { ChainOrchestrator } from "../../services/aev/chain-orchestrator";
