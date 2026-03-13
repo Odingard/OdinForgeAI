@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OdinForge AI — Agentic Exploit Validation | Six Sense Enterprise Services</title>
+  <meta name="description" content="OdinForge AI: Autonomous penetration testing that proves vulnerabilities are real. Multi-step breach chains, HTTP-proven evidence, deterministic threat scoring." />
+  <meta property="og:title" content="OdinForge AI — Agentic Exploit Validation" />
+  <meta property="og:description" content="Autonomous penetration testing that proves vulnerabilities are real. Replace annual pentests with continuous validation." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://sixsenseenterprise.com/odinforge" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="OdinForge AI — Agentic Exploit Validation" />
+  <meta name="twitter:description" content="Autonomous penetration testing that proves vulnerabilities are real." />
+  <style>
+    :root {
+      --primary: #0A66C2;
+      --primary-dark: #064d94;
+      --accent: #00D4AA;
+      --bg-dark: #0B1120;
+      --bg-card: #111827;
+      --bg-card-hover: #1a2332;
+      --text: #E5E7EB;
+      --text-muted: #9CA3AF;
+      --text-bright: #FFFFFF;
+      --border: #1F2937;
+      --red: #EF4444;
+      --orange: #F59E0B;
+      --green: #10B981;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+
+    /* ─── Hero ─── */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+      background: linear-gradient(180deg, #0B1120 0%, #111827 100%);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: radial-gradient(circle at 50% 50%, rgba(0,212,170,0.03) 0%, transparent 50%);
+    }
+    .hero-badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      font-size: 0.85rem;
+      color: var(--accent);
+      margin-bottom: 24px;
+      letter-spacing: 0.5px;
+    }
+    .hero h1 {
+      font-size: 3.5rem;
+      font-weight: 800;
+      color: var(--text-bright);
+      margin-bottom: 20px;
+      letter-spacing: -1px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 700px;
+      margin: 0 auto 40px;
+    }
+    .hero-cta {
+      display: inline-flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .btn {
+      display: inline-block;
+      padding: 14px 32px;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg-dark);
+    }
+    .btn-primary:hover { background: #00eabc; transform: translateY(-1px); }
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ─── Problem ─── */
+    .problem {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .problem h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .problem-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+    .problem-card .icon {
+      font-size: 2rem;
+      margin-bottom: 16px;
+    }
+    .problem-card h3 {
+      color: var(--text-bright);
+      font-size: 1.15rem;
+      margin-bottom: 12px;
+    }
+    .problem-card p { color: var(--text-muted); font-size: 0.95rem; }
+
+    /* ─── Demo ─── */
+    .demo {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .demo h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .demo .subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+    .terminal {
+      background: #1a1a2e;
+      border: 1px solid #2d2d44;
+      border-radius: 12px;
+      overflow: hidden;
+      max-width: 900px;
+      margin: 0 auto;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.85rem;
+      line-height: 1.7;
+    }
+    .terminal-header {
+      background: #16162a;
+      padding: 12px 16px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .terminal-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+    .terminal-title {
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      margin-left: 12px;
+    }
+    .terminal-body { padding: 20px 24px; color: #c8d6e5; }
+    .terminal-body .header-line { color: var(--accent); font-weight: bold; }
+    .terminal-body .info { color: var(--text-muted); }
+    .terminal-body .pass { color: var(--green); }
+    .terminal-body .score { color: #60A5FA; }
+    .terminal-body .dim { color: #4a5568; }
+
+    /* ─── Features ─── */
+    .features {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .features h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: var(--accent); }
+    .feature-card h3 {
+      color: var(--text-bright);
+      font-size: 1.1rem;
+      margin-bottom: 10px;
+    }
+    .feature-card h3 .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: rgba(0,212,170,0.15);
+      color: var(--accent);
+      margin-left: 8px;
+      font-weight: 500;
+      vertical-align: middle;
+    }
+    .feature-card p { color: var(--text-muted); font-size: 0.95rem; }
+
+    /* ─── Comparison ─── */
+    .comparison {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .comparison h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .comparison .subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+    .comparison table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+    .comparison th {
+      text-align: left;
+      padding: 14px 16px;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--border);
+    }
+    .comparison td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .comparison tr:hover td { background: rgba(255,255,255,0.02); }
+    .comparison .cap { color: var(--text); }
+    .comparison .yes { color: var(--green); font-weight: 600; }
+    .comparison .partial { color: var(--orange); }
+    .comparison .no { color: var(--text-muted); }
+
+    /* ─── Benchmarks ─── */
+    .benchmarks {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .benchmarks h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .benchmarks .subtitle {
+      text-align: center;
+      color: var(--text-muted);
+      margin-bottom: 40px;
+    }
+    .bench-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+    }
+    .bench-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+    .bench-card h3 {
+      color: var(--text-bright);
+      font-size: 1.1rem;
+      margin-bottom: 20px;
+    }
+    .bench-stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .bench-stat:last-child { border-bottom: none; }
+    .bench-label { color: var(--text-muted); }
+    .bench-value { color: var(--accent); font-weight: 700; }
+
+    /* ─── How It Works ─── */
+    .how-it-works {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+    .how-it-works h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      text-align: center;
+      margin-bottom: 48px;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+    }
+    .step {
+      text-align: center;
+      position: relative;
+    }
+    .step-number {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: rgba(0,212,170,0.1);
+      border: 2px solid var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 1.2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
+    .step h3 {
+      color: var(--text-bright);
+      font-size: 1rem;
+      margin-bottom: 8px;
+    }
+    .step p { color: var(--text-muted); font-size: 0.85rem; }
+
+    /* ─── Pricing CTA ─── */
+    .pricing-cta {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    .pricing-cta h2 {
+      font-size: 2rem;
+      color: var(--text-bright);
+      margin-bottom: 16px;
+    }
+    .pricing-cta p {
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .pricing-cta .btn { margin: 0 8px; }
+
+    /* ─── Footer ─── */
+    .footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+
+    /* ─── Responsive ─── */
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 2.2rem; }
+      .problem-grid, .features-grid, .bench-grid { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: repeat(2, 1fr); }
+      .comparison table { font-size: 0.8rem; }
+      .comparison td, .comparison th { padding: 8px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ Hero ═══ -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-badge">Built by Six Sense Enterprise Services</div>
+      <h1>Autonomous Pentesting<br />That <span>Proves</span> the Breach</h1>
+      <p>OdinForge AI discovers vulnerabilities, chains them into multi-step breach paths, and delivers HTTP-proven evidence for every finding. Replace annual pentests with continuous exploit validation.</p>
+      <div class="hero-cta">
+        <a href="https://www.odinforgeai.com" class="btn btn-primary">Request a Demo</a>
+        <a href="https://github.com/Odingard/OdinForgeAI" class="btn btn-outline">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Problem ═══ -->
+  <section class="problem">
+    <div class="container">
+      <h2>The Gap Your Scanner Can't Close</h2>
+      <div class="problem-grid">
+        <div class="problem-card">
+          <div class="icon">&#x1F4C5;</div>
+          <h3>Annual Pentests Are Stale</h3>
+          <p>Your team ships code daily. Your pentest happens once a year. For the other 364 days, exploitable vulnerabilities sit in production unvalidated.</p>
+        </div>
+        <div class="problem-card">
+          <div class="icon">&#x1F6A8;</div>
+          <h3>Scanners Generate Noise</h3>
+          <p>Thousands of alerts. No proof of exploitability. Your security team wastes weeks triaging findings that can't actually be exploited.</p>
+        </div>
+        <div class="problem-card">
+          <div class="icon">&#x1F517;</div>
+          <h3>Single Vulns Aren't the Story</h3>
+          <p>Real attackers chain findings. A medium SQLi plus a low auth bypass equals a critical data breach. Point-in-time scanners miss the chain.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Demo ═══ -->
+  <section class="demo" id="demo">
+    <div class="container">
+      <h2>OdinForge in Action</h2>
+      <p class="subtitle">Breach chain benchmark against a live target — every finding backed by real HTTP evidence.</p>
+      <div class="terminal">
+        <div class="terminal-header">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span class="terminal-title">OdinForge AI &mdash; AEV Breach Chain Benchmark</span>
+        </div>
+        <div class="terminal-body">
+<pre>
+<span class="header-line">═══════════════════════════════════════════════════════════</span>
+<span class="header-line">  OdinForge AI — AEV Breach Chain Benchmark</span>
+<span class="header-line">═══════════════════════════════════════════════════════════</span>
+<span class="info">  Target:    broken-crystals @ http://target:3000</span>
+<span class="info">  Mode:      live</span>
+<span class="info">  Scenarios: 5</span>
+
+<span class="pass">&#9654; [1/5] Command Injection to RCE via Spawn</span>
+<span class="pass">  &#10004; completed — 3/3 steps | confidence: 88% | score: 96/100</span>
+
+<span class="pass">&#9654; [2/5] SSRF to Internal Network Pivot</span>
+<span class="pass">  &#10004; partial — 1/2 steps | confidence: 90% | score: 57/100</span>
+
+<span class="pass">&#9654; [3/5] JWT Bypass to Privilege Escalation</span>
+<span class="pass">  &#10004; partial — 1/2 steps | confidence: 90% | score: 72/100</span>
+
+<span class="pass">&#9654; [4/5] Path Traversal File Read via LFI</span>
+<span class="pass">  &#10004; partial — 2/3 steps | confidence: 90% | score: 85/100</span>
+
+<span class="pass">&#9654; [5/5] Multi-Vector Attack Chain (SSTI + CMDi + SSRF)</span>
+<span class="pass">  &#10004; partial — 5/5 steps | confidence: 69% | score: 91/100</span>
+
+<span class="header-line">═══════════════════════════════════════════════════════════</span>
+<span class="score">  Scenarios: 5/5 passed | Avg Score: 80/100 | Avg Confidence: 85%</span>
+<span class="header-line">═══════════════════════════════════════════════════════════</span>
+</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Features ═══ -->
+  <section class="features" id="features">
+    <div class="container">
+      <h2>Platform Capabilities</h2>
+      <div class="features-grid">
+        <div class="feature-card">
+          <h3>Fully Autonomous Operation</h3>
+          <p>Point OdinForge at a URL. It handles recon, attack surface mapping, exploitation, breach chaining, scoring, and report generation with zero manual intervention.</p>
+        </div>
+        <div class="feature-card">
+          <h3>HTTP-Proven Evidence Only <span class="tag">LLM Boundary</span></h3>
+          <p>Every finding includes the exact HTTP request and response that prove exploitability. The LLM classifies real data — it never generates synthetic findings.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Multi-Step Breach Chains <span class="tag">11 Playbooks</span></h3>
+          <p>Chains individual findings into attack sequences (SQLi &rarr; data exfiltration, CMDi &rarr; RCE, auth bypass &rarr; privilege escalation) with confidence-gated step progression.</p>
+        </div>
+        <div class="feature-card">
+          <h3>50 Parallel Micro-Agents</h3>
+          <p>Fan-out architecture dispatches one agent per endpoint &times; vulnerability class, with rate limiting and applicability filtering to avoid unnecessary probes.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Deterministic Threat Scoring <span class="tag">EPSS + CVSS + KEV</span></h3>
+          <p>EPSS (45%) + CVSS (35%) + agent exploitability (20%), with CISA KEV override and ransomware amplification. No LLM in the scoring loop.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Real-Time Attack Visualization</h3>
+          <p>WebSocket-driven attack graph renders live as breach chains progress through phases, with per-agent dispatch events and progressive graph updates.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Go Endpoint Agent</h3>
+          <p>Lightweight agent (Linux/macOS/Windows) with systemd integration, 11 collectors, and config file scanning — feeds runtime context into exploitation phases.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Enterprise Governance <span class="tag">Multi-Tenant</span></h3>
+          <p>Multi-tenant RBAC (67 permissions, 8 roles), PostgreSQL row-level security, execution mode enforcement, and full audit trail.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ How It Works ═══ -->
+  <section class="how-it-works" id="how">
+    <div class="container">
+      <h2>How OdinForge Works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <h3>Reconnaissance</h3>
+          <p>Crawls the target, discovers endpoints, maps technologies, identifies authentication flows and attack surface.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <h3>Parallel Exploitation</h3>
+          <p>Dispatches 50 concurrent micro-agents. Each fires real payloads and captures HTTP evidence for every attempt.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <h3>Breach Chaining</h3>
+          <p>Chains confirmed findings into multi-step attack paths with confidence-gated progression through 11 playbooks.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <h3>Evidence Report</h3>
+          <p>Delivers a report with HTTP-proven evidence, EPSS/CVSS/KEV scoring, and auto-generated remediation for every finding.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ Comparison ═══ -->
+  <section class="comparison" id="comparison">
+    <div class="container">
+      <h2>How OdinForge Compares</h2>
+      <p class="subtitle">OdinForge vs. leading agentic exploit validation tools</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>OdinForge</th>
+            <th>Shannon</th>
+            <th>XBOW</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="cap">Multi-step breach chains</td>
+            <td class="yes">Yes</td>
+            <td class="partial">Partial</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Confidence-gated progression</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Cross-vulnerability chaining</td>
+            <td class="yes">Yes</td>
+            <td class="partial">Partial</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">HTTP evidence per finding</td>
+            <td class="yes">Yes</td>
+            <td class="yes">Yes</td>
+            <td class="partial">Partial</td>
+          </tr>
+          <tr>
+            <td class="cap">Parallel micro-agent dispatch</td>
+            <td class="yes">50 concurrent</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Playbook-based execution</td>
+            <td class="yes">11 playbooks</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Cloud IAM escalation</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Credential extraction chains</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">K8s / Container breakout</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">EPSS / CVSS / KEV scoring</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Real-time attack visualization</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Go endpoint agent</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">Auto-remediation + verification</td>
+            <td class="yes">Yes</td>
+            <td class="no">No</td>
+            <td class="no">No</td>
+          </tr>
+          <tr>
+            <td class="cap">CI benchmark regression</td>
+            <td class="yes">Yes</td>
+            <td class="partial">Partial</td>
+            <td class="partial">Partial</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══ Benchmarks ═══ -->
+  <section class="benchmarks" id="benchmarks">
+    <div class="container">
+      <h2>Proven Performance</h2>
+      <p class="subtitle">Benchmarks run in CI on every push. Regressions fail the build.</p>
+      <div class="bench-grid">
+        <div class="bench-card">
+          <h3>Exploit Agent Benchmark</h3>
+          <div class="bench-stat">
+            <span class="bench-label">Juice Shop v17.1.1</span>
+            <span class="bench-value">5/5 (100%)</span>
+          </div>
+          <div class="bench-stat">
+            <span class="bench-label">BrokenCrystals</span>
+            <span class="bench-value">6/6 (100%)</span>
+          </div>
+          <div class="bench-stat">
+            <span class="bench-label">Detection Rate</span>
+            <span class="bench-value">89-90%</span>
+          </div>
+          <div class="bench-stat">
+            <span class="bench-label">Vuln Classes</span>
+            <span class="bench-value">CMDi, SSRF, JWT, XSS, SSTI, LDAP</span>
+          </div>
+        </div>
+        <div class="bench-card">
+          <h3>Breach Chain Benchmark</h3>
+          <div class="bench-stat">
+            <span class="bench-label">Juice Shop Chains</span>
+            <span class="bench-value">4/4 &mdash; avg 70</span>
+          </div>
+          <div class="bench-stat">
+            <span class="bench-label">BrokenCrystals Chains</span>
+            <span class="bench-value">5/5 &mdash; avg 80</span>
+          </div>
+          <div class="bench-stat">
+            <span class="bench-label">Avg Confidence</span>
+            <span class="bench-value">85%</span>
+          </div>
+          <div class="bench-stat">
+            <span class="bench-label">Scoring Formula</span>
+            <span class="bench-value">Depth 35% + Conf 30% + Ev 20% + Find 15%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ CTA ═══ -->
+  <section class="pricing-cta" id="contact">
+    <div class="container">
+      <h2>Ready to Prove What's Exploitable?</h2>
+      <p>Replace annual pentests with continuous exploit validation. OdinForge runs on every deployment, proving what's actually exploitable and scoring risk with real threat intelligence.</p>
+      <a href="https://www.odinforgeai.com" class="btn btn-primary">Request a Demo</a>
+      <a href="mailto:contact@odingard.com" class="btn btn-outline">Contact Sales</a>
+    </div>
+  </section>
+
+  <!-- ═══ Footer ═══ -->
+  <footer class="footer">
+    <div class="container">
+      <p>&copy; 2026 <a href="https://sixsenseenterprise.com">Six Sense Enterprise Services</a>. All rights reserved.</p>
+      <p style="margin-top: 8px;">
+        <a href="https://www.odinforgeai.com">odinforgeai.com</a> &middot;
+        <a href="https://github.com/Odingard/OdinForgeAI">GitHub</a> &middot;
+        <a href="mailto:contact@odingard.com">contact@odingard.com</a>
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>
