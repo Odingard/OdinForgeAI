@@ -43,7 +43,7 @@ OdinForge closes that gap with continuous, autonomous penetration testing that r
 
 OdinForge identified and proved exploitability of command injection, SSRF, JWT bypass, XSS, path traversal, and SQL injection across multiple targets — chaining them into multi-step breach paths with confidence-gated progression.
 
-<!-- ![Demo](assets/odinforge-demo.gif) -->
+![OdinForge AI — Breach Chain Benchmark Demo](assets/odinforge-demo.gif)
 
 ```
 ═══════════════════════════════════════════════════════════
