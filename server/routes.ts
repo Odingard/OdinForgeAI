@@ -2266,6 +2266,15 @@ export async function registerRoutes(
           break;
       }
 
+      // Sign report if ?signed=true (tamper-evident evidence package)
+      if (req.query.signed === "true") {
+        const { signReport } = require("./services/report-signer");
+        const signedPkg = signReport(content, format as string, report.organizationId || "default");
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename.replace(/\.\w+$/, "")}.signed.json"`);
+        return res.send(JSON.stringify(signedPkg, null, 2));
+      }
+
       res.setHeader("Content-Type", contentType);
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(content);
@@ -2289,12 +2298,33 @@ export async function registerRoutes(
         evaluation.organizationId || "default"
       );
 
+      // Sign report if ?signed=true (tamper-evident evidence package)
+      if (req.query.signed === "true") {
+        const { signReport } = require("./services/report-signer");
+        const signedPkg = signReport(content, "sarif", evaluation.organizationId || "default");
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="odinforge-${evaluationId}.signed.json"`);
+        return res.send(JSON.stringify(signedPkg, null, 2));
+      }
+
       res.setHeader("Content-Type", "application/sarif+json");
       res.setHeader("Content-Disposition", `attachment; filename="odinforge-${evaluationId}.sarif.json"`);
       res.send(content);
     } catch (error) {
       console.error("Error exporting SARIF:", error);
       res.status(500).json({ error: "Failed to export SARIF" });
+    }
+  });
+
+  // Verify signed evidence package integrity
+  app.post("/api/reports/verify-signature", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
+    try {
+      const { verifyReport } = require("./services/report-signer");
+      const result = verifyReport(req.body);
+      res.json(result);
+    } catch (error) {
+      console.error("Error verifying report:", error);
+      res.status(500).json({ error: "Failed to verify report" });
     }
   });
 
