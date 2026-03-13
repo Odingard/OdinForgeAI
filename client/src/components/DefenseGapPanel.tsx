@@ -49,8 +49,10 @@ export function DefenseGapPanel({ breachChainId, selectedNodeId, isRunning, onCl
   const { data: summary } = useQuery<DefenseGapSummary>({
     queryKey: ["/api/breach-chains", breachChainId, "defense-gaps"],
     queryFn: async () => {
+      const token = localStorage.getItem("odinforge_access_token");
       const res = await fetch(`/api/breach-chains/${breachChainId}/defense-gaps`, {
         credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();

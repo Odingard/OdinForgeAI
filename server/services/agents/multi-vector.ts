@@ -463,6 +463,9 @@ function generateMultiVectorFindings(
   saasFindings: SaaSFinding[],
   shadowAdmins: ShadowAdminIndicator[]
 ): MultiVectorFinding[] {
+  // LLM Boundary: All multi-vector findings are LLM-inferred analysis.
+  // They lack direct HTTP evidence and must be tagged accordingly so the
+  // Evidence Quality Gate and report-generator suppress them from customer output.
   const findings: MultiVectorFinding[] = [];
   let findingId = 1;
 
@@ -471,7 +474,7 @@ function generateMultiVectorFindings(
       id: `mv-${findingId++}`,
       vectorType: "cloud_misconfiguration",
       cloudVector: cloud.vectorType as CloudVectorType,
-      title: cloud.title,
+      title: `[LLM Inferred] ${cloud.title}`,
       description: cloud.description,
       severity: cloud.severity,
       affectedResources: [cloud.resource],
@@ -493,7 +496,7 @@ function generateMultiVectorFindings(
     findings.push({
       id: `mv-${findingId++}`,
       vectorType: "iam_abuse",
-      title: iam.title,
+      title: `[LLM Inferred] ${iam.title}`,
       description: iam.description,
       severity: iam.severity,
       affectedResources: [iam.principal, ...iam.assumableRoles],
@@ -516,7 +519,7 @@ function generateMultiVectorFindings(
     findings.push({
       id: `mv-${findingId++}`,
       vectorType: "saas_permission",
-      title: saas.title,
+      title: `[LLM Inferred] ${saas.title}`,
       description: saas.description,
       severity: saas.severity,
       affectedResources: [saas.platform],
@@ -537,7 +540,7 @@ function generateMultiVectorFindings(
     findings.push({
       id: `mv-${findingId++}`,
       vectorType: "shadow_admin",
-      title: `Shadow Admin: ${shadow.principal}`,
+      title: `[LLM Inferred] Shadow Admin: ${shadow.principal}`,
       description: `Discovered shadow admin via ${shadow.indicatorType}`,
       severity: shadow.riskLevel,
       affectedResources: [shadow.principal],

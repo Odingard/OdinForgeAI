@@ -1527,6 +1527,39 @@ export default function BreachChains() {
                   />
                 </div>
 
+                {/* Execution Mode — always visible, required choice */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Execution Mode</label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    {([
+                      { value: "safe", label: "Safe", desc: "Passive recon only", color: "#22c55e", bg: "rgba(34,197,94,0.08)", border: "rgba(34,197,94,0.3)" },
+                      { value: "simulation", label: "Simulation", desc: "Safe payloads, no damage", color: "#f97316", bg: "rgba(249,115,22,0.08)", border: "rgba(249,115,22,0.3)" },
+                      { value: "live", label: "Live", desc: "Real exploit payloads", color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.3)" },
+                    ] as const).map(mode => (
+                      <button
+                        key={mode.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, executionMode: mode.value as any })}
+                        style={{
+                          padding: "10px 8px", borderRadius: 6, cursor: "pointer",
+                          background: formData.executionMode === mode.value ? mode.bg : "transparent",
+                          border: `2px solid ${formData.executionMode === mode.value ? mode.border : "var(--falcon-border)"}`,
+                          display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <span style={{ fontSize: 12, fontWeight: 700, color: formData.executionMode === mode.value ? mode.color : "var(--falcon-t2)" }}>{mode.label}</span>
+                        <span style={{ fontSize: 9, color: "var(--falcon-t4)" }}>{mode.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {formData.executionMode === "live" && (
+                    <div style={{ padding: "8px 10px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 4, fontSize: 10, color: "#fca5a5", marginTop: 4 }}>
+                      ⚡ <strong>LIVE MODE</strong> — Real exploit payloads will be fired against the target. Ensure you have authorization.
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <button
                     className={`f-collapse-trigger ${showAdvanced ? "open" : ""}`}
@@ -1547,24 +1580,12 @@ export default function BreachChains() {
                   >
                     <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Settings2 style={{ width: 14, height: 14 }} />
-                      Advanced Configuration
+                      Phase Selection & Options
                     </span>
                     <ChevronDown style={{ width: 14, height: 14, transition: "transform 0.2s", transform: showAdvanced ? "rotate(180deg)" : "rotate(0deg)" }} />
                   </button>
                   {showAdvanced && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 16 }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Execution Mode</label>
-                        <select
-                          className="f-select"
-                          value={formData.executionMode}
-                          onChange={(e) => setFormData({ ...formData, executionMode: e.target.value as any })}
-                        >
-                          <option value="safe">Safe (default)</option>
-                          <option value="simulation">Simulation</option>
-                          <option value="live">Live</option>
-                        </select>
-                      </div>
 
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                         <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Pause on Critical Findings</label>

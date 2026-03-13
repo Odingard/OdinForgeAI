@@ -813,6 +813,8 @@ export const businessLogicFindingSchema = z.object({
   }).optional(),
   validatedExploit: z.boolean(),
   proofOfConcept: z.string().optional(),
+  // LLM Boundary: Tracks whether finding has real evidence or is LLM-inferred
+  evidenceQuality: z.enum(["proven", "corroborated", "inferred", "unverifiable"]).optional(),
 });
 
 export type BusinessLogicFinding = z.infer<typeof businessLogicFindingSchema>;
@@ -876,6 +878,8 @@ export const multiVectorFindingSchema = z.object({
     permissionLevel: z.string().optional(),
     shadowAdminIndicators: z.array(z.string()).optional(),
   }).optional(),
+  // LLM Boundary: Tracks whether finding has real evidence or is LLM-inferred
+  evidenceQuality: z.enum(["proven", "corroborated", "inferred", "unverifiable"]).optional(),
 });
 
 export type MultiVectorFinding = z.infer<typeof multiVectorFindingSchema>;

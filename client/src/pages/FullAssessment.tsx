@@ -23,8 +23,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FullAssessment } from "@shared/schema";
 
-const ApprovalsPanel = lazy(() => import("@/pages/Approvals"));
-const SandboxPanel = lazy(() => import("@/pages/Sandbox"));
 const ExternalReconPanel = lazy(() => import("@/components/ExternalRecon").then(m => ({ default: m.ExternalRecon })));
 
 const statusColors: Record<string, { color: string; bg: string; border: string }> = {
@@ -993,8 +991,6 @@ export default function FullAssessmentPage() {
       <div className="f-tab-bar">
         <button className={`f-tab ${pageTab === "assessments" ? "active" : ""}`} onClick={() => setPageTab("assessments")}>Assessments</button>
         <button className={`f-tab ${pageTab === "live-recon" ? "active" : ""}`} onClick={() => setPageTab("live-recon")}>Live Recon</button>
-        <button className={`f-tab ${pageTab === "approvals" ? "active" : ""}`} onClick={() => setPageTab("approvals")}>Approvals</button>
-        <button className={`f-tab ${pageTab === "sandbox" ? "active" : ""}`} onClick={() => setPageTab("sandbox")}>Sandbox</button>
       </div>
 
       {pageTab === "assessments" && <div>
@@ -1073,17 +1069,6 @@ export default function FullAssessmentPage() {
         </Suspense>
       )}
 
-      {pageTab === "approvals" && (
-        <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256 }}><Loader2 style={{ width: 24, height: 24, color: "var(--falcon-t3)", animation: "spin 1s linear infinite" }} /></div>}>
-          <ApprovalsPanel />
-        </Suspense>
-      )}
-
-      {pageTab === "sandbox" && (
-        <Suspense fallback={<div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256 }}><Loader2 style={{ width: 24, height: 24, color: "var(--falcon-t3)", animation: "spin 1s linear infinite" }} /></div>}>
-          <SandboxPanel />
-        </Suspense>
-      )}
     </div>
   );
 }

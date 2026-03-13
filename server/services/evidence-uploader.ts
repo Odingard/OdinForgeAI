@@ -40,12 +40,20 @@ export async function uploadAndLinkEvidence(
     // Store each artifact as a DB row
     for (const artifact of artifacts) {
       try {
+        // Derive verdict from actual evidence: real HTTP request/response with
+        // statusCode > 0 = "likely"; everything else = "theoretical".
+        // LLM Boundary: never hardcode a verdict — derive from evidence quality.
+        const hasRealResponse = artifact.type === "request_response"
+          && (artifact.data as any)?.response?.statusCode > 0
+          && !!(artifact.data as any)?.response?.body;
+        const derivedVerdict = hasRealResponse ? "likely" : "theoretical";
+
         await evidenceStore.storeEvidence({
           tenantId: organizationId,
           organizationId,
           evaluationId,
           evidenceType: artifact.type || "request_response",
-          verdict: "theoretical",
+          verdict: derivedVerdict,
           validationMethod: "agent_based",
           observedBehavior: artifact.description || "",
           targetUrl: (artifact.data as any)?.request?.url || undefined,
@@ -81,12 +89,13 @@ export async function uploadAndLinkEvidence(
       // MinIO/S3 not configured or unavailable — fall through to DB storage
     }
 
+    // Bundles are metadata containers, not direct evidence — always "theoretical"
     await evidenceStore.storeEvidence({
       tenantId: organizationId,
       organizationId,
       evaluationId,
       evidenceType: "evidence_bundle",
-      verdict: "theoretical",
+      verdict: "theoretical" as const,
       validationMethod: "agent_based",
       observedBehavior: `Evidence bundle: ${artifacts.length} artifacts`,
       storageKey: bundleKey,

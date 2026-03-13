@@ -230,24 +230,40 @@ export class EvidenceCollector {
   ): EvidenceArtifact[] {
     const captured: EvidenceArtifact[] = [];
     for (const tc of toolCallLog) {
+      // LLM Boundary: Only capture tool calls that made real HTTP requests.
+      // Tool calls without a target URL or with no real response are recorded
+      // as execution_trace (not request_response) to avoid fabricating evidence.
+      const targetUrl = String(tc.arguments.url || tc.arguments.target || "");
+      const hasRealTarget = targetUrl.startsWith("http://") || targetUrl.startsWith("https://");
+
       const artifact: EvidenceArtifact = {
         id: `artifact-tc-${tc.turn}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        type: "request_response",
+        type: hasRealTarget ? "request_response" : "execution_trace",
         timestamp: new Date().toISOString(),
         title: `Tool Call: ${tc.toolName} (turn ${tc.turn})`,
         description: tc.resultSummary,
-        data: {
-          request: this.sanitizeRequest({
-            method: "TOOL_CALL",
-            url: String(tc.arguments.url || tc.arguments.target || ""),
-            body: JSON.stringify(tc.arguments),
-          }),
-          response: {
-            statusCode: tc.vulnerable ? 200 : 0,
-            body: `[${tc.toolName}] ${tc.vulnerable ? "VULNERABLE" : "clean"} (confidence: ${tc.confidence}%) — ${tc.resultSummary}`,
-            timing: tc.executionTimeMs,
-          },
-        },
+        data: hasRealTarget
+          ? {
+              request: this.sanitizeRequest({
+                method: String(tc.arguments.method || "GET"),
+                url: targetUrl,
+                body: tc.arguments.body ? JSON.stringify(tc.arguments.body) : undefined,
+              }),
+              response: {
+                // Only record real status codes — never fabricate 0 or 200 as placeholder
+                statusCode: (tc.arguments as any).statusCode || undefined,
+                body: tc.resultSummary,
+                timing: tc.executionTimeMs,
+              },
+            }
+          : {
+              trace: [{
+                step: tc.turn,
+                action: `${tc.toolName}: ${JSON.stringify(tc.arguments).slice(0, 200)}`,
+                result: tc.resultSummary,
+                duration: tc.executionTimeMs,
+              }],
+            },
         isSanitized: true,
       };
       this.artifacts.push(artifact);

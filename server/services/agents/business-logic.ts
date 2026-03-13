@@ -700,11 +700,15 @@ async function generateDetailedFindings(
   const findings: BusinessLogicFinding[] = [];
   let findingId = 1;
 
+  // LLM Boundary: All findings below are LLM-inferred unless validatedExploit is true.
+  // Mark with evidenceQuality so Evidence Quality Gate and report-generator can
+  // suppress unvalidated findings from customer reports.
+
   for (const violation of stateViolations) {
     findings.push({
       id: `bl-${findingId++}`,
       category: "state_transition" as BusinessLogicCategory,
-      title: `State Transition Violation: ${violation.fromState} -> ${violation.toState}`,
+      title: `[LLM Inferred] State Transition Violation: ${violation.fromState} -> ${violation.toState}`,
       description: violation.exploitability,
       severity: violation.severity,
       intendedWorkflow: violation.expectedTransitions,
@@ -719,6 +723,7 @@ async function generateDetailedFindings(
       exploitSteps: [`Attempt transition from ${violation.fromState} directly to ${violation.toState}`],
       impact: `${violation.violationType} violation allows bypassing security controls`,
       validatedExploit: false,
+      evidenceQuality: "inferred",
     });
   }
 
@@ -727,7 +732,7 @@ async function generateDetailedFindings(
     findings.push({
       id: `bl-${findingId++}`,
       category,
-      title: vuln.title,
+      title: vuln.validatedExploit ? vuln.title : `[LLM Inferred] ${vuln.title}`,
       description: vuln.description,
       severity: vuln.severity,
       intendedWorkflow: vuln.affectedFlow,
@@ -738,6 +743,7 @@ async function generateDetailedFindings(
         financialLoss: vuln.financialImpact,
       },
       validatedExploit: vuln.validatedExploit,
+      evidenceQuality: vuln.validatedExploit ? "corroborated" : "inferred",
     });
   }
 
@@ -745,7 +751,7 @@ async function generateDetailedFindings(
     findings.push({
       id: `bl-${findingId++}`,
       category: "workflow_bypass" as BusinessLogicCategory,
-      title: `Workflow Bypass: ${abuse.substring(0, 50)}...`,
+      title: `[LLM Inferred] Workflow Bypass: ${abuse.substring(0, 50)}...`,
       description: abuse,
       severity: "medium",
       intendedWorkflow: stateMachine?.states.map(s => s.name) || [],
@@ -753,6 +759,7 @@ async function generateDetailedFindings(
       exploitSteps: [abuse],
       impact: "Potential bypass of intended workflow controls",
       validatedExploit: false,
+      evidenceQuality: "inferred",
     });
   }
 
@@ -760,7 +767,7 @@ async function generateDetailedFindings(
     findings.push({
       id: `bl-${findingId++}`,
       category: "race_condition" as BusinessLogicCategory,
-      title: `Race Condition: ${race.substring(0, 50)}...`,
+      title: `[LLM Inferred] Race Condition: ${race.substring(0, 50)}...`,
       description: race,
       severity: "high",
       intendedWorkflow: [],
@@ -768,6 +775,7 @@ async function generateDetailedFindings(
       exploitSteps: [race],
       impact: "TOCTOU or double-spend vulnerability",
       validatedExploit: false,
+      evidenceQuality: "inferred",
     });
   }
 
@@ -775,7 +783,7 @@ async function generateDetailedFindings(
     findings.push({
       id: `bl-${findingId++}`,
       category: "privilege_escalation" as BusinessLogicCategory,
-      title: `Authorization Bypass: ${bypass.substring(0, 50)}...`,
+      title: `[LLM Inferred] Authorization Bypass: ${bypass.substring(0, 50)}...`,
       description: bypass,
       severity: "high",
       intendedWorkflow: [],
@@ -783,6 +791,7 @@ async function generateDetailedFindings(
       exploitSteps: [bypass],
       impact: "Unauthorized access to protected resources",
       validatedExploit: false,
+      evidenceQuality: "inferred",
     });
   }
 

@@ -308,8 +308,12 @@ async function captureAuthEvidence(
   try {
     const { response, evidence } = await client.request({ url: targetUrl, method: "GET" });
     
-    const verdict: ValidationVerdict = issue.severity === "high" || issue.severity === "critical" ? "likely" : "theoretical";
-    const confidenceScore = issue.severity === "high" || issue.severity === "critical" ? 60 : 45;
+    // LLM Boundary: Derive verdict from whether we captured a real HTTP response,
+    // not from severity heuristics (which creates circular logic). Real evidence
+    // with statusCode > 0 = "likely"; no response = "theoretical".
+    const hasRealResponse = response.statusCode > 0 && response.body && !response.body.startsWith("[NO_REAL_RESPONSE]");
+    const verdict: ValidationVerdict = hasRealResponse ? "likely" : "theoretical";
+    const confidenceScore = hasRealResponse ? 60 : 35;
     
     const evidenceId = await client.saveEvidence(
       evidence,

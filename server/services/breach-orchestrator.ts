@@ -2055,32 +2055,39 @@ async function executeImpactAssessment(
   const totalAssets = context.compromisedAssets.length;
   const totalCreds = context.credentials.length;
 
-  // Generate impact findings based on what was achieved
+  // LLM Boundary: Impact findings are SYNTHESIS of earlier proven findings.
+  // They aggregate real evidence from prior phases but do not themselves have
+  // direct HTTP evidence. Mark all as "[SYNTHESIS]" and evidenceQuality: "inferred"
+  // so the Evidence Quality Gate classifies them correctly and report-generator
+  // suppresses them from customer-facing output. They appear only in internal views.
   if (uniqueDomains >= 3) {
     findings.push({
       id: `bf-${randomUUID().slice(0, 8)}`,
       severity: "critical",
-      title: "Multi-Domain Breach: Full Infrastructure Compromise",
+      title: "[SYNTHESIS] Multi-Domain Breach: Full Infrastructure Compromise",
       description: `Attacker achieved access across ${uniqueDomains} domains (${context.domainsCompromised.join(", ")}), compromising ${totalAssets} assets with ${totalCreds} harvested credentials. Maximum privilege: ${maxPrivilege}.`,
-    });
+      evidenceQuality: "inferred",
+    } as any);
   }
 
   if (maxPrivilege === "cloud_admin" || maxPrivilege === "domain_admin") {
     findings.push({
       id: `bf-${randomUUID().slice(0, 8)}`,
       severity: "critical",
-      title: "Administrative Privilege Achieved",
+      title: "[SYNTHESIS] Administrative Privilege Achieved",
       description: `Attacker escalated to ${maxPrivilege} level, enabling full control over ${maxPrivilege === "cloud_admin" ? "cloud infrastructure" : "domain resources"}.`,
-    });
+      evidenceQuality: "inferred",
+    } as any);
   }
 
   if (totalCreds >= 5) {
     findings.push({
       id: `bf-${randomUUID().slice(0, 8)}`,
       severity: "high",
-      title: "Significant Credential Harvest",
+      title: "[SYNTHESIS] Significant Credential Harvest",
       description: `${totalCreds} credentials harvested across the breach chain, enabling persistent access and further lateral movement.`,
-    });
+      evidenceQuality: "inferred",
+    } as any);
   }
 
   // Compliance impact based on domains
@@ -2094,9 +2101,10 @@ async function executeImpactAssessment(
     findings.push({
       id: `bf-${randomUUID().slice(0, 8)}`,
       severity: "high",
-      title: "Compliance Framework Violations",
+      title: "[SYNTHESIS] Compliance Framework Violations",
       description: `Breach path violates controls in: ${complianceFrameworks.join(", ")}. Immediate remediation required for compliance posture.`,
-    });
+      evidenceQuality: "inferred",
+    } as any);
   }
 
   // Data exposure assessment
@@ -2104,9 +2112,10 @@ async function executeImpactAssessment(
     findings.push({
       id: `bf-${randomUUID().slice(0, 8)}`,
       severity: "critical",
-      title: "Data Exposure: Administrative Access to Production Systems",
+      title: "[SYNTHESIS] Data Exposure: Administrative Access to Production Systems",
       description: `With ${context.compromisedAssets.filter(a => a.accessLevel === "admin" || a.accessLevel === "system").length} systems at admin/system access, attacker can exfiltrate all data including PII, financial records, and proprietary information.`,
-    });
+      evidenceQuality: "inferred",
+    } as any);
   }
 
   return buildPhaseResult("impact_assessment", startTime, context, {
@@ -2389,20 +2398,14 @@ function buildUnifiedAttackGraph(
         privilegeTier: (c.accessLevel === "admin" ? "local_admin" : "standard_user") as "local_admin" | "standard_user",
         sourceSystem: c.source || phase.phaseName,
       }));
-    const defensesFired: string[] = [];
-    const defensesMissed: string[] = phase.findings
-      .filter(f => f.severity === "critical" || f.severity === "high")
-      .map(f => f.technique || f.title)
-      .filter(Boolean) as string[];
-
     const phaseArtifacts = {
       hostname: phase.outputContext.compromisedAssets[0]?.name,
       credentials: phaseNodeCredentials.length > 0 ? phaseNodeCredentials : undefined,
       attackTechniqueId: phaseAtkIds[0],
       attackTechniqueName: PHASE_DEFINITIONS[phase.phaseName].displayName,
       procedure: PHASE_DEFINITIONS[phase.phaseName].description,
-      defensesFired: defensesFired.length > 0 ? defensesFired : undefined,
-      defensesMissed: defensesMissed.length > 0 ? defensesMissed : undefined,
+      // defensesFired / defensesMissed populated from real Defender's Mirror
+      // rules via the defense-gaps endpoint — never hardcoded
       discoveredAt: phase.startedAt,
     };
 

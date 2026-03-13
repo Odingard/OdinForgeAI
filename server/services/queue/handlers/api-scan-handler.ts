@@ -175,8 +175,12 @@ async function captureApiEvidence(
     const method = endpoint.methods[0] || "GET";
     const { response, evidence } = await client.request({ url: fullUrl, method });
     
-    const verdict: ValidationVerdict = response.statusCode >= 400 ? "theoretical" : "likely";
-    const confidenceScore = response.statusCode >= 400 ? 40 : 60;
+    // LLM Boundary: Derive verdict from whether we got a real HTTP response,
+    // not from status code heuristics. A 4xx is still real evidence of endpoint
+    // behavior; 0 means no response was captured.
+    const hasRealResponse = response.statusCode > 0 && response.body && !response.body.startsWith("[NO_REAL_RESPONSE]");
+    const verdict: ValidationVerdict = hasRealResponse ? "likely" : "theoretical";
+    const confidenceScore = hasRealResponse ? 60 : 30;
     
     const evidenceId = await client.saveEvidence(
       evidence,

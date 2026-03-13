@@ -156,11 +156,16 @@ export class ValidatingHttpClient {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       const isTimeout = errorMessage.includes("abort") || errorMessage.includes("timeout");
 
+      // LLM Boundary: No real HTTP response was received. Use status 0 to
+      // indicate "no response" — downstream evidence gates MUST treat
+      // statusCode <= 0 as UNVERIFIABLE (no real evidence exists).
+      const errorStatusCode = 0;
+
       const responseCapture: HttpResponseCapture = {
-        statusCode: isTimeout ? 0 : -1,
-        statusText: isTimeout ? "Request Timeout" : "Connection Error",
+        statusCode: errorStatusCode,
+        statusText: isTimeout ? "Request Timeout — no real HTTP response" : "Connection Error — no real HTTP response",
         headers: {},
-        body: errorMessage,
+        body: `[NO_REAL_RESPONSE] ${errorMessage}`,
         timestamp: errorTimestamp,
       };
 
@@ -177,10 +182,10 @@ export class ValidatingHttpClient {
       };
 
       const validatingResponse: ValidatingResponse = {
-        statusCode: isTimeout ? 0 : -1,
+        statusCode: errorStatusCode,
         statusText: isTimeout ? "Request Timeout" : "Connection Error",
         headers: {},
-        body: errorMessage,
+        body: `[NO_REAL_RESPONSE] ${errorMessage}`,
         bodyTruncated: false,
         timing: timingData,
       };

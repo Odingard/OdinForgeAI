@@ -26,6 +26,9 @@ interface CredentialWebNode {
   unlocked: string[];
   hasHash: boolean;
   hasCleartext: boolean;
+  hashValue?: string;
+  hashAlgorithm?: string;
+  crackedValue?: string;
 }
 
 interface CredentialWebProps {
@@ -405,8 +408,24 @@ export function CredentialWeb({ breachChainId, isRunning, onClose }: CredentialW
               <span style={{ color: TIER_COLORS[selectedCred.privilegeTier].color }}>{TIER_COLORS[selectedCred.privilegeTier].label}</span>
             </div>
             <div style={{ fontSize: 9, color: "#64748b", marginBottom: 2 }}>Source: <span style={{ color: "#94a3b8" }}>{selectedCred.sourceSystem}</span></div>
-            {selectedCred.hasHash && <div style={{ fontSize: 9, color: "#f59e0b" }}>⚠ Hash captured</div>}
-            {selectedCred.hasCleartext && <div style={{ fontSize: 9, color: "#ef4444" }}>⚠ Cleartext captured</div>}
+            {selectedCred.hasHash && (
+              <div style={{ marginTop: 4, padding: "6px 8px", background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: 4 }}>
+                <div style={{ fontSize: 9, color: "#f59e0b", fontWeight: 600, marginBottom: 3 }}>
+                  HASH CAPTURED {selectedCred.hashAlgorithm && `(${selectedCred.hashAlgorithm})`}
+                </div>
+                {selectedCred.hashValue && (
+                  <div style={{ fontSize: 8, color: "#d4d4d8", fontFamily: "'IBM Plex Mono', monospace", wordBreak: "break-all", lineHeight: 1.4 }}>
+                    {selectedCred.hashValue}
+                  </div>
+                )}
+                {selectedCred.crackedValue && (
+                  <div style={{ fontSize: 9, color: "#ef4444", fontWeight: 600, marginTop: 3 }}>
+                    CRACKED: <span style={{ color: "#fca5a5" }}>{selectedCred.crackedValue}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {selectedCred.hasCleartext && <div style={{ fontSize: 9, color: "#ef4444", marginTop: 2 }}>⚠ Cleartext credential captured</div>}
             {selectedCred.reusedOn.length > 0 && (
               <div style={{ marginTop: 6 }}>
                 <div style={{ fontSize: 9, color: "#f97316", marginBottom: 2 }}>Reused on {selectedCred.reusedOn.length} system{selectedCred.reusedOn.length > 1 ? "s" : ""}:</div>
