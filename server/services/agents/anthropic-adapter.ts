@@ -209,6 +209,12 @@ function convertToolChoice(
 
 // ─── Response Conversion ────────────────────────────────────────────────────
 
+function stripMarkdownCodeFences(text: string): string {
+  // Claude sometimes wraps JSON in ```json ... ``` even when asked not to
+  const fenced = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/);
+  return fenced ? fenced[1].trim() : text;
+}
+
 function convertResponse(response: Anthropic.Message, model: string): any {
   let textContent = "";
   const toolCalls: any[] = [];
@@ -226,6 +232,11 @@ function convertResponse(response: Anthropic.Message, model: string): any {
         },
       });
     }
+  }
+
+  // Strip markdown code fences from text content (Claude wraps JSON in ```json...```)
+  if (textContent) {
+    textContent = stripMarkdownCodeFences(textContent);
   }
 
   // Determine finish_reason

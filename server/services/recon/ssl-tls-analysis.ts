@@ -8,9 +8,8 @@ const WEAK_CIPHERS = [
 ]
 
 // Legacy protocols that should be disabled
+// Note: SSLv2/SSLv3 removed — Node.js 20+ throws ERR_TLS_INVALID_PROTOCOL_VERSION for them
 const LEGACY_PROTOCOLS: { name: string; version: string }[] = [
-  { name: 'SSLv2',   version: 'SSLv2' },
-  { name: 'SSLv3',   version: 'SSLv3' },
   { name: 'TLSv1.0', version: 'TLSv1' },
   { name: 'TLSv1.1', version: 'TLSv1.1' },
 ]
