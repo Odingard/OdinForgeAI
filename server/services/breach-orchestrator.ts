@@ -792,6 +792,8 @@ async function executeApplicationCompromise(
             title: finding.title,
             description: finding.description,
             technique: finding.exploitChain,
+            source: "active_exploit_engine",
+            evidenceQuality: "proven",
           });
         }
 
@@ -883,6 +885,10 @@ async function executeApplicationCompromise(
               description: f.description,
               technique: f.technique,
               mitreId: f.mitreId,
+              source: "active_exploit_engine",
+              evidenceQuality: f.statusCode && f.statusCode > 0 ? "proven" : "corroborated",
+              statusCode: f.statusCode,
+              responseBody: f.responseBody,
             });
           }
 
@@ -1029,6 +1035,8 @@ async function executeApplicationCompromise(
               title: step.title,
               description: step.description,
               technique: step.technique,
+              source: "active_exploit_engine",
+              evidenceQuality: "corroborated",
             });
           }
 
@@ -1156,6 +1164,8 @@ async function executeApplicationCompromise(
             title: `[Subdomain: ${new URL(subUrl).hostname}] ${finding.title}`,
             description: finding.description,
             technique: finding.exploitChain,
+            source: "active_exploit_engine",
+            evidenceQuality: "proven",
           });
         }
         subAgentRuns.push({
@@ -1311,6 +1321,10 @@ async function executeCredentialExtraction(
                 description: `${pattern.type} credential found in Phase 1A HTTP response from ${attempt.endpoint.url} (${attempt.payload.name}). Display: ${cred.displayValue}`,
                 technique: "T1552",
                 mitreId: "T1552",
+                source: "credential_extraction",
+                evidenceQuality: "proven",
+                statusCode: attempt.response.statusCode,
+                responseBody: attempt.response.body?.slice(0, 2000),
               });
             }
           }
@@ -1324,60 +1338,15 @@ async function executeCredentialExtraction(
       `Evidence parsing complete — ${newCredentials.length} credentials extracted from HTTP responses`);
   }
 
-  // ── Step 3: LLM fallback ONLY when parser produced zero results on non-empty evidence ──
+  // ADR-001/ADR-002: LLM credential fallback REMOVED.
+  // If deterministic regex extraction found zero credentials, we return null.
+  // LLM cannot generate credential data — only real HTTP evidence can.
   if (newCredentials.length === 0 && phase1Attempts.length === 0) {
-    const compromisedAppAssets = context.compromisedAssets.filter(
-      a => a.assetType === "application"
+    console.info(
+      `[BreachOrchestrator] Phase 2: Zero credentials extracted from HTTP evidence. ` +
+      `No LLM fallback — ADR-001 prohibits synthetic credential generation. ` +
+      `Chain will continue with zero credentials; downstream phases gate on this.`
     );
-    for (const asset of compromisedAppAssets) {
-      if (isCircuitOpen("openai")) {
-        console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping LLM credential fallback for ${asset.assetId}`);
-        continue;
-      }
-      const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
-      try {
-        await storage.createEvaluation({
-          assetId: asset.assetId,
-          exposureType: "data_exfiltration",
-          priority: "high",
-          description: `[LLM FALLBACK] Breach chain ${chain.id}: No credentials found in Phase 1A evidence. LLM analysis for ${asset.name}.`,
-          organizationId: chain.organizationId,
-          executionMode: config.executionMode,
-          status: "pending",
-        });
-        const result = await runAgentOrchestrator(
-          asset.assetId,
-          "data_exfiltration",
-          "high",
-          `Breach chain ${chain.id}: Credential Extraction LLM fallback. Prior access: ${asset.accessLevel} on ${asset.name}. No credentials were found in HTTP evidence — use reasoning to identify likely credential exposure vectors.`,
-          evaluationId,
-          (agentName, _stage, progress, message) => {
-            onProgress(chain.id, "credential_extraction", 60 + Math.round(progress * 0.3), `[LLM Fallback] [${agentName}] ${message}`);
-          },
-          {
-            adversaryProfile: config.adversaryProfile as any,
-            organizationId: chain.organizationId,
-            executionMode: config.executionMode,
-          }
-        );
-        evaluationIds.push(evaluationId);
-        const llmCreds = extractCredentialsFromFindings(result, "credential_extraction");
-        // Mark as low-confidence LLM-inferred credentials
-        for (const c of llmCreds) {
-          findings.push({
-            id: `bf-${randomUUID().slice(0, 8)}`,
-            severity: "low",
-            title: `[LLM Inferred] Potential Credential: ${c.type}`,
-            description: `LLM analysis suggests credential exposure. Confidence: low — not extracted from real HTTP evidence. Requires manual validation.`,
-            technique: "T1552",
-            mitreId: "T1552",
-          });
-        }
-        newCredentials.push(...llmCreds);
-      } catch (error) {
-        console.error(`[BreachOrchestrator] LLM credential fallback failed for ${asset.assetId}:`, error);
-      }
-    }
   }
 
   return buildPhaseResult("credential_extraction", startTime, context, {
@@ -1443,6 +1412,8 @@ async function executeCloudIAMEscalation(
           description: `${path.description}. Steps: ${path.steps.join(" → ")}`,
           technique: path.steps[0],
           mitreId: path.mitreId,
+          source: "cloud_iam_escalation",
+          evidenceQuality: "corroborated",
         });
 
         // Escalation paths yield elevated credentials
@@ -1557,6 +1528,8 @@ async function executeCloudIAMEscalation(
               title: step.title,
               description: step.description,
               technique: step.technique,
+              source: "cloud_iam_escalation",
+              evidenceQuality: "corroborated",
             });
           }
         }
@@ -1595,6 +1568,18 @@ async function executeContainerK8sBreakout(
   let targetHost = (chain.assetIds as string[])[0] || "";
   try { targetHost = new URL(targetHost).hostname; } catch { /* use as-is */ }
 
+  // Fetch runtime context from Go agent telemetry (Capability 2)
+  let runtimeContextNote = "";
+  try {
+    const runtimeBroker = new RuntimeContextBroker();
+    const runtimeCtx = await runtimeBroker.getContextForAsset(targetHost);
+    if (runtimeCtx) {
+      runtimeContextNote = runtimeBroker.formatForPrompt(runtimeCtx);
+    }
+  } catch (err) {
+    console.warn(`[BreachOrchestrator] Runtime context fetch failed for K8s phase (${targetHost}):`, err);
+  }
+
   onProgress(chain.id, "container_k8s_breakout", 57, `Probing ${targetHost} for Kubernetes attack surface`);
 
   // ── Step 1: Real port probes for K8s components ──────────────────────────
@@ -1631,6 +1616,8 @@ async function executeContainerK8sBreakout(
         title: "No Kubernetes Attack Surface Found",
         description: `Probed ${targetHost} on ports ${K8S_PORTS.map(p => p.port).join(", ")}. None are open — no K8s or container orchestration exposure on this target.`,
         technique: "T1046",
+        source: "k8s_breakout",
+        evidenceQuality: "proven",
       }],
       evaluationIds: [],
       domain: "kubernetes",
@@ -1681,6 +1668,10 @@ async function executeContainerK8sBreakout(
           description: `K8s API server on ${targetHost}:${apiHost.port} responds to unauthenticated /version — version: ${v.gitVersion || "unknown"}. Full API may be accessible without credentials.`,
           technique: "T1613",
           mitreId: "T1613",
+          source: "k8s_breakout",
+          evidenceQuality: "proven",
+          statusCode: versionRes.status,
+          responseBody: versionRes.body.slice(0, 2000),
         });
       } catch {
         findings.push({
@@ -1690,6 +1681,10 @@ async function executeContainerK8sBreakout(
           description: `K8s API server on ${targetHost}:${apiHost.port} responds to unauthenticated requests — no authentication required.`,
           technique: "T1613",
           mitreId: "T1613",
+          source: "k8s_breakout",
+          evidenceQuality: "proven",
+          statusCode: versionRes.status,
+          responseBody: versionRes.body.slice(0, 2000),
         });
       }
 
@@ -1703,6 +1698,10 @@ async function executeContainerK8sBreakout(
           description: `Unauthenticated namespace listing succeeded on ${targetHost}:${apiHost.port}/api/v1/namespaces. Full cluster enumeration possible.`,
           technique: "T1613",
           mitreId: "T1613",
+          source: "k8s_breakout",
+          evidenceQuality: "proven",
+          statusCode: nsRes.status,
+          responseBody: nsRes.body.slice(0, 2000),
         });
       }
 
@@ -1716,6 +1715,10 @@ async function executeContainerK8sBreakout(
           description: `Unauthenticated access to /api/v1/secrets on ${targetHost}:${apiHost.port}. Kubernetes secrets (tokens, passwords, certificates) are readable without credentials.`,
           technique: "T1552.007",
           mitreId: "T1552.007",
+          source: "k8s_breakout",
+          evidenceQuality: "proven",
+          statusCode: secretsRes.status,
+          responseBody: secretsRes.body.slice(0, 2000),
         });
         discoveredSecrets.push("cluster-secrets");
       }
@@ -1733,6 +1736,10 @@ async function executeContainerK8sBreakout(
         description: `Kubelet read-only API on ${targetHost}:10255 is accessible without authentication. Pod listing and container metadata enumeration possible.`,
         technique: "T1613",
         mitreId: "T1613",
+        source: "k8s_breakout",
+        evidenceQuality: "proven",
+        statusCode: podsRes.status,
+        responseBody: podsRes.body.slice(0, 2000),
       });
       try {
         const podData = JSON.parse(podsRes.body);
@@ -1753,6 +1760,10 @@ async function executeContainerK8sBreakout(
         description: `etcd on ${targetHost}:2379 is accessible without TLS or authentication. etcd stores all Kubernetes state including secrets, service account tokens, and configuration. Full cluster compromise via etcd key enumeration.`,
         technique: "T1552.007",
         mitreId: "T1552.007",
+        source: "k8s_breakout",
+        evidenceQuality: "proven",
+        statusCode: etcdRes.status,
+        responseBody: etcdRes.body.slice(0, 2000),
       });
     }
   }
@@ -1815,6 +1826,8 @@ async function executeContainerK8sBreakout(
           title: `K8s RBAC Escalation: ${escalation.name}`,
           description: `Confirmed on ${targetHost}. ${escalation.escalationPath.join(" → ")}. Remediation: ${escalation.remediation}`,
           technique: escalation.escalationPath[0],
+          source: "k8s_breakout",
+          evidenceQuality: "corroborated",
         });
       }
 
@@ -1826,6 +1839,8 @@ async function executeContainerK8sBreakout(
             title: `K8s API Abuse: ${vector.name}`,
             description: `Confirmed on ${targetHost}:${apiHost?.port || "K8s API"}. ${vector.impact}`,
             technique: vector.apiEndpoint,
+            source: "k8s_breakout",
+            evidenceQuality: "corroborated",
           });
         }
       }
@@ -1851,6 +1866,8 @@ async function executeContainerK8sBreakout(
           description: `${path.sourcePod} → ${path.targetPod} via ${path.technique} on ${targetHost}`,
           technique: path.technique,
           mitreId: path.mitreId,
+          source: "k8s_breakout",
+          evidenceQuality: "corroborated",
         });
       }
     } catch (err) {
@@ -1866,6 +1883,8 @@ async function executeContainerK8sBreakout(
       title: "Kubernetes Infrastructure Exposed to Internet",
       description: `K8s ports confirmed open on ${targetHost}: ${openPorts.map(p => `${p.port} (${p.label})`).join(", ")}. APIs are authentication-gated but publicly reachable — increases attack surface and brute-force risk.`,
       technique: "T1046",
+      source: "k8s_breakout",
+      evidenceQuality: "proven",
     });
   }
 
@@ -1981,6 +2000,8 @@ async function executeLateralMovement(
             description: pf.evidence,
             technique: pf.technique,
             mitreId: pf.mitreId,
+            source: "lateral_movement",
+            evidenceQuality: pf.authResult === "success" ? "proven" : "corroborated",
           });
         }
       }
@@ -2066,6 +2087,7 @@ async function executeImpactAssessment(
       severity: "critical",
       title: "[SYNTHESIS] Multi-Domain Breach: Full Infrastructure Compromise",
       description: `Attacker achieved access across ${uniqueDomains} domains (${context.domainsCompromised.join(", ")}), compromising ${totalAssets} assets with ${totalCreds} harvested credentials. Maximum privilege: ${maxPrivilege}.`,
+      source: "impact_synthesis",
       evidenceQuality: "inferred",
     } as any);
   }
@@ -2076,6 +2098,7 @@ async function executeImpactAssessment(
       severity: "critical",
       title: "[SYNTHESIS] Administrative Privilege Achieved",
       description: `Attacker escalated to ${maxPrivilege} level, enabling full control over ${maxPrivilege === "cloud_admin" ? "cloud infrastructure" : "domain resources"}.`,
+      source: "impact_synthesis",
       evidenceQuality: "inferred",
     } as any);
   }
@@ -2086,6 +2109,7 @@ async function executeImpactAssessment(
       severity: "high",
       title: "[SYNTHESIS] Significant Credential Harvest",
       description: `${totalCreds} credentials harvested across the breach chain, enabling persistent access and further lateral movement.`,
+      source: "impact_synthesis",
       evidenceQuality: "inferred",
     } as any);
   }
@@ -2103,6 +2127,7 @@ async function executeImpactAssessment(
       severity: "high",
       title: "[SYNTHESIS] Compliance Framework Violations",
       description: `Breach path violates controls in: ${complianceFrameworks.join(", ")}. Immediate remediation required for compliance posture.`,
+      source: "impact_synthesis",
       evidenceQuality: "inferred",
     } as any);
   }
@@ -2114,6 +2139,7 @@ async function executeImpactAssessment(
       severity: "critical",
       title: "[SYNTHESIS] Data Exposure: Administrative Access to Production Systems",
       description: `With ${context.compromisedAssets.filter(a => a.accessLevel === "admin" || a.accessLevel === "system").length} systems at admin/system access, attacker can exfiltrate all data including PII, financial records, and proprietary information.`,
+      source: "impact_synthesis",
       evidenceQuality: "inferred",
     } as any);
   }

@@ -8095,6 +8095,112 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Engagement Package API (ADR-005 / ADR-009) ────────────────────────────
+
+  /** POST /api/breach-chains/:id/seal — Seal engagement package (generates all 5 components) */
+  app.post("/api/breach-chains/:id/seal", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+      if (chain.status === "running") {
+        return res.status(400).json({ error: "Cannot seal a running breach chain" });
+      }
+
+      const { sealEngagementPackage, createSealEvent } = await import("./services/engagement/engagement-package");
+      const { deactivateKeysForEngagement } = await import("./services/engagement/engagement-api-keys");
+      const { generateReengagementOffer } = await import("./services/engagement/reengagement-offer");
+
+      const sealedBy = (req as any).uiUser?.email || "system";
+      const pkg = sealEngagementPackage(chain, sealedBy);
+      const sealEvent = createSealEvent(pkg);
+
+      // Deactivate per-engagement API keys (ADR-009)
+      const deactivatedKeys = deactivateKeysForEngagement(chain.id, "sealed");
+
+      // Generate reengagement offer
+      const offer = generateReengagementOffer(chain, pkg);
+
+      res.json({
+        package: {
+          packageId: pkg.packageId,
+          engagementId: pkg.engagementId,
+          sealedAt: pkg.sealedAt,
+          sealedBy: pkg.sealedBy,
+          integrity: pkg.integrity,
+          metadata: pkg.metadata,
+        },
+        sealEvent,
+        deactivatedApiKeys: deactivatedKeys,
+        reengagementOffer: offer,
+      });
+    } catch (error) {
+      console.error("Seal engagement package error:", error);
+      res.status(500).json({ error: "Failed to seal engagement package" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/package — Get full engagement package (must be sealed first) */
+  app.get("/api/breach-chains/:id/package", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:export"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
+      const pkg = sealEngagementPackage(chain, "readonly-generation");
+
+      // Return requested component or full package
+      const component = req.query.component as string | undefined;
+      if (component === "ciso") return res.json(pkg.components.cisoReport);
+      if (component === "engineer") return res.json(pkg.components.engineerReport);
+      if (component === "evidence") return res.json(pkg.components.evidenceJSON);
+      if (component === "defenders-mirror") return res.json(pkg.components.defendersMirror);
+      if (component === "replay") {
+        res.setHeader("Content-Type", "text/html");
+        return res.send(pkg.components.breachChainReplayHTML);
+      }
+
+      res.json(pkg);
+    } catch (error) {
+      console.error("Get engagement package error:", error);
+      res.status(500).json({ error: "Failed to generate engagement package" });
+    }
+  });
+
+  /** POST /api/breach-chains/:id/api-key — Create per-engagement API key (ADR-009) */
+  app.post("/api/breach-chains/:id/api-key", apiRateLimiter, uiAuthMiddleware, requirePermission("api:write"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { createEngagementApiKey } = await import("./services/engagement/engagement-api-keys");
+      const ttlDays = typeof req.body?.ttlDays === "number" ? req.body.ttlDays : 30;
+      const result = createEngagementApiKey(chain.id, chain.organizationId, ttlDays);
+
+      res.json({
+        keyId: result.key.id,
+        plaintextKey: result.plaintextKey,
+        engagementId: result.key.engagementId,
+        expiresAt: result.key.expiresAt,
+        warning: "Store this key securely — it will not be shown again.",
+      });
+    } catch (error) {
+      console.error("Create engagement API key error:", error);
+      res.status(500).json({ error: "Failed to create engagement API key" });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/api-keys — List API keys for an engagement */
+  app.get("/api/breach-chains/:id/api-keys", apiRateLimiter, uiAuthMiddleware, requirePermission("api:read"), async (req, res) => {
+    try {
+      const { getKeysForEngagement } = await import("./services/engagement/engagement-api-keys");
+      const keys = getKeysForEngagement(req.params.id);
+      res.json(keys.map(k => ({ ...k, keyHash: undefined }))); // Never expose hash
+    } catch (error) {
+      console.error("List engagement API keys error:", error);
+      res.status(500).json({ error: "Failed to list engagement API keys" });
+    }
+  });
+
   // ─── Breach Chain Enhancement API (spec v1.0) ──────────────────────────────
 
   /** GET /api/breach-chains/:id/heatmap — ATT&CK technique coverage for this chain */

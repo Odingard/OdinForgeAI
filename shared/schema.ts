@@ -5329,6 +5329,10 @@ export interface BreachPhaseResult {
     description: string;
     technique?: string;
     mitreId?: string;
+    source?: "active_exploit_engine" | "credential_extraction" | "cloud_iam_escalation" | "k8s_breakout" | "lateral_movement" | "impact_synthesis" | "llm_inference";
+    evidenceQuality?: "proven" | "corroborated" | "inferred" | "unverifiable";
+    statusCode?: number;
+    responseBody?: string;
   }>;
   safetyDecisions?: Array<{
     decision: "ALLOW" | "DENY" | "MODIFY";
