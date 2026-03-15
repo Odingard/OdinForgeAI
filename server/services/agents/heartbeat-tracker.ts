@@ -14,7 +14,7 @@ interface AgentHeartbeat {
 }
 
 const activeHeartbeats = new Map<string, AgentHeartbeat>();
-const STALL_THRESHOLD_MS = 45 * 1000; // 45 seconds without progress = stalled
+const STALL_THRESHOLD_MS = 120 * 1000; // 120 seconds without progress = stalled (Claude needs more time)
 const HEARTBEAT_CHECK_INTERVAL_MS = 30 * 1000; // Check every 30 seconds
 
 let heartbeatIntervalId: NodeJS.Timeout | null = null;

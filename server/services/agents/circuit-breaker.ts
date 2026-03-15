@@ -15,7 +15,7 @@ interface ProviderCircuit {
   lastSuccessTime: number;
 }
 
-const FAILURE_THRESHOLD = 2;
+const FAILURE_THRESHOLD = 4;
 const RESET_TIMEOUT_MS = 60_000; // 60s before allowing a test call
 
 const circuits = new Map<string, ProviderCircuit>();
@@ -77,7 +77,7 @@ export async function withCircuitBreaker<T>(
   provider: string,
   llmFn: () => Promise<T>,
   fallbackFn: () => T,
-  timeoutMs: number = 30_000
+  timeoutMs: number = 90_000
 ): Promise<T> {
   if (isCircuitOpen(provider)) {
     console.log(`[CircuitBreaker] Circuit open for "${provider}", using fallback`);

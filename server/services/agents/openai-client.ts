@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { AnthropicOpenAIAdapter } from "./anthropic-adapter";
 
-const OPENAI_TIMEOUT_MS = 30000; // 30 second timeout to prevent hanging
+const OPENAI_TIMEOUT_MS = 90000; // 90 second timeout (Claude needs more time than GPT-4o)
 
 function getOpenAIApiKey(): string | undefined {
   return process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
