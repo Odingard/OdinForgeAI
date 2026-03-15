@@ -1,7 +1,8 @@
 import OpenAI from "openai";
+import { AnthropicOpenAIAdapter } from "./anthropic-adapter";
 
 export interface ModelConfig {
-  provider: "openai" | "openrouter";
+  provider: "openai" | "openrouter" | "anthropic";
   model: string;
   weight?: number;
 }
@@ -14,7 +15,7 @@ export interface ModelRouterConfig {
 }
 
 interface ProviderClient {
-  client: OpenAI;
+  client: OpenAI | AnthropicOpenAIAdapter;
   model: string;
   weight: number;
 }
@@ -37,7 +38,15 @@ export class ModelRouter {
     model: ModelConfig,
     timeoutMs: number,
     maxRetries: number
-  ): OpenAI {
+  ): OpenAI | AnthropicOpenAIAdapter {
+    if (model.provider === "anthropic") {
+      return new AnthropicOpenAIAdapter({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        timeout: timeoutMs,
+        maxRetries,
+      });
+    }
+
     if (model.provider === "openai") {
       return new OpenAI({
         apiKey:
@@ -61,7 +70,7 @@ export class ModelRouter {
   }
 
   /** Get the client + model for a given turn (supports alloy rotation). */
-  getForTurn(turn?: number): { client: OpenAI; model: string } {
+  getForTurn(turn?: number): { client: any; model: string } {
     const t = turn ?? this.turnCounter++;
 
     if (this.providers.length === 1 || this.strategy === "single") {
@@ -99,9 +108,13 @@ export class ModelRouter {
 /**
  * Build a ModelRouter from environment variables.
  *
- * Default: single GPT-4o (zero config needed).
- * Alloy: set EXPLOIT_AGENT_ALLOY=true and configure OpenRouter key.
- * Custom: set EXPLOIT_AGENT_MODELS=openai:gpt-4o:0.4,openrouter:anthropic/claude-sonnet-4:0.4
+ * Priority:
+ * 1. EXPLOIT_AGENT_MODELS env var (custom config)
+ * 2. EXPLOIT_AGENT_ALLOY=true (multi-model rotation)
+ * 3. ANTHROPIC_API_KEY → Claude Sonnet (preferred)
+ * 4. OPENAI_API_KEY → GPT-4o (fallback)
+ *
+ * Custom: set EXPLOIT_AGENT_MODELS=anthropic:claude-sonnet:0.6,openai:gpt-4o:0.4
  */
 export function createExploitModelRouter(): ModelRouter {
   const timeoutMs = 60_000;
@@ -126,7 +139,7 @@ export function createExploitModelRouter(): ModelRouter {
     });
   }
 
-  // Alloy mode — GPT-4o + OpenRouter models
+  // Alloy mode — multi-provider rotation
   if (
     process.env.EXPLOIT_AGENT_ALLOY === "true" &&
     process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY
@@ -146,6 +159,16 @@ export function createExploitModelRouter(): ModelRouter {
         },
       ],
       strategy: "weighted_random",
+      timeoutMs,
+      maxRetries,
+    });
+  }
+
+  // Anthropic — Claude Sonnet (preferred when ANTHROPIC_API_KEY is set)
+  if (process.env.ANTHROPIC_API_KEY) {
+    return new ModelRouter({
+      models: [{ provider: "anthropic", model: "claude-sonnet-4-20250514" }],
+      strategy: "single",
       timeoutMs,
       maxRetries,
     });

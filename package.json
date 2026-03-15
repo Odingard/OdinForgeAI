@@ -19,6 +19,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@apidevtools/swagger-parser": "^12.1.0",
     "@aws-sdk/client-cloudtrail": "^3.995.0",
     "@aws-sdk/client-ec2": "^3.958.0",

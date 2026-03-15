@@ -1,15 +1,35 @@
 import OpenAI from "openai";
 import type { ExploitFindings } from "./types";
 import { wrapAgentError } from "./error-classifier";
+import { AnthropicOpenAIAdapter } from "./anthropic-adapter";
 
 const OPENROUTER_TIMEOUT_MS = 90000;
 
-const openrouter = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
-  timeout: OPENROUTER_TIMEOUT_MS,
-  maxRetries: 2,
-});
+function createCriticClient(): OpenAI | AnthropicOpenAIAdapter {
+  if (process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY) {
+    return new OpenAI({
+      baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+      apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+      timeout: OPENROUTER_TIMEOUT_MS,
+      maxRetries: 2,
+    });
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    return new AnthropicOpenAIAdapter({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      timeout: OPENROUTER_TIMEOUT_MS,
+      maxRetries: 2,
+    });
+  }
+  return new OpenAI({
+    baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
+    apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+    timeout: OPENROUTER_TIMEOUT_MS,
+    maxRetries: 2,
+  });
+}
+
+const openrouter: any = createCriticClient();
 
 export type CriticVerdict = "verified" | "disputed" | "false_positive";
 
@@ -79,7 +99,7 @@ Respond with a JSON object containing your analysis.`;
 
 export async function runCriticAgent(
   context: CriticContext,
-  model: string = "meta-llama/llama-3.3-70b-instruct",
+  model: string = process.env.ANTHROPIC_API_KEY ? "claude-sonnet-4-20250514" : "meta-llama/llama-3.3-70b-instruct",
   onProgress?: ProgressCallback
 ): Promise<CriticResult> {
   const startTime = Date.now();
