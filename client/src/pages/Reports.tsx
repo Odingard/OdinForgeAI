@@ -489,7 +489,7 @@ export default function Reports() {
         import("pdfmake/build/pdfmake"),
         import("pdfmake/build/vfs_fonts"),
       ]);
-      pdfMake.vfs = pdfFonts.vfs;
+      pdfMake.vfs = pdfFonts.vfs || pdfFonts;
       const pdfDoc = pdfMake.createPdf(docDefinition);
       pdfDoc.download(`${report.title.replace(/\s+/g, "_")}.pdf`);
       toast({

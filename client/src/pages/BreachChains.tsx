@@ -635,6 +635,55 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
   const [showEngagementConfig, setShowEngagementConfig] = useState(false);
 
+  // Engagement Package seal mutation
+  const sealMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/breach-chains/${chain.id}/seal`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: [`/api/breach-chains/${chain.id}`] });
+      toast({
+        title: "Engagement Package Sealed",
+        description: `Risk Grade: ${data.package?.metadata?.riskGrade || "N/A"} — ${data.package?.metadata?.customerFindings ?? 0} findings delivered. ${data.deactivatedApiKeys ?? 0} API keys deactivated.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Seal Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  // Download engagement package component
+  const downloadPackageComponent = async (component: string) => {
+    try {
+      const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/package?component=${component}`);
+      if (component === "replay") {
+        const html = await res.text();
+        const blob = new Blob([html], { type: "text/html" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `odinforge-replay-${chain.id}.html`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `odinforge-${component}-${chain.id}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+      toast({ title: "Downloaded", description: `${component} package component downloaded.` });
+    } catch (error: any) {
+      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const isSealed = !!(chain as any).engagementPackage;
+
   // Narrative query
   const { data: narrative } = useQuery({
     queryKey: [`/api/breach-chains/${chain.id}/narrative`],
@@ -690,6 +739,33 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             <Download style={{ width: 12, height: 12, marginRight: 5 }} />
             Export
           </button>
+          {chain.status === "completed" && !isSealed && (
+            <button
+              className="f-btn f-btn-primary"
+              style={{ fontSize: 11, padding: "4px 10px" }}
+              disabled={sealMutation.isPending}
+              onClick={() => {
+                if (confirm("Seal this engagement package? This action is irreversible — all per-engagement API keys will be deactivated.")) {
+                  sealMutation.mutate();
+                }
+              }}
+            >
+              <Lock style={{ width: 12, height: 12, marginRight: 5 }} />
+              {sealMutation.isPending ? "Sealing..." : "Seal Package"}
+            </button>
+          )}
+          {isSealed && (
+            <div style={{ position: "relative" }} className="f-dropdown-wrap">
+              <button
+                className="f-btn f-btn-primary"
+                style={{ fontSize: 11, padding: "4px 10px" }}
+                onClick={() => setTab("package" as any)}
+              >
+                <Shield style={{ width: 12, height: 12, marginRight: 5 }} />
+                Package ✓
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1056,6 +1132,43 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
           breachChainId={chain.id}
           isRunning={chain.status === "running"}
         />
+      )}
+
+      {(tab as string) === "package" && isSealed && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="f-card" style={{ padding: 16 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+              <Shield style={{ width: 16, height: 16, color: "var(--falcon-green)" }} />
+              Sealed Engagement Package
+            </h3>
+            <p style={{ fontSize: 12, color: "var(--falcon-t3)", marginBottom: 16 }}>
+              This engagement package has been sealed. All findings are backed by the OdinForge EvidenceContract — only PROVEN and CORROBORATED findings are included.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+              {[
+                { key: "ciso", label: "CISO Report", desc: "Risk Grade, breach narrative, compliance implications" },
+                { key: "engineer", label: "Engineer Report", desc: "Full chain trace, HTTP evidence, remediation diffs" },
+                { key: "evidence", label: "Evidence JSON", desc: "Machine-readable findings for SIEM ingestion" },
+                { key: "defenders-mirror", label: "Defender's Mirror", desc: "Sigma, YARA, Splunk SPL detection rules" },
+                { key: "replay", label: "Breach Replay", desc: "Self-contained HTML attack path visualization" },
+              ].map(c => (
+                <button
+                  key={c.key}
+                  className="f-card"
+                  style={{ padding: 12, cursor: "pointer", textAlign: "left", border: "1px solid var(--falcon-b2)" }}
+                  onClick={() => downloadPackageComponent(c.key)}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>{c.label}</div>
+                  <div style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{c.desc}</div>
+                  <div style={{ marginTop: 8, fontSize: 10, color: "var(--falcon-accent)" }}>
+                    <Download style={{ width: 10, height: 10, marginRight: 4, display: "inline" }} />
+                    Download
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Engagement Config Modal */}
