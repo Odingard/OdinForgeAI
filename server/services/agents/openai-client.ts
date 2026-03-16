@@ -29,7 +29,7 @@ function createLLMClient(): OpenAI | AnthropicOpenAIAdapter {
     return new AnthropicOpenAIAdapter({
       apiKey: anthropicKey,
       timeout: OPENAI_TIMEOUT_MS,
-      maxRetries: 2,
+      maxRetries: 5, // 30K tokens/min rate limit — needs more retries with backoff
     });
   }
 

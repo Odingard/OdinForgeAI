@@ -117,8 +117,8 @@ export class ModelRouter {
  * Custom: set EXPLOIT_AGENT_MODELS=anthropic:claude-sonnet:0.6,openai:gpt-4o:0.4
  */
 export function createExploitModelRouter(): ModelRouter {
-  const timeoutMs = 60_000;
-  const maxRetries = 1;
+  const timeoutMs = 90_000;
+  const maxRetries = 5; // Anthropic 30K tokens/min rate limit needs generous retries
 
   // Custom model list
   const modelsEnv = process.env.EXPLOIT_AGENT_MODELS;

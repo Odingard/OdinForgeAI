@@ -399,17 +399,19 @@ async function runPipeline(
   }
 
   // ──────────────────────────────────────────────────────────────
-  // Tier 2: Parallel — Exploit + Business Logic + Multi-Vector (max 30s wall-clock)
+  // Tier 2: Sequential — Exploit → Business Logic → Multi-Vector
+  // (Anthropic 30K tokens/min rate limit prevents parallel execution)
   // ──────────────────────────────────────────────────────────────
   const tier2Start = Date.now();
-  await trackPhase("exploit", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing exploit chains..." });
-  await trackPhase("business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
-  onProgress?.("Analysis Agents", "analysis", 25, "Running parallel analysis...");
+  onProgress?.("Analysis Agents", "analysis", 25, "Running analysis agents...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
-    "Running exploit, business logic, and multi-vector analysis in parallel");
+    "Running exploit, business logic, and multi-vector analysis sequentially (rate limit aware)");
 
-  const [exploitSettled, blSettled, mvSettled] = await Promise.allSettled([
-    withCircuitBreaker(
+  // --- Exploit Agent ---
+  await trackPhase("exploit", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing exploit chains..." });
+  let exploitResult: { success: boolean; findings: ExploitFindings; agentName: string; processingTime: number };
+  try {
+    exploitResult = await withCircuitBreaker(
       "openai",
       () => runWithHeartbeat(evaluationId, "Exploit Agent",
         () => runExploitAgent(memory, (stage: string, progress: number, message: string) => {
@@ -419,60 +421,62 @@ async function runPipeline(
       ),
       () => ({ success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 }),
       AGENT_CB_TIMEOUT_MS
-    ),
-    withCircuitBreaker(
+    );
+  } catch {
+    exploitResult = { success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 };
+  }
+
+  const exploitSummary = `Identified ${exploitResult.findings.exploitChains?.length || 0} potential exploit chains`;
+  await trackPhase("exploit", {
+    status: "completed", completedAt: new Date().toISOString(),
+    duration: Date.now() - tier2Start, findingSummary: exploitSummary,
+  });
+  wsService.sendSharedMemoryUpdate(evaluationId, "exploit_agent", "ExploitAgent", "exploit", exploitSummary);
+
+  // --- Business Logic Agent ---
+  await trackPhase("business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
+  let blResult: { success: boolean; findings: BusinessLogicFindings; agentName: string; processingTime: number };
+  try {
+    blResult = await withCircuitBreaker(
       "openai",
       () => runWithHeartbeat(evaluationId, "Business Logic Agent",
         () => runBusinessLogicAgent(memory, (stage: string, progress: number, message: string) => {
           updateAgentHeartbeat(evaluationId, "Business Logic Agent", stage, progress, message);
-          onProgress?.("Business Logic Agent", stage, 25 + Math.floor(progress * 0.1), message);
+          onProgress?.("Business Logic Agent", stage, 30 + Math.floor(progress * 0.1), message);
         })
       ),
       () => ({ success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 }),
       AGENT_CB_TIMEOUT_MS
-    ),
-    shouldRunMultiVectorAnalysis(exposureType)
-      ? withCircuitBreaker(
-          "openai",
-          () => runWithHeartbeat(evaluationId, "Multi-Vector Agent",
-            () => runMultiVectorAnalysisAgent(memory, (stage: string, progress: number, message: string) => {
-              updateAgentHeartbeat(evaluationId, "Multi-Vector Agent", stage, progress, message);
-              onProgress?.("Multi-Vector Agent", stage, 25 + Math.floor(progress * 0.1), message);
-            })
-          ),
-          () => ({ success: true, findings: EMPTY_MV_FINDINGS, agentName: "Multi-Vector Agent", processingTime: 0 }),
-          AGENT_CB_TIMEOUT_MS
-        )
-      : Promise.resolve(null),
-  ]);
+    );
+  } catch {
+    blResult = { success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 };
+  }
 
-  // Extract Tier 2 results (use fallbacks for rejected promises)
-  const exploitResult = exploitSettled.status === "fulfilled" && exploitSettled.value
-    ? exploitSettled.value
-    : { success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 };
-  const blResult = blSettled.status === "fulfilled" && blSettled.value
-    ? blSettled.value
-    : { success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 };
-  const mvResult = mvSettled.status === "fulfilled" && mvSettled.value
-    ? mvSettled.value
-    : null;
-
-  const exploitSummary = `Identified ${exploitResult.findings.exploitChains?.length || 0} potential exploit chains`;
   const blSummary = `Found ${blResult.findings.workflowAbuse?.length || 0} workflow abuse patterns`;
-  await trackPhase("exploit", {
-    status: exploitSettled.status === "fulfilled" ? "completed" : "failed",
-    completedAt: new Date().toISOString(), duration: Date.now() - tier2Start,
-    findingSummary: exploitSummary,
-    error: exploitSettled.status === "rejected" ? String((exploitSettled as PromiseRejectedResult).reason) : undefined,
-  });
   await trackPhase("business_logic", {
-    status: blSettled.status === "fulfilled" ? "completed" : "failed",
-    completedAt: new Date().toISOString(), duration: Date.now() - tier2Start,
-    findingSummary: blSummary,
-    error: blSettled.status === "rejected" ? String((blSettled as PromiseRejectedResult).reason) : undefined,
+    status: "completed", completedAt: new Date().toISOString(),
+    duration: Date.now() - tier2Start, findingSummary: blSummary,
   });
 
-  wsService.sendSharedMemoryUpdate(evaluationId, "exploit_agent", "ExploitAgent", "exploit", exploitSummary);
+  // --- Multi-Vector Agent (optional) ---
+  let mvResult: { success: boolean; findings: MultiVectorFindings; agentName: string; processingTime: number } | null = null;
+  if (shouldRunMultiVectorAnalysis(exposureType)) {
+    try {
+      mvResult = await withCircuitBreaker(
+        "openai",
+        () => runWithHeartbeat(evaluationId, "Multi-Vector Agent",
+          () => runMultiVectorAnalysisAgent(memory, (stage: string, progress: number, message: string) => {
+            updateAgentHeartbeat(evaluationId, "Multi-Vector Agent", stage, progress, message);
+            onProgress?.("Multi-Vector Agent", stage, 35 + Math.floor(progress * 0.1), message);
+          })
+        ),
+        () => ({ success: true, findings: EMPTY_MV_FINDINGS, agentName: "Multi-Vector Agent", processingTime: 0 }),
+        AGENT_CB_TIMEOUT_MS
+      );
+    } catch {
+      mvResult = null;
+    }
+  }
 
   console.log(`[Orchestrator] Tier 2 completed in ${Date.now() - tier2Start}ms`);
 
@@ -575,14 +579,13 @@ async function runPipeline(
   if (mvResult) memory.multiVector = mvResult.findings;
 
   // ──────────────────────────────────────────────────────────────
-  // Tier 3: Parallel — Lateral + Impact + Enhanced BL (max 30s wall-clock)
+  // Tier 3: Sequential — Lateral → Impact → Enhanced BL
+  // (Anthropic 30K tokens/min rate limit prevents parallel execution)
   // ──────────────────────────────────────────────────────────────
   const tier3Start = Date.now();
-  await trackPhase("lateral", { status: "running", startedAt: new Date().toISOString(), message: "Identifying lateral movement paths..." });
-  await trackPhase("impact", { status: "running", startedAt: new Date().toISOString(), message: "Assessing business impact..." });
   onProgress?.("Analysis Agents", "analysis_tier3", 50, "Running lateral, impact, and enhanced analysis...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
-    "Running lateral movement, impact assessment, and enhanced analysis in parallel");
+    "Running lateral movement, impact assessment, and enhanced analysis sequentially (rate limit aware)");
 
   const runEnhanced = shouldRunEnhancedEngine(exposureType);
 
@@ -592,85 +595,92 @@ async function runPipeline(
     console.log("[Orchestrator] Skipping lateral agent: no exploitable findings to pivot from");
   }
 
-  const [lateralSettled, impactSettled, enhancedSettled] = await Promise.allSettled([
-    skipLateral
-      ? Promise.resolve({ success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 })
-      : withCircuitBreaker(
-      "openai",
-      () => runWithHeartbeat(evaluationId, "Lateral Movement Agent",
-        () => runLateralAgent(memory, (stage: string, progress: number, message: string) => {
-          updateAgentHeartbeat(evaluationId, "Lateral Movement Agent", stage, progress, message);
-          onProgress?.("Lateral Movement Agent", stage, 50 + Math.floor(progress * 0.1), message);
-        })
-      ),
-      () => ({ success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 }),
-      AGENT_CB_TIMEOUT_MS
-    ),
-    withCircuitBreaker(
+  // --- Lateral Agent ---
+  await trackPhase("lateral", { status: "running", startedAt: new Date().toISOString(), message: "Identifying lateral movement paths..." });
+  let lateralResult: { success: boolean; findings: LateralFindings; agentName: string; processingTime: number };
+  if (skipLateral) {
+    lateralResult = { success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 };
+  } else {
+    try {
+      lateralResult = await withCircuitBreaker(
+        "openai",
+        () => runWithHeartbeat(evaluationId, "Lateral Movement Agent",
+          () => runLateralAgent(memory, (stage: string, progress: number, message: string) => {
+            updateAgentHeartbeat(evaluationId, "Lateral Movement Agent", stage, progress, message);
+            onProgress?.("Lateral Movement Agent", stage, 50 + Math.floor(progress * 0.1), message);
+          })
+        ),
+        () => ({ success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 }),
+        AGENT_CB_TIMEOUT_MS
+      );
+    } catch {
+      lateralResult = { success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 };
+    }
+  }
+
+  const lateralSummary = `Discovered ${lateralResult.findings.pivotPaths?.length || 0} lateral movement paths`;
+  await trackPhase("lateral", {
+    status: "completed", completedAt: new Date().toISOString(),
+    duration: Date.now() - tier3Start, findingSummary: lateralSummary,
+  });
+  wsService.sendSharedMemoryUpdate(evaluationId, "lateral_agent", "LateralAgent", "lateral", lateralSummary);
+
+  // --- Impact Agent ---
+  await trackPhase("impact", { status: "running", startedAt: new Date().toISOString(), message: "Assessing business impact..." });
+  let impactResult: { success: boolean; findings: ImpactFindings; agentName: string; processingTime: number };
+  try {
+    impactResult = await withCircuitBreaker(
       "openai",
       () => runWithHeartbeat(evaluationId, "Impact Agent",
         () => runImpactAgent(memory, (stage: string, progress: number, message: string) => {
           updateAgentHeartbeat(evaluationId, "Impact Agent", stage, progress, message);
-          onProgress?.("Impact Agent", stage, 50 + Math.floor(progress * 0.1), message);
+          onProgress?.("Impact Agent", stage, 55 + Math.floor(progress * 0.1), message);
         })
       ),
       () => ({ success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 }),
       AGENT_CB_TIMEOUT_MS
-    ),
-    runEnhanced
-      ? withCircuitBreaker(
-          "openai",
-          () => runWithHeartbeat(evaluationId, "Business Logic Engine",
-            () => runEnhancedBusinessLogicEngine(memory, (stage: string, progress: number, message: string) => {
-              updateAgentHeartbeat(evaluationId, "Business Logic Engine", stage, progress, message);
-              onProgress?.("Business Logic Engine", stage, 50 + Math.floor(progress * 0.1), message);
-            })
-          ),
-          () => ({
-            success: true,
-            findings: {
-              basicFindings: EMPTY_BL_FINDINGS,
-              detailedFindings: [],
-              workflowAnalysis: null,
-              paymentFlowVulnerabilities: [],
-              stateTransitionViolations: [],
-              inferredWorkflows: [],
-            } as EnhancedBusinessLogicFindings,
-            agentName: "Business Logic Engine",
-            processingTime: 0,
-          }),
-          AGENT_CB_TIMEOUT_MS
-        )
-      : Promise.resolve(null),
-  ]);
+    );
+  } catch {
+    impactResult = { success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 };
+  }
 
-  // Extract Tier 3 results
-  const lateralResult = lateralSettled.status === "fulfilled" && lateralSettled.value
-    ? lateralSettled.value
-    : { success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 };
-  const impactResult = impactSettled.status === "fulfilled" && impactSettled.value
-    ? impactSettled.value
-    : { success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 };
-  const enhancedResult = enhancedSettled.status === "fulfilled" && enhancedSettled.value
-    ? enhancedSettled.value
-    : null;
-
-  const lateralSummary = `Discovered ${lateralResult.findings.pivotPaths?.length || 0} lateral movement paths`;
   const impactSummary = `Data exposure severity: ${impactResult.findings.dataExposure?.severity || "unknown"}`;
-  await trackPhase("lateral", {
-    status: lateralSettled.status === "fulfilled" ? "completed" : "failed",
-    completedAt: new Date().toISOString(), duration: Date.now() - tier3Start,
-    findingSummary: lateralSummary,
-    error: lateralSettled.status === "rejected" ? String((lateralSettled as PromiseRejectedResult).reason) : undefined,
-  });
   await trackPhase("impact", {
-    status: impactSettled.status === "fulfilled" ? "completed" : "failed",
-    completedAt: new Date().toISOString(), duration: Date.now() - tier3Start,
-    findingSummary: impactSummary,
-    error: impactSettled.status === "rejected" ? String((impactSettled as PromiseRejectedResult).reason) : undefined,
+    status: "completed", completedAt: new Date().toISOString(),
+    duration: Date.now() - tier3Start, findingSummary: impactSummary,
   });
 
-  wsService.sendSharedMemoryUpdate(evaluationId, "lateral_agent", "LateralAgent", "lateral", lateralSummary);
+  // --- Enhanced Business Logic Engine (optional) ---
+  let enhancedResult: { success: boolean; findings: EnhancedBusinessLogicFindings; agentName: string; processingTime: number } | null = null;
+  if (runEnhanced) {
+    try {
+      enhancedResult = await withCircuitBreaker(
+        "openai",
+        () => runWithHeartbeat(evaluationId, "Business Logic Engine",
+          () => runEnhancedBusinessLogicEngine(memory, (stage: string, progress: number, message: string) => {
+            updateAgentHeartbeat(evaluationId, "Business Logic Engine", stage, progress, message);
+            onProgress?.("Business Logic Engine", stage, 60 + Math.floor(progress * 0.1), message);
+          })
+        ),
+        () => ({
+          success: true,
+          findings: {
+            basicFindings: EMPTY_BL_FINDINGS,
+            detailedFindings: [],
+            workflowAnalysis: null,
+            paymentFlowVulnerabilities: [],
+            stateTransitionViolations: [],
+            inferredWorkflows: [],
+          } as EnhancedBusinessLogicFindings,
+          agentName: "Business Logic Engine",
+          processingTime: 0,
+        }),
+        AGENT_CB_TIMEOUT_MS
+      );
+    } catch {
+      enhancedResult = null;
+    }
+  }
 
   console.log(`[Orchestrator] Tier 3 completed in ${Date.now() - tier3Start}ms`);
 

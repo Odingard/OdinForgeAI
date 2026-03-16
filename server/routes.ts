@@ -7721,8 +7721,8 @@ export async function registerRoutes(
         requireMinConfidence: 30,
         requireCredentialForCloud: true,
         requireCloudAccessForK8s: true,
-        phaseTimeoutMs: config?.timeouts?.perPhaseMs ?? config?.phaseTimeoutMs ?? 300000,
-        totalTimeoutMs: config?.timeouts?.totalMs ?? config?.totalTimeoutMs ?? 1800000,
+        phaseTimeoutMs: config?.timeouts?.perPhaseMs ?? config?.phaseTimeoutMs ?? 900000, // 15 min — 3 sequential AI pipelines × ~200s each
+        totalTimeoutMs: config?.timeouts?.totalMs ?? config?.totalTimeoutMs ?? 3600000, // 60 min total
         pauseOnCritical: false,
         ...config,
         executionMode: executionMode as "safe" | "simulation" | "live",
