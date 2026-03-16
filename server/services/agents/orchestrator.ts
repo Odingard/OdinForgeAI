@@ -38,8 +38,12 @@ import { wsService } from "../websocket";
 import { storage } from "../../storage";
 import { createAuditLogger } from "../audit-logger";
 
-// Pipeline-level timeout: 3 minutes max for entire orchestration
-const PIPELINE_TIMEOUT_MS = 180_000;
+// Pipeline-level timeout: 10 minutes max for entire orchestration
+// (Claude models need 30-60s per LLM call × 4 tiers of agents + overhead)
+const PIPELINE_TIMEOUT_MS = 600_000;
+
+// Per-agent circuit breaker timeout: must exceed Claude's ~60s response time
+const AGENT_CB_TIMEOUT_MS = 120_000;
 
 // Timeout for PolicyGuardian check loops
 const GUARDIAN_LOOP_TIMEOUT_MS = 15_000;
@@ -136,7 +140,7 @@ export async function runAgentOrchestrator(
     runPipeline(assetId, exposureType, priority, description, evaluationId, onProgress, options),
     new Promise<never>((_, reject) =>
       setTimeout(
-        () => reject(new Error("Pipeline timeout: 3 minutes exceeded")),
+        () => reject(new Error(`Pipeline timeout: ${PIPELINE_TIMEOUT_MS / 60_000} minutes exceeded`)),
         PIPELINE_TIMEOUT_MS
       )
     ),
@@ -261,7 +265,7 @@ async function runPipeline(
       analyzeWaf(assetId.startsWith("http") ? assetId : `https://${host}`),
     ]);
 
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000));
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000));
     const infraResult = await Promise.race([infraPromise, timeoutPromise]);
 
     if (infraResult) {
@@ -330,7 +334,7 @@ async function runPipeline(
       agentName: "Recon Agent",
       processingTime: 0,
     }),
-    30_000
+    AGENT_CB_TIMEOUT_MS
   );
   memory.recon = reconResult.findings;
 
@@ -414,7 +418,7 @@ async function runPipeline(
         })
       ),
       () => ({ success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 }),
-      120_000
+      AGENT_CB_TIMEOUT_MS
     ),
     withCircuitBreaker(
       "openai",
@@ -425,7 +429,7 @@ async function runPipeline(
         })
       ),
       () => ({ success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 }),
-      30_000
+      AGENT_CB_TIMEOUT_MS
     ),
     shouldRunMultiVectorAnalysis(exposureType)
       ? withCircuitBreaker(
@@ -437,7 +441,7 @@ async function runPipeline(
             })
           ),
           () => ({ success: true, findings: EMPTY_MV_FINDINGS, agentName: "Multi-Vector Agent", processingTime: 0 }),
-          30_000
+          AGENT_CB_TIMEOUT_MS
         )
       : Promise.resolve(null),
   ]);
@@ -513,7 +517,7 @@ async function runPipeline(
           }
         ),
         () => undefined as unknown as DebateResult,
-        30_000
+        AGENT_CB_TIMEOUT_MS
       );
 
       if (debateResult) {
@@ -600,7 +604,7 @@ async function runPipeline(
         })
       ),
       () => ({ success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 }),
-      30_000
+      AGENT_CB_TIMEOUT_MS
     ),
     withCircuitBreaker(
       "openai",
@@ -611,7 +615,7 @@ async function runPipeline(
         })
       ),
       () => ({ success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 }),
-      30_000
+      AGENT_CB_TIMEOUT_MS
     ),
     runEnhanced
       ? withCircuitBreaker(
@@ -635,7 +639,7 @@ async function runPipeline(
             agentName: "Business Logic Engine",
             processingTime: 0,
           }),
-          30_000
+          AGENT_CB_TIMEOUT_MS
         )
       : Promise.resolve(null),
   ]);
@@ -686,7 +690,7 @@ async function runPipeline(
   if (enhancedResult) memory.enhancedBusinessLogic = enhancedResult.findings;
 
   // ──────────────────────────────────────────────────────────────
-  // Tier 4: Synthesizer (1 LLM call, max 30s)
+  // Tier 4: Synthesizer (1 LLM call)
   // ──────────────────────────────────────────────────────────────
   const synthesisStart = Date.now();
   await trackPhase("synthesis", { status: "running", startedAt: new Date().toISOString(), message: "Generating final report..." });
@@ -703,7 +707,7 @@ async function runPipeline(
       impact: "Analysis completed with fallback synthesis",
       recommendations: [],
     }),
-    30_000
+    AGENT_CB_TIMEOUT_MS
   );
 
   await trackPhase("synthesis", {
