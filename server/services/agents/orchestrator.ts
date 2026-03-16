@@ -43,7 +43,7 @@ import { createAuditLogger } from "../audit-logger";
 const PIPELINE_TIMEOUT_MS = 600_000;
 
 // Per-agent circuit breaker timeout: must exceed Claude's ~60s response time
-const AGENT_CB_TIMEOUT_MS = 120_000;
+const AGENT_CB_TIMEOUT_MS = 180_000; // 3min — exploit agent's 12-turn loop needs this
 
 // Timeout for PolicyGuardian check loops
 const GUARDIAN_LOOP_TIMEOUT_MS = 15_000;

@@ -77,7 +77,7 @@ export async function withCircuitBreaker<T>(
   provider: string,
   llmFn: () => Promise<T>,
   fallbackFn: () => T,
-  timeoutMs: number = 90_000
+  timeoutMs: number = 180_000
 ): Promise<T> {
   if (isCircuitOpen(provider)) {
     console.log(`[CircuitBreaker] Circuit open for "${provider}", using fallback`);
