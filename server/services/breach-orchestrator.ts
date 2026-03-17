@@ -48,6 +48,15 @@ import { RuntimeContextBroker } from "./aev/runtime-context-broker";
 import { destroyAllRateLimiters } from "./agent-rate-limiter";
 import { engagementLogger } from "./logger";
 import { evidenceQualityGate, EvidenceQuality, type EvaluatedFinding, type BatchVerdict } from "./evidence-quality-gate";
+import { AgentMeshOrchestrator, type AgentMeshResult } from "./aev/agent-mesh-orchestrator";
+
+/**
+ * Runtime check — separated into a function so esbuild cannot
+ * evaluate it at build time and tree-shake the mesh code path.
+ */
+function isAgentMeshEnabled(): boolean {
+  return String(process.env.AGENT_MESH).toLowerCase() === "true";
+}
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
 import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
@@ -250,6 +259,64 @@ export async function runBreachChain(
 
   broadcastBreachProgress(chainId, "starting", 0, "Breach chain initiated — LIVE MODE ENFORCED");
 
+  // ── AGENT_MESH: Event-driven 4-agent mesh replaces sequential pipeline ────
+  if (isAgentMeshEnabled()) {
+    log.info("AGENT_MESH enabled — delegating to AgentMeshOrchestrator");
+    broadcastBreachProgress(chainId, "starting", 5, "Agent Mesh active — 4-agent event-driven pipeline");
+
+    const targetUrl = Array.isArray(chain.assetIds) ? chain.assetIds[0] : "";
+    const mesh = new AgentMeshOrchestrator({
+      chainId,
+      engagementId: chainId,
+      targetUrl,
+      timeout: config.totalTimeoutMs ?? 120_000,
+    });
+
+    try {
+      const result = await mesh.run();
+
+      // Convert mesh event log into phaseResults + attack graph for UI compatibility
+      const meshPhaseResults = buildMeshPhaseResults(result);
+      const meshGraph = buildMeshAttackGraph(result);
+      const meshRiskScore = meshPhaseResults.reduce((max, pr) => {
+        const phaseMax = pr.findings.reduce((m, f) =>
+          Math.max(m, f.severity === "critical" ? 95 : f.severity === "high" ? 80 : f.severity === "medium" ? 60 : 40), 0);
+        return Math.max(max, phaseMax);
+      }, 0);
+
+      await storage.updateBreachChain(chainId, {
+        status: result.status === "completed" ? "completed" : "failed",
+        progress: result.status === "completed" ? 100 : 0,
+        currentPhase: null,
+        completedAt: new Date(),
+        durationMs: result.durationMs,
+        phaseResults: meshPhaseResults,
+        unifiedAttackGraph: meshGraph as any,
+        overallRiskScore: meshRiskScore,
+        totalCredentialsHarvested: result.eventLog.filter(e => e.type === "credential.extracted").length,
+        executiveSummary: `Agent Mesh ${result.status}: ${result.totalEvents} events, ${result.findingCount} findings in ${Math.round(result.durationMs / 1000)}s`,
+      });
+
+      broadcastBreachProgress(
+        chainId,
+        result.status === "completed" ? "completed" : "failed",
+        result.status === "completed" ? 100 : 0,
+        `Agent Mesh ${result.status} — ${result.findingCount} findings, ${result.totalEvents} events in ${Math.round(result.durationMs / 1000)}s`,
+      );
+    } catch (error) {
+      log.error({ err: error }, "Agent Mesh failed");
+      await storage.updateBreachChain(chainId, {
+        status: "failed",
+        completedAt: new Date(),
+      });
+      broadcastBreachProgress(
+        chainId, "failed", 0,
+        `Agent Mesh failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+    return;
+  }
+
   // Initialize or restore context
   let context: BreachPhaseContext = (chain.currentContext as BreachPhaseContext) ?? {
     credentials: [],
@@ -353,6 +420,7 @@ export async function runBreachChain(
       ]);
 
       phaseResults.push(phaseResult);
+      log.info({ phase: phaseName, status: phaseResult.status, findings: phaseResult.findings?.length ?? 0 }, `Phase executor returned`);
 
       // Merge output context
       if (phaseResult.status === "completed") {
@@ -431,12 +499,18 @@ export async function runBreachChain(
       const incrementalGraph = buildUnifiedAttackGraph(phaseResults, context);
 
       // Persist incremental progress with partial graph
-      await storage.updateBreachChain(chainId, {
-        phaseResults,
-        currentContext: context,
-        progress: phaseDef.progressRange[1],
-        unifiedAttackGraph: incrementalGraph,
-      });
+      try {
+        log.info({ phase: phaseName, phaseResultsCount: phaseResults.length, graphNodes: incrementalGraph?.nodes?.length ?? 0 }, `Persisting phase results to DB`);
+        await storage.updateBreachChain(chainId, {
+          phaseResults,
+          currentContext: context,
+          progress: phaseDef.progressRange[1],
+          unifiedAttackGraph: incrementalGraph,
+        });
+        log.info({ phase: phaseName }, `Phase results persisted successfully`);
+      } catch (dbErr) {
+        log.error({ err: dbErr, phase: phaseName }, `FAILED to persist phase results to DB`);
+      }
 
       broadcastBreachProgress(
         chainId, phaseName, phaseDef.progressRange[1],
@@ -613,6 +687,199 @@ export async function resumeBreachChain(chainId: string): Promise<void> {
 export async function abortBreachChain(chainId: string): Promise<void> {
   await storage.updateBreachChain(chainId, { status: "aborted" });
   broadcastBreachProgress(chainId, "aborted", 0, "Breach chain aborted by user");
+}
+
+// ============================================================================
+// AGENT MESH → BREACH CHAIN DATA CONVERSION
+// ============================================================================
+
+function buildMeshPhaseResults(result: AgentMeshResult): BreachPhaseResult[] {
+  const phases: BreachPhaseResult[] = [];
+  const eventLog = result.eventLog;
+  const startTime = eventLog[0]?.timestamp ?? new Date().toISOString();
+
+  // Extract findings from vuln.confirmed and breach.confirmed events
+  const vulnEvents = eventLog.filter(e => e.type === "vuln.confirmed");
+  const breachEvents = eventLog.filter(e => e.type === "breach.confirmed");
+  const credEvents = eventLog.filter(e => e.type === "credential.extracted");
+
+  const emptyContext: BreachPhaseContext = {
+    credentials: [],
+    compromisedAssets: [],
+    attackPathSteps: [],
+    evidenceArtifacts: [],
+    currentPrivilegeLevel: "none",
+    domainsCompromised: [],
+  };
+
+  // Phase 1: Application Compromise — from vuln.confirmed events
+  if (vulnEvents.length > 0) {
+    phases.push({
+      phaseName: "application_compromise",
+      status: "completed",
+      startedAt: startTime,
+      completedAt: eventLog.find(e => e.type === "scan.finished")?.timestamp ?? startTime,
+      durationMs: result.durationMs,
+      inputContext: { credentialCount: 0, compromisedAssetCount: 0, privilegeLevel: "none" },
+      outputContext: emptyContext,
+      findings: vulnEvents.map(e => {
+        const p = e.payload as { vulnClass?: string; endpoint?: string; severity?: string; technique?: string; findingId?: string };
+        const ev = e.evidence?.[0];
+        return {
+          id: p.findingId ?? e.id,
+          severity: (p.severity as "critical" | "high" | "medium" | "low") ?? "high",
+          title: `[VALIDATED] ${p.vulnClass ?? "Unknown"} — ${p.endpoint ?? ""}`,
+          description: p.technique ?? `${p.vulnClass} confirmed at ${p.endpoint}`,
+          technique: p.technique,
+          source: "active_exploit_engine" as const,
+          evidenceQuality: "proven" as const,
+          statusCode: ev?.statusCode,
+          responseBody: ev?.rawResponseBody?.slice(0, 500),
+        };
+      }),
+    });
+  }
+
+  // Phase 2: Credential Extraction — from credential.extracted events
+  if (credEvents.length > 0) {
+    phases.push({
+      phaseName: "credential_extraction",
+      status: "completed",
+      startedAt: credEvents[0].timestamp,
+      completedAt: credEvents[credEvents.length - 1].timestamp,
+      inputContext: { credentialCount: 0, compromisedAssetCount: vulnEvents.length, privilegeLevel: "user" },
+      outputContext: emptyContext,
+      findings: credEvents.map(e => {
+        const p = e.payload as { source?: string; phase?: number };
+        return {
+          id: e.id,
+          severity: "critical" as const,
+          title: `Credential extracted from ${p.source ?? "unknown"}`,
+          description: `Live credential harvested during breach chain phase ${p.phase ?? 2}`,
+          source: "credential_extraction" as const,
+          evidenceQuality: "proven" as const,
+        };
+      }),
+    });
+  }
+
+  // Phase 3+: Breach phases — from breach.confirmed events (phases 3-6)
+  for (const be of breachEvents) {
+    const p = be.payload as { phase?: number; description?: string };
+    if (p.phase && p.phase > 1) {
+      const phaseName = p.phase === 3 ? "cloud_iam_escalation"
+        : p.phase === 4 ? "container_k8s_breakout"
+        : p.phase === 5 ? "lateral_movement"
+        : "impact_assessment";
+      const ev = be.evidence?.[0];
+      phases.push({
+        phaseName: phaseName as BreachPhaseName,
+        status: "completed",
+        startedAt: be.timestamp,
+        completedAt: be.timestamp,
+        inputContext: { credentialCount: credEvents.length, compromisedAssetCount: vulnEvents.length, privilegeLevel: "user" },
+        outputContext: emptyContext,
+        findings: [{
+          id: be.id,
+          severity: "high" as const,
+          title: `[VALIDATED] ${p.description ?? phaseName}`,
+          description: p.description ?? `Breach phase ${p.phase} confirmed`,
+          source: phaseName === "cloud_iam_escalation" ? "cloud_iam_escalation" as const
+            : phaseName === "container_k8s_breakout" ? "k8s_breakout" as const
+            : "lateral_movement" as const,
+          evidenceQuality: "proven" as const,
+          statusCode: ev?.statusCode,
+          responseBody: ev?.rawResponseBody?.slice(0, 500),
+        }],
+      });
+    }
+  }
+
+  return phases;
+}
+
+function buildMeshAttackGraph(result: AgentMeshResult): Record<string, unknown> {
+  const nodes: Record<string, unknown>[] = [];
+  const edges: Record<string, unknown>[] = [];
+  const criticalPath: string[] = [];
+  let nodeIdx = 0;
+
+  // Entry node
+  const entryId = `mesh-entry-${nodeIdx++}`;
+  nodes.push({
+    id: entryId,
+    label: "Initial Access",
+    description: "Agent Mesh entry point",
+    nodeType: "entry",
+    tactic: "initial-access",
+    compromiseLevel: "none",
+    discoveredBy: "recon",
+    businessImpact: { summary: "Entry point for Agent Mesh breach chain", estimatedBlastRadius: "contained" },
+  });
+  criticalPath.push(entryId);
+
+  let prevNodeId = entryId;
+
+  // Add vuln.confirmed as pivot nodes
+  for (const e of result.eventLog) {
+    if (e.type === "vuln.confirmed") {
+      const p = e.payload as { vulnClass?: string; endpoint?: string; severity?: string; technique?: string; findingId?: string };
+      const nodeId = `mesh-vuln-${nodeIdx++}`;
+      nodes.push({
+        id: nodeId,
+        label: `[VALIDATED] ${p.vulnClass ?? "vuln"}`,
+        description: p.technique ?? `${p.vulnClass} at ${p.endpoint}`,
+        nodeType: "pivot",
+        tactic: "initial-access",
+        compromiseLevel: p.severity === "critical" ? "admin" : "user",
+        discoveredBy: "exploit",
+        artifacts: {
+          procedure: p.technique,
+          discoveredAt: e.timestamp,
+          attackTechniqueId: "T1190",
+          attackTechniqueName: `${p.vulnClass} → ${p.endpoint}`,
+        },
+        businessImpact: {
+          summary: `${p.vulnClass} confirmed at ${p.endpoint}`,
+          estimatedBlastRadius: p.severity === "critical" ? "organization" : "contained",
+        },
+      });
+      edges.push({
+        id: `mesh-edge-${nodeIdx}`,
+        source: prevNodeId,
+        target: nodeId,
+        technique: p.technique ?? p.vulnClass ?? "exploitation",
+        timeToCompromise: "< 1 minute",
+      });
+      criticalPath.push(nodeId);
+      prevNodeId = nodeId;
+    }
+
+    if (e.type === "breach.confirmed") {
+      const p = e.payload as { phase?: number; description?: string };
+      const nodeId = `mesh-breach-${nodeIdx++}`;
+      nodes.push({
+        id: nodeId,
+        label: `Phase ${p.phase}: ${p.description ?? "Breach"}`,
+        description: p.description ?? `Breach phase ${p.phase}`,
+        nodeType: p.phase && p.phase >= 4 ? "objective" : "pivot",
+        tactic: p.phase === 2 ? "credential-access" : p.phase === 3 ? "privilege-escalation" : "lateral-movement",
+        compromiseLevel: p.phase && p.phase >= 4 ? "system" : "admin",
+        discoveredBy: "exploit",
+        businessImpact: { summary: p.description ?? `Breach confirmed at phase ${p.phase}`, estimatedBlastRadius: p.phase && p.phase >= 4 ? "organization" : "department" },
+      });
+      edges.push({
+        id: `mesh-edge-${nodeIdx}`,
+        source: prevNodeId,
+        target: nodeId,
+        technique: p.description ?? "breach chain progression",
+      });
+      criticalPath.push(nodeId);
+      prevNodeId = nodeId;
+    }
+  }
+
+  return { nodes, edges, criticalPath };
 }
 
 // ============================================================================

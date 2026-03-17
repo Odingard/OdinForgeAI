@@ -13,12 +13,15 @@ export interface FeatureFlags {
   REPORTS_V2_NARRATIVE: boolean;
   /** AEV-only mode — disables all non-AEV routes, workers, and UI pages */
   AEV_ONLY: boolean;
+  /** Agent Mesh — replaces sequential phase pipeline with 4-agent event-driven mesh */
+  AGENT_MESH: boolean;
 }
 
 /** Default feature flag values (production-safe defaults) */
 const defaultFlags: FeatureFlags = {
   REPORTS_V2_NARRATIVE: false,
   AEV_ONLY: false,
+  AGENT_MESH: false,
 };
 
 /** Per-tenant feature flag overrides */
@@ -37,6 +40,9 @@ export function getFeatureFlags(tenantId?: string): FeatureFlags {
   }
   if (AEV_ONLY_MODE) {
     flags.AEV_ONLY = true;
+  }
+  if (process.env["AGENT_MESH"] === "true") {
+    flags.AGENT_MESH = true;
   }
   
   // Apply tenant-specific overrides if available

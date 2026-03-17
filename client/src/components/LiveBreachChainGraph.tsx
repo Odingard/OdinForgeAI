@@ -1149,6 +1149,7 @@ export function LiveBreachChainGraph({
                   <div style={{ fontSize: 11, color: "var(--falcon-t3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Business Impact</div>
 
                   {/* Blast radius indicator */}
+                  {node.businessImpact.estimatedBlastRadius && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 11 }}>Blast Radius:</span>
                     <span style={{
@@ -1161,6 +1162,7 @@ export function LiveBreachChainGraph({
                       {node.businessImpact.estimatedBlastRadius.toUpperCase().replace("-", " ")}
                     </span>
                   </div>
+                  )}
 
                   {/* Summary */}
                   <p style={{ fontSize: 12, color: "var(--falcon-t2)", margin: "0 0 8px" }}>
