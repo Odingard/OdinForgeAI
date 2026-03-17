@@ -741,6 +741,8 @@ export const attackNodeSchema = z.object({
     dataCollected: z.string().optional(),
     discoveredAt: z.string().optional(),
   }).optional(),
+  // Branch mode: which subdomain branch this node belongs to (Sprint 3)
+  branchId: z.number().optional(),
 });
 
 // Attack Graph Edge - represents a technique/transition between nodes

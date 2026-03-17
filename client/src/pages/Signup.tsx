@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Lock, Mail, User, AlertCircle, Crosshair, Network, Zap, BarChart3 } from "lucide-react";
-import { ShieldValknut } from "@/components/OdinForgeLogo";
+import { ShieldValknut, OdinGardBrand } from "@/components/OdinForgeLogo";
 import { useUIAuth } from "@/contexts/UIAuthContext";
 import { Link } from "wouter";
 
@@ -147,9 +147,9 @@ export default function Signup({ onSignupSuccess }: SignupProps) {
         </div>
 
         <div className="flex items-center gap-6 text-xs text-muted-foreground">
-          <span>BSL 1.1 Licensed</span>
+          <OdinGardBrand size="sm" className="opacity-60" />
           <span className="h-3 w-px bg-border" />
-          <span>Six Sense Enterprise Services LLC</span>
+          <span>BSL 1.1 Licensed</span>
         </div>
       </div>
 

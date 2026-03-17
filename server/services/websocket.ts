@@ -122,7 +122,17 @@ interface BreachChainGraphUpdateEvent {
   timestamp: string;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent | BreachChainGraphUpdateEvent;
+interface BreachChainLiveEvent {
+  type: "breach_chain_live_event";
+  chainId: string;
+  eventKind: "scanning" | "exploit_attempt" | "credential_extracted" | "vuln_confirmed";
+  target: string;
+  detail: string;
+  phase: string;
+  timestamp: string;
+}
+
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent | BreachChainGraphUpdateEvent | BreachChainLiveEvent;
 
 interface ClientInfo {
   ws: WebSocket;

@@ -621,7 +621,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const enabledPhases = config?.enabledPhases || [];
 
   // Real-time graph updates via WebSocket
-  const { latestGraph } = useBreachChainUpdates({
+  const { latestGraph, liveEvents } = useBreachChainUpdates({
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
   });
@@ -1020,6 +1020,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}
             currentPhase={chain.currentPhase ?? undefined}
             isRunning={chain.status === "running"}
+            liveEvents={liveEvents}
           />
 
           {/* Remediation Progress Panel */}

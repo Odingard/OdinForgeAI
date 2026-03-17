@@ -43,10 +43,12 @@ export function useWebSocket({
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Generate WebSocket URL from window location if not provided
+  // Generate WebSocket URL from window location if not provided, with auth token
   const wsUrl = url || (() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${window.location.host}/ws`;
+    const token = localStorage.getItem("odinforge_access_token") || "";
+    const base = `${protocol}//${window.location.host}/ws`;
+    return token ? `${base}?token=${encodeURIComponent(token)}` : base;
   })();
 
   const connect = useCallback(() => {
