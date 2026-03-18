@@ -20,6 +20,7 @@ vite.config.ts.*
 
 # Runtime data
 data/
+!server/data/
 *.db
 *.log
 .local/
