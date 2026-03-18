@@ -19,7 +19,7 @@ RUN npm ci --omit=dev
 ###############################################################################
 FROM node:20-alpine AS runtime
 
-RUN apk add --no-cache tini
+RUN apk upgrade --no-cache && apk add --no-cache tini
 
 WORKDIR /app
 
