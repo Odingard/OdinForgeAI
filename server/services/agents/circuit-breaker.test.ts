@@ -28,20 +28,15 @@ describe("circuit-breaker", () => {
       expect(result).toBe("llm-result");
     });
 
-    it("returns fallback after 2 consecutive failures (circuit opens)", async () => {
-      // Failure 1
-      await withCircuitBreaker(
-        PROVIDER,
-        async () => { throw new Error("API down"); },
-        () => "fallback-1",
-      );
-
-      // Failure 2 — circuit should open
-      await withCircuitBreaker(
-        PROVIDER,
-        async () => { throw new Error("API down"); },
-        () => "fallback-2",
-      );
+    it("returns fallback after 4 consecutive failures (circuit opens)", async () => {
+      // Failures 1–4 to reach FAILURE_THRESHOLD
+      for (let i = 0; i < 4; i++) {
+        await withCircuitBreaker(
+          PROVIDER,
+          async () => { throw new Error("API down"); },
+          () => `fallback-${i + 1}`,
+        );
+      }
 
       // Circuit should now be open
       expect(isCircuitOpen(PROVIDER)).toBe(true);
@@ -94,9 +89,10 @@ describe("circuit-breaker", () => {
     });
 
     it("handles different providers independently", async () => {
-      // Open circuit for provider A
-      await withCircuitBreaker("A", async () => { throw new Error("fail"); }, () => "fb");
-      await withCircuitBreaker("A", async () => { throw new Error("fail"); }, () => "fb");
+      // Open circuit for provider A (4 failures to reach threshold)
+      for (let i = 0; i < 4; i++) {
+        await withCircuitBreaker("A", async () => { throw new Error("fail"); }, () => "fb");
+      }
       expect(isCircuitOpen("A")).toBe(true);
 
       // Provider B should still be closed
@@ -109,8 +105,9 @@ describe("circuit-breaker", () => {
 
   describe("resetCircuit", () => {
     it("resets an open circuit to closed", async () => {
-      await withCircuitBreaker(PROVIDER, async () => { throw new Error("fail"); }, () => "fb");
-      await withCircuitBreaker(PROVIDER, async () => { throw new Error("fail"); }, () => "fb");
+      for (let i = 0; i < 4; i++) {
+        await withCircuitBreaker(PROVIDER, async () => { throw new Error("fail"); }, () => "fb");
+      }
       expect(isCircuitOpen(PROVIDER)).toBe(true);
 
       resetCircuit(PROVIDER);
