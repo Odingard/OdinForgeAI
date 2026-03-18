@@ -5,6 +5,16 @@ import type { AttackGraph, AttackNode, AttackEdge } from "@shared/schema";
 // TYPES
 // ============================================================================
 
+interface LiveEventData {
+  id: string;
+  eventKind: "scanning" | "exploit_attempt" | "credential_extracted" | "vuln_confirmed";
+  target: string;
+  detail: string;
+  phase: string;
+  timestamp: string;
+  expiresAt: number;
+}
+
 interface LiveBreachChainGraphProps {
   graph: AttackGraph | null;
   riskScore?: number;
@@ -12,6 +22,7 @@ interface LiveBreachChainGraphProps {
   credentialsHarvested?: number;
   currentPhase?: string;
   isRunning?: boolean;
+  liveEvents?: LiveEventData[];
 }
 
 interface LayoutNode {
@@ -42,6 +53,7 @@ interface LayoutNode {
   };
   // Enriched artifact data (spec v1.0 §4.1)
   artifacts?: AttackNode["artifacts"];
+  branchId?: number;           // subdomain branch index (branch mode only)
 }
 
 interface LayoutEdge {
@@ -142,8 +154,8 @@ const KILL_CHAIN_DISPLAY_IDS = [
   "lateral-movement", "privilege-escalation", "collection", "impact",
 ];
 
-// Max satellite (finding) nodes shown per phase node
-const MAX_SATELLITES_PER_PHASE = 2;
+// Max satellite (finding) nodes shown per phase node before collapsing into "+N" badge
+const MAX_SATELLITES_PER_PHASE = 1;
 
 // ============================================================================
 // LAYOUT — Spine + Satellite approach
@@ -153,12 +165,26 @@ const MAX_SATELLITES_PER_PHASE = 2;
 // Only the top 2 critical findings per phase are shown as small satellites.
 // ============================================================================
 
+// Branch color palette for swim lanes
+const BRANCH_COLORS = [
+  "#38bdf8", // cyan (primary)
+  "#f97316", // orange
+  "#a855f7", // purple
+  "#22c55e", // green
+  "#f43f5e", // rose
+  "#eab308", // yellow
+  "#6366f1", // indigo
+  "#14b8a6", // teal
+];
+
 function layoutGraph(
   nodes: AttackNode[],
   edges: AttackEdge[],
   criticalPath: string[],
   width: number,
-  height: number
+  height: number,
+  expandedPhases: Set<string> = new Set(),
+  alternativePaths: string[][] = []
 ): { layoutNodes: LayoutNode[]; layoutEdges: LayoutEdge[] } {
   const criticalSet = new Set(criticalPath);
   const layoutNodes: LayoutNode[] = [];
@@ -170,10 +196,16 @@ function layoutGraph(
   for (const edge of edges) {
     edgeByPair.set(`${edge.source}->${edge.target}`, edge);
   }
+
+  // All "spine" ids: criticalPath + all alternativePaths nodes
+  const allSpineIds = new Set(criticalPath);
+  for (const altPath of alternativePaths) {
+    for (const id of altPath) allSpineIds.add(id);
+  }
+
   for (const edge of edges) {
-    const sourceOnSpine = criticalSet.has(edge.source);
-    const targetOnSpine = criticalSet.has(edge.target);
-    // A satellite is a node connected FROM a spine node but not itself on the spine
+    const sourceOnSpine = allSpineIds.has(edge.source);
+    const targetOnSpine = allSpineIds.has(edge.target);
     if (sourceOnSpine && !targetOnSpine) {
       const targetNode = nodes.find(n => n.id === edge.target);
       if (targetNode) {
@@ -183,108 +215,226 @@ function layoutGraph(
     }
   }
 
-  // Separate spine nodes from finding nodes
-  const spineNodes = nodes.filter(n => criticalSet.has(n.id));
-  // Maintain critical path order
-  const orderedSpine = criticalPath
-    .map(id => spineNodes.find(n => n.id === id))
-    .filter((n): n is AttackNode => !!n);
+  // Detect branch mode
+  const isBranchMode = alternativePaths.length > 0;
 
-  // If spine is empty, fall back to showing all nodes (shouldn't happen)
-  if (orderedSpine.length === 0) {
-    // Fallback: show up to 10 nodes in a simple row
-    const shown = nodes.slice(0, 10);
-    const spacing = (width - 160) / (shown.length + 1);
-    shown.forEach((node, i) => {
-      const x = 80 + (i + 1) * spacing;
-      const y = height / 2;
-      layoutNodes.push(makeLayoutNode(node, x, y, true, false, 0, 26));
+  if (!isBranchMode) {
+    // ═══════════════════════════════════════════════════════════════════════
+    // SINGLE-SPINE MODE (original layout)
+    // ═══════════════════════════════════════════════════════════════════════
+    const spineNodes = nodes.filter(n => criticalSet.has(n.id));
+    const orderedSpine = criticalPath
+      .map(id => spineNodes.find(n => n.id === id))
+      .filter((n): n is AttackNode => !!n);
+
+    if (orderedSpine.length === 0) {
+      const shown = nodes.slice(0, 10);
+      const spacing = (width - 160) / (shown.length + 1);
+      shown.forEach((node, i) => {
+        const x = 80 + (i + 1) * spacing;
+        const y = height / 2;
+        layoutNodes.push(makeLayoutNode(node, x, y, true, false, 0, 26));
+      });
+      for (const edge of edges) {
+        if (shown.some(n => n.id === edge.source) && shown.some(n => n.id === edge.target)) {
+          layoutEdges.push(makeLayoutEdge(edge));
+        }
+      }
+      return { layoutNodes, layoutEdges };
+    }
+
+    const cx = width / 2;
+    const cy = height / 2;
+    const radiusX = Math.min(width * 0.38, 460);
+    const radiusY = Math.min(height * 0.34, 280);
+    const spineCount = orderedSpine.length;
+    const spinePositions = new Map<string, { x: number; y: number }>();
+
+    orderedSpine.forEach((node, i) => {
+      const t = spineCount <= 1 ? 0.5 : i / (spineCount - 1);
+      const x = cx + (t - 0.5) * 2 * radiusX;
+      const waveY = Math.sin(t * Math.PI) * radiusY * 0.4;
+      const y = cy - radiusY * 0.3 + t * radiusY * 0.6 - waveY;
+      spinePositions.set(node.id, { x, y });
+
+      const children = childrenOf.get(node.id) || [];
+      const isExpanded = expandedPhases.has(node.id);
+      const collapsedCount = isExpanded ? 0 : Math.max(0, children.length - MAX_SATELLITES_PER_PHASE);
+      layoutNodes.push(makeLayoutNode(node, x, y, true, false, collapsedCount, 28));
     });
-    for (const edge of edges) {
-      if (shown.some(n => n.id === edge.source) && shown.some(n => n.id === edge.target)) {
+
+    for (let i = 0; i < orderedSpine.length - 1; i++) {
+      const from = orderedSpine[i];
+      const to = orderedSpine[i + 1];
+      const edge = edgeByPair.get(`${from.id}->${to.id}`);
+      if (edge) {
         layoutEdges.push(makeLayoutEdge(edge));
+      } else {
+        layoutEdges.push({ from: from.id, to: to.id, technique: "", probability: 80, edgeType: "primary", description: "" });
       }
     }
+
+    // Satellites
+    for (const spineNode of orderedSpine) {
+      const children = childrenOf.get(spineNode.id) || [];
+      if (children.length === 0) continue;
+      const isExpanded = expandedPhases.has(spineNode.id);
+      const sorted = [...children].sort((a, b) => {
+        const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+        return (sevOrder[a.compromiseLevel === "admin" ? "critical" : "high"] ?? 2)
+             - (sevOrder[b.compromiseLevel === "admin" ? "critical" : "high"] ?? 2);
+      });
+      const maxShow = isExpanded ? Math.min(sorted.length, 15) : MAX_SATELLITES_PER_PHASE;
+      const shown = sorted.slice(0, maxShow);
+      const parentPos = spinePositions.get(spineNode.id)!;
+
+      shown.forEach((child, j) => {
+        if (isExpanded) {
+          const col = j % 2 === 0 ? -1 : 1;
+          const row = Math.floor(j / 2);
+          const satX = parentPos.x + col * 80;
+          const satY = parentPos.y + 65 + row * 42;
+          layoutNodes.push(makeLayoutNode(child, satX, satY, false, true, 0, 16));
+        } else {
+          const angleOffset = (j - (shown.length - 1) / 2) * 0.6;
+          const satX = parentPos.x + Math.sin(angleOffset) * 70;
+          const satY = parentPos.y + 75 + j * 50;
+          layoutNodes.push(makeLayoutNode(child, satX, satY, false, true, 0, 16));
+        }
+        const edge = edgeByPair.get(`${spineNode.id}->${child.id}`);
+        if (edge) layoutEdges.push(makeLayoutEdge(edge));
+      });
+
+      if (isExpanded && sorted.length > 15) {
+        const spineLayout = layoutNodes.find(n => n.id === spineNode.id);
+        if (spineLayout) spineLayout.collapsedCount = sorted.length - 15;
+      }
+    }
+
     return { layoutNodes, layoutEdges };
   }
 
-  // ---- Lay out spine nodes along a flowing arc ----
+  // ═══════════════════════════════════════════════════════════════════════
+  // BRANCH MODE — Swim lane layout
+  //
+  // Entry node (left) → fan-out to branch lanes → phase nodes along each
+  // lane → converge (right). Each subdomain gets its own horizontal lane.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  const allPaths = [criticalPath, ...alternativePaths];
+  const totalBranches = allPaths.length;
+  const laneSpacing = Math.min(90, (height - 140) / totalBranches);
   const cx = width / 2;
   const cy = height / 2;
-  const radiusX = Math.min(width * 0.38, 460);
-  const radiusY = Math.min(height * 0.34, 280);
-  const spineCount = orderedSpine.length;
 
-  // Arc from top-left to bottom-right (like DemoBreachChain)
-  const spinePositions = new Map<string, { x: number; y: number }>();
+  // Find entry node (first in criticalPath) and converge node (last in criticalPath)
+  const entryNodeId = criticalPath[0];
+  const convergeNodeId = criticalPath[criticalPath.length - 1];
+  const entryNode = nodes.find(n => n.id === entryNodeId);
+  const convergeNode = nodes.find(n => n.id === convergeNodeId);
 
-  orderedSpine.forEach((node, i) => {
-    // Distribute along an S-curve from top-left to bottom-right
-    const t = spineCount <= 1 ? 0.5 : i / (spineCount - 1);
-    // S-curve: smooth left-to-right with vertical wave
-    const x = cx + (t - 0.5) * 2 * radiusX;
-    const waveY = Math.sin(t * Math.PI) * radiusY * 0.4; // gentle arc upward in the middle
-    const y = cy - radiusY * 0.3 + t * radiusY * 0.6 - waveY;
+  // Position entry and converge
+  const leftX = 80;
+  const rightX = width - 80;
 
-    spinePositions.set(node.id, { x, y });
-
-    // Count total children and determine how many are collapsed
-    const children = childrenOf.get(node.id) || [];
-    const collapsedCount = Math.max(0, children.length - MAX_SATELLITES_PER_PHASE);
-
-    layoutNodes.push(makeLayoutNode(node, x, y, true, false, collapsedCount, 28));
-  });
-
-  // ---- Lay out spine-to-spine edges ----
-  for (let i = 0; i < orderedSpine.length - 1; i++) {
-    const from = orderedSpine[i];
-    const to = orderedSpine[i + 1];
-    const edge = edgeByPair.get(`${from.id}->${to.id}`);
-    if (edge) {
-      layoutEdges.push(makeLayoutEdge(edge));
-    } else {
-      // Synthesize a spine edge if none exists (phases are always connected sequentially)
-      layoutEdges.push({
-        from: from.id,
-        to: to.id,
-        technique: "",
-        probability: 80,
-        edgeType: "primary",
-        description: "",
-      });
-    }
+  if (entryNode) {
+    layoutNodes.push(makeLayoutNode(entryNode, leftX, cy, true, false, 0, 30));
+  }
+  if (convergeNode && convergeNodeId !== entryNodeId) {
+    layoutNodes.push(makeLayoutNode(convergeNode, rightX, cy, true, false, 0, 30));
   }
 
-  // ---- Lay out satellite nodes (top N findings per phase) ----
-  for (const spineNode of orderedSpine) {
-    const children = childrenOf.get(spineNode.id) || [];
-    if (children.length === 0) continue;
+  // Lay out each branch in its own lane
+  allPaths.forEach((path, branchIdx) => {
+    const isPrimary = branchIdx === 0;
+    const laneY = cy + (branchIdx - (totalBranches - 1) / 2) * laneSpacing;
 
-    // Sort by severity: critical first, then high
-    const sorted = [...children].sort((a, b) => {
-      const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-      return (sevOrder[a.compromiseLevel === "admin" ? "critical" : "high"] ?? 2)
-           - (sevOrder[b.compromiseLevel === "admin" ? "critical" : "high"] ?? 2);
-    });
+    // Filter to branch-specific nodes (exclude entry and converge)
+    const branchNodeIds = path.filter(id => id !== entryNodeId && id !== convergeNodeId);
+    const branchNodes = branchNodeIds
+      .map(id => nodes.find(n => n.id === id))
+      .filter((n): n is AttackNode => !!n);
 
-    const shown = sorted.slice(0, MAX_SATELLITES_PER_PHASE);
-    const parentPos = spinePositions.get(spineNode.id)!;
+    if (branchNodes.length === 0) return;
 
-    shown.forEach((child, j) => {
-      // Position satellites below and slightly to the side of their parent
-      const angleOffset = (j - (shown.length - 1) / 2) * 0.6;
-      const satX = parentPos.x + Math.sin(angleOffset) * 70;
-      const satY = parentPos.y + 75 + j * 50;
+    // Horizontal spacing within the branch lane
+    const branchStartX = leftX + 120;
+    const branchEndX = rightX - 120;
+    const nodeSpacing = branchNodes.length <= 1
+      ? branchEndX - branchStartX
+      : (branchEndX - branchStartX) / (branchNodes.length - 1);
 
-      layoutNodes.push(makeLayoutNode(child, satX, satY, false, true, 0, 16));
+    branchNodes.forEach((node, i) => {
+      const x = branchNodes.length <= 1
+        ? (branchStartX + branchEndX) / 2
+        : branchStartX + i * nodeSpacing;
+      const y = laneY;
 
-      // Edge from parent to satellite
-      const edge = edgeByPair.get(`${spineNode.id}->${child.id}`);
-      if (edge) {
-        layoutEdges.push(makeLayoutEdge(edge));
+      const children = childrenOf.get(node.id) || [];
+      const isExpanded = expandedPhases.has(node.id);
+      const collapsedCount = isExpanded ? 0 : Math.max(0, children.length - MAX_SATELLITES_PER_PHASE);
+      const nodeRadius = i === 0 ? 24 : 22; // branch root slightly larger
+
+      layoutNodes.push(makeLayoutNode(node, x, y, true, false, collapsedCount, nodeRadius));
+
+      // Satellites for this branch phase node
+      if (children.length > 0) {
+        const sorted = [...children].sort((a, b) => {
+          const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+          return (sevOrder[a.compromiseLevel === "admin" ? "critical" : "high"] ?? 2)
+               - (sevOrder[b.compromiseLevel === "admin" ? "critical" : "high"] ?? 2);
+        });
+        const maxShow = isExpanded ? Math.min(sorted.length, 15) : MAX_SATELLITES_PER_PHASE;
+        const shown = sorted.slice(0, maxShow);
+
+        shown.forEach((child, j) => {
+          // Position satellites below the lane
+          const satX = x + (j - (shown.length - 1) / 2) * 55;
+          const satY = y + 55 + (isExpanded ? j * 30 : 0);
+          layoutNodes.push(makeLayoutNode(child, satX, satY, false, true, 0, 14));
+          const edge = edgeByPair.get(`${node.id}->${child.id}`);
+          if (edge) layoutEdges.push(makeLayoutEdge(edge));
+        });
+
+        if (isExpanded && sorted.length > 15) {
+          const spineLayout = layoutNodes.find(n => n.id === node.id);
+          if (spineLayout) spineLayout.collapsedCount = sorted.length - 15;
+        }
       }
     });
-  }
+
+    // Edges: entry → first branch node
+    const firstBranchNode = branchNodeIds[0];
+    if (firstBranchNode) {
+      const edge = edgeByPair.get(`${entryNodeId}->${firstBranchNode}`);
+      if (edge) {
+        layoutEdges.push(makeLayoutEdge(edge));
+      } else {
+        layoutEdges.push({ from: entryNodeId, to: firstBranchNode, technique: "", probability: 80, edgeType: isPrimary ? "primary" : "alternative", description: "" });
+      }
+    }
+
+    // Edges within branch
+    for (let i = 0; i < branchNodeIds.length - 1; i++) {
+      const edge = edgeByPair.get(`${branchNodeIds[i]}->${branchNodeIds[i + 1]}`);
+      if (edge) {
+        layoutEdges.push(makeLayoutEdge(edge));
+      } else {
+        layoutEdges.push({ from: branchNodeIds[i], to: branchNodeIds[i + 1], technique: "", probability: 80, edgeType: isPrimary ? "primary" : "alternative", description: "" });
+      }
+    }
+
+    // Edge: last branch node → converge
+    const lastBranchNode = branchNodeIds[branchNodeIds.length - 1];
+    if (lastBranchNode && convergeNodeId !== entryNodeId) {
+      const edge = edgeByPair.get(`${lastBranchNode}->${convergeNodeId}`);
+      if (edge) {
+        layoutEdges.push(makeLayoutEdge(edge));
+      } else {
+        layoutEdges.push({ from: lastBranchNode, to: convergeNodeId, technique: "Converge", probability: 75, edgeType: isPrimary ? "primary" : "alternative", description: "" });
+      }
+    }
+  });
 
   return { layoutNodes, layoutEdges };
 }
@@ -317,6 +467,7 @@ function makeLayoutNode(
     remediationStatus: node.remediationStatus,
     businessImpact: node.businessImpact,
     artifacts: node.artifacts,
+    branchId: node.branchId,
   };
 }
 
@@ -336,6 +487,20 @@ function makeLayoutEdge(edge: AttackEdge): LayoutEdge {
 // COMPONENT
 // ============================================================================
 
+const LIVE_EVENT_COLORS: Record<string, string> = {
+  scanning: "#06b6d4",      // cyan
+  exploit_attempt: "#f97316", // orange
+  credential_extracted: "#f59e0b", // amber
+  vuln_confirmed: "#ef4444",  // red
+};
+
+const LIVE_EVENT_ICONS: Record<string, string> = {
+  scanning: "\u25CE",          // bullseye
+  exploit_attempt: "\u26A1",   // lightning
+  credential_extracted: "\u1F511", // key (fallback unicode)
+  vuln_confirmed: "\u2622",    // biohazard
+};
+
 export function LiveBreachChainGraph({
   graph,
   riskScore,
@@ -343,6 +508,7 @@ export function LiveBreachChainGraph({
   credentialsHarvested,
   currentPhase,
   isRunning,
+  liveEvents = [],
 }: LiveBreachChainGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -358,6 +524,7 @@ export function LiveBreachChainGraph({
   });
   const prevNodeIdsRef = useRef<Set<string>>(new Set());
   const nodeOpacitiesRef = useRef<Map<string, number>>(new Map());
+  const [expandedPhases, setExpandedPhases] = useState<Set<string>>(new Set());
 
   // Responsive sizing
   useEffect(() => {
@@ -386,7 +553,9 @@ export function LiveBreachChainGraph({
       graph.edges || [],
       graph.criticalPath || [],
       dims.w,
-      dims.h - 90 // account for header/killchain bar
+      dims.h - 90, // account for header/killchain bar
+      expandedPhases,
+      graph.alternativePaths || []
     );
 
     // Track new nodes for fade-in animation
@@ -399,7 +568,7 @@ export function LiveBreachChainGraph({
     prevNodeIdsRef.current = newIds;
 
     layoutRef.current = { layoutNodes, layoutEdges };
-  }, [graph, dims.w, dims.h]);
+  }, [graph, dims.w, dims.h, expandedPhases]);
 
   // Mouse hit detection
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -419,14 +588,13 @@ export function LiveBreachChainGraph({
         found = node.id;
         break;
       }
-      // Also detect hits on the "+N findings" badge
-      if (node.collapsedCount > 0) {
-        const badgeX = node.x + node.radius * 0.75;
-        const badgeY = node.y - node.radius * 0.75;
-        const bdx = mx - badgeX;
-        const bdy = my - badgeY;
-        const badgeHitR = 15; // generous badge hit area
-        if (bdx * bdx + bdy * bdy < badgeHitR * badgeHitR) {
+      // Also detect hits on the expand/collapse badge (rectangular)
+      if (node.collapsedCount > 0 || expandedPhases.has(node.id)) {
+        const badgeX = node.x + node.radius + 8;
+        const badgeY = node.y - node.radius * 0.6;
+        const hitW = 50; // generous hit area width
+        const hitH = 18;
+        if (Math.abs(mx - badgeX) < hitW / 2 && Math.abs(my - badgeY) < hitH / 2) {
           found = node.id;
           break;
         }
@@ -439,7 +607,7 @@ export function LiveBreachChainGraph({
     } else {
       setTooltipPos(null);
     }
-  }, []);
+  }, [expandedPhases]);
 
   // Canvas animation loop
   useEffect(() => {
@@ -489,6 +657,29 @@ export function LiveBreachChainGraph({
       ctx!.save();
       ctx!.translate(0, 90);
 
+      // Draw branch lane labels (if branch mode)
+      const hasBranches = nodes.some(n => n.branchId !== undefined && n.branchId !== null);
+      if (hasBranches) {
+        const branchLabels = new Map<number, { label: string; y: number }>();
+        for (const node of nodes) {
+          if (node.branchId !== undefined && node.branchId !== null && node.isSpine && !branchLabels.has(node.branchId)) {
+            // Use the first spine node's label (hostname) as the branch label
+            const hostname = (node.artifacts as any)?.hostname || node.label;
+            branchLabels.set(node.branchId, { label: hostname, y: node.y });
+          }
+        }
+        for (const [branchId, info] of Array.from(branchLabels.entries())) {
+          ctx!.save();
+          ctx!.globalAlpha = 0.3;
+          ctx!.font = "9px 'IBM Plex Mono', monospace";
+          ctx!.fillStyle = BRANCH_COLORS[branchId % BRANCH_COLORS.length];
+          ctx!.textAlign = "left";
+          ctx!.textBaseline = "middle";
+          ctx!.fillText(info.label, 12, info.y);
+          ctx!.restore();
+        }
+      }
+
       // Draw edges
       edges.forEach((edge, i) => {
         const from = nodeMap.get(edge.from);
@@ -499,6 +690,12 @@ export function LiveBreachChainGraph({
         const toOpacity = nodeOpacitiesRef.current.get(edge.to) ?? 1;
         const edgeOpacity = Math.min(fromOpacity, toOpacity);
         const isSpineEdge = from.isSpine && to.isSpine;
+
+        // Branch color: use branchId from either node to pick a lane color
+        const branchId = from.branchId ?? to.branchId;
+        const branchColor = branchId !== undefined && branchId !== null
+          ? BRANCH_COLORS[branchId % BRANCH_COLORS.length]
+          : null;
         const isSatEdge = from.isSatellite || to.isSatellite;
 
         const dashOffset = -t * 40 + i * 20;
@@ -509,10 +706,18 @@ export function LiveBreachChainGraph({
         const my = (from.y + to.y) / 2 + (i % 3 === 0 ? -(curveAmount * 0.7) : curveAmount * 0.7);
 
         // Edge glow (spine edges only)
+        // Use branch color if available, else default cyan
+        const edgeBaseColor = branchColor || "rgba(56, 189, 248, 1)";
+        const edgeR = parseInt(edgeBaseColor.length === 7 ? edgeBaseColor.slice(1, 3) : "38", 16);
+        const edgeG = parseInt(edgeBaseColor.length === 7 ? edgeBaseColor.slice(3, 5) : "bd", 16);
+        const edgeB = parseInt(edgeBaseColor.length === 7 ? edgeBaseColor.slice(5, 7) : "f8", 16);
+
         if (isSpineEdge) {
           ctx!.save();
           ctx!.globalAlpha = edgeOpacity;
-          ctx!.strokeStyle = `rgba(56, 189, 248, ${0.08 + Math.sin(t + i) * 0.03})`;
+          ctx!.strokeStyle = branchColor
+            ? `rgba(${edgeR}, ${edgeG}, ${edgeB}, ${0.08 + Math.sin(t + i) * 0.03})`
+            : `rgba(56, 189, 248, ${0.08 + Math.sin(t + i) * 0.03})`;
           ctx!.lineWidth = 6;
           ctx!.beginPath();
           ctx!.moveTo(from.x, from.y);
@@ -525,7 +730,9 @@ export function LiveBreachChainGraph({
         ctx!.save();
         ctx!.globalAlpha = edgeOpacity * (isSatEdge ? 0.4 : 1);
         const baseAlpha = isSatEdge ? 0.12 : 0.25;
-        ctx!.strokeStyle = `rgba(56, 189, 248, ${baseAlpha + (edge.probability / 100) * 0.2})`;
+        ctx!.strokeStyle = branchColor
+          ? `rgba(${edgeR}, ${edgeG}, ${edgeB}, ${baseAlpha + (edge.probability / 100) * 0.2})`
+          : `rgba(56, 189, 248, ${baseAlpha + (edge.probability / 100) * 0.2})`;
         ctx!.lineWidth = isSatEdge ? 0.8 : (edge.edgeType === "primary" ? 1.5 : 1);
         if (isSatEdge) {
           ctx!.setLineDash([3, 6]);
@@ -554,11 +761,15 @@ export function LiveBreachChainGraph({
           ctx!.globalAlpha = edgeOpacity;
           ctx!.beginPath();
           ctx!.arc(px, py, 3, 0, Math.PI * 2);
-          ctx!.fillStyle = `rgba(56, 189, 248, ${0.7 + Math.sin(t * 3) * 0.3})`;
+          ctx!.fillStyle = branchColor
+            ? `rgba(${edgeR}, ${edgeG}, ${edgeB}, ${0.7 + Math.sin(t * 3) * 0.3})`
+            : `rgba(56, 189, 248, ${0.7 + Math.sin(t * 3) * 0.3})`;
           ctx!.fill();
           ctx!.beginPath();
           ctx!.arc(px, py, 8, 0, Math.PI * 2);
-          ctx!.fillStyle = "rgba(56, 189, 248, 0.15)";
+          ctx!.fillStyle = branchColor
+            ? `rgba(${edgeR}, ${edgeG}, ${edgeB}, 0.15)`
+            : "rgba(56, 189, 248, 0.15)";
           ctx!.fill();
           ctx!.restore();
         }
@@ -598,6 +809,34 @@ export function LiveBreachChainGraph({
           ctx!.restore();
         }
       });
+
+      // Draw enclosing rects for expanded phase groups
+      for (const phaseId of Array.from(expandedPhases)) {
+        const spineNode = nodes.find(n => n.id === phaseId && n.isSpine);
+        if (!spineNode) continue;
+        // Find all satellites that belong to this spine node
+        const phaseSatellites = nodes.filter(n => n.isSatellite && edges.some(e => e.from === phaseId && e.to === n.id));
+        if (phaseSatellites.length === 0) continue;
+
+        // Compute bounding box
+        const allNodes = [spineNode, ...phaseSatellites];
+        const pad = 20;
+        const minX = Math.min(...allNodes.map(n => n.x - n.radius)) - pad;
+        const maxX = Math.max(...allNodes.map(n => n.x + n.radius)) + pad;
+        const minY = Math.min(...allNodes.map(n => n.y - n.radius)) - pad;
+        const maxY = Math.max(...allNodes.map(n => n.y + n.radius)) + pad;
+
+        ctx!.save();
+        ctx!.globalAlpha = 0.3;
+        ctx!.strokeStyle = "rgba(56, 189, 248, 0.4)";
+        ctx!.lineWidth = 1;
+        ctx!.setLineDash([4, 4]);
+        ctx!.beginPath();
+        const br = 8; // border radius
+        ctx!.roundRect(minX, minY, maxX - minX, maxY - minY, br);
+        ctx!.stroke();
+        ctx!.restore();
+      }
 
       // Draw nodes — satellites first (behind), then spine nodes (in front)
       const satellites = nodes.filter(n => n.isSatellite);
@@ -752,22 +991,40 @@ export function LiveBreachChainGraph({
           maxLabelWidth + 20
         );
 
-        // "+N findings" badge for collapsed children
-        if (node.collapsedCount > 0) {
-          const badgeX = node.x + r * 0.75;
-          const badgeY = node.y - r * 0.75;
-          const badgeText = `+${node.collapsedCount}`;
-          const badgeR = 11;
+        // "+N findings" badge for collapsed children, or "−" badge when expanded
+        const isPhaseExpanded = expandedPhases.has(node.id);
+        if (node.collapsedCount > 0 || isPhaseExpanded) {
+          const badgeX = node.x + r + 8;
+          const badgeY = node.y - r * 0.6;
+          const badgeText = isPhaseExpanded ? "COLLAPSE" : `${node.collapsedCount} MORE`;
+          const badgePadH = 8;
+          const badgePadV = 5;
 
+          ctx!.font = "bold 9px 'IBM Plex Mono', monospace";
+          const textW = ctx!.measureText(badgeText).width;
+          const boxW = textW + badgePadH * 2;
+          const boxH = 18;
+          const cornerR = 4;
+
+          // Rounded rectangle badge
+          const bx = badgeX - boxW / 2;
+          const by = badgeY - boxH / 2;
           ctx!.beginPath();
-          ctx!.arc(badgeX, badgeY, badgeR, 0, Math.PI * 2);
-          ctx!.fillStyle = "rgba(245, 158, 11, 0.9)";
+          ctx!.roundRect(bx, by, boxW, cornerR < boxH / 2 ? boxH : boxH, cornerR);
+          ctx!.fillStyle = isPhaseExpanded ? "rgba(56, 189, 248, 0.9)" : "rgba(245, 158, 11, 0.9)";
           ctx!.fill();
           ctx!.strokeStyle = "#06090f";
           ctx!.lineWidth = 2;
           ctx!.stroke();
 
-          ctx!.font = "bold 9px 'IBM Plex Mono', monospace";
+          // Outer glow
+          ctx!.shadowColor = isPhaseExpanded ? "rgba(56, 189, 248, 0.4)" : "rgba(245, 158, 11, 0.4)";
+          ctx!.shadowBlur = 8;
+          ctx!.beginPath();
+          ctx!.roundRect(bx, by, boxW, boxH, cornerR);
+          ctx!.fill();
+          ctx!.shadowBlur = 0;
+
           ctx!.fillStyle = "#fff";
           ctx!.textAlign = "center";
           ctx!.textBaseline = "middle";
@@ -793,6 +1050,44 @@ export function LiveBreachChainGraph({
         ctx!.restore();
       });
 
+      // Live event pulse rings on active phase nodes
+      if (liveEvents.length > 0) {
+        const now = Date.now();
+        for (const evt of liveEvents) {
+          const remaining = evt.expiresAt - now;
+          if (remaining <= 0) continue;
+          const progress = 1 - (remaining / 3000); // 0..1 over 3s
+          const color = LIVE_EVENT_COLORS[evt.eventKind] || "#64748b";
+
+          // Find the spine node matching this event's phase
+          const phaseSpine = spines.find(n => {
+            const phaseTacticMap: Record<string, string[]> = {
+              "1": ["initial-access", "execution"],
+              "2": ["credential-access"],
+              "3": ["privilege-escalation"],
+              "4": ["defense-evasion"],
+              "5": ["lateral-movement"],
+              "6": ["impact"],
+            };
+            const tactics = phaseTacticMap[evt.phase] || [];
+            return tactics.includes(n.tactic);
+          });
+          if (!phaseSpine) continue;
+
+          // Expanding pulse ring
+          const pulseR = phaseSpine.radius + 10 + progress * 40;
+          const pulseAlpha = (1 - progress) * 0.5;
+          ctx!.save();
+          ctx!.globalAlpha = pulseAlpha;
+          ctx!.strokeStyle = color;
+          ctx!.lineWidth = 2;
+          ctx!.beginPath();
+          ctx!.arc(phaseSpine.x, phaseSpine.y, pulseR, 0, Math.PI * 2);
+          ctx!.stroke();
+          ctx!.restore();
+        }
+      }
+
       ctx!.restore(); // pop the translate(0, 90)
 
       animRef.current = requestAnimationFrame(draw);
@@ -800,7 +1095,7 @@ export function LiveBreachChainGraph({
 
     draw();
     return () => cancelAnimationFrame(animRef.current);
-  }, [dims, hoveredNode, isRunning]);
+  }, [dims, hoveredNode, isRunning, expandedPhases, liveEvents]);
 
   // Determine kill chain coverage
   const coveredTactics = new Set<string>(graph?.killChainCoverage || []);
@@ -923,6 +1218,26 @@ export function LiveBreachChainGraph({
           onMouseLeave={() => setHoveredNode(null)}
           onClick={() => {
             if (hoveredNode) {
+              // Check if user clicked on a spine node with collapsed/expanded children → toggle expand
+              const node = layoutRef.current.layoutNodes.find(n => n.id === hoveredNode);
+              if (node && node.isSpine) {
+                const children = (graph?.edges || []).filter(
+                  e => e.source === node.id && !(graph?.criticalPath || []).includes(e.target)
+                );
+                if (children.length > MAX_SATELLITES_PER_PHASE) {
+                  // Toggle expand/collapse
+                  setExpandedPhases(prev => {
+                    const next = new Set(prev);
+                    if (next.has(hoveredNode)) {
+                      next.delete(hoveredNode);
+                    } else {
+                      next.add(hoveredNode);
+                    }
+                    return next;
+                  });
+                  return;
+                }
+              }
               setSelectedNode(selectedNode === hoveredNode ? null : hoveredNode);
             } else {
               setSelectedNode(null);
@@ -1028,6 +1343,63 @@ export function LiveBreachChainGraph({
         >
           odinforgeai.com — Live Breach Chain
         </div>
+
+        {/* Live Event Status Ticker */}
+        {liveEvents.length > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 40,
+              left: 24,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              maxWidth: 340,
+              pointerEvents: "none",
+            }}
+          >
+            {liveEvents.slice(-3).map((evt) => {
+              const color = LIVE_EVENT_COLORS[evt.eventKind] || "#64748b";
+              const remaining = Math.max(0, evt.expiresAt - Date.now());
+              const fadeOpacity = Math.min(1, remaining / 1000); // fade in last second
+              let hostname = evt.target;
+              try { hostname = new URL(evt.target).hostname; } catch {}
+              return (
+                <div
+                  key={evt.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "rgba(6,9,15,0.85)",
+                    border: `1px solid ${color}33`,
+                    borderRadius: 4,
+                    padding: "4px 10px",
+                    opacity: fadeOpacity,
+                    transition: "opacity 0.3s",
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}
+                >
+                  <div style={{
+                    width: 6, height: 6, borderRadius: "50%",
+                    background: color,
+                    boxShadow: `0 0 6px ${color}`,
+                    animation: "pulse 1.5s infinite",
+                  }} />
+                  <span style={{ fontSize: 9, color, fontWeight: 700, textTransform: "uppercase", minWidth: 65 }}>
+                    {evt.eventKind.replace(/_/g, " ")}
+                  </span>
+                  <span style={{ fontSize: 9, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {hostname.length > 30 ? hostname.slice(0, 28) + "..." : hostname}
+                  </span>
+                  <span style={{ fontSize: 8, color: "#475569", marginLeft: "auto" }}>
+                    {new Date(evt.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Click-to-expand Node Detail Panel */}
         {selectedNode && (() => {
@@ -1149,6 +1521,7 @@ export function LiveBreachChainGraph({
                   <div style={{ fontSize: 11, color: "var(--falcon-t3)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Business Impact</div>
 
                   {/* Blast radius indicator */}
+                  {node.businessImpact.estimatedBlastRadius && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 11 }}>Blast Radius:</span>
                     <span style={{
@@ -1161,6 +1534,7 @@ export function LiveBreachChainGraph({
                       {node.businessImpact.estimatedBlastRadius.toUpperCase().replace("-", " ")}
                     </span>
                   </div>
+                  )}
 
                   {/* Summary */}
                   <p style={{ fontSize: 12, color: "var(--falcon-t2)", margin: "0 0 8px" }}>

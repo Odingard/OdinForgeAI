@@ -8,45 +8,49 @@ interface OdinForgeLogoProps {
 }
 
 /**
- * Shield + Valknut SVG icon matching the OdinGard brand mark.
+ * Shield + Valknut SVG icon matching the OdinGard Security brand mark.
+ * Three interlocking triangles inside a pointed shield.
  * Rendered inline so it scales with text and supports CSS color inheritance.
  */
 function ShieldValknut({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 40 46"
+      viewBox="0 0 40 48"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      {/* Shield outline */}
+      {/* Shield — pointed bottom, flat top */}
       <path
-        d="M20 2L4 10V22C4 32.5 11 40 20 44C29 40 36 32.5 36 22V10L20 2Z"
+        d="M20 2L3 10V24C3 34 10.5 41.5 20 46C29.5 41.5 37 34 37 24V10L20 2Z"
         fill="currentColor"
-        fillOpacity="0.12"
+        fillOpacity="0.1"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.2"
         strokeLinejoin="round"
       />
       {/* Valknut — three interlocking triangles */}
+      {/* Top triangle */}
       <path
-        d="M20 12L14.5 22H25.5L20 12Z"
+        d="M20 11L14 21H26L20 11Z"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.8"
         strokeLinejoin="round"
         fill="none"
       />
+      {/* Bottom-left triangle */}
       <path
-        d="M15 27L20 18L25 27H15Z"
+        d="M14 28L20 18L26 28H14Z"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.8"
         strokeLinejoin="round"
         fill="none"
       />
+      {/* Bottom-right triangle */}
       <path
-        d="M12.5 22L20 32L27.5 22H12.5Z"
+        d="M11 22L20 34L29 22H11Z"
         stroke="currentColor"
-        strokeWidth="1.6"
+        strokeWidth="1.8"
         strokeLinejoin="round"
         fill="none"
       />
@@ -55,6 +59,34 @@ function ShieldValknut({ className }: { className?: string }) {
 }
 
 export { ShieldValknut };
+
+/**
+ * OdinGard Security parent brand wordmark.
+ * Shield icon + "ODINGARD" text — used in login/signup and footer contexts.
+ */
+export function OdinGardBrand({
+  size = "md",
+  className,
+}: {
+  size?: "sm" | "md" | "lg";
+  className?: string;
+}) {
+  const sizeConfig = {
+    sm: { icon: "h-5 w-5", text: "text-sm", gap: "gap-1.5" },
+    md: { icon: "h-7 w-7", text: "text-lg", gap: "gap-2" },
+    lg: { icon: "h-9 w-9", text: "text-2xl", gap: "gap-2.5" },
+  };
+  const config = sizeConfig[size];
+
+  return (
+    <div className={cn("flex items-center", config.gap, className)}>
+      <ShieldValknut className={cn(config.icon, "text-slate-300")} />
+      <span className={cn(config.text, "font-bold tracking-widest text-slate-300")} style={{ letterSpacing: "0.15em" }}>
+        ODINGARD
+      </span>
+    </div>
+  );
+}
 
 export function OdinForgeLogo({
   size = "md",

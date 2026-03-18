@@ -46,7 +46,6 @@ import { ChainSparkline } from "@/components/ChainSparkline";
 import { AttackHeatmap } from "@/components/AttackHeatmap";
 import { CredentialWeb } from "@/components/CredentialWeb";
 import { DefenseGapPanel } from "@/components/DefenseGapPanel";
-import { EngagementConfigModal } from "@/components/EngagementConfigModal";
 
 // Phase metadata for display
 const PHASE_META: Record<string, { label: string; icon: typeof Shield; color: string; description: string }> = {
@@ -622,7 +621,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const enabledPhases = config?.enabledPhases || [];
 
   // Real-time graph updates via WebSocket
-  const { latestGraph } = useBreachChainUpdates({
+  const { latestGraph, liveEvents } = useBreachChainUpdates({
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
   });
@@ -633,7 +632,6 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const [tab, setTab] = useState(hasGraph ? "graph" : "overview");
   const [showExport, setShowExport] = useState(false);
   const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
-  const [showEngagementConfig, setShowEngagementConfig] = useState(false);
 
   // Engagement Package seal mutation
   const sealMutation = useMutation({
@@ -723,14 +721,6 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
           <button className={`f-tab ${tab === "defenses" ? "active" : ""}`} onClick={() => setTab("defenses")}>Defense Gaps</button>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, paddingLeft: 12 }}>
-          <button
-            className="f-btn f-btn-ghost"
-            style={{ fontSize: 11, padding: "4px 10px" }}
-            onClick={() => setShowEngagementConfig(true)}
-          >
-            <Settings2 style={{ width: 12, height: 12, marginRight: 5 }} />
-            Configure
-          </button>
           <button
             className="f-btn f-btn-secondary"
             style={{ fontSize: 11, padding: "4px 10px" }}
@@ -1030,6 +1020,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}
             currentPhase={chain.currentPhase ?? undefined}
             isRunning={chain.status === "running"}
+            liveEvents={liveEvents}
           />
 
           {/* Remediation Progress Panel */}
@@ -1172,17 +1163,6 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
       )}
 
       {/* Engagement Config Modal */}
-      {showEngagementConfig && (
-        <EngagementConfigModal
-          breachChainId={chain.id}
-          currentConfig={chain.config as any}
-          onClose={() => setShowEngagementConfig(false)}
-          onConfigured={() => {
-            queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
-            setShowEngagementConfig(false);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -1375,7 +1355,14 @@ export default function BreachChains() {
       "lateral_movement",
       "impact_assessment",
     ] as string[],
+    // Engagement configuration
+    adversaryProfile: "generic",
+    noiseLevel: "moderate" as "silent" | "moderate" | "aggressive",
+    evasionPosture: "basic" as "none" | "basic" | "advanced",
+    maxAssetsToTouch: 20,
+    credentialReusePolicy: "reuse_allowed" as "reuse_allowed" | "report_only",
   });
+  const [showEngConfig, setShowEngConfig] = useState(false);
 
   const { data: chains = [], isLoading, refetch } = useQuery<BreachChain[]>({
     queryKey: ["/api/breach-chains"],
@@ -1414,6 +1401,11 @@ export default function BreachChains() {
           enabledPhases: data.enabledPhases,
           executionMode: data.executionMode,
           pauseOnCritical: data.pauseOnCritical,
+          adversaryProfile: data.adversaryProfile,
+          noiseLevel: data.noiseLevel,
+          evasionPosture: data.evasionPosture,
+          maxAssetsToTouch: data.maxAssetsToTouch,
+          credentialReusePolicy: data.credentialReusePolicy,
         },
       };
 
@@ -1504,8 +1496,14 @@ export default function BreachChains() {
         "lateral_movement",
         "impact_assessment",
       ],
+      adversaryProfile: "generic",
+      noiseLevel: "moderate",
+      evasionPosture: "basic",
+      maxAssetsToTouch: 20,
+      credentialReusePolicy: "reuse_allowed",
     });
     setShowAdvanced(false);
+    setShowEngConfig(false);
   };
 
   const togglePhase = (phase: string) => {
@@ -1743,6 +1741,132 @@ export default function BreachChains() {
                               </div>
                             );
                           })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Engagement Configuration — adversary profile, noise, evasion */}
+                <div>
+                  <button
+                    className={`f-collapse-trigger ${showEngConfig ? "open" : ""}`}
+                    onClick={() => setShowEngConfig(!showEngConfig)}
+                    style={{
+                      width: "100%",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: 12,
+                      padding: "8px 12px",
+                      background: "transparent",
+                      border: "1px solid var(--falcon-border)",
+                      borderRadius: 6,
+                      color: "var(--falcon-t1)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Crosshair style={{ width: 14, height: 14 }} />
+                      Engagement Configuration
+                    </span>
+                    <ChevronDown style={{ width: 14, height: 14, transition: "transform 0.2s", transform: showEngConfig ? "rotate(180deg)" : "rotate(0deg)" }} />
+                  </button>
+                  {showEngConfig && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 16 }}>
+                      {/* Adversary Profile */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Threat Actor Profile</label>
+                        <select
+                          style={{ ...inputStyle, cursor: "pointer" }}
+                          value={formData.adversaryProfile}
+                          onChange={(e) => setFormData({ ...formData, adversaryProfile: e.target.value })}
+                        >
+                          <option value="generic">Generic Threat Actor</option>
+                          <option value="APT29">APT29 — Cozy Bear (Russian SVR)</option>
+                          <option value="APT41">APT41 (Chinese state-sponsored)</option>
+                          <option value="Lazarus">Lazarus Group (DPRK)</option>
+                          <option value="FIN7">FIN7 (Financially motivated)</option>
+                        </select>
+                      </div>
+
+                      {/* Noise Level */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Noise Level</label>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                          {([
+                            { value: "silent", label: "Silent", desc: "Minimal traffic", color: "#22c55e" },
+                            { value: "moderate", label: "Moderate", desc: "Balanced approach", color: "#f97316" },
+                            { value: "aggressive", label: "Aggressive", desc: "Max coverage", color: "#ef4444" },
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, noiseLevel: opt.value })}
+                              style={{
+                                padding: "8px 6px", borderRadius: 6, cursor: "pointer",
+                                background: formData.noiseLevel === opt.value ? `${opt.color}11` : "transparent",
+                                border: `2px solid ${formData.noiseLevel === opt.value ? `${opt.color}55` : "var(--falcon-border)"}`,
+                                display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                              }}
+                            >
+                              <span style={{ fontSize: 11, fontWeight: 700, color: formData.noiseLevel === opt.value ? opt.color : "var(--falcon-t2)" }}>{opt.label}</span>
+                              <span style={{ fontSize: 9, color: "var(--falcon-t4)" }}>{opt.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Evasion Posture */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Evasion Posture</label>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                          {([
+                            { value: "none", label: "None", desc: "No evasion" },
+                            { value: "basic", label: "Basic", desc: "Header rotation" },
+                            { value: "advanced", label: "Advanced", desc: "Full TTP evasion" },
+                          ] as const).map(opt => (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, evasionPosture: opt.value })}
+                              style={{
+                                padding: "8px 6px", borderRadius: 6, cursor: "pointer",
+                                background: formData.evasionPosture === opt.value ? "rgba(59,130,246,0.08)" : "transparent",
+                                border: `2px solid ${formData.evasionPosture === opt.value ? "rgba(59,130,246,0.3)" : "var(--falcon-border)"}`,
+                                display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
+                              }}
+                            >
+                              <span style={{ fontSize: 11, fontWeight: 700, color: formData.evasionPosture === opt.value ? "var(--falcon-blue-hi)" : "var(--falcon-t2)" }}>{opt.label}</span>
+                              <span style={{ fontSize: 9, color: "var(--falcon-t4)" }}>{opt.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Max Assets + Credential Reuse */}
+                      <div style={{ display: "flex", gap: 12 }}>
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Max Assets</label>
+                          <input
+                            type="number"
+                            style={inputStyle}
+                            value={formData.maxAssetsToTouch}
+                            min={1}
+                            max={100}
+                            onChange={(e) => setFormData({ ...formData, maxAssetsToTouch: parseInt(e.target.value) || 20 })}
+                          />
+                        </div>
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <label style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Credential Reuse</label>
+                          <select
+                            style={{ ...inputStyle, cursor: "pointer" }}
+                            value={formData.credentialReusePolicy}
+                            onChange={(e) => setFormData({ ...formData, credentialReusePolicy: e.target.value as any })}
+                          >
+                            <option value="reuse_allowed">Reuse Allowed</option>
+                            <option value="report_only">Report Only</option>
+                          </select>
                         </div>
                       </div>
                     </div>

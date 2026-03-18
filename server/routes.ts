@@ -7880,6 +7880,10 @@ export async function registerRoutes(
       if (!chain.unifiedAttackGraph) {
         return res.status(400).json({ error: "No attack graph available" });
       }
+      const graph = chain.unifiedAttackGraph as { nodes?: unknown[] };
+      if (!graph.nodes || graph.nodes.length === 0) {
+        return res.json({ narrative: { summary: "No findings to narrate.", phases: [], recommendations: [] } });
+      }
       const narrative = generateNarrative(chain.unifiedAttackGraph, chain.name, chain.name);
       res.json({ narrative });
     } catch (error) {

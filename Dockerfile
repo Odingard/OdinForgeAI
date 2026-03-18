@@ -33,6 +33,10 @@ COPY --from=builder /app/dist ./dist
 # Code looks at public/agents/ (relative to cwd), so place them there
 COPY public/agents ./public/agents
 
+# ATT&CK STIX data (needed for heatmap / attack coverage)
+# Bundle resolves __dirname to /app/dist, paths use ../../data → /data/
+COPY server/data /data
+
 # Drizzle config + schema (needed for db:push migrations)
 COPY drizzle.config.ts tsconfig.json ./
 COPY shared ./shared

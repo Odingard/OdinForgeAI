@@ -48,6 +48,16 @@ import { RuntimeContextBroker } from "./aev/runtime-context-broker";
 import { destroyAllRateLimiters } from "./agent-rate-limiter";
 import { engagementLogger } from "./logger";
 import { evidenceQualityGate, EvidenceQuality, type EvaluatedFinding, type BatchVerdict } from "./evidence-quality-gate";
+import { AgentMeshOrchestrator, type AgentMeshResult } from "./aev/agent-mesh-orchestrator";
+import type { AgentEvent } from "./aev/agent-event-bus";
+
+/**
+ * Runtime check — separated into a function so esbuild cannot
+ * evaluate it at build time and tree-shake the mesh code path.
+ */
+function isAgentMeshEnabled(): boolean {
+  return String(process.env.AGENT_MESH).toLowerCase() === "true";
+}
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
 import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
@@ -250,6 +260,162 @@ export async function runBreachChain(
 
   broadcastBreachProgress(chainId, "starting", 0, "Breach chain initiated — LIVE MODE ENFORCED");
 
+  // ── AGENT_MESH: Event-driven 4-agent mesh replaces sequential pipeline ────
+  if (isAgentMeshEnabled()) {
+    log.info("AGENT_MESH enabled — delegating to AgentMeshOrchestrator");
+    broadcastBreachProgress(chainId, "starting", 5, "Agent Mesh active — 4-agent event-driven pipeline");
+
+    const targetUrl = Array.isArray(chain.assetIds) ? chain.assetIds[0] : "";
+    const mesh = new AgentMeshOrchestrator({
+      chainId,
+      engagementId: chainId,
+      targetUrl,
+      timeout: config.totalTimeoutMs ?? 120_000,
+    });
+
+    // ── Live Event Bridge: stream mesh events to WebSocket in real-time ────
+    const liveEventThrottle = new Map<string, number>(); // eventKind → lastSentMs
+    const LIVE_THROTTLE_MS = 500;
+    const bus = mesh.getBus();
+    bus.subscribe("*", (event) => {
+      const kindMap: Record<string, string> = {
+        "target.discovered": "scanning",
+        "surface.expanded": "scanning",
+        "endpoint.viable": "scanning",
+        "scan.finished": "scanning",
+        "vuln.confirmed": "exploit_attempt",
+        "breach.confirmed": "vuln_confirmed",
+        "credential.extracted": "credential_extracted",
+        "credential.found": "credential_extracted",
+        "exploit.finished": "exploit_attempt",
+        "pivot.available": "scanning",
+        "chain.complete": "vuln_confirmed",
+      };
+      const eventKind = kindMap[event.type] || "scanning";
+      const now = Date.now();
+      const lastSent = liveEventThrottle.get(eventKind) || 0;
+      if (now - lastSent < LIVE_THROTTLE_MS) return;
+      liveEventThrottle.set(eventKind, now);
+
+      const payload = event.payload as Record<string, unknown> | undefined;
+      const target = (event.evidence?.[0] as { targetUrl?: string } | undefined)?.targetUrl
+        ?? (payload?.endpoint as string | undefined)
+        ?? (payload?.source as string | undefined)
+        ?? targetUrl;
+      const detail = (payload?.description as string | undefined)
+        ?? (payload?.vulnClass as string | undefined)
+        ?? event.type.replace(/\./g, " ");
+
+      wsService.broadcastToChannel(`breach_chain:${chainId}`, {
+        type: "breach_chain_live_event",
+        chainId,
+        eventKind,
+        target: typeof target === "string" ? target.slice(0, 120) : "",
+        detail: typeof detail === "string" ? detail.slice(0, 200) : "",
+        phase: String((payload?.phase as number | undefined) ?? 1),
+        timestamp: event.timestamp,
+      } as any);
+    });
+
+    try {
+      const result = await mesh.run();
+
+      // Convert mesh event log into phaseResults + attack graph for UI compatibility
+      const meshPhaseResults = buildMeshPhaseResults(result);
+      const meshGraph = buildMeshAttackGraph(result);
+      const meshRiskScore = meshPhaseResults.reduce((max, pr) => {
+        const phaseMax = pr.findings.reduce((m, f) =>
+          Math.max(m, f.severity === "critical" ? 95 : f.severity === "high" ? 80 : f.severity === "medium" ? 60 : 40), 0);
+        return Math.max(max, phaseMax);
+      }, 0);
+
+      // ── Credential Web: publish extracted credentials to CredentialBus ──────
+      const credEvents = result.eventLog.filter(e => e.type === "credential.extracted");
+      if (credEvents.length > 0) {
+        const credBus = getCredentialBus();
+        for (const ce of credEvents) {
+          const p = ce.payload as { source?: string; phase?: number };
+          const ev = ce.evidence?.[0];
+          credBus.publish(chainId, {
+            id: `cred-${ce.id}`,
+            engagementId: chainId,
+            username: p.source ?? "unknown",
+            privilegeTier: "service_account",
+            sourceSystem: ev?.targetUrl ?? p.source ?? "unknown",
+            sourceNodeId: ce.id,
+            sourceTactic: "credential-access",
+            discoveredAt: ce.timestamp,
+          });
+        }
+        log.info({ count: credEvents.length }, "Published credentials to CredentialBus");
+      }
+
+      // ── Defense Gaps: generate Defender's Mirror detection rules ─────────────
+      const meshDefendersMirror = new DefendersMirror();
+      const PHASE_TECHNIQUE_MAP: Record<number, string> = {
+        1: "auth_bypass", 2: "credential_reuse", 3: "iam_abuse",
+        4: "k8s_api_abuse", 5: "ssh_pivot", 6: "data_exfiltration",
+      };
+      const allMeshEvents = result.eventLog.filter(
+        e => e.type === "vuln.confirmed" || e.type === "breach.confirmed" || e.type === "credential.extracted"
+      );
+      const meshAttackEvidence: AttackEvidence[] = allMeshEvents.map(e => {
+        const p = e.payload as { phase?: number; vulnClass?: string; endpoint?: string; source?: string; description?: string };
+        const ev = e.evidence?.[0];
+        const phase = p.phase ?? 1;
+        return {
+          id: e.id,
+          engagementId: chainId,
+          phase: phase === 1 ? "application_compromise"
+            : phase === 2 ? "credential_extraction"
+            : phase === 3 ? "cloud_iam_escalation"
+            : phase === 4 ? "container_k8s_breakout"
+            : phase === 5 ? "lateral_movement"
+            : "impact_assessment",
+          techniqueCategory: p.vulnClass ?? PHASE_TECHNIQUE_MAP[phase] ?? "auth_bypass",
+          targetUrl: ev?.targetUrl ?? p.endpoint ?? p.source,
+          statusCode: ev?.statusCode,
+          networkProtocol: "http",
+          success: true,
+        };
+      });
+      const meshDetectionRules = meshDefendersMirror.generateBatch(meshAttackEvidence);
+      log.info({ ruleCount: meshDetectionRules.length }, "Generated Defender's Mirror rules for mesh chain");
+
+      await storage.updateBreachChain(chainId, {
+        status: result.status === "completed" ? "completed" : "failed",
+        progress: result.status === "completed" ? 100 : 0,
+        currentPhase: null,
+        completedAt: new Date(),
+        durationMs: result.durationMs,
+        phaseResults: meshPhaseResults,
+        unifiedAttackGraph: meshGraph as any,
+        overallRiskScore: meshRiskScore,
+        totalCredentialsHarvested: credEvents.length,
+        detectionRules: meshDetectionRules as any,
+        executiveSummary: `Agent Mesh ${result.status}: ${result.totalEvents} events, ${result.findingCount} findings in ${Math.round(result.durationMs / 1000)}s`,
+      });
+
+      broadcastBreachProgress(
+        chainId,
+        result.status === "completed" ? "completed" : "failed",
+        result.status === "completed" ? 100 : 0,
+        `Agent Mesh ${result.status} — ${result.findingCount} findings, ${result.totalEvents} events in ${Math.round(result.durationMs / 1000)}s`,
+      );
+    } catch (error) {
+      log.error({ err: error }, "Agent Mesh failed");
+      await storage.updateBreachChain(chainId, {
+        status: "failed",
+        completedAt: new Date(),
+      });
+      broadcastBreachProgress(
+        chainId, "failed", 0,
+        `Agent Mesh failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+    return;
+  }
+
   // Initialize or restore context
   let context: BreachPhaseContext = (chain.currentContext as BreachPhaseContext) ?? {
     credentials: [],
@@ -353,6 +519,7 @@ export async function runBreachChain(
       ]);
 
       phaseResults.push(phaseResult);
+      log.info({ phase: phaseName, status: phaseResult.status, findings: phaseResult.findings?.length ?? 0 }, `Phase executor returned`);
 
       // Merge output context
       if (phaseResult.status === "completed") {
@@ -431,12 +598,18 @@ export async function runBreachChain(
       const incrementalGraph = buildUnifiedAttackGraph(phaseResults, context);
 
       // Persist incremental progress with partial graph
-      await storage.updateBreachChain(chainId, {
-        phaseResults,
-        currentContext: context,
-        progress: phaseDef.progressRange[1],
-        unifiedAttackGraph: incrementalGraph,
-      });
+      try {
+        log.info({ phase: phaseName, phaseResultsCount: phaseResults.length, graphNodes: incrementalGraph?.nodes?.length ?? 0 }, `Persisting phase results to DB`);
+        await storage.updateBreachChain(chainId, {
+          phaseResults,
+          currentContext: context,
+          progress: phaseDef.progressRange[1],
+          unifiedAttackGraph: incrementalGraph,
+        });
+        log.info({ phase: phaseName }, `Phase results persisted successfully`);
+      } catch (dbErr) {
+        log.error({ err: dbErr, phase: phaseName }, `FAILED to persist phase results to DB`);
+      }
 
       broadcastBreachProgress(
         chainId, phaseName, phaseDef.progressRange[1],
@@ -613,6 +786,514 @@ export async function resumeBreachChain(chainId: string): Promise<void> {
 export async function abortBreachChain(chainId: string): Promise<void> {
   await storage.updateBreachChain(chainId, { status: "aborted" });
   broadcastBreachProgress(chainId, "aborted", 0, "Breach chain aborted by user");
+}
+
+// ============================================================================
+// AGENT MESH → BREACH CHAIN DATA CONVERSION
+// ============================================================================
+
+function buildMeshPhaseResults(result: AgentMeshResult): BreachPhaseResult[] {
+  const phases: BreachPhaseResult[] = [];
+  const eventLog = result.eventLog;
+  const startTime = eventLog[0]?.timestamp ?? new Date().toISOString();
+
+  // Extract findings from vuln.confirmed and breach.confirmed events
+  const vulnEvents = eventLog.filter(e => e.type === "vuln.confirmed");
+  const breachEvents = eventLog.filter(e => e.type === "breach.confirmed");
+  const credEvents = eventLog.filter(e => e.type === "credential.extracted");
+
+  const emptyContext: BreachPhaseContext = {
+    credentials: [],
+    compromisedAssets: [],
+    attackPathSteps: [],
+    evidenceArtifacts: [],
+    currentPrivilegeLevel: "none",
+    domainsCompromised: [],
+  };
+
+  // Phase 1: Application Compromise — from vuln.confirmed events
+  if (vulnEvents.length > 0) {
+    phases.push({
+      phaseName: "application_compromise",
+      status: "completed",
+      startedAt: startTime,
+      completedAt: eventLog.find(e => e.type === "scan.finished")?.timestamp ?? startTime,
+      durationMs: result.durationMs,
+      inputContext: { credentialCount: 0, compromisedAssetCount: 0, privilegeLevel: "none" },
+      outputContext: emptyContext,
+      findings: vulnEvents.map(e => {
+        const p = e.payload as { vulnClass?: string; endpoint?: string; severity?: string; technique?: string; findingId?: string };
+        const ev = e.evidence?.[0];
+        return {
+          id: p.findingId ?? e.id,
+          severity: (p.severity as "critical" | "high" | "medium" | "low") ?? "high",
+          title: `[VALIDATED] ${p.vulnClass ?? "Unknown"} — ${p.endpoint ?? ""}`,
+          description: p.technique ?? `${p.vulnClass} confirmed at ${p.endpoint}`,
+          technique: p.technique,
+          source: "active_exploit_engine" as const,
+          evidenceQuality: "proven" as const,
+          statusCode: ev?.statusCode,
+          responseBody: ev?.rawResponseBody?.slice(0, 500),
+        };
+      }),
+    });
+  }
+
+  // Phase 2: Credential Extraction — from credential.extracted events
+  if (credEvents.length > 0) {
+    phases.push({
+      phaseName: "credential_extraction",
+      status: "completed",
+      startedAt: credEvents[0].timestamp,
+      completedAt: credEvents[credEvents.length - 1].timestamp,
+      inputContext: { credentialCount: 0, compromisedAssetCount: vulnEvents.length, privilegeLevel: "user" },
+      outputContext: emptyContext,
+      findings: credEvents.map(e => {
+        const p = e.payload as { source?: string; phase?: number };
+        return {
+          id: e.id,
+          severity: "critical" as const,
+          title: `Credential extracted from ${p.source ?? "unknown"}`,
+          description: `Live credential harvested during breach chain phase ${p.phase ?? 2}`,
+          source: "credential_extraction" as const,
+          evidenceQuality: "proven" as const,
+        };
+      }),
+    });
+  }
+
+  // Phase 3+: Breach phases — from breach.confirmed events (phases 3-6)
+  for (const be of breachEvents) {
+    const p = be.payload as { phase?: number; description?: string };
+    if (p.phase && p.phase > 1) {
+      const phaseName = p.phase === 3 ? "cloud_iam_escalation"
+        : p.phase === 4 ? "container_k8s_breakout"
+        : p.phase === 5 ? "lateral_movement"
+        : "impact_assessment";
+      const ev = be.evidence?.[0];
+      phases.push({
+        phaseName: phaseName as BreachPhaseName,
+        status: "completed",
+        startedAt: be.timestamp,
+        completedAt: be.timestamp,
+        inputContext: { credentialCount: credEvents.length, compromisedAssetCount: vulnEvents.length, privilegeLevel: "user" },
+        outputContext: emptyContext,
+        findings: [{
+          id: be.id,
+          severity: "high" as const,
+          title: `[VALIDATED] ${p.description ?? phaseName}`,
+          description: p.description ?? `Breach phase ${p.phase} confirmed`,
+          source: phaseName === "cloud_iam_escalation" ? "cloud_iam_escalation" as const
+            : phaseName === "container_k8s_breakout" ? "k8s_breakout" as const
+            : phaseName === "impact_assessment" ? "impact_synthesis" as const
+            : "lateral_movement" as const,
+          evidenceQuality: "proven" as const,
+          statusCode: ev?.statusCode,
+          responseBody: ev?.rawResponseBody?.slice(0, 500),
+        }],
+      });
+    }
+  }
+
+  return phases;
+}
+
+function buildMeshAttackGraph(result: AgentMeshResult): Record<string, unknown> {
+  const nodes: Record<string, unknown>[] = [];
+  const edges: Record<string, unknown>[] = [];
+  const criticalPath: string[] = [];
+  let nodeIdx = 0;
+
+  // Helper: extract short hostname from URL for readable labels
+  function shortHost(url?: string): string {
+    if (!url) return "target";
+    try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url.slice(0, 30); }
+  }
+
+  // ── Phase definition for spine nodes ──────────────────────────────────────
+  interface PhaseGroup {
+    spineId: string;
+    label: string;
+    tactic: string;
+    nodeType: string;
+    compromiseLevel: string;
+    blastRadius: string;
+    attackTechniqueId: string;
+    findingNodes: Record<string, unknown>[];
+  }
+
+  const PHASE_CONFIG: Record<number, Omit<PhaseGroup, "spineId" | "findingNodes">> = {
+    1: { label: "Application Compromise", tactic: "initial-access", nodeType: "pivot", compromiseLevel: "admin", blastRadius: "contained", attackTechniqueId: "T1190" },
+    2: { label: "Credential Extraction", tactic: "credential-access", nodeType: "pivot", compromiseLevel: "admin", blastRadius: "department", attackTechniqueId: "T1078" },
+    3: { label: "Cloud IAM Escalation", tactic: "privilege-escalation", nodeType: "pivot", compromiseLevel: "system", blastRadius: "organization", attackTechniqueId: "T1078.004" },
+    4: { label: "Container Breakout", tactic: "defense-evasion", nodeType: "pivot", compromiseLevel: "system", blastRadius: "organization", attackTechniqueId: "T1613" },
+    5: { label: "Lateral Movement", tactic: "lateral-movement", nodeType: "objective", compromiseLevel: "system", blastRadius: "organization", attackTechniqueId: "T1021" },
+    6: { label: "Impact Assessment", tactic: "impact", nodeType: "objective", compromiseLevel: "system", blastRadius: "organization", attackTechniqueId: "T1048" },
+  };
+
+  // ── Group events by phase ─────────────────────────────────────────────────
+  const phaseGroups = new Map<number, { events: AgentEvent[] }>();
+
+  for (const e of result.eventLog) {
+    if (e.type === "vuln.confirmed") {
+      if (!phaseGroups.has(1)) phaseGroups.set(1, { events: [] });
+      phaseGroups.get(1)!.events.push(e);
+    }
+    if (e.type === "credential.extracted") {
+      const p = e.payload as { phase?: number };
+      const phase = p.phase ?? 2;
+      if (!phaseGroups.has(phase)) phaseGroups.set(phase, { events: [] });
+      phaseGroups.get(phase)!.events.push(e);
+    }
+    if (e.type === "breach.confirmed") {
+      const p = e.payload as { phase?: number };
+      const phase = p.phase ?? 1;
+      if (!phaseGroups.has(phase)) phaseGroups.set(phase, { events: [] });
+      phaseGroups.get(phase)!.events.push(e);
+    }
+  }
+
+  // ── Detect subdomain branching ───────────────────────────────────────────
+  // Extract hostname from each event's evidence or payload
+  function eventHost(e: AgentEvent): string {
+    const ev = e.evidence?.[0] as { targetUrl?: string } | undefined;
+    const p = e.payload as { endpoint?: string; source?: string; vulnClass?: string };
+    return shortHost(ev?.targetUrl ?? p.endpoint ?? p.source);
+  }
+
+  const allHosts = new Set<string>();
+  for (const [, group] of Array.from(phaseGroups.entries())) {
+    for (const e of group.events) allHosts.add(eventHost(e));
+  }
+  allHosts.delete("target"); // remove generic fallback
+
+  const isBranchMode = allHosts.size >= 2;
+  const MAX_BRANCHES = 8;
+
+  // If branching: group hosts by finding count, collapse smallest into "Other"
+  let branchHosts: string[] = [];
+  let collapsedHosts: string[] = [];
+  if (isBranchMode) {
+    const hostCounts = new Map<string, number>();
+    for (const [, group] of Array.from(phaseGroups.entries())) {
+      for (const e of group.events) {
+        const h = eventHost(e);
+        hostCounts.set(h, (hostCounts.get(h) || 0) + 1);
+      }
+    }
+    const sorted = Array.from(hostCounts.entries()).sort((a, b) => b[1] - a[1]);
+    branchHosts = sorted.slice(0, MAX_BRANCHES).map(([h]) => h);
+    collapsedHosts = sorted.slice(MAX_BRANCHES).map(([h]) => h);
+  }
+
+  // ── Entry node ────────────────────────────────────────────────────────────
+  const entryId = `mesh-entry-${nodeIdx++}`;
+  nodes.push({
+    id: entryId,
+    label: "Reconnaissance",
+    description: `Target surface mapped — ${allHosts.size || 1} subdomain${allHosts.size !== 1 ? "s" : ""}`,
+    nodeType: "entry",
+    tactic: "reconnaissance",
+    compromiseLevel: "none",
+    discoveredBy: "recon",
+    businessImpact: { summary: "Entry point — target surface mapped", estimatedBlastRadius: "contained" },
+  });
+  criticalPath.push(entryId);
+
+  // ── Helpers for building satellite nodes from an event ────────────────────
+  function makeSatelliteNode(e: AgentEvent, phase: number, config: typeof PHASE_CONFIG[1]) {
+    const satId = `mesh-finding-${nodeIdx++}`;
+    let satLabel: string;
+    let satDesc: string;
+    let satArtifacts: Record<string, unknown> = {};
+
+    if (e.type === "vuln.confirmed") {
+      const p = e.payload as { vulnClass?: string; endpoint?: string; technique?: string };
+      satLabel = `${p.vulnClass ?? "vuln"} · ${shortHost(p.endpoint)}`;
+      satDesc = p.technique ?? `${p.vulnClass} at ${shortHost(p.endpoint)}`;
+      satArtifacts = { procedure: p.technique, discoveredAt: e.timestamp, attackTechniqueId: "T1190", attackTechniqueName: satLabel, hostname: eventHost(e) };
+    } else if (e.type === "credential.extracted") {
+      const p = e.payload as { source?: string };
+      const ev = e.evidence?.[0] as { targetUrl?: string } | undefined;
+      satLabel = `Credential · ${shortHost(ev?.targetUrl ?? p.source)}`;
+      satDesc = `Credential from ${shortHost(ev?.targetUrl ?? p.source)}`;
+      satArtifacts = {
+        procedure: satDesc, discoveredAt: e.timestamp, attackTechniqueId: "T1078", attackTechniqueName: "Valid Accounts",
+        credentials: [{ username: shortHost(p.source), privilegeTier: "service_account", sourceSystem: ev?.targetUrl ?? p.source ?? "unknown" }],
+        hostname: eventHost(e),
+      };
+    } else {
+      const p = e.payload as { description?: string; phase?: number };
+      const desc = p.description ?? `Phase ${p.phase} breach`;
+      satLabel = desc.length > 40 ? desc.slice(0, 38) + "…" : desc;
+      satDesc = desc;
+      satArtifacts = { procedure: desc, discoveredAt: e.timestamp, attackTechniqueId: config.attackTechniqueId, attackTechniqueName: satLabel, hostname: eventHost(e) };
+    }
+
+    return {
+      node: {
+        id: satId,
+        label: satLabel,
+        description: satDesc,
+        nodeType: phase >= 5 ? "objective" : "pivot",
+        tactic: config.tactic,
+        compromiseLevel: config.compromiseLevel,
+        discoveredBy: "exploit",
+        artifacts: satArtifacts,
+        businessImpact: { summary: satDesc, estimatedBlastRadius: config.blastRadius },
+      },
+      id: satId,
+    };
+  }
+
+  const alternativePaths: string[][] = [];
+  const sortedPhases = Array.from(phaseGroups.keys()).sort((a, b) => a - b);
+
+  if (!isBranchMode) {
+    // ── Single-spine mode (original) ──────────────────────────────────────
+    let prevSpineId = entryId;
+
+    for (const phase of sortedPhases) {
+      const config = PHASE_CONFIG[phase];
+      if (!config) continue;
+      const group = phaseGroups.get(phase)!;
+
+      const spineId = `mesh-phase-${phase}-${nodeIdx++}`;
+      const findingCount = group.events.length;
+
+      nodes.push({
+        id: spineId,
+        label: config.label,
+        description: `${findingCount} finding${findingCount !== 1 ? "s" : ""} confirmed`,
+        nodeType: config.nodeType,
+        tactic: config.tactic,
+        compromiseLevel: config.compromiseLevel,
+        discoveredBy: "exploit",
+        artifacts: {
+          procedure: config.label,
+          discoveredAt: group.events[0]?.timestamp,
+          attackTechniqueId: config.attackTechniqueId,
+          attackTechniqueName: config.label,
+        },
+        businessImpact: {
+          summary: `${config.label}: ${findingCount} confirmed`,
+          estimatedBlastRadius: config.blastRadius,
+        },
+      });
+      criticalPath.push(spineId);
+
+      edges.push({
+        id: `mesh-edge-${nodeIdx++}`,
+        source: prevSpineId,
+        target: spineId,
+        technique: config.label,
+        edgeType: "primary",
+        successProbability: 85,
+      });
+      prevSpineId = spineId;
+
+      for (const e of group.events) {
+        const { node: satNode, id: satId } = makeSatelliteNode(e, phase, config);
+        nodes.push(satNode);
+        edges.push({
+          id: `mesh-edge-${nodeIdx++}`,
+          source: spineId,
+          target: satId,
+          technique: satNode.label,
+          edgeType: "secondary",
+          successProbability: 90,
+        });
+      }
+    }
+  } else {
+    // ── Branch mode: fan-out per subdomain ─────────────────────────────────
+    // Entry → branch nodes (one per subdomain) → phase nodes along each branch → converge
+
+    // Group events by host → phase
+    const hostPhaseEvents = new Map<string, Map<number, AgentEvent[]>>();
+    for (const [phase, group] of Array.from(phaseGroups.entries())) {
+      for (const e of group.events) {
+        let h = eventHost(e);
+        // Collapse small branches into "Other"
+        if (collapsedHosts.includes(h)) h = `Other (${collapsedHosts.length} subdomains)`;
+        if (!hostPhaseEvents.has(h)) hostPhaseEvents.set(h, new Map());
+        const hm = hostPhaseEvents.get(h)!;
+        if (!hm.has(phase)) hm.set(phase, []);
+        hm.get(phase)!.push(e);
+      }
+    }
+
+    // Sort branches: most findings first (that becomes the criticalPath primary branch)
+    const branchList = Array.from(hostPhaseEvents.entries()).map(([host, phases]) => {
+      let totalFindings = 0;
+      for (const [, events] of Array.from(phases.entries())) totalFindings += events.length;
+      return { host, phases, totalFindings };
+    }).sort((a, b) => b.totalFindings - a.totalFindings);
+
+    // Convergence node at the end
+    const convergeId = `mesh-converge-${nodeIdx++}`;
+    const impactConfig = PHASE_CONFIG[6] || PHASE_CONFIG[5];
+
+    // Build each branch
+    branchList.forEach((branch, branchIdx) => {
+      const isPrimary = branchIdx === 0;
+      const branchPath: string[] = [];
+
+      // Branch root node (subdomain entry)
+      const branchRootId = `mesh-branch-${branchIdx}-${nodeIdx++}`;
+      nodes.push({
+        id: branchRootId,
+        label: branch.host,
+        description: `${branch.totalFindings} finding${branch.totalFindings !== 1 ? "s" : ""} on ${branch.host}`,
+        nodeType: "pivot",
+        tactic: "initial-access",
+        compromiseLevel: "limited",
+        discoveredBy: "recon",
+        artifacts: { hostname: branch.host, procedure: `Branch: ${branch.host}`, discoveredAt: new Date().toISOString() },
+        businessImpact: { summary: `Subdomain: ${branch.host}`, estimatedBlastRadius: "contained" },
+        branchId: branchIdx,
+      });
+      branchPath.push(branchRootId);
+
+      // Edge from entry to branch root
+      edges.push({
+        id: `mesh-edge-${nodeIdx++}`,
+        source: entryId,
+        target: branchRootId,
+        technique: branch.host,
+        edgeType: isPrimary ? "primary" : "alternative",
+        successProbability: 80,
+      });
+
+      if (isPrimary) criticalPath.push(branchRootId);
+
+      // Phase nodes along this branch
+      const branchSortedPhases = Array.from(branch.phases.keys()).sort((a, b) => a - b);
+      let prevId = branchRootId;
+
+      for (const phase of branchSortedPhases) {
+        const config = PHASE_CONFIG[phase];
+        if (!config) continue;
+        const events = branch.phases.get(phase)!;
+
+        const phaseNodeId = `mesh-branch-${branchIdx}-phase-${phase}-${nodeIdx++}`;
+        nodes.push({
+          id: phaseNodeId,
+          label: `${config.label}`,
+          description: `${events.length} on ${branch.host}`,
+          nodeType: config.nodeType,
+          tactic: config.tactic,
+          compromiseLevel: config.compromiseLevel,
+          discoveredBy: "exploit",
+          artifacts: {
+            hostname: branch.host,
+            procedure: config.label,
+            discoveredAt: events[0]?.timestamp,
+            attackTechniqueId: config.attackTechniqueId,
+            attackTechniqueName: config.label,
+          },
+          businessImpact: {
+            summary: `${config.label} on ${branch.host}: ${events.length}`,
+            estimatedBlastRadius: config.blastRadius,
+          },
+          branchId: branchIdx,
+        });
+        branchPath.push(phaseNodeId);
+
+        edges.push({
+          id: `mesh-edge-${nodeIdx++}`,
+          source: prevId,
+          target: phaseNodeId,
+          technique: config.label,
+          edgeType: isPrimary ? "primary" : "alternative",
+          successProbability: 85,
+        });
+        prevId = phaseNodeId;
+
+        if (isPrimary) criticalPath.push(phaseNodeId);
+
+        // Satellite findings for this branch+phase
+        for (const e of events) {
+          const { node: satNode, id: satId } = makeSatelliteNode(e, phase, config);
+          (satNode as any).branchId = branchIdx;
+          nodes.push(satNode);
+          edges.push({
+            id: `mesh-edge-${nodeIdx++}`,
+            source: phaseNodeId,
+            target: satId,
+            technique: satNode.label,
+            edgeType: "secondary",
+            successProbability: 90,
+          });
+        }
+      }
+
+      // Edge from branch's last phase to convergence
+      edges.push({
+        id: `mesh-edge-${nodeIdx++}`,
+        source: prevId,
+        target: convergeId,
+        technique: "Converge",
+        edgeType: isPrimary ? "primary" : "alternative",
+        successProbability: 75,
+      });
+
+      if (!isPrimary) alternativePaths.push(branchPath);
+    });
+
+    // Convergence node
+    const totalFindings = branchList.reduce((sum, b) => sum + b.totalFindings, 0);
+    nodes.push({
+      id: convergeId,
+      label: "Impact Assessment",
+      description: `${totalFindings} total findings across ${branchList.length} subdomains`,
+      nodeType: "objective",
+      tactic: "impact",
+      compromiseLevel: "system",
+      discoveredBy: "exploit",
+      artifacts: { procedure: "Convergence — all branches", discoveredAt: new Date().toISOString() },
+      businessImpact: {
+        summary: `Full breach path: ${totalFindings} findings, ${branchList.length} subdomains`,
+        estimatedBlastRadius: "organization",
+      },
+    });
+    criticalPath.push(convergeId);
+  }
+
+  // ── Kill chain coverage ─────────────────────────────────────────────────
+  const coveredTactics = new Set<string>();
+  for (const node of nodes) {
+    const tactic = (node as any).tactic;
+    if (tactic) coveredTactics.add(tactic);
+  }
+  const killChainCoverage: string[] = [];
+  if (coveredTactics.has("initial-access") || coveredTactics.has("reconnaissance")) killChainCoverage.push("reconnaissance", "initial-access", "execution");
+  if (coveredTactics.has("credential-access")) killChainCoverage.push("credential-access", "discovery");
+  if (coveredTactics.has("privilege-escalation")) killChainCoverage.push("privilege-escalation", "defense-evasion");
+  if (coveredTactics.has("defense-evasion") && !killChainCoverage.includes("defense-evasion")) killChainCoverage.push("persistence");
+  if (coveredTactics.has("lateral-movement")) killChainCoverage.push("lateral-movement", "collection");
+  if (coveredTactics.has("impact")) killChainCoverage.push("exfiltration", "impact");
+
+  // ── Time to compromise estimate ─────────────────────────────────────────
+  const durationMs = result.durationMs || 30000;
+  const estimatedMinutes = Math.max(5, Math.round(durationMs / 60000 * 3));
+
+  return {
+    nodes,
+    edges,
+    criticalPath,
+    alternativePaths,
+    entryNodeId: entryId,
+    objectiveNodeIds: criticalPath.slice(-1),
+    killChainCoverage,
+    complexityScore: Math.min(100, sortedPhases.length * 18),
+    timeToCompromise: {
+      minimum: Math.max(5, Math.round(estimatedMinutes * 0.6)),
+      expected: estimatedMinutes,
+      maximum: Math.round(estimatedMinutes * 2),
+      unit: "minutes" as const,
+    },
+  };
 }
 
 // ============================================================================

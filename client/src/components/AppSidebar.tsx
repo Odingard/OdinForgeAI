@@ -9,7 +9,7 @@ import {
   FileText,
   Settings,
 } from "lucide-react";
-import { ShieldValknut } from "./OdinForgeLogo";
+import { ShieldValknut, OdinGardBrand } from "./OdinForgeLogo";
 import {
   Sidebar,
   SidebarContent,
@@ -176,6 +176,9 @@ export function AppSidebar() {
                 : "Security Analyst"}
             </Badge>
           </div>
+        </div>
+        <div className="mt-3 pt-3 border-t border-border/50 flex justify-center">
+          <OdinGardBrand size="sm" className="opacity-50 hover:opacity-80 transition-opacity" />
         </div>
       </SidebarFooter>
     </Sidebar>

@@ -151,14 +151,24 @@ const ROUTE_LABELS: Record<string, [string, string]> = {
 function TopBar() {
   const { user: uiUser, logout } = useUIAuth();
   const [location] = useLocation();
-  const { data: evaluations = [] } = useQuery<any[]>({ queryKey: ["/api/aev/evaluations"] });
+  const { data: chains = [] } = useQuery<any[]>({ queryKey: ["/api/breach-chains"], refetchInterval: 5000 });
 
   const handleLogout = async () => { await logout(); window.location.reload(); };
 
   const [, page] = ROUTE_LABELS[location] || ["", "Page"];
-  const critCount = evaluations.filter((e: any) => (e.priority || e.severity || "").toLowerCase() === "critical").length;
-  const activeCount = evaluations.filter((e: any) => e.status === "in_progress").length;
-  const breachCount = evaluations.filter((e: any) => e.exploitable).length;
+
+  // Wire indicators to live breach chain state
+  const runningChains = chains.filter((c: any) => c.status === "running");
+  const activeCount = runningChains.length;
+  const critCount = chains.reduce((sum: number, c: any) => {
+    const findings = (c.phaseResults || []).flatMap((p: any) => p.findings || []);
+    return sum + findings.filter((f: any) => f.severity === "critical").length;
+  }, 0);
+  const breachCount = chains.filter((c: any) =>
+    (c.phaseResults || []).some((p: any) => (p.findings || []).length > 0)
+  ).length;
+  const engineStatus = activeCount > 0 ? "ACTIVE" : "NOMINAL";
+  const engineColor = activeCount > 0 ? "var(--falcon-blue-hi)" : "var(--falcon-green)";
 
   return (
     <div
@@ -206,10 +216,10 @@ function TopBar() {
 
       {/* Right stats + user */}
       <div className="ml-auto flex items-stretch h-full">
-        <TopBarStat value={String(activeCount)} label="Active Ops" color="var(--falcon-blue-hi)" />
+        <TopBarStat value={String(activeCount)} label="Active Ops" color={activeCount > 0 ? "var(--falcon-blue-hi)" : "var(--falcon-t1)"} />
         <TopBarStat value={String(critCount)} label="Critical" color={critCount > 0 ? "var(--falcon-red)" : "var(--falcon-t1)"} />
-        <TopBarStat value={String(evaluations.length)} label="Exploits" color="var(--falcon-t1)" />
-        <TopBarStat value="NOMINAL" label="Engine" color="var(--falcon-green)" />
+        <TopBarStat value={String(breachCount)} label="Breaches" color={breachCount > 0 ? "var(--falcon-orange)" : "var(--falcon-t1)"} />
+        <TopBarStat value={engineStatus} label="Engine" color={engineColor} />
 
         {/* Notifications */}
         <div
@@ -290,9 +300,11 @@ function FalconSidebar() {
   const [location] = useLocation();
   const { hasPermission } = useAuth();
   const { user: uiUser } = useUIAuth();
-  const { data: evaluations = [] } = useQuery<any[]>({ queryKey: ["/api/aev/evaluations"] });
+  const { data: chains = [] } = useQuery<any[]>({ queryKey: ["/api/breach-chains"], refetchInterval: 5000 });
 
-  const breachCount = evaluations.filter((e: any) => e.exploitable).length;
+  const breachCount = chains.filter((c: any) =>
+    (c.phaseResults || []).some((p: any) => (p.findings || []).length > 0)
+  ).length;
 
   const isActive = (item: NavItem) => {
     if (location.startsWith(item.href)) return true;
@@ -413,6 +425,10 @@ function FalconSidebar() {
    STATUS BAR
 ══════════════════════════ */
 function StatusBar() {
+  const { data: chains = [] } = useQuery<any[]>({ queryKey: ["/api/breach-chains"], refetchInterval: 5000 });
+  const running = chains.filter((c: any) => c.status === "running");
+  const isActive = running.length > 0;
+
   return (
     <div
       className="col-span-full h-[26px] flex items-center px-[18px] gap-[14px] font-mono text-[9px] font-light tracking-[0.08em]"
@@ -420,9 +436,13 @@ function StatusBar() {
     >
       <span className="sb">ENGINE <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>Mjolnir v4.2</em></span>
       <span style={{ color: "var(--falcon-border-2)" }}>&middot;</span>
-      <span className="sb">BUILD <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>2026.02.26</em></span>
+      <span className="sb">BUILD <em className="not-italic" style={{ color: "var(--falcon-t3)" }}>2026.03.17</em></span>
       <div className="ml-auto flex gap-3">
-        <span style={{ color: "var(--falcon-green)" }}>&#9679; SYSTEMS NOMINAL</span>
+        {isActive ? (
+          <span style={{ color: "var(--falcon-blue-hi)" }}>&#9679; {running.length} CHAIN{running.length !== 1 ? "S" : ""} ACTIVE</span>
+        ) : (
+          <span style={{ color: "var(--falcon-green)" }}>&#9679; SYSTEMS NOMINAL</span>
+        )}
       </div>
     </div>
   );
