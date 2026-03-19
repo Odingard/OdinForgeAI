@@ -204,22 +204,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
         <div className="relative z-10">
           {/* Logo */}
-          <div className="flex items-center gap-3 mb-20">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-xl blur-md" style={{ background: "rgba(239,68,68,0.2)" }} />
-              <div className="relative rounded-xl bg-gradient-to-br from-red-600 to-red-700 border border-red-500/30 p-2.5 flex items-center justify-center">
-                <ShieldValknut className="h-9 w-9 text-white" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 text-2xl font-bold tracking-tight">
-                <span className="text-red-500">Odin</span>
-                <span className="text-cyan-400">Forge</span>
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.25em] text-slate-500 font-medium">
-                Adversarial Exposure Validation
-              </div>
-            </div>
+          <div className="mb-20">
+            <img src="/odinforge-lockup-horizontal.png" alt="OdinForge — Adversarial Exposure Validation" className="h-14" />
           </div>
 
           {/* Hero copy */}
@@ -285,16 +271,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
         <div className="w-full max-w-[400px]">
           {/* Mobile logo */}
           <div className="lg:hidden text-center mb-10">
-            <div className="inline-flex items-center gap-3 mb-3">
-              <div className="rounded-xl bg-gradient-to-br from-red-600 to-red-700 border border-red-500/30 p-2 flex items-center justify-center">
-                <ShieldValknut className="h-7 w-7 text-white" />
-              </div>
-              <div className="flex items-center gap-1.5 text-xl font-bold">
-                <span className="text-red-500">Odin</span>
-                <span className="text-cyan-400">Forge</span>
-              </div>
-            </div>
-            <p className="text-sm text-slate-500">Adversarial Exposure Validation</p>
+            <img src="/odinforge-lockup-stacked.png" alt="OdinForge" className="h-28 mx-auto" />
           </div>
 
           {/* Form card */}

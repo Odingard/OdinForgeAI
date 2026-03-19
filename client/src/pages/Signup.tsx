@@ -107,23 +107,8 @@ export default function Signup({ onSignupSuccess }: SignupProps) {
       {/* Left Panel — Branding */}
       <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative z-10 flex-col justify-between p-12">
         <div>
-          <div className="flex items-center gap-3 mb-16">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-lg glow-red-sm animate-pulse" />
-              <div className="relative rounded-lg bg-gradient-to-br from-red-600 to-red-500 border border-red-400/30 p-2 flex items-center justify-center">
-                <ShieldValknut className="h-8 w-8 text-white" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 text-2xl font-bold tracking-tight">
-                <span className="text-red-500">Odin</span>
-                <span className="text-cyan-400">Forge</span>
-                <span className="ml-1.5 text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-semibold uppercase tracking-widest">AI</span>
-              </div>
-              <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground font-medium mt-0.5">
-                Adversarial Exposure Validation
-              </div>
-            </div>
+          <div className="mb-16">
+            <img src="/odinforge-lockup-horizontal.png" alt="OdinForge — Adversarial Exposure Validation" className="h-14" />
           </div>
 
           <div className="max-w-lg">
@@ -157,17 +142,7 @@ export default function Signup({ onSignupSuccess }: SignupProps) {
       <div className="flex-1 flex items-center justify-center relative z-10 p-6">
         <div className="w-full max-w-[420px]">
           <div className="lg:hidden text-center mb-10">
-            <div className="inline-flex items-center gap-3 mb-3">
-              <div className="rounded-lg bg-gradient-to-br from-red-600 to-red-500 border border-red-400/30 p-1.5 flex items-center justify-center">
-                <ShieldValknut className="h-7 w-7 text-white" />
-              </div>
-              <div className="flex items-center gap-1.5 text-xl font-bold">
-                <span className="text-red-500">Odin</span>
-                <span className="text-cyan-400">Forge</span>
-                <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-semibold uppercase tracking-widest">AI</span>
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground">Adversarial Exposure Validation</p>
+            <img src="/odinforge-lockup-stacked.png" alt="OdinForge" className="h-28 mx-auto" />
           </div>
 
           <div className="rounded-xl border border-border bg-card/80 backdrop-blur-sm p-8">

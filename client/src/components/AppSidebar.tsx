@@ -113,10 +113,7 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="border-b border-border px-4 py-5">
         <div className="flex items-center gap-3">
-          <div className="relative flex items-center justify-center h-9 w-9 rounded-lg bg-red-600/10 border border-red-500/20">
-            <ShieldValknut className="h-6 w-6 text-red-500" />
-            <div className="absolute inset-0 rounded-lg" style={{ boxShadow: "0 0 12px rgba(239,68,68,0.15)" }} />
-          </div>
+          <img src="/odinforge-mark.png" alt="OdinForge" className="h-9 w-9" />
           <div className="flex flex-col">
             <span className="text-sm font-bold tracking-tight text-foreground">OdinForge</span>
             <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
