@@ -140,7 +140,8 @@ export class ReasoningEngine {
   private llmRouter: LlmRouter;
   private reasoningLlmCalls = 0;
   private readonly MAX_REASONING_LLM_CALLS = 100;
-  private readonly MEANINGFUL_INTENTS = new Set<ReasoningIntent>(['explore', 'validate', 'escalate', 'summarize']);
+  // Relaxed: all intents are candidates; filtering happens in reason() based on context
+  private readonly MEANINGFUL_INTENTS = new Set<ReasoningIntent>(['explore', 'validate', 'escalate', 'pivot', 'replay', 'summarize']);
 
   constructor(chainId: string) {
     this.chainId = chainId;
@@ -178,10 +179,12 @@ export class ReasoningEngine {
     }
     this.lastReasoningTimestamps.set(dedupKey, now);
 
-    // For meaningful intents, try LLM-assisted reasoning (fire-and-forget)
+    // For meaningful intents with qualifying context, try LLM-assisted reasoning (fire-and-forget).
     // The deterministic message is always emitted immediately; LLM result
     // supplements it as a follow-on event if it returns in time.
-    if (this.MEANINGFUL_INTENTS.has(intent) && isLlmConfigured() && this.reasoningLlmCalls < this.MAX_REASONING_LLM_CALLS) {
+    // Target: ~10-20 LLM reasoning lines per run.
+    const shouldCallLlm = this.MEANINGFUL_INTENTS.has(intent) && this.qualifiesForLlmReasoning(intent, target, context);
+    if (shouldCallLlm && isLlmConfigured() && this.reasoningLlmCalls < this.MAX_REASONING_LLM_CALLS) {
       const contextSummary = context ? Object.entries(context).map(([k, v]) => `${k}=${v}`).join(', ') : '';
       this.generateReasoningLine(intent, target, `${message} | ${contextSummary}`).then(llmLine => {
         if (llmLine) {
@@ -302,7 +305,7 @@ export class ReasoningEngine {
       const resp = await this.llmRouter.reasoningStream([
         {
           role: 'system',
-          content: 'Produce one concise operator-facing reasoning line. Deterministic, no fluff, no speculation. Do not confirm findings or fabricate evidence.',
+          content: 'Produce exactly one concise operator-facing reasoning line. Maximum 18 words. Deterministic, no fluff, no speculation, no unsupported adjectives.',
         },
         {
           role: 'user',
@@ -317,6 +320,44 @@ export class ReasoningEngine {
     } catch (err) {
       recordLlmFailure('reasoning_stream', 'router', 'auto', err instanceof Error ? err.message : String(err));
       return null;
+    }
+  }
+
+  // ── LLM Reasoning Qualification ──────────────────────────────────────
+
+  /** Track which validate classes we've already sent to LLM (first-of-each-class) */
+  private validatedClasses = new Set<string>();
+
+  /**
+   * Determines if this reasoning event qualifies for an LLM call.
+   * Filters to produce ~10-20 LLM reasoning lines per run.
+   */
+  private qualifiesForLlmReasoning(intent: ReasoningIntent, target: string, context?: ReasoningEvent['context']): boolean {
+    switch (intent) {
+      case 'explore':
+        // Only for high-value surfaces (privileged zone or admin/config sensitivity)
+        return context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config';
+      case 'validate': {
+        // First of each vulnerability class only
+        const classKey = context?.confidence || target;
+        if (this.validatedClasses.has(classKey)) return false;
+        this.validatedClasses.add(classKey);
+        return true;
+      }
+      case 'escalate':
+        // Always qualify — role changes are rare and high-signal
+        return true;
+      case 'pivot':
+        // Only when an artifact was actually gained
+        return !!context?.artifact;
+      case 'replay':
+        // Start, success, or fail on high-value targets
+        return context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config' || true;
+      case 'summarize':
+        // Only for primary path changes or convergence summaries
+        return !!context?.pathId || /primary|converge/i.test(target || '');
+      default:
+        return false;
     }
   }
 
