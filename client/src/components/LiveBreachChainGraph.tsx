@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AttackGraph, AttackNode, AttackEdge } from "@shared/schema";
+import type {
+  BreachNodeAddedEvent,
+  BreachEdgeAddedEvent,
+  BreachSurfaceSignalEvent,
+  BreachReasoningEvent,
+} from "../lib/breach-events";
 
 // ============================================================================
 // TYPES
@@ -16,13 +22,19 @@ interface LiveEventData {
 }
 
 interface LiveBreachChainGraphProps {
-  graph: AttackGraph | null;
+  // Legacy — full snapshot graph (backward compat)
+  graph?: AttackGraph | null;
   riskScore?: number;
   assetsCompromised?: number;
   credentialsHarvested?: number;
   currentPhase?: string;
   isRunning?: boolean;
   liveEvents?: LiveEventData[];
+  // Additive live graph — takes precedence over graph when provided
+  nodes?: BreachNodeAddedEvent[];
+  edges?: BreachEdgeAddedEvent[];
+  surfaceSignals?: BreachSurfaceSignalEvent[];
+  reasoningEvents?: BreachReasoningEvent[];
 }
 
 interface LayoutNode {
@@ -509,6 +521,10 @@ export function LiveBreachChainGraph({
   currentPhase,
   isRunning,
   liveEvents = [],
+  nodes: liveNodes = [],
+  edges: liveEdges = [],
+  surfaceSignals = [],
+  reasoningEvents = [],
 }: LiveBreachChainGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -541,15 +557,131 @@ export function LiveBreachChainGraph({
     return () => ro.disconnect();
   }, []);
 
-  // Re-layout when graph changes
+  // Re-layout from additive live events — takes precedence over legacy graph prop
   useEffect(() => {
+    if (liveNodes.length === 0) return;
+
+    const PHASE_ORDER = [
+      "application_compromise", "credential_extraction", "cloud_iam_escalation",
+      "container_k8s_breakout", "lateral_movement", "impact_assessment",
+    ];
+    const PHASE_COLORS: Record<string, string> = {
+      application_compromise:  "#dc2626",
+      credential_extraction:   "#d97706",
+      cloud_iam_escalation:    "#2563eb",
+      container_k8s_breakout:  "#7c3aed",
+      lateral_movement:        "#0891b2",
+      impact_assessment:       "#dc2626",
+    };
+    const KIND_RADIUS: Record<string, number> = {
+      phase_spine: 22, finding: 14, credential: 14,
+      iam_path: 14, k8s_escape: 14, pivot_hop: 12,
+      data_store: 12, dead_end: 10,
+    };
+
+    const centerX = dims.w / 2;
+    const usableH = dims.h - 90;
+    const spineNodes = liveNodes.filter(n => n.kind === "phase_spine");
+    const totalSpine = Math.max(spineNodes.length, 1);
+    const spineYStep = usableH / (totalSpine + 1);
+
+    // Build spine Y positions keyed by nodeId
+    const spineYMap = new Map<string, number>();
+    const spinePhaseMap = new Map<string, string>(); // nodeId → phase
+    spineNodes.forEach((n, i) => {
+      spineYMap.set(n.nodeId, spineYStep * (i + 1));
+      spinePhaseMap.set(n.nodeId, n.phase);
+    });
+
+    // Satellite nodes grouped by their phase spine
+    const satellitesByPhase = new Map<string, BreachNodeAddedEvent[]>();
+    liveNodes.filter(n => n.kind !== "phase_spine").forEach(n => {
+      if (!satellitesByPhase.has(n.phase)) satellitesByPhase.set(n.phase, []);
+      satellitesByPhase.get(n.phase)!.push(n);
+    });
+
+    const newLayoutNodes: LayoutNode[] = [];
+
+    // Place spine nodes
+    spineNodes.forEach((n) => {
+      const y = spineYMap.get(n.nodeId) ?? 0;
+      newLayoutNodes.push({
+        id: n.nodeId,
+        label: n.label,
+        tactic: n.phase,
+        nodeType: "spine",
+        x: centerX, y, targetX: centerX, targetY: y,
+        opacity: 1,
+        description: n.detail,
+        compromiseLevel: n.severity,
+        assets: [],
+        isSpine: true,
+        isSatellite: false,
+        collapsedCount: 0,
+        radius: KIND_RADIUS.phase_spine,
+      });
+    });
+
+    // Place satellite nodes fanning left/right of their spine
+    satellitesByPhase.forEach((sats, phase) => {
+      const spineNode = spineNodes.find(n => n.phase === phase);
+      if (!spineNode) return;
+      const spineY = spineYMap.get(spineNode.nodeId) ?? 0;
+      const ARM = 110; // horizontal distance from spine
+      const V_GAP = 32; // vertical gap between satellites
+      sats.forEach((n, i) => {
+        const side = i % 2 === 0 ? 1 : -1; // alternate right/left
+        const row = Math.floor(i / 2);
+        const x = centerX + side * ARM;
+        const y = spineY + (row - Math.floor(sats.length / 4)) * V_GAP;
+        newLayoutNodes.push({
+          id: n.nodeId,
+          label: n.label,
+          tactic: n.phase,
+          nodeType: n.kind,
+          x, y, targetX: x, targetY: y,
+          opacity: 1,
+          description: n.detail,
+          compromiseLevel: n.severity,
+          assets: [],
+          isSpine: false,
+          isSatellite: true,
+          collapsedCount: 0,
+          radius: KIND_RADIUS[n.kind] ?? 12,
+        });
+      });
+    });
+
+    // Build layout edges from live edge events
+    const newLayoutEdges: LayoutEdge[] = liveEdges.map(e => ({
+      from: e.fromNodeId,
+      to: e.toNodeId,
+      technique: e.label ?? "",
+      probability: e.confirmed ? 1 : 0.3,
+      edgeType: e.confirmed ? "confirmed" : "attempted",
+      description: e.label ?? "",
+    }));
+
+    // Fade-in new nodes
+    const newIds = new Set(newLayoutNodes.map(n => n.id));
+    for (const node of newLayoutNodes) {
+      if (!prevNodeIdsRef.current.has(node.id)) {
+        nodeOpacitiesRef.current.set(node.id, 0);
+      }
+    }
+    prevNodeIdsRef.current = newIds;
+    layoutRef.current = { layoutNodes: newLayoutNodes, layoutEdges: newLayoutEdges };
+  }, [liveNodes, liveEdges, dims.w, dims.h]);
+
+  // Re-layout when graph changes (legacy — only runs if liveNodes is empty)
+  useEffect(() => {
+    if (liveNodes.length > 0) return; // additive mode takes over
     if (!graph || !graph.nodes?.length) {
       layoutRef.current = { layoutNodes: [], layoutEdges: [] };
       return;
     }
 
     const { layoutNodes, layoutEdges } = layoutGraph(
-      graph.nodes,
       graph.edges || [],
       graph.criticalPath || [],
       dims.w,

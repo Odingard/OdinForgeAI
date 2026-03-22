@@ -1,0 +1,125 @@
+version: "3.8"
+
+# OdinForge E2E Test Environment
+# 7 targets for full breach chain testing per GTM Section 8.3
+
+services:
+  # ── Phase 1A Target: Deliberately vulnerable web app ──────────────────
+  juiceshop:
+    image: bkimminich/juice-shop:v17.1.1
+    container_name: e2e-juiceshop
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: unsafe
+
+  # ── Phase 1A + 2 Target: MySQL with known test credentials ────────────
+  mysql:
+    image: mysql:8
+    container_name: e2e-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: testdb_pass_xyz789
+      MYSQL_DATABASE: testapp
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: testdb_pass_xyz789
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/seed.sql
+
+  # ── Phase 3 Target: LocalStack for AWS IAM mock ───────────────────────
+  localstack:
+    image: localstack/localstack:3
+    container_name: e2e-localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: iam,s3,sts,lambda
+      DEFAULT_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+
+  # ── Phase 4 Target: K3s single-node Kubernetes ────────────────────────
+  k3s:
+    image: rancher/k3s:v1.29.3-k3s1
+    container_name: e2e-k3s
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "6443:6443"
+    environment:
+      K3S_TOKEN: e2e-test-token-insecure
+    command: server --disable=traefik --write-kubeconfig-mode=644
+
+  # ── Phase 5 Target: SSH server (Linux) ────────────────────────────────
+  ssh-target:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: e2e-ssh
+    restart: unless-stopped
+    ports:
+      - "2222:2222"
+    environment:
+      PUID: 1000
+      PGID: 1000
+      USER_NAME: testuser
+      USER_PASSWORD: testdb_pass_xyz789
+      PASSWORD_ACCESS: "true"
+      SUDO_ACCESS: "true"
+
+  # ── Phase 5 Target: Samba/SMB server (simulates Windows host) ─────────
+  samba:
+    image: dperson/samba
+    container_name: e2e-samba
+    restart: unless-stopped
+    ports:
+      - "445:445"
+      - "139:139"
+    command: >
+      -u "admin;testdb_pass_xyz789"
+      -s "share;/share;yes;no;no;admin"
+      -s "admin$;/admin;yes;no;no;admin"
+    volumes:
+      - samba_share:/share
+      - samba_admin:/admin
+
+  # ── Prometheus + Grafana (monitors OdinForge during E2E runs) ─────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: e2e-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: e2e-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: odinforge
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  # ── Reverse proxy for external access to all services ────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: e2e-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    depends_on:
+      - grafana
+      - prometheus
+
+volumes:
+  samba_share:
+  samba_admin:
+  grafana_data:

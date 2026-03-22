@@ -620,8 +620,15 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const config = chain.config as any;
   const enabledPhases = config?.enabledPhases || [];
 
-  // Real-time graph updates via WebSocket
-  const { latestGraph, liveEvents } = useBreachChainUpdates({
+  // Real-time graph updates via WebSocket — additive live model
+  const {
+    latestGraph,
+    liveEvents,
+    nodes,
+    edges,
+    surfaceSignals,
+    reasoningEvents,
+  } = useBreachChainUpdates({
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
   });
@@ -1015,6 +1022,10 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
 
           <LiveBreachChainGraph
             graph={displayGraph}
+            nodes={nodes}
+            edges={edges}
+            surfaceSignals={surfaceSignals}
+            reasoningEvents={reasoningEvents}
             riskScore={chain.overallRiskScore ?? undefined}
             assetsCompromised={chain.totalAssetsCompromised ?? undefined}
             credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}

@@ -61,6 +61,7 @@ function isAgentMeshEnabled(): boolean {
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
 import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
+import { createBreachEventEmitter, type BreachEventEmitter } from "../lib/breach-event-emitter";
 import {
   recordEngagementStart,
   recordEngagementComplete,
@@ -80,6 +81,12 @@ import {
  * Cleared after Phase 2 consumes it.
  */
 const phase1AEvidenceStore = new Map<string, ExploitAttempt[]>();
+
+// Module-level emitter store — keyed by chainId, same pattern as phase1AEvidenceStore.
+// Phase executors (standalone functions) read from here rather than receiving
+// breachEmitter as a parameter (which would require changing the PhaseExecutor type).
+import type { BreachEventEmitter } from "../lib/breach-event-emitter";
+const chainEmitterStore = new Map<string, BreachEventEmitter>();
 
 // ── ATT&CK technique IDs exercised per breach phase ──────────────────────────
 const PHASE_ATTACK_TECHNIQUES: Record<string, string[]> = {
@@ -441,6 +448,41 @@ export async function runBreachChain(
   const defendersMirror = new DefendersMirror();
   const reachabilityBuilder = new ReachabilityChainBuilder();
 
+  // ── Live graph event emitter — one instance per engagement ───────────
+  // Passed through to each phase executor so granular events (node added,
+  // edge added, reasoning, surface signal) fire at the moment of confirmation.
+  const breachEmitter = createBreachEventEmitter(chainId);
+  // Register in module-level store so standalone phase executor functions
+  // can access it without changing the PhaseExecutor type signature.
+  chainEmitterStore.set(chainId, breachEmitter);
+
+  // Emit the engagement-start spine nodes for all 6 phases up front
+  // so the frontend can render the skeleton immediately.
+  const PHASE_IDS = [
+    "application_compromise", "credential_extraction", "cloud_iam_escalation",
+    "container_k8s_breakout", "lateral_movement", "impact_assessment",
+  ] as const;
+  const spineNodeIds: Record<string, string> = {};
+  PHASE_IDS.forEach((phaseId, idx) => {
+    const nodeId = breachEmitter.nodeAdded({
+      kind: "phase_spine",
+      phase: phaseId,
+      phaseIndex: idx,
+      label: PHASE_DEFINITIONS[phaseId]?.displayName ?? phaseId,
+      detail: `Phase ${idx + 1} — awaiting execution`,
+      severity: "info",
+    });
+    spineNodeIds[phaseId] = nodeId;
+    // Wire spine edges so the chain is visually connected from the start
+    if (idx > 0) {
+      breachEmitter.edgeAdded(
+        spineNodeIds[PHASE_IDS[idx - 1]],
+        nodeId,
+        false, // not yet confirmed — will flip to true on phase completion
+      );
+    }
+  });
+
   // ── GTM v1.0: Prometheus metrics — engagement start ──────────────────
   recordEngagementStart();
 
@@ -572,12 +614,44 @@ export async function runBreachChain(
         }));
       const detectionRules = defendersMirror.generateBatch(phaseEvidence);
 
+      // ── Live graph — emit phase transition ───────────────────────────
+      const phaseIdx = enabledPhases.indexOf(phaseName);
+      const prevPhase = phaseIdx > 0 ? (enabledPhases[phaseIdx - 1] as import("../lib/breach-event-emitter").BreachPhaseId) : null;
+      breachEmitter.phaseTransition(
+        prevPhase,
+        phaseName as import("../lib/breach-event-emitter").BreachPhaseId,
+        phaseIdx,
+        phaseResult.findings.length,
+        phaseResult.outputContext?.credentials?.length ?? 0,
+        `${PHASE_DEFINITIONS[phaseName]?.displayName} complete — ${qualityVerdict.summary.proven} proven, ${qualityVerdict.summary.corroborated} corroborated`,
+      );
+
+      // ── Live graph — emit node + edge per confirmed finding ──────────
+      const spineNodeId = spineNodeIds[phaseName];
+      let findingSide = 0; // alternates left/right so nodes fan out
+
       // Record each finding as a replay event with quality + mirror refs
       for (let i = 0; i < phaseResult.findings.length; i++) {
         const f = phaseResult.findings[i];
         const verdict = qualityVerdict.passed.find(v => v.finding.id === f.id)
           || qualityVerdict.failed.find(v => v.finding.id === f.id);
         const mirrorRule = detectionRules.find(r => r.attackEvidenceRef === f.id);
+
+        // Only emit nodes for PROVEN or CORROBORATED findings — respect EvidenceContract
+        const isReal = verdict?.quality === "PROVEN" || verdict?.quality === "CORROBORATED";
+        if (isReal && spineNodeId) {
+          const findingNodeId = breachEmitter.nodeAdded({
+            kind: "finding",
+            phase: phaseName as import("../lib/breach-event-emitter").BreachPhaseId,
+            phaseIndex: phaseIdx,
+            label: f.title?.split(" ")[0] ?? "Finding",
+            detail: f.description ?? f.title,
+            severity: (f.severity ?? "medium") as import("../lib/breach-event-emitter").BreachNodeSeverity,
+            technique: f.mitreId,
+          });
+          breachEmitter.edgeAdded(spineNodeId, findingNodeId, true, f.technique ?? phaseName);
+          findingSide++;
+        }
 
         replayRecorder.record({
           eventType: f.severity === "critical" ? "exploit_success" : "exploit_attempt",
@@ -592,6 +666,21 @@ export async function runBreachChain(
           evidenceQuality: verdict?.quality,
           defendersMirrorRef: mirrorRule?.id,
         });
+      }
+
+      // ── Live graph — emit credential nodes ───────────────────────────
+      for (const cred of phaseResult.outputContext?.credentials ?? []) {
+        const credNodeId = breachEmitter.nodeAdded({
+          kind: "credential",
+          phase: phaseName as import("../lib/breach-event-emitter").BreachPhaseId,
+          phaseIndex: phaseIdx,
+          label: cred.type ?? "Credential",
+          detail: `${cred.type} extracted — access level: ${cred.accessLevel}`,
+          severity: cred.accessLevel === "admin" ? "critical" : "high",
+        });
+        if (spineNodeId) {
+          breachEmitter.edgeAdded(spineNodeId, credNodeId, true, "extracted");
+        }
       }
 
       // Build incremental attack graph from all completed results so far
@@ -729,6 +818,9 @@ export async function runBreachChain(
       const count = finalQualityVerdict.summary[quality] || 0;
       for (let i = 0; i < count; i++) recordFindingQuality(quality);
     }
+    // Clean up module-level stores for this chain
+    phase1AEvidenceStore.delete(chainId);
+    chainEmitterStore.delete(chainId);
     // Set gauge metrics
     const maxDepth = reachabilityChain?.deepestNode?.depth ?? 0;
     pivotDepthMax.set(maxDepth);
@@ -1421,8 +1513,19 @@ async function executeApplicationCompromise(
           exploitTarget,
           (phase, progress, detail) => {
             onProgress(chain.id, "application_compromise",
-              5 + Math.round(Math.max(0, progress) * 0.4), // scale to 5-45% of phase
+              5 + Math.round(Math.max(0, progress) * 0.4),
               `[Active Exploit] ${detail}`);
+          },
+          // Surface signal callback — fires into live graph as crawl discovers things
+          (kind, label, detail) => {
+            const emitter = chainEmitterStore.get(chain.id);
+            if (emitter) {
+              emitter.surfaceSignal(
+                kind as import("../lib/breach-event-emitter").SurfaceSignalKind,
+                label,
+                detail,
+              );
+            }
           }
         );
 
@@ -1466,9 +1569,12 @@ async function executeApplicationCompromise(
         }
 
         // Store validated findings with [VALIDATED] prefix
+        // Also emit reasoning event per confirmed exploit so the live feed shows the AI's decision
+        const phase1Emitter = chainEmitterStore.get(chain.id);
         for (const finding of mapped.findings) {
+          const fid = `bf-${randomUUID().slice(0, 8)}`;
           findings.push({
-            id: `bf-${randomUUID().slice(0, 8)}`,
+            id: fid,
             severity: finding.severity as "critical" | "high" | "medium" | "low",
             title: finding.title,
             description: finding.description,
@@ -1476,6 +1582,17 @@ async function executeApplicationCompromise(
             source: "active_exploit_engine",
             evidenceQuality: "proven",
           });
+          // Emit AI reasoning event: what the exploit agent confirmed and why it matters
+          if (phase1Emitter) {
+            phase1Emitter.reasoning(
+              "application_compromise",
+              "exploit-agent-p1a",
+              `Confirmed: ${finding.title}`,
+              finding.description,
+              "confirmed",
+              { techniqueTried: finding.exploitChain },
+            );
+          }
         }
 
         console.log(`[BreachOrchestrator] Active Exploit Results for ${assetId}:`, {

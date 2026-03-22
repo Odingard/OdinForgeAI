@@ -132,7 +132,8 @@ interface BreachChainLiveEvent {
   timestamp: string;
 }
 
-type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent | BreachChainGraphUpdateEvent | BreachChainLiveEvent;
+import type { BreachEvent } from "../lib/breach-event-emitter";
+type WebSocketEvent = AEVProgressEvent | AEVCompleteEvent | SimulationProgressEvent | ReconProgressEvent | HeartbeatEvent | ScanProgressEvent | SafetyBlockEvent | ReasoningTraceEvent | SharedMemoryUpdateEvent | HITLApprovalEvent | BreachChainGraphUpdateEvent | BreachChainLiveEvent | BreachEvent;
 
 interface ClientInfo {
   ws: WebSocket;
@@ -690,6 +691,17 @@ class WebSocketService {
     };
 
     this.broadcastToChannel(`breach_chain:${chainId}`, event);
+  }
+
+  /**
+   * broadcastBreachEvent
+   *
+   * Broadcasts any granular BreachEvent to the breach_chain:{chainId} channel.
+   * Called by BreachEventEmitter — not by phase executors directly.
+   * Replaces the coarse phase-level graph snapshot with per-event streaming.
+   */
+  broadcastBreachEvent(chainId: string, event: BreachEvent): void {
+    this.broadcastToChannel(`breach_chain:${chainId}`, event as unknown as WebSocketEvent);
   }
 
   getStats(): {

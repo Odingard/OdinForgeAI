@@ -1,7 +1,30 @@
+/**
+ * useBreachChainUpdates
+ *
+ * Additive live graph model — replaces the snapshot replacement approach.
+ * Instead of receiving a full AttackGraph and replacing state, this hook
+ * maintains additive arrays of nodes, edges, surface signals, and reasoning
+ * events that grow as the engagement progresses.
+ *
+ * The graph only ever grows — never resets mid-engagement.
+ * LiveBreachChainGraph reads from these arrays directly.
+ */
+
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useWebSocket } from "./useWebSocket";
 import { queryClient } from "@/lib/queryClient";
 import type { AttackGraph } from "@shared/schema";
+import type {
+  BreachNodeAddedEvent,
+  BreachEdgeAddedEvent,
+  BreachSurfaceSignalEvent,
+  BreachReasoningEvent,
+  BreachPhaseTransitionEvent,
+} from "../lib/breach-events";
+
+// ─── Re-exported types for consumers ─────────────────────────────────────────
+
+export type { BreachNodeAddedEvent, BreachEdgeAddedEvent, BreachSurfaceSignalEvent, BreachReasoningEvent };
 
 export interface BreachChainUpdateMessage {
   type: "breach_chain_progress" | "breach_chain_complete" | "breach_chain_graph_update";
@@ -23,7 +46,7 @@ export interface LiveEvent {
   detail: string;
   phase: string;
   timestamp: string;
-  expiresAt: number; // Date.now() + TTL
+  expiresAt: number;
 }
 
 export interface UseBreachChainUpdatesOptions {
@@ -35,6 +58,8 @@ export interface UseBreachChainUpdatesOptions {
 }
 
 let _liveEventCounter = 0;
+const MAX_REASONING_EVENTS = 200;
+const MAX_SURFACE_SIGNALS = 500;
 
 export function useBreachChainUpdates({
   enabled = true,
@@ -43,95 +68,123 @@ export function useBreachChainUpdates({
   onComplete,
   onGraphUpdate,
 }: UseBreachChainUpdatesOptions = {}) {
+  // Legacy — kept for backward compat with pages that read latestGraph
   const [latestGraph, setLatestGraph] = useState<AttackGraph | null>(null);
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
+
+  // ── Additive graph state ─────────────────────────────────────────────
+  const [nodes, setNodes] = useState<BreachNodeAddedEvent[]>([]);
+  const [edges, setEdges] = useState<BreachEdgeAddedEvent[]>([]);
+  const [surfaceSignals, setSurfaceSignals] = useState<BreachSurfaceSignalEvent[]>([]);
+  const [reasoningEvents, setReasoningEvents] = useState<BreachReasoningEvent[]>([]);
+  const [phaseTransitions, setPhaseTransitions] = useState<BreachPhaseTransitionEvent[]>([]);
+
   const cleanupRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Expire old live events every second
+  // Expire old live events
   useEffect(() => {
     cleanupRef.current = setInterval(() => {
       const now = Date.now();
       setLiveEvents(prev => {
         const filtered = prev.filter(e => e.expiresAt > now);
-        if (filtered.length === prev.length) return prev; // no change, skip re-render
-        return filtered;
+        return filtered.length === prev.length ? prev : filtered;
       });
     }, 1000);
-    return () => {
-      if (cleanupRef.current) clearInterval(cleanupRef.current);
-    };
+    return () => { if (cleanupRef.current) clearInterval(cleanupRef.current); };
   }, []);
+
+  // Reset additive state when chainId changes
+  useEffect(() => {
+    setNodes([]);
+    setEdges([]);
+    setSurfaceSignals([]);
+    setReasoningEvents([]);
+    setPhaseTransitions([]);
+    setLatestGraph(null);
+    setLiveEvents([]);
+  }, [chainId]);
 
   const { isConnected, subscribe, unsubscribe } = useWebSocket({
     enabled,
-    onMessage: (data) => {
-      if (data.type === "breach_chain_progress") {
-        if (chainId && data.chainId !== chainId) return;
+    onMessage: (data: any) => {
+      // Guard: filter by chainId when provided
+      if (chainId && data.chainId && data.chainId !== chainId) return;
 
-        queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
-        if (data.chainId) {
-          queryClient.invalidateQueries({
-            queryKey: [`/api/breach-chains/${data.chainId}`],
+      switch (data.type) {
+
+        // ── Granular additive events ───────────────────────────────────
+        case "breach_node_added":
+          setNodes(prev => [...prev, data as BreachNodeAddedEvent]);
+          break;
+
+        case "breach_edge_added":
+          setEdges(prev => [...prev, data as BreachEdgeAddedEvent]);
+          break;
+
+        case "breach_surface_signal":
+          setSurfaceSignals(prev => {
+            const next = [...prev, data as BreachSurfaceSignalEvent];
+            return next.length > MAX_SURFACE_SIGNALS ? next.slice(-MAX_SURFACE_SIGNALS) : next;
           });
-        }
+          break;
 
-        onProgress?.(data as BreachChainUpdateMessage);
-      } else if (data.type === "breach_chain_complete") {
-        if (chainId && data.chainId !== chainId) return;
-
-        queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
-        if (data.chainId) {
-          queryClient.invalidateQueries({
-            queryKey: [`/api/breach-chains/${data.chainId}`],
+        case "breach_reasoning":
+          setReasoningEvents(prev => {
+            const next = [...prev, data as BreachReasoningEvent];
+            return next.length > MAX_REASONING_EVENTS ? next.slice(-MAX_REASONING_EVENTS) : next;
           });
+          break;
+
+        case "breach_phase_transition":
+          setPhaseTransitions(prev => [...prev, data as BreachPhaseTransitionEvent]);
+          break;
+
+        // ── Legacy events — kept for backward compat ──────────────────
+        case "breach_chain_progress":
+          queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
+          if (data.chainId) queryClient.invalidateQueries({ queryKey: [`/api/breach-chains/${data.chainId}`] });
+          onProgress?.(data as BreachChainUpdateMessage);
+          break;
+
+        case "breach_chain_complete":
+          queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
+          if (data.chainId) queryClient.invalidateQueries({ queryKey: [`/api/breach-chains/${data.chainId}`] });
+          onComplete?.(data as BreachChainUpdateMessage);
+          break;
+
+        case "breach_chain_graph_update":
+          if (data.graph) setLatestGraph(data.graph as AttackGraph);
+          onGraphUpdate?.(data as BreachChainUpdateMessage);
+          break;
+
+        case "breach_chain_live_event": {
+          const event: LiveEvent = {
+            id: `live-${++_liveEventCounter}`,
+            eventKind: data.eventKind,
+            target: data.target,
+            detail: data.detail,
+            phase: data.phase,
+            timestamp: data.timestamp,
+            expiresAt: Date.now() + 3000,
+          };
+          setLiveEvents(prev => {
+            const next = [...prev, event];
+            return next.length > 5 ? next.slice(-5) : next;
+          });
+          break;
         }
-
-        onComplete?.(data as BreachChainUpdateMessage);
-      } else if (data.type === "breach_chain_graph_update") {
-        if (chainId && data.chainId !== chainId) return;
-
-        if (data.graph) {
-          setLatestGraph(data.graph as AttackGraph);
-        }
-
-        onGraphUpdate?.(data as BreachChainUpdateMessage);
-      } else if (data.type === "breach_chain_live_event") {
-        if (chainId && data.chainId !== chainId) return;
-
-        const event: LiveEvent = {
-          id: `live-${++_liveEventCounter}`,
-          eventKind: data.eventKind,
-          target: data.target,
-          detail: data.detail,
-          phase: data.phase,
-          timestamp: data.timestamp,
-          expiresAt: Date.now() + 3000, // 3s TTL
-        };
-
-        setLiveEvents(prev => {
-          const next = [...prev, event];
-          // Ring buffer of last 5
-          return next.length > 5 ? next.slice(-5) : next;
-        });
       }
     },
   });
 
   useEffect(() => {
     if (isConnected && enabled) {
-      // Subscribe to chain-specific channel (server broadcasts to breach_chain:{chainId})
-      if (chainId) {
-        subscribe(`breach_chain:${chainId}`);
-      }
-      // Also subscribe to generic channels for list-level updates
+      if (chainId) subscribe(`breach_chain:${chainId}`);
       subscribe("breach_chain_progress");
       subscribe("breach_chain_complete");
       subscribe("breach_chain_graph_update");
-
       return () => {
-        if (chainId) {
-          unsubscribe(`breach_chain:${chainId}`);
-        }
+        if (chainId) unsubscribe(`breach_chain:${chainId}`);
         unsubscribe("breach_chain_progress");
         unsubscribe("breach_chain_complete");
         unsubscribe("breach_chain_graph_update");
@@ -141,6 +194,13 @@ export function useBreachChainUpdates({
 
   return {
     isConnected,
+    // Additive graph state (primary)
+    nodes,
+    edges,
+    surfaceSignals,
+    reasoningEvents,
+    phaseTransitions,
+    // Legacy (backward compat)
     latestGraph,
     liveEvents,
   };
