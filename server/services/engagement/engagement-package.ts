@@ -86,6 +86,7 @@ interface EvidenceJSONFinding {
   mitreId: string | null;
   statusCode: number | null;
   responseBodyPreview: string | null;
+  curlCommand: string | null;
 }
 
 interface PackageMetadata {
@@ -180,6 +181,7 @@ function buildEvidenceJSON(chain: BreachChain): EvidenceJSONPayload {
     mitreId: (f as any).mitreId ?? null,
     statusCode: (f as any).statusCode ?? null,
     responseBodyPreview: ((f as any).responseBody ?? "").slice(0, 500) || null,
+    curlCommand: (f as any).curlCommand ?? null,
   }));
 
   return {

@@ -297,7 +297,9 @@ export async function generateEngineerReport(
             responseBodyPreview: ((f as any).responseBody ?? "").slice(0, 500),
           }
         : null,
-    };
+      // ADR-001: Propagate curl command for reproducible PoC in PDF
+      curlCommand: (f as any).curlCommand ?? null,
+    } as EngineerFindingDetail;
   });
 
   // Build remediation diffs

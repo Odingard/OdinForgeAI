@@ -577,26 +577,71 @@ export async function runBreachChain(
       log.info({ phase: phaseName, status: phaseResult.status, findings: phaseResult.findings?.length ?? 0 }, `Phase executor returned`);
 
       // ── 0-findings diagnostic ─────────────────────────────────────────
-      // If a phase completed with zero findings, emit a cognitive event
-      // explaining what happened so operators see WHY, not just silence.
+      // If a phase completed with zero findings, emit a structured diagnostic
+      // explaining what happened so operators and customers see WHY, not just silence.
       if (phaseResult.findings.length === 0) {
-        const reason = phaseResult.error
-          ? `Phase error: ${phaseResult.error}`
-          : phaseResult.status === "skipped"
-            ? `Phase skipped: ${phaseResult.error || "prerequisite not met"}`
-            : `Phase completed but no exploitable findings validated. ` +
-              `Sub-agent runs: ${phaseResult.subAgentRuns?.length ?? 0}. ` +
-              `This may indicate: target not vulnerable to tested payloads, WAF blocking, ` +
-              `or crawl discovered 0 endpoints (check [AEE:precheck] and [AEE:crawl] logs).`;
+        type ZeroFindingsCategory =
+          | "phase_error"
+          | "phase_skipped"
+          | "waf_blocking"
+          | "crawl_failure"
+          | "no_vulnerable_endpoints"
+          | "all_payloads_failed"
+          | "target_unreachable"
+          | "timeout";
+
+        let diagnosticCategory: ZeroFindingsCategory;
+        let reason: string;
+
+        if (phaseResult.error) {
+          const errLower = (phaseResult.error || "").toLowerCase();
+          if (errLower.includes("timeout") || errLower.includes("timed out")) {
+            diagnosticCategory = "timeout";
+            reason = `Phase timed out: ${phaseResult.error}`;
+          } else if (errLower.includes("enotfound") || errLower.includes("econnrefused") || errLower.includes("unreachable")) {
+            diagnosticCategory = "target_unreachable";
+            reason = `Target unreachable: ${phaseResult.error}. Verify the target URL is accessible and DNS resolves correctly.`;
+          } else if (errLower.includes("403") || errLower.includes("waf") || errLower.includes("blocked") || errLower.includes("rate limit")) {
+            diagnosticCategory = "waf_blocking";
+            reason = `WAF or rate limiting detected: ${phaseResult.error}. The target may be blocking automated testing.`;
+          } else {
+            diagnosticCategory = "phase_error";
+            reason = `Phase error: ${phaseResult.error}`;
+          }
+        } else if (phaseResult.status === "skipped") {
+          diagnosticCategory = "phase_skipped";
+          reason = `Phase skipped: ${phaseResult.error || "prerequisite not met (e.g., no credentials from prior phase)"}`;
+        } else {
+          // Phase completed normally but found nothing
+          const subAgentCount = phaseResult.subAgentRuns?.length ?? 0;
+          if (subAgentCount === 0) {
+            diagnosticCategory = "crawl_failure";
+            reason = `Phase completed but no sub-agents ran. The crawl may have discovered 0 endpoints — ` +
+              `check [AEE:precheck] and [AEE:crawl] logs. Possible causes: target returned no HTML content, ` +
+              `robots.txt blocked crawling, or the target redirected to an external domain.`;
+          } else {
+            diagnosticCategory = "no_vulnerable_endpoints";
+            reason = `Phase completed ${subAgentCount} sub-agent run(s) but no exploitable findings were validated. ` +
+              `The target's endpoints were tested but none matched known vulnerability patterns above the confidence threshold (>= 0.6). ` +
+              `This may indicate the target is well-hardened, or WAF silently filtering payloads without explicit 403 responses.`;
+          }
+        }
 
         emitCognitiveEvent({
           type: "intelligence.strategy",
           chainId,
-          summary: `Phase ${phaseName}: 0 findings`,
+          summary: `Phase ${phaseName}: 0 findings [${diagnosticCategory}]`,
           detail: reason,
           timestamp: new Date().toISOString(),
         });
-        log.warn({ phase: phaseName }, `0-findings diagnostic: ${reason}`);
+        log.warn({ phase: phaseName, diagnosticCategory }, `0-findings diagnostic: ${reason}`);
+
+        // Attach diagnostic to phase result for UI and PDF consumption
+        (phaseResult as any).zeroFindingsDiagnostic = {
+          category: diagnosticCategory,
+          reason,
+          subAgentRuns: phaseResult.subAgentRuns?.length ?? 0,
+        };
       }
 
       // Merge output context
@@ -1632,6 +1677,12 @@ async function executeApplicationCompromise(
             technique: finding.exploitChain,
             source: "active_exploit_engine",
             evidenceQuality: "proven",
+            // ADR-001: Propagate HTTP evidence fields from AEE for EvidenceContract
+            statusCode: (finding as any).statusCode ?? undefined,
+            responseBody: (finding as any).responseBody ?? undefined,
+            curlCommand: (finding as any).curlCommand ?? undefined,
+            confidence: finding.confidence ?? undefined,
+            matchedPatterns: (finding as any).matchedPatterns ?? undefined,
           });
           // Emit AI reasoning event: what the exploit agent confirmed and why it matters
           if (phase1Emitter) {
@@ -1985,6 +2036,12 @@ async function executeApplicationCompromise(
             technique: finding.exploitChain,
             source: "active_exploit_engine",
             evidenceQuality: "proven",
+            // ADR-001: Propagate HTTP evidence fields from AEE for EvidenceContract
+            statusCode: (finding as any).statusCode ?? undefined,
+            responseBody: (finding as any).responseBody ?? undefined,
+            curlCommand: (finding as any).curlCommand ?? undefined,
+            confidence: finding.confidence ?? undefined,
+            matchedPatterns: (finding as any).matchedPatterns ?? undefined,
           });
         }
         subAgentRuns.push({

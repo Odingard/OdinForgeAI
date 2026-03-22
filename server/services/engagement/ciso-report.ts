@@ -170,13 +170,31 @@ function buildBreachNarrative(chain: BreachChain): string {
 
   lines.push(`The assessment executed ${completedPhases.length} of ${phases.length} phases.`);
 
+  let totalFindingsAcrossPhases = 0;
   for (const phase of completedPhases) {
     const name = PHASE_DISPLAY_NAMES[phase.phaseName] ?? phase.phaseName;
     const findingCount = phase.findings?.length ?? 0;
+    totalFindingsAcrossPhases += findingCount;
     const criticals = phase.findings?.filter(f => f.severity === "critical").length ?? 0;
     if (findingCount > 0) {
       lines.push(`${name}: ${findingCount} finding(s)${criticals > 0 ? ` including ${criticals} critical` : ""}.`);
+    } else {
+      // Provide diagnostic context for phases with zero findings
+      const diagnostic = (phase as any).zeroFindingsDiagnostic;
+      if (diagnostic) {
+        lines.push(`${name}: No exploitable findings validated (${diagnostic.category.replace(/_/g, " ")}).`);
+      }
     }
+  }
+
+  // If all phases completed but no findings at all, provide a clear explanation
+  if (totalFindingsAcrossPhases === 0 && completedPhases.length > 0) {
+    lines.push(
+      `No exploitable vulnerabilities were confirmed during this assessment. ` +
+      `This may indicate the target is well-hardened against the tested attack techniques, ` +
+      `or that security controls (WAF, rate limiting) prevented exploitation. ` +
+      `The absence of findings does not guarantee the absence of vulnerabilities.`
+    );
   }
 
   if (domains.length > 0) {

@@ -239,6 +239,21 @@ export function buildCISOReportPDF(
   return {
     content,
     defaultStyle: { font: "Helvetica" },
+    header: (currentPage: number, _pageCount: number) => {
+      if (currentPage === 1) return null; // skip header on cover/first page
+      return {
+        columns: [
+          { text: "CONFIDENTIAL", fontSize: 7, color: COLORS.accent, bold: true, margin: [40, 15, 0, 0] },
+          { text: `Engagement: ${report.engagementId}`, fontSize: 7, color: COLORS.muted, alignment: "right", margin: [0, 15, 40, 0] },
+        ],
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => ({
+      columns: [
+        { text: "CONFIDENTIAL -- Odingard Security | Six Sense Enterprise Services", fontSize: 7, color: COLORS.muted, italics: true, margin: [40, 0, 0, 0] },
+        { text: `Page ${currentPage} of ${pageCount}`, fontSize: 7, color: COLORS.muted, alignment: "right", margin: [0, 0, 40, 0] },
+      ],
+    }),
     styles: {
       companyName: { fontSize: 16, bold: true, color: COLORS.heading },
       companyTagline: { fontSize: 9, color: COLORS.muted },
@@ -257,7 +272,7 @@ export function buildCISOReportPDF(
       footer: { fontSize: 8, color: COLORS.muted, italics: true },
     },
     pageSize: "LETTER",
-    pageMargins: [40, 40, 40, 40],
+    pageMargins: [40, 50, 40, 40],
   };
 }
 
@@ -421,6 +436,21 @@ export function buildEngineerReportPDF(report: EngineerReport): any {
       });
     }
 
+    // Show reproducible curl command if available (ADR-001 evidence propagation)
+    if ((finding as any).curlCommand) {
+      content.push({
+        text: "Reproduction command:",
+        style: "tableCellMuted",
+        margin: [60, 2, 0, 1],
+      });
+      content.push({
+        text: (finding as any).curlCommand,
+        fontSize: 7,
+        color: COLORS.body,
+        margin: [60, 0, 0, 4],
+      });
+    }
+
     content.push({ text: `Evidence: ${finding.evidenceQuality.toUpperCase()} | Source: ${finding.source || 'active_exploit_engine'}`, style: "tableCellMuted", margin: [60, 0, 0, 8] });
   }
 
@@ -490,6 +520,21 @@ export function buildEngineerReportPDF(report: EngineerReport): any {
   return {
     content,
     defaultStyle: { font: "Helvetica" },
+    header: (currentPage: number, _pageCount: number) => {
+      if (currentPage === 1) return null;
+      return {
+        columns: [
+          { text: "CONFIDENTIAL", fontSize: 7, color: COLORS.accent, bold: true, margin: [40, 15, 0, 0] },
+          { text: `Engagement: ${report.engagementId}`, fontSize: 7, color: COLORS.muted, alignment: "right", margin: [0, 15, 40, 0] },
+        ],
+      };
+    },
+    footer: (currentPage: number, pageCount: number) => ({
+      columns: [
+        { text: "CONFIDENTIAL -- Odingard Security | Six Sense Enterprise Services", fontSize: 7, color: COLORS.muted, italics: true, margin: [40, 0, 0, 0] },
+        { text: `Page ${currentPage} of ${pageCount}`, fontSize: 7, color: COLORS.muted, alignment: "right", margin: [0, 0, 40, 0] },
+      ],
+    }),
     styles: {
       companyName: { fontSize: 16, bold: true, color: COLORS.heading },
       companyTagline: { fontSize: 9, color: COLORS.muted },
@@ -507,6 +552,6 @@ export function buildEngineerReportPDF(report: EngineerReport): any {
       footer: { fontSize: 8, color: COLORS.muted, italics: true },
     },
     pageSize: "LETTER",
-    pageMargins: [40, 40, 40, 40],
+    pageMargins: [40, 50, 40, 40],
   };
 }
