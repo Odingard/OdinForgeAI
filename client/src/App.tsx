@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
 import { ViewModeProvider } from "./contexts/ViewModeContext";
+import "../src/styles/canvas.css";
 import { CyberToastProvider } from "@/components/ui/cyber-toast";
 import { ShieldValknut } from "./components/OdinForgeLogo";
 import { NotificationsPopover } from "./components/NotificationsPopover";

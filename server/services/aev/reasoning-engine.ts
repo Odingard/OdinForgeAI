@@ -6,7 +6,12 @@
  *
  * This layer does NOT confirm findings or change exploit truth.
  * It expresses what the engine is doing and why.
+ *
+ * All events are broadcast through the existing WebSocket channel
+ * so the frontend receives them in real time.
  */
+
+import { wsService } from '../websocket';
 
 // ── Intent Classes ───────────────────────────────────────────────────────────
 
@@ -155,6 +160,17 @@ export class ReasoningEngine {
     this.events.push(event);
     this.memory.stats.reasoningEvents++;
     console.log(`[REASON:${intent}] ${message}${target ? ` → ${target}` : ''}`);
+
+    // Broadcast through existing WebSocket channel
+    try {
+      const { intent: _t, chainId: _c, ...rest } = event;
+      wsService.broadcastToChannel(`breach_chain:${this.chainId}`, {
+        type: 'reasoning_event',
+        chainId: this.chainId,
+        reasoningIntent: event.intent,
+        ...rest,
+      } as any);
+    } catch { /* wsService not initialized (test/CLI context) */ }
   }
 
   // ── Canvas Emission ──────────────────────────────────────────────────
@@ -169,6 +185,28 @@ export class ReasoningEngine {
     };
     this.canvasEvents.push(event);
     this.memory.stats.canvasEvents++;
+
+    // Broadcast through existing WebSocket channel
+    try {
+      const { type: _ct, chainId: _cc, ...canvasRest } = event;
+      wsService.broadcastToChannel(`breach_chain:${this.chainId}`, {
+        type: 'canvas_event',
+        chainId: this.chainId,
+        canvasType: event.type,
+        ...canvasRest,
+      } as any);
+    } catch { /* wsService not initialized (test/CLI context) */ }
+  }
+
+  /** Broadcast current operator summary to frontend */
+  broadcastSummary(): void {
+    try {
+      wsService.broadcastToChannel(`breach_chain:${this.chainId}`, {
+        type: 'operator_summary',
+        chainId: this.chainId,
+        ...this.operatorSummary,
+      } as any);
+    } catch { /* wsService not initialized */ }
   }
 
   // ── Surface Intelligence Hooks ───────────────────────────────────────
@@ -190,6 +228,7 @@ export class ReasoningEngine {
     this.reason('summarize', '', `Surface mapped: ${entryPoints.length} entries, ${targets.length} targets, ${highValue.length} high-value`, {
       zone: 'mixed',
     });
+    this.broadcastSummary();
   }
 
   // ── Exploit Hooks ────────────────────────────────────────────────────
@@ -277,6 +316,7 @@ export class ReasoningEngine {
     this.operatorSummary.lastMeaningfulChange = `Primary path: ${name}`;
     this.canvas('primary_path_changed', { source: pathId, detail: reason, confirmed: true });
     this.reason('summarize', '', `${name} promoted to primary path — ${reason}`, { pathId, confidence: String(score) });
+    this.broadcastSummary();
   }
 
   // ── Output ───────────────────────────────────────────────────────────

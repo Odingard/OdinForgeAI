@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
 import { BreachChainExport } from "@/components/BreachChainExport";
+import { CanvasPanel } from "@/components/canvas/CanvasPanel";
 import {
   Link2,
   Play,
@@ -628,6 +629,9 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     edges,
     surfaceSignals,
     reasoningEvents,
+    reasoningStream,
+    canvasEvents,
+    operatorSummary,
   } = useBreachChainUpdates({
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
@@ -636,7 +640,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const displayGraph = latestGraph ?? (chain.unifiedAttackGraph as AttackGraph | null);
   const hasGraph = displayGraph && displayGraph.nodes?.length > 0;
 
-  const [tab, setTab] = useState(hasGraph ? "graph" : "overview");
+  const [tab, setTab] = useState(chain.status === "running" ? "canvas" : hasGraph ? "graph" : "overview");
   const [showExport, setShowExport] = useState(false);
   const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
 
@@ -720,6 +724,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     <div style={{ width: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div className="f-tab-bar" style={{ flex: 1 }}>
+          <button className={`f-tab ${tab === "canvas" ? "active" : ""}`} onClick={() => setTab("canvas")}>Live Canvas</button>
           <button className={`f-tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
           <button className={`f-tab ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>Attack Graph</button>
           <button className={`f-tab ${tab === "phases" ? "active" : ""}`} onClick={() => setTab("phases")}>Phase Results</button>
@@ -773,6 +778,15 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
           graph={displayGraph}
           narrative={narrative}
           onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {tab === "canvas" && (
+        <CanvasPanel
+          chainId={chain.id}
+          canvasEvents={canvasEvents}
+          reasoningStream={reasoningStream}
+          operatorSummary={operatorSummary}
         />
       )}
 
