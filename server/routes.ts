@@ -39,6 +39,7 @@ import { registerTenantRoutes, seedDefaultTenant } from "./routes/tenants";
 import { tenantMiddleware } from "./middleware/tenant";
 import { runtimeGuard } from "./services/runtime-guard";
 import { storageService } from "./services/storage";
+import { evaluateLaunchReadiness, type EngineRunContext } from "./services/launch-readiness-evaluator";
 
 // UI Auth Validation Schemas
 const loginSchema = z.object({
@@ -3363,6 +3364,129 @@ export async function registerRoutes(
       res.json(quality);
     } catch (error) {
       res.status(500).json({ error: "Failed to get evidence quality" });
+    }
+  });
+
+  // ─── Launch Readiness Evaluator ──────────────────────────────────────────
+
+  /** GET /api/launch-readiness/:runId — deterministic Go/No-Go verdict for a completed breach chain */
+  app.get("/api/launch-readiness/:runId", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.runId);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      if (chain.status !== "completed" && chain.status !== "failed" && chain.status !== "aborted") {
+        return res.status(400).json({ error: "Chain must be completed to evaluate launch readiness" });
+      }
+
+      // Build EngineRunContext from stored chain data
+      const phaseResults = ((chain.phaseResults || []) as unknown) as Array<Record<string, unknown>>;
+      const allFindings = phaseResults.flatMap((p: Record<string, unknown>) => (p.findings as Array<Record<string, unknown>> || []));
+      const graph = chain.unifiedAttackGraph as Record<string, unknown> | null;
+      const graphNodes = (graph?.nodes as Array<Record<string, unknown>> || []);
+      const config = ((chain.config) as unknown) as Record<string, unknown> | null;
+      const engineMeta = (chain as Record<string, unknown>).engineMetrics as Record<string, unknown> | undefined;
+      const replayManifest = chain.replayManifest as Record<string, unknown> | null;
+      const replayEvents = (replayManifest?.events as Array<Record<string, unknown>> || []);
+
+      // Extract discovered endpoints from phase results or graph nodes
+      const discoveredEndpoints: EngineRunContext["discoveredEndpoints"] = graphNodes
+        .filter((n: Record<string, unknown>) => n.type === "endpoint" || n.kind === "endpoint")
+        .map((n: Record<string, unknown>) => ({
+          url: String(n.url || n.label || ""),
+          method: String(n.method || "GET"),
+          discoverySource: String(n.discoverySource || "crawl"),
+          contentType: String(n.contentType || ""),
+        }));
+
+      // If no endpoints from graph, estimate from phase 1 data
+      if (discoveredEndpoints.length === 0) {
+        const p1 = phaseResults.find((p: Record<string, unknown>) => p.phaseName === "application_compromise") as Record<string, unknown> | undefined;
+        const p1Summary = p1?.summary as Record<string, unknown> | undefined;
+        const endpointCount = Number(p1Summary?.endpoints || p1Summary?.totalEndpoints || 0);
+        for (let i = 0; i < endpointCount; i++) {
+          discoveredEndpoints.push({ url: `endpoint-${i}`, method: "GET" });
+        }
+      }
+
+      // Map findings
+      const validatedFindings: EngineRunContext["validatedFindings"] = allFindings.map((f: Record<string, unknown>, i: number) => ({
+        id: String(f.id || `f-${i}`),
+        severity: String(f.severity || "medium"),
+        title: String(f.title || ""),
+        evidenceQuality: String(f.evidenceQuality || ""),
+        statusCode: Number(f.statusCode || 0) || undefined,
+        responseBody: f.responseBody ? String(f.responseBody) : undefined,
+        technique: f.technique ? String(f.technique) : undefined,
+      }));
+
+      // Extract attack paths
+      const attackPaths: EngineRunContext["attackPaths"] = (graph?.paths as Array<Record<string, unknown>> || []).map(
+        (p: Record<string, unknown>) => ({
+          name: String(p.name || p.label || "path"),
+          steps: (p.steps as Array<Record<string, unknown>> || []),
+          confidence: p.confidence ? String(p.confidence) : undefined,
+          score: p.score != null ? Number(p.score) : undefined,
+        }),
+      );
+
+      // Replay stats
+      const replayAttempted = replayEvents.length;
+      const replaySucceeded = replayEvents.filter((e: Record<string, unknown>) => e.success || e.status === "success").length;
+
+      // LLM metrics (from engine metadata if available)
+      const llm = (engineMeta?.llm as Record<string, unknown>) || {};
+      const attempts = Number(engineMeta?.totalAttempts || allFindings.length || 0);
+
+      const runContext: EngineRunContext = {
+        discoveredEndpoints,
+        validatedFindings,
+        attempts,
+        replayStats: {
+          attempted: replayAttempted,
+          succeeded: replaySucceeded,
+          budgetUsed: replayAttempted,
+          budgetTotal: 150,
+        },
+        attackPaths,
+        llmMetrics: {
+          endpointTyperCalls: Number(llm.endpointTyperCalls || 0),
+          requestShaperCalls: Number(llm.requestShaperCalls || 0),
+          plannerCalls: Number(llm.plannerCalls || 0),
+          plannerHighValue: Number(llm.plannerHighValue || 0),
+          totalLlmTime: Number(llm.totalLlmTime || 0),
+          reasoningCalls: Number(llm.reasoningCalls || 0),
+        },
+        executionMetrics: {
+          runtimeMs: chain.durationMs ?? 0,
+          discoveryRequests: Number(engineMeta?.discoveryRequests || 0),
+          exploitRequests: Number(engineMeta?.exploitRequests || attempts),
+          exploitBudget: Number(engineMeta?.exploitBudget || 1000),
+          replayBudget: 150,
+        },
+        safetyEvents: {
+          outOfScope: Number(engineMeta?.outOfScope || 0),
+          destructiveBlocked: Number(engineMeta?.destructiveBlocked || 0),
+          budgetExhausted: Boolean(engineMeta?.budgetExhausted),
+        },
+        reportData: {
+          hasPrimaryPath: attackPaths.length > 0,
+          hasBusinessImpact: Boolean(chain.executiveSummary),
+          hasRemediation: allFindings.some((f: Record<string, unknown>) => Boolean(f.remediation)),
+          findingCount: validatedFindings.length,
+        },
+        config: {
+          safeMode: (config?.executionMode as string) === "safe",
+          hasAuth: Boolean(config?.engagement && (config.engagement as Record<string, unknown>).credentialReusePolicy),
+          targetType: String(config?.engagement && (config.engagement as Record<string, unknown>).objective || "unknown"),
+        },
+      };
+
+      const report = evaluateLaunchReadiness(runContext);
+      res.json(report);
+    } catch (error) {
+      console.error("Launch readiness error:", error);
+      res.status(500).json({ error: "Failed to evaluate launch readiness" });
     }
   });
 

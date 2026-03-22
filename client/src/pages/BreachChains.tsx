@@ -4,8 +4,9 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2 } from "lucide-react";
+import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
+import { LaunchReadinessPanel } from "@/components/dashboard/LaunchReadinessPanel";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -338,6 +339,8 @@ function FeedRow({ ts, agent, agCls, msg, msgCls }: { ts: string; agent: string;
 
 // ── Chain Detail View ─────────────────────────────────────────────────────────
 
+type DetailTab = "map" | "readiness";
+
 function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => void }) {
   const { toast } = useToast();
   const { nodes, edges, liveEvents, latestGraph } = useBreachChainUpdates({
@@ -346,6 +349,8 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
   });
   const [elapsed, setElapsed] = useState(0);
   const tiRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("map");
+  const isCompleted = chain.status === "completed" || chain.status === "failed" || chain.status === "aborted";
 
   useEffect(() => {
     if (chain.status === "running") {
@@ -464,34 +469,72 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
         })}
       </div>
 
-      {/* Body: feed + map */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Feed */}
-        <div className="flex flex-col flex-shrink-0" style={{ width: 300, borderRight: "1px solid var(--border)" }}>
-          <div className="flex items-center justify-between px-3 py-[6px] flex-shrink-0" style={{ borderBottom: "1px solid var(--border)", background: "var(--panel2)" }}>
-            <span className="font-mono text-[9px] tracking-[.1em] uppercase" style={{ color: "var(--t3)" }}>live action feed</span>
-            {chain.status === "running" && (
-              <span className="font-mono text-[8px] px-[6px] py-[1px]" style={{ color: "var(--amber)", border: "1px solid var(--amber-border)", background: "var(--amber-dim)" }}>
-                phase {currentPhaseIdx + 1}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-[2px]" style={{ background: "var(--bg)" }}>
-            {feedRows.map((r, i) => (
-              <FeedRow key={i} ts={r.ts} agent={r.agent} agCls="" msg={r.msg} msgCls={r.cls} />
-            ))}
-            {chain.status === "running" && (
-              <div className="flex gap-[6px] font-mono text-[9px] mt-1">
-                <span style={{ color: "var(--t4)", minWidth: 36, fontSize: 8 }}></span>
-                <span className="inline-block w-[6px] h-[10px] align-middle" style={{ background: "var(--t3)", animation: "f-blink .8s step-end infinite" }} />
-              </div>
-            )}
-          </div>
+      {/* Tab bar — only show readiness tab for completed runs */}
+      {isCompleted && (
+        <div className="flex flex-shrink-0" style={{ borderBottom: "1px solid var(--border)", background: "var(--panel2)" }}>
+          {(
+            [
+              { key: "map" as DetailTab, label: "Breach Map", icon: false },
+              { key: "readiness" as DetailTab, label: "Launch Readiness", icon: true },
+            ]
+          ).map(({ key, label, icon }) => (
+            <button
+              key={key}
+              onClick={() => setDetailTab(key)}
+              className="font-mono text-[9px] tracking-[.08em] uppercase px-4 py-[7px] transition-all cursor-pointer"
+              style={{
+                color: detailTab === key ? "var(--t1)" : "var(--t4)",
+                background: detailTab === key ? "var(--panel)" : "transparent",
+                borderBottom: detailTab === key ? "2px solid var(--t1)" : "2px solid transparent",
+                borderRight: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                border: "none",
+                borderBottomWidth: "2px",
+                borderBottomStyle: "solid",
+                borderBottomColor: detailTab === key ? "var(--t1)" : "transparent",
+              }}
+            >
+              {icon && <CheckCircle2 className="w-[10px] h-[10px]" />}
+              {label}
+            </button>
+          ))}
         </div>
+      )}
 
-        {/* Network map */}
-        <NetworkMap chain={chain} graph={latestGraph} nodes={nodes} edges={edges} />
-      </div>
+      {/* Body: feed + map OR readiness panel */}
+      {detailTab === "readiness" && isCompleted ? (
+        <LaunchReadinessPanel chainId={chain.id} />
+      ) : (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Feed */}
+          <div className="flex flex-col flex-shrink-0" style={{ width: 300, borderRight: "1px solid var(--border)" }}>
+            <div className="flex items-center justify-between px-3 py-[6px] flex-shrink-0" style={{ borderBottom: "1px solid var(--border)", background: "var(--panel2)" }}>
+              <span className="font-mono text-[9px] tracking-[.1em] uppercase" style={{ color: "var(--t3)" }}>live action feed</span>
+              {chain.status === "running" && (
+                <span className="font-mono text-[8px] px-[6px] py-[1px]" style={{ color: "var(--amber)", border: "1px solid var(--amber-border)", background: "var(--amber-dim)" }}>
+                  phase {currentPhaseIdx + 1}
+                </span>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-[2px]" style={{ background: "var(--bg)" }}>
+              {feedRows.map((r, i) => (
+                <FeedRow key={i} ts={r.ts} agent={r.agent} agCls="" msg={r.msg} msgCls={r.cls} />
+              ))}
+              {chain.status === "running" && (
+                <div className="flex gap-[6px] font-mono text-[9px] mt-1">
+                  <span style={{ color: "var(--t4)", minWidth: 36, fontSize: 8 }}></span>
+                  <span className="inline-block w-[6px] h-[10px] align-middle" style={{ background: "var(--t3)", animation: "f-blink .8s step-end infinite" }} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Network map */}
+          <NetworkMap chain={chain} graph={latestGraph} nodes={nodes} edges={edges} />
+        </div>
+      )}
     </div>
   );
 }
