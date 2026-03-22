@@ -2369,10 +2369,19 @@ export async function registerRoutes(
 
   app.post("/api/breach-chains", evaluationRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req: UIAuthenticatedRequest, res) => {
     try {
-      const { name, description, assetIds, targetDomains, config } = req.body;
+      const { name, description, assetIds, targetDomains, config, engagementConfig } = req.body;
 
       if (!name || !assetIds || !Array.isArray(assetIds) || assetIds.length === 0) {
         return res.status(400).json({ error: "Name and at least one asset ID required" });
+
+      // Validate engagement config if provided
+      if (engagementConfig) {
+        const { validateEngagementConfig } = await import("./types/engagement");
+        const validation = validateEngagementConfig(engagementConfig);
+        if (!validation.valid) {
+          return res.status(400).json({ error: `Invalid engagement config: ${validation.error}` });
+        }
+      }
       }
 
       const orgId = req.uiUser?.organizationId || "default";

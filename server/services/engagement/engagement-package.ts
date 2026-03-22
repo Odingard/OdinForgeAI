@@ -105,6 +105,12 @@ interface PackageMetadata {
   supportingAttackPaths?: PackageAttackPath[];
   remediationPlan?: RemediationPlan | null;
   portfolioSummary?: any | null;
+  engagementContext?: {
+    authenticated: boolean;
+    highestRoleReached: 'anonymous' | 'user' | 'admin';
+    scopeEnforced: boolean;
+    safeModeEnabled: boolean;
+  } | null;
 }
 
 /** Attack path as it appears in the sealed package */

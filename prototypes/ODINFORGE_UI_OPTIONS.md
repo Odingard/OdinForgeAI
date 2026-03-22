@@ -434,3 +434,200 @@ function begin(){
 }
 </script></body></html>
 ```
+
+---
+
+### FILE: prototypes/option3-v2-deep-chain.html
+ACTION: CREATE
+
+Option 3 with deep branching breach tree.
+Terminal feed on top. Breach chain below grows in real time with:
+- Multi-level sub-nodes per finding (depth 1→2→3)
+- Dead-end nodes shown in gray with dashed edges
+- Credentials branching off as their own child nodes
+- Evidence artifacts hanging off confirmed findings
+- Chain scrolls as it grows (~35 total nodes)
+
+```html
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>OdinForge — Option 3 v2 Deep Chain</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:monospace;font-size:12px;background:#0a0a0f;color:#e2e8f0;padding:16px}
+.root{border:1px solid #1e293b;border-radius:8px;overflow:hidden;background:#0d1117;max-width:1100px;margin:0 auto;position:relative}
+.top{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid #1e293b;background:#111827}
+.brand{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#475569}
+.tgt{font-size:10px;color:#60a5fa;flex:1;padding:0 8px}
+.sts{display:flex;gap:14px}
+.sv{font-size:9px;color:#475569}.sv-n{font-weight:700;font-family:monospace}
+.chip{display:flex;align-items:center;gap:5px;padding:2px 8px;border-radius:3px;border:1px solid #1e293b;font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#475569}
+.dot{width:5px;height:5px;border-radius:50%;background:#334155}
+.dot.run{background:#22c55e;animation:blink 1.2s infinite}.dot.done{background:#ef4444}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes typerow{from{opacity:0}to{opacity:1}}
+@keyframes popn{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+@keyframes drawln{from{stroke-dashoffset:300}to{stroke-dashoffset:0}}
+.t-half{height:200px;border-bottom:1px solid #1e293b;display:flex;flex-direction:column}
+.t-hdr{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid #1e293b;background:#111827;flex-shrink:0}
+.t-hdr-t{font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#475569}
+.t-ph{font-size:8px;padding:1px 6px;border-radius:3px;background:rgba(245,158,11,.15);color:#f59e0b;display:none}
+.t-body{flex:1;overflow-y:auto;padding:7px 10px;display:flex;flex-direction:column;gap:2px}
+.trow{display:flex;gap:7px;font-size:10px;line-height:1.5;animation:typerow .15s ease;animation-fill-mode:both}
+.ts{color:#334155;flex-shrink:0;font-size:9px;margin-top:1px}
+.ta{flex-shrink:0;font-size:8px;padding:1px 4px;border-radius:2px;font-weight:700;margin-top:2px}
+.ae{background:rgba(239,68,68,.15);color:#ef4444}.ar{background:rgba(59,130,246,.15);color:#60a5fa}
+.ac{background:rgba(245,158,11,.15);color:#f59e0b}.al{background:rgba(34,197,94,.15);color:#22c55e}
+.as{background:#1e293b;color:#64748b}
+.tm{color:#e2e8f0;flex:1}
+.tm.ok{color:#22c55e}.tm.crit{color:#ef4444}.tm.warn{color:#f59e0b}.tm.dim{color:#475569}
+.cur{display:inline-block;width:7px;height:11px;background:#334155;animation:bc .8s step-end infinite;vertical-align:middle}
+@keyframes bc{0%,100%{opacity:1}50%{opacity:0}}
+.c-half{display:flex;flex-direction:column;max-height:420px}
+.c-hdr{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid #1e293b;background:#111827;flex-shrink:0}
+.c-hdr-t{font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#475569}
+.c-stats{display:flex;gap:14px;margin-left:auto}
+.cs{font-size:9px;color:#475569}.cs-v{font-weight:700}
+.c-body{flex:1;overflow-y:auto;overflow-x:hidden}
+#csvg{display:block;overflow:visible}
+.so{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:10;background:#0d1117;transition:opacity .5s;border-radius:8px}
+.so.gone{opacity:0;pointer-events:none}
+.so-l{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:#475569}
+.so-t{font-size:12px;color:#60a5fa}
+.go{padding:7px 18px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;border:1px solid #dc2626;border-radius:4px;background:transparent;color:#ef4444;cursor:pointer}
+.go:hover{background:rgba(220,38,38,.1)}
+</style></head><body>
+<div class="root">
+<div class="top">
+  <span class="brand">OdinForge AEV</span>
+  <span class="tgt" id="tgt">—</span>
+  <div class="sts">
+    <div class="sv"><span class="sv-n" id="sf" style="color:#ef4444">0</span> findings</div>
+    <div class="sv"><span class="sv-n" id="scr" style="color:#f59e0b">0</span> creds</div>
+    <div class="sv"><span class="sv-n" id="snd">0</span> nodes</div>
+    <div class="sv"><span class="sv-n" id="sel">00:00</span> elapsed</div>
+    <div class="sv"><span class="sv-n" id="sgr" style="color:#334155">—</span> grade</div>
+  </div>
+  <div class="chip" id="chip"><div class="dot" id="sd"></div><span id="stxt">ready</span></div>
+</div>
+<div class="t-half">
+  <div class="t-hdr">
+    <span class="t-hdr-t">live action feed</span>
+    <span class="t-ph" id="tph">phase 1</span>
+    <span style="font-size:8px;color:#334155;margin-left:auto" id="aact"></span>
+  </div>
+  <div class="t-body" id="tbody">
+    <div class="trow"><span class="ts"></span><span class="ta as">SYS</span><span class="tm dim">awaiting engagement start...</span></div>
+    <div class="trow"><span class="ts"></span><span class="tm dim"><span class="cur"></span></span></div>
+  </div>
+</div>
+<div class="c-half">
+  <div class="c-hdr">
+    <span class="c-hdr-t">breach chain — live tree</span>
+    <div class="c-stats">
+      <div class="cs">phases: <span class="cs-v" id="phct">0/6</span></div>
+      <div class="cs">nodes: <span class="cs-v" id="ndct">0</span></div>
+      <div class="cs">depth: <span class="cs-v" id="dpt">0</span></div>
+      <div class="cs">grade: <span class="cs-v" id="grd" style="color:#334155">—</span></div>
+    </div>
+  </div>
+  <div class="c-body" id="cbody">
+    <svg id="csvg" width="100%" viewBox="0 0 580 820" style="height:820px">
+      <defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round"/></marker></defs>
+      <text id="idle" x="290" y="100" text-anchor="middle" font-family="monospace" font-size="10" fill="#334155">chain initializing...</text>
+    </svg>
+  </div>
+</div>
+<div class="so" id="so">
+  <div class="so-l">OdinForge AEV — operator console</div>
+  <div class="so-t">https://target.acme.corp</div>
+  <div class="so-l" style="font-size:8px">deep-tree mode · every finding branches · live evidence</div>
+  <button class="go" onclick="begin()">begin engagement</button>
+</div>
+</div>
+<script>
+let elapsed=0,ti=null,findings=0,creds=0,phases=0,totalNodes=0,maxDepth=0;
+const SX=38;
+function addRow(agent,ac,msg,mc,ts,delay){setTimeout(()=>{const b=document.getElementById('tbody');b.querySelector('.cur')?.closest('.trow')?.remove();const r=document.createElement('div');r.className='trow';r.style.animationDelay='0ms';r.innerHTML=`<span class="ts">${ts}</span><span class="ta ${ac}">${agent}</span><span class="tm ${mc}">${msg}</span>`;b.appendChild(r);const c=document.createElement('div');c.className='trow';c.innerHTML=`<span class="ts"></span><span class="tm dim"><span class="cur"></span></span>`;b.appendChild(c);b.scrollTop=b.scrollHeight;},delay);}
+function svgEl(tag,attrs){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);return el;}
+function addLine(x1,y1,x2,y2,col,dashed,delay){setTimeout(()=>{const s=document.getElementById('csvg');const ln=svgEl('line',{x1,y1,x2,y2,stroke:col,'stroke-width':'0.8','marker-end':'url(#ar)'});ln.setAttribute('stroke-dasharray',dashed?'4 3':'300');ln.setAttribute('stroke-dashoffset','300');if(dashed)ln.setAttribute('stroke-opacity','0.45');ln.style.animation='drawln .4s ease forwards';s.appendChild(ln);},delay);}
+function addNode(x,y,label,col,radius,sublabel,delay,depth){setTimeout(()=>{const s=document.getElementById('csvg');const g=svgEl('g',{});g.style.transformOrigin=`${x}px ${y}px`;g.style.animation='popn .3s cubic-bezier(.34,1.56,.64,1) forwards';g.style.opacity='0';const r=radius||14;const circ=svgEl('circle',{cx:x,cy:y,r,fill:'#0d1117',stroke:col,'stroke-width':'1.5'});const txt=svgEl('text',{x,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'7','font-family':'monospace',fill:col});txt.textContent=label;g.appendChild(circ);g.appendChild(txt);if(sublabel){const sl=svgEl('text',{x:x+(r+4),y,'text-anchor':'start','dominant-baseline':'central','font-size':'7','font-family':'monospace',fill:col,'fill-opacity':'0.65'});sl.textContent=sublabel;g.appendChild(sl);}s.appendChild(g);totalNodes++;document.getElementById('ndct').textContent=totalNodes;document.getElementById('snd').textContent=totalNodes;if(depth>maxDepth){maxDepth=depth;document.getElementById('dpt').textContent=depth;}document.getElementById('cbody').scrollTop=document.getElementById('cbody').scrollHeight;},delay);}
+function addSpineNode(y,label,phaseNum,delay){setTimeout(()=>{const s=document.getElementById('csvg');const g=svgEl('g',{});g.style.transformOrigin=`${SX}px ${y}px`;g.style.animation='popn .3s cubic-bezier(.34,1.56,.64,1) forwards';g.style.opacity='0';const circ=svgEl('circle',{cx:SX,cy:y,r:'16',fill:'#0d1117',stroke:'#4b5563','stroke-width':'1.5'});const num=svgEl('text',{x:SX,y,'text-anchor':'middle','dominant-baseline':'central','font-size':'10','font-family':'monospace',fill:'#e2e8f0'});num.textContent=phaseNum;const lbl=svgEl('text',{x:SX+22,y,'text-anchor':'start','dominant-baseline':'central','font-size':'8','font-family':'monospace',fill:'#94a3b8'});lbl.textContent=label;g.appendChild(circ);g.appendChild(num);g.appendChild(lbl);s.appendChild(g);totalNodes++;document.getElementById('ndct').textContent=totalNodes;document.getElementById('snd').textContent=totalNodes;},delay);}
+function addSpineEdge(y1,y2,delay){setTimeout(()=>{const s=document.getElementById('csvg');const ln=svgEl('line',{x1:SX,y1:y1+17,x2:SX,y2:y2-17,stroke:'#1e293b','stroke-width':'0.8','marker-end':'url(#ar)'});ln.setAttribute('stroke-dasharray','300');ln.setAttribute('stroke-dashoffset','300');ln.style.animation='drawln .5s ease forwards';s.appendChild(ln);},delay);}
+function markPhase(col,y,delay){setTimeout(()=>{const s=document.getElementById('csvg');s.querySelectorAll('circle').forEach(c=>{if(Math.abs(parseFloat(c.getAttribute('cy'))-y)<5&&parseFloat(c.getAttribute('r'))>14)c.setAttribute('stroke',col);});phases++;document.getElementById('phct').textContent=phases+'/6';if(phases===6){document.getElementById('grd').textContent='F';document.getElementById('grd').style.color='#ef4444';document.getElementById('sgr').textContent='F';document.getElementById('sgr').style.color='#ef4444';}},delay);}
+function begin(){
+  document.getElementById('so').classList.add('gone');document.getElementById('tgt').textContent='https://target.acme.corp';document.getElementById('sd').className='dot run';document.getElementById('stxt').textContent='scanning';document.getElementById('aact').textContent='300 concurrent micro-agents';document.getElementById('idle')?.remove();elapsed=0;ti=setInterval(()=>{elapsed++;document.getElementById('sel').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');},1000);
+  const R='#ef4444',A='#f59e0b',B='#3b82f6',P='#8b5cf6',C='#06b6d4',G='#22c55e',GR='#334155';
+  const P1Y=55,P2Y=235,P3Y=420,P4Y=580,P5Y=715,P6Y=800,BX=140;
+  addRow('SYS','as','engagement started — target: https://target.acme.corp','dim','00:00',100);
+  addRow('RECON','ar','crawling — robots.txt, sitemap, API spec, JS bundles...','dim','00:01',900);
+  addRow('RECON','ar','47 endpoints — Node.js 20, Express 4, React 18, PostgreSQL 15','ok','00:02',1900);
+  addRow('RECON','ar','cloud signals: AWS us-east-1, Kubernetes v1.28, 3 S3 buckets','warn','00:02',2600);
+  addSpineNode(P1Y,'app compromise',1,800);
+  document.getElementById('tph').textContent='phase 1';document.getElementById('tph').style.display='block';
+  addRow('EXPLOIT','ae','dispatching: SQLi×12, XSS×4, SSRF×4, auth bypass×3, JWT×6','dim','00:03',3400);
+  addLine(SX+16,P1Y,BX-13,P1Y,R,false,4700);addNode(BX,P1Y,'SQLi',R,14,null,4900,2);
+  addRow('EXPLOIT','ae','union-based SQLi — HTTP 200, 847 rows on /api/users/search','ok','00:05',5100);findings++;document.getElementById('sf').textContent=findings;
+  setTimeout(()=>{addLine(BX+14,P1Y,235,P1Y-18,R,false,0);addNode(235,P1Y-20,'847 rows',R,12,null,200,3);addLine(BX+14,P1Y,235,P1Y+18,A,false,400);addNode(235,P1Y+20,'cred pattern',A,12,null,600,3);},5300);
+  addLine(SX+16,P1Y,BX-13,P1Y+50,R,false,6100);addNode(BX,P1Y+50,'SSRF',R,14,null,6300,2);
+  addRow('EXPLOIT','ae','SSRF confirmed — AWS IMDS 169.254.169.254 reachable','crit','00:06',6500);findings++;document.getElementById('sf').textContent=findings;
+  setTimeout(()=>{addLine(BX+14,P1Y+50,235,P1Y+50,R,false,0);addNode(235,P1Y+50,'IMDS hit',R,12,null,200,3);},6600);
+  addLine(SX+16,P1Y,BX-13,P1Y+90,GR,true,7100);addNode(BX,P1Y+90,'XSS',GR,12,'no reflect',7300,2);
+  addRow('EXPLOIT','ae','XSS — no reflection point found, skipping','dim','00:07',7400);
+  addLine(SX+16,P1Y,BX-13,P1Y+120,GR,true,7700);addNode(BX,P1Y+120,'auth bypass',GR,12,'WAF block',7900,2);
+  addRow('EXPLOIT','ae','auth bypass — WAF blocking all variants','dim','00:07',7900);
+  markPhase(R,P1Y,8100);
+  addSpineEdge(P1Y,P2Y,8200);addSpineNode(P2Y,'cred extraction',2,8400);document.getElementById('tph').textContent='phase 2';
+  addRow('EXPLOIT','ae','credential extraction — parsing response bodies + Go agent filesystem','dim','00:08',8500);
+  addLine(SX+16,P2Y,BX-13,P2Y-30,A,false,8900);addNode(BX,P2Y-30,'.env file',A,14,null,9100,2);
+  addRow('EXPLOIT','ae','/.env HTTP 200 — DB_PASSWORD, AWS_SECRET_ACCESS_KEY, JWT_SECRET','crit','00:09',9200);creds++;document.getElementById('scr').textContent=creds;
+  setTimeout(()=>{addLine(BX+14,P2Y-30,235,P2Y-52,A,false,0);addNode(235,P2Y-52,'AWS_KEY',R,11,null,200,3);creds++;document.getElementById('scr').textContent=creds;addLine(BX+14,P2Y-30,235,P2Y-30,A,false,400);addNode(235,P2Y-30,'DB_PASS',R,11,null,600,3);creds++;document.getElementById('scr').textContent=creds;addLine(BX+14,P2Y-30,235,P2Y-8,A,false,800);addNode(235,P2Y-8,'JWT_SEC',R,11,null,1000,3);creds++;document.getElementById('scr').textContent=creds;},9400);
+  addLine(SX+16,P2Y,BX-13,P2Y+25,A,false,10200);addNode(BX,P2Y+25,'response',A,14,null,10400,2);
+  addRow('EXPLOIT','ae','API key pattern matched in SQLi response body — sk-prod-xxx','warn','00:10',10500);
+  setTimeout(()=>{addLine(BX+14,P2Y+25,235,P2Y+25,A,false,0);addNode(235,P2Y+25,'API_KEY',A,11,null,200,3);creds++;document.getElementById('scr').textContent=creds;},10600);
+  addLine(SX+16,P2Y,BX-13,P2Y+55,A,false,11000);addNode(BX,P2Y+55,'config scan',A,14,null,11200,2);
+  addRow('EXPLOIT','ae','Go agent: .aws/credentials — key name detected, value redacted','crit','00:11',11300);
+  setTimeout(()=>{addLine(BX+14,P2Y+55,235,P2Y+55,R,false,0);addNode(235,P2Y+55,'conn string',R,11,null,200,3);creds++;document.getElementById('scr').textContent=creds;},11400);
+  markPhase(A,P2Y,11600);
+  addSpineEdge(P2Y,P3Y,11700);addSpineNode(P3Y,'cloud IAM',3,11900);document.getElementById('tph').textContent='phase 3';
+  addRow('CLOUD','ac','cloud IAM escalation — using AWS credentials extracted from .env','dim','00:11',12000);
+  addLine(SX+16,P3Y,BX-13,P3Y-42,B,false,12300);addNode(BX,P3Y-42,'GetCaller',B,14,null,12500,2);
+  addRow('CLOUD','ac','sts:GetCallerIdentity → account 123456789012, user: deploy-bot','ok','00:12',12600);
+  addLine(SX+16,P3Y,BX-13,P3Y,R,false,13100);addNode(BX,P3Y,'AssumeRole',R,14,null,13300,2);
+  addRow('CLOUD','ac','sts:AssumeRole → AdministratorAccess CONFIRMED — cloud root','crit','00:13',13400);findings++;document.getElementById('sf').textContent=findings;
+  setTimeout(()=>{addLine(BX+14,P3Y,235,P3Y-18,R,false,0);addNode(235,P3Y-20,'AdminAccess',R,12,null,200,3);addLine(BX+14,P3Y,235,P3Y+18,B,false,400);addNode(235,P3Y+20,'PolicyEnum',B,12,null,600,3);},13500);
+  addLine(SX+16,P3Y,BX-13,P3Y+44,B,false,14100);addNode(BX,P3Y+44,'ListBuckets',B,14,null,14300,2);
+  addRow('CLOUD','ac','S3: 3 buckets found — backup-2024, logs, customer-data (public-read)','warn','00:14',14400);
+  setTimeout(()=>{addLine(BX+14,P3Y+44,235,P3Y+28,B,false,0);addNode(235,P3Y+28,'3 buckets',B,11,null,200,3);addLine(BX+14,P3Y+44,235,P3Y+58,R,false,400);addNode(235,P3Y+60,'public ACL',R,11,null,600,3);findings++;document.getElementById('sf').textContent=findings;},14500);
+  markPhase(B,P3Y,15000);
+  addSpineEdge(P3Y,P4Y,15100);addSpineNode(P4Y,'k8s breakout',4,15300);document.getElementById('tph').textContent='phase 4';
+  addRow('CLOUD','ac','kubernetes breakout — cluster access via extracted IAM credentials','dim','00:15',15400);
+  addLine(SX+16,P4Y,BX-13,P4Y-40,P,false,15800);addNode(BX,P4Y-40,'kube-api',P,14,null,16000,2);
+  addRow('CLOUD','ac','kube-apiserver accessible — 23 namespaces, 140 pods enumerated','ok','00:16',16100);
+  addLine(SX+16,P4Y,BX-13,P4Y+5,R,false,16600);addNode(BX,P4Y+5,'priv pod',R,14,null,16800,2);
+  addRow('CLOUD','ac','privileged pod deployed — host filesystem mount confirmed','crit','00:17',16900);findings++;document.getElementById('sf').textContent=findings;
+  setTimeout(()=>{addLine(BX+14,P4Y+5,235,P4Y-15,R,false,0);addNode(235,P4Y-15,'host FS',R,12,null,200,3);addLine(BX+14,P4Y+5,235,P4Y+25,R,false,400);addNode(235,P4Y+27,'/etc shadow',R,12,null,600,3);findings++;document.getElementById('sf').textContent=findings;},17000);
+  addLine(SX+16,P4Y,BX-13,P4Y+48,P,false,17600);addNode(BX,P4Y+48,'etcd :2379',P,14,null,17800,2);
+  addRow('CLOUD','ac','etcd accessible — cluster secrets readable without auth','crit','00:17',17900);
+  setTimeout(()=>{addLine(BX+14,P4Y+48,235,P4Y+48,R,false,0);addNode(235,P4Y+48,'cluster secrets',R,11,null,200,3);creds++;document.getElementById('scr').textContent=creds;findings++;document.getElementById('sf').textContent=findings;},18000);
+  markPhase(P,P4Y,18300);
+  addSpineEdge(P4Y,P5Y,18400);addSpineNode(P5Y,'lateral movement',5,18600);document.getElementById('tph').textContent='phase 5';
+  addRow('LATERAL','al','east-west scan — pivoting from cluster to internal services','dim','00:18',18700);
+  [['redis',C,P5Y-52,true,'6379 accessible'],['postgres',C,P5Y-16,true,'5432 + DB dump'],['internal-api',C,P5Y+18,true,'admin panel found'],['backup-ssh',GR,P5Y+52,false,'port 22 closed']].forEach(([lbl,col,y,conf,detail],i)=>{
+    const delay=19200+i*700;addLine(SX+16,P5Y,BX-13,y,conf?col:GR,!conf,delay);addNode(BX,y,lbl,conf?col:GR,13,null,delay+200,2);
+    if(conf){setTimeout(()=>{addLine(BX+13,y,220,y,col,false,0);addNode(220,y,detail,col,11,null,200,3);findings++;document.getElementById('sf').textContent=findings;},delay+400);}
+    addRow('LATERAL','al',conf?`pivot confirmed: ${lbl} — ${detail}`:`${lbl}: ${detail}`,conf?'ok':'dim','00:'+(18+i),delay-100);
+  });
+  markPhase(C,P5Y,21600);
+  addSpineEdge(P5Y,P6Y-12,21700);addSpineNode(P6Y-10,'impact',6,21900);document.getElementById('tph').textContent='phase 6';
+  addRow('SYS','as','impact assessment — blast radius calculation across all confirmed access','warn','00:22',22000);
+  [['2.3M records',R,P6Y-32,true,'customer PII'],['S3 contents',R,P6Y-10,true,'all objects readable'],['blast radius',R,P6Y+12,true,'ORGANIZATION']].forEach(([lbl,col,y,conf,detail],i)=>{
+    const delay=22400+i*600;addLine(SX+16,P6Y-10,BX-13,y,col,false,delay);addNode(BX,y,lbl,col,13,null,delay+200,2);
+    setTimeout(()=>{addLine(BX+13,y,245,y,col,false,0);addNode(245,y,detail,col,11,null,200,3);findings++;document.getElementById('sf').textContent=findings;},delay+400);
+  });
+  addRow('SYS','as','2.3M customer records — S3 fully readable — blast radius: ORGANIZATION','crit','00:22',22500);
+  addRow('SYS','as','risk grade: F · sealing engagement package...','crit','00:23',24100);
+  markPhase(R,P6Y-10,24300);
+  setTimeout(()=>{clearInterval(ti);document.getElementById('sd').className='dot done';document.getElementById('stxt').textContent='breach confirmed';document.getElementById('grd').textContent='F';document.getElementById('grd').style.color='#ef4444';document.getElementById('sgr').textContent='F';document.getElementById('sgr').style.color='#ef4444';document.getElementById('cbody').scrollTop=document.getElementById('cbody').scrollHeight;},24400);
+}
+</script></body></html>
+```
