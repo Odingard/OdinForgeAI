@@ -87,7 +87,13 @@ const PAGE_META: Record<string, { name: string; sub: string }> = {
 function TopBar() {
   const { user: uiUser, logout } = useUIAuth();
   const [location] = useLocation();
-  const { data: chains = [] } = useQuery<any[]>({ queryKey: ["/api/breach-chains"], refetchInterval: 5000 });
+  const { data: chains = [] } = useQuery<any[]>({
+    queryKey: ["/api/breach-chains"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      return data?.some((c: any) => c.status === "running") ? 5000 : 30000;
+    },
+  });
 
   const handleLogout = async () => { await logout(); window.location.reload(); };
   const meta = PAGE_META[location] ?? { name: "OdinForge", sub: "AEV Platform" };
@@ -204,7 +210,13 @@ function Sidebar() {
   const [location] = useLocation();
   const { hasPermission } = useAuth();
   const { user: uiUser, logout } = useUIAuth();
-  const { data: chains = [] } = useQuery<any[]>({ queryKey: ["/api/breach-chains"], refetchInterval: 5000 });
+  const { data: chains = [] } = useQuery<any[]>({
+    queryKey: ["/api/breach-chains"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      return data?.some((c: any) => c.status === "running") ? 5000 : 30000;
+    },
+  });
   const breachCount = chains.filter((c: any) =>
     (c.phaseResults || []).some((p: any) => (p.findings || []).length > 0)).length;
 
@@ -268,7 +280,13 @@ function Sidebar() {
 
 /* ── StatusBar ── */
 function StatusBar() {
-  const { data: chains = [] } = useQuery<any[]>({ queryKey: ["/api/breach-chains"], refetchInterval: 5000 });
+  const { data: chains = [] } = useQuery<any[]>({
+    queryKey: ["/api/breach-chains"],
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      return data?.some((c: any) => c.status === "running") ? 5000 : 30000;
+    },
+  });
   const running = chains.filter((c: any) => c.status === "running");
   return (
     <div className="flex items-center px-[16px] gap-[12px] font-mono text-[9px] tracking-[.07em]"

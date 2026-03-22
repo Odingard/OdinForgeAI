@@ -1,6 +1,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 import type { IncomingMessage } from "http";
+import { verifyUIAccessToken } from "./ui-auth";
 
 interface AEVProgressEvent {
   type: "aev_progress";
@@ -249,16 +250,15 @@ class WebSocketService {
     // Validate JWT token if provided
     if (token) {
       try {
-        // core-v2: jwtAuthService removed — skip JWT validation, treat token as opaque
-        const validation: { valid: boolean; error?: string; payload?: { sub?: string; organizationId?: string; tenantId?: string } } = { valid: false, error: "JWT auth service not available (core-v2)" };
-        if (validation.valid && validation.payload) {
+        const payload = await verifyUIAccessToken(token);
+        if (payload) {
           authenticated = true;
-          userId = validation.payload.sub;
-          organizationId = validation.payload.organizationId;
-          tenantId = validation.payload.tenantId;
+          userId = payload.userId;
+          organizationId = payload.organizationId;
+          tenantId = payload.tenantId;
           console.log(`[WS] Token validated for user ${userId}, tenant ${tenantId}, org ${organizationId}`);
         } else if (this.config.requireAuth) {
-          console.warn(`[WS] Connection rejected: invalid token from ${ip} - ${validation.error}`);
+          console.warn(`[WS] Connection rejected: invalid token from ${ip}`);
           ws.close(1008, "Invalid token");
           this.stats.rejectedConnections++;
           return;

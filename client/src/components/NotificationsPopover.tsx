@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Check, CheckCheck, Clock, AlertTriangle, Shield, Bot, Globe, X, ShieldAlert } from "lucide-react";
+import { Bell, Check, CheckCheck, Clock, AlertTriangle, Shield, Bot, Globe, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,18 +32,9 @@ export function NotificationsPopover() {
     return stored ? new Set(JSON.parse(stored)) : new Set();
   });
 
+  // Only query endpoints that actually exist in the API
   const { data: evaluations = [] } = useQuery<any[]>({
     queryKey: ["/api/aev/evaluations"],
-  });
-
-  const { data: agents = [] } = useQuery<any[]>({
-    queryKey: ["/api/agents"],
-  });
-
-  // Fetch pending approvals
-  const { data: pendingApprovals = [] } = useQuery<any[]>({
-    queryKey: ["/api/hitl/pending"],
-    refetchInterval: 10000, // Refresh every 10 seconds
   });
 
   const notifications: NotificationItem[] = [];
@@ -53,45 +44,13 @@ export function NotificationsPopover() {
     notifications.push({
       id,
       type: "evaluation",
-      title: evaluation.status === "completed" 
+      title: evaluation.status === "completed"
         ? `Evaluation ${evaluation.exploitable ? "Found Exploitable" : "Completed Safe"}`
         : `Evaluation ${evaluation.status}`,
       message: `${evaluation.assetId}: ${evaluation.exposureType || "Security scan"}`,
       timestamp: new Date(evaluation.createdAt || Date.now()),
       read: readIds.has(id),
       severity: evaluation.exploitable ? "critical" : "info",
-    });
-  });
-
-  agents.slice(0, 3).forEach((agent: any) => {
-    if (agent.status === "offline" || agent.status === "stale") {
-      const id = `agent-${agent.id}`;
-      notifications.push({
-        id,
-        type: "agent",
-        title: `Agent ${agent.status === "offline" ? "Offline" : "Stale"}`,
-        message: `${agent.hostname || agent.name}: Last seen ${agent.lastHeartbeat ? formatDistanceToNow(new Date(agent.lastHeartbeat), { addSuffix: true }) : "unknown"}`,
-        timestamp: new Date(agent.lastHeartbeat || agent.registeredAt || Date.now()),
-        read: readIds.has(id),
-        severity: "warning",
-      });
-    }
-  });
-
-  // Add pending approval notifications
-  pendingApprovals.forEach((approval: any) => {
-    const id = `approval-${approval.id}`;
-    const riskLevel = approval.riskLevel || "high";
-    notifications.push({
-      id,
-      type: "approval",
-      title: `${riskLevel === "critical" ? "🚨 " : ""}Approval Required`,
-      message: `${approval.agentName}: ${approval.command.substring(0, 50)}${approval.command.length > 50 ? "..." : ""}`,
-      timestamp: new Date(approval.requestedAt || Date.now()),
-      read: readIds.has(id),
-      severity: riskLevel === "critical" ? "critical" : "warning",
-      actionUrl: "/approvals",
-      approvalId: approval.id,
     });
   });
 

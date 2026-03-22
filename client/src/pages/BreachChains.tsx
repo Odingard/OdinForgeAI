@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { Play, Pause, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2 } from "lucide-react";
+import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -354,10 +354,10 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
     return () => { if (tiRef.current) clearInterval(tiRef.current); };
   }, [chain.status]);
 
-  const pauseMut = useMutation({ mutationFn: () => apiRequest("POST", `/api/breach-chains/${chain.id}/pause`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Chain paused" }); }});
-  const stopMut = useMutation({ mutationFn: () => apiRequest("POST", `/api/breach-chains/${chain.id}/stop`),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Chain stopped" }); }});
+  const abortMut = useMutation({ mutationFn: () => apiRequest("POST", `/api/breach-chains/${chain.id}/abort`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Chain aborted" }); },
+    onError: (e: Error) => toast({ title: "Abort failed", description: e.message, variant: "destructive" }),
+  });
   const deleteMut = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/breach-chains/${chain.id}`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Engagement deleted" }); onBack(); },
@@ -427,14 +427,9 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
               <div className="font-mono text-[8px] tracking-[.1em] uppercase" style={{ color: "var(--t3)" }}>{l}</div>
             </div>
           ))}
-          {chain.status === "running" && (
-            <button onClick={() => pauseMut.mutate()} className="f-btn f-btn-ghost" style={{ fontSize: 11, padding: "5px 10px" }}>
-              <Pause className="w-[11px] h-[11px]" /> Pause
-            </button>
-          )}
           {(chain.status === "running" || chain.status === "paused") && (
-            <button onClick={() => stopMut.mutate()} className="f-btn f-btn-danger" style={{ fontSize: 11, padding: "5px 10px" }}>
-              <StopCircle className="w-[11px] h-[11px]" /> Stop
+            <button onClick={() => abortMut.mutate()} disabled={abortMut.isPending} className="f-btn f-btn-danger" style={{ fontSize: 11, padding: "5px 10px" }}>
+              <StopCircle className="w-[11px] h-[11px]" /> {abortMut.isPending ? "Aborting..." : "Abort"}
             </button>
           )}
           {chain.status !== "running" && (
@@ -596,7 +591,21 @@ function ChainsListView({ chains, onSelect, onCreate }: {
                       <Eye className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
                     </button>
                     {chain.status === "completed" && (
-                      <button title="Download" className="f-icon-btn"
+                      <button title="Download Technical Report" className="f-icon-btn"
+                        onClick={() => {
+                          const token = localStorage.getItem("odinforge_access_token");
+                          const url = `/api/breach-chains/${chain.id}/report/technical-pdf`;
+                          fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                            .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); })
+                            .then(blob => {
+                              const a = document.createElement("a");
+                              a.href = URL.createObjectURL(blob);
+                              a.download = `breach-chain-${chain.id.slice(0, 8)}-technical.pdf`;
+                              a.click();
+                              URL.revokeObjectURL(a.href);
+                            })
+                            .catch(() => {/* silent — toast would need hook context */});
+                        }}
                         style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border2)", background: "transparent", cursor: "pointer" }}>
                         <Download className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
                       </button>
@@ -711,7 +720,11 @@ function NewEngagementModal({ onClose, onSuccess }: { onClose: () => void; onSuc
 
 export default function BreachChains() {
   const { data: chains = [], isLoading } = useQuery<BreachChain[]>({
-    queryKey: ["/api/breach-chains"], refetchInterval: 5000,
+    queryKey: ["/api/breach-chains"],
+    refetchInterval: (query) => {
+      const data = query.state.data as BreachChain[] | undefined;
+      return data?.some(c => c.status === "running") ? 5000 : 30000;
+    },
   });
   const [selectedChain, setSelectedChain] = useState<BreachChain | null>(null);
   const [showNewModal, setShowNewModal]   = useState(false);
