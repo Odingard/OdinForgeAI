@@ -85,7 +85,6 @@ const phase1AEvidenceStore = new Map<string, ExploitAttempt[]>();
 // Module-level emitter store — keyed by chainId, same pattern as phase1AEvidenceStore.
 // Phase executors (standalone functions) read from here rather than receiving
 // breachEmitter as a parameter (which would require changing the PhaseExecutor type).
-import type { BreachEventEmitter } from "../lib/breach-event-emitter";
 const chainEmitterStore = new Map<string, BreachEventEmitter>();
 
 // ── ATT&CK technique IDs exercised per breach phase ──────────────────────────
@@ -638,7 +637,7 @@ export async function runBreachChain(
         const mirrorRule = detectionRules.find(r => r.attackEvidenceRef === f.id);
 
         // Only emit nodes for PROVEN or CORROBORATED findings — respect EvidenceContract
-        const isReal = verdict?.quality === "PROVEN" || verdict?.quality === "CORROBORATED";
+        const isReal = verdict?.quality === EvidenceQuality.PROVEN || verdict?.quality === EvidenceQuality.CORROBORATED;
         if (isReal && spineNodeId) {
           const findingNodeId = breachEmitter.nodeAdded({
             kind: "finding",

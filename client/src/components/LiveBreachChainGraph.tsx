@@ -682,6 +682,7 @@ export function LiveBreachChainGraph({
     }
 
     const { layoutNodes, layoutEdges } = layoutGraph(
+      graph.nodes,
       graph.edges || [],
       graph.criticalPath || [],
       dims.w,
