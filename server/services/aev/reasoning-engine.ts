@@ -182,8 +182,8 @@ export class ReasoningEngine {
     // For meaningful intents with qualifying context, try LLM-assisted reasoning (fire-and-forget).
     // The deterministic message is always emitted immediately; LLM result
     // supplements it as a follow-on event if it returns in time.
-    // Target: ~10-20 LLM reasoning lines per run.
-    const shouldCallLlm = this.MEANINGFUL_INTENTS.has(intent) && this.qualifiesForLlmReasoning(intent, target, context);
+    // Target: 3-5 LLM reasoning lines per run.
+    const shouldCallLlm = this.MEANINGFUL_INTENTS.has(intent) && this.qualifiesForLlmReasoning(intent, target, message, context);
     if (shouldCallLlm && isLlmConfigured() && this.reasoningLlmCalls < this.MAX_REASONING_LLM_CALLS) {
       const contextSummary = context ? Object.entries(context).map(([k, v]) => `${k}=${v}`).join(', ') : '';
       this.generateReasoningLine(intent, target, `${message} | ${contextSummary}`).then(llmLine => {
@@ -336,24 +336,58 @@ export class ReasoningEngine {
    * - Convergence summary
    * - Final operator summary
    */
-  private qualifiesForLlmReasoning(intent: ReasoningIntent, target: string, context?: ReasoningEvent['context']): boolean {
+  private qualifiesForLlmReasoning(intent: ReasoningIntent, target: string, message: string, context?: ReasoningEvent['context']): boolean {
+    // Avoid recursion from LLM-enhanced events
+    if (context?.role === 'llm-enhanced') return false;
+
+    // Combine target + message for keyword matching (target is often '' for summarize calls)
+    const text = `${target || ''} ${message || ''}`;
+
     switch (intent) {
       case 'escalate':
-        // Only for primary path promotion/demotion (role change)
-        return !!context?.pathId;
+        // Replay succeeded (onReplaySucceeded emits escalate with artifact + role='replay-success')
+        if (context?.role === 'replay-success') {
+          console.log(`[LLM:reasoning] Qualified: ${intent} → replay succeeded on ${target}`);
+          return true;
+        }
+        // Primary path promotion/demotion (role change with pathId)
+        if (context?.pathId) {
+          console.log(`[LLM:reasoning] Qualified: ${intent} → path promotion ${context.pathId}`);
+          return true;
+        }
+        // Only log skip for replay-like escalations (have artifact), not for schema hints etc.
+        if (context?.artifact) {
+          console.log(`[LLM:reasoning] Skipped: ${intent} — artifact present but no replay-success role`);
+        }
+        return false;
+
       case 'replay':
-        // Replay succeeded
-        if (context?.role === 'llm-enhanced') return false; // avoid recursion
-        if (/ACCEPTED|succeeded/i.test(target || '')) return true;
+        // Replay succeeded (keyword match)
+        if (/ACCEPTED|succeeded/i.test(text)) {
+          console.log(`[LLM:reasoning] Qualified: ${intent} → replay succeeded on ${target}`);
+          return true;
+        }
         // Replay failed on high-value target
-        if (context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config') return true;
+        if (context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config') {
+          console.log(`[LLM:reasoning] Qualified: ${intent} → replay failed on high-value ${target}`);
+          return true;
+        }
         return false;
+
       case 'summarize':
-        // Convergence summary or final operator summary
-        if (/converge|final|complete/i.test(target || '')) return true;
-        // Primary path change
-        if (context?.pathId) return true;
+        // Primary path change (onPrimaryPathChanged passes pathId in context)
+        if (context?.pathId) {
+          console.log(`[LLM:reasoning] Qualified: ${intent} → primary path promoted ${context.pathId}`);
+          return true;
+        }
+        // Convergence summary or final operator summary (keywords in message, not just target)
+        if (/converge|final|complete|OPERATOR/i.test(text)) {
+          console.log(`[LLM:reasoning] Qualified: ${intent} → convergence/final summary`);
+          return true;
+        }
+        console.log(`[LLM:reasoning] Skipped: ${intent} — no pathId or convergence/final keywords`);
         return false;
+
       default:
         // explore, validate, exploit, pivot — no LLM reasoning
         return false;
@@ -442,11 +476,23 @@ export class ReasoningEngine {
     this.operatorSummary.replaySuccesses++;
     this.operatorSummary.lastMeaningfulChange = `Replay succeeded against ${target}`;
     this.canvas('replay_succeeded', { target, detail: result, confirmed: true });
-    this.reason('escalate', target, `Replay ACCEPTED — ${result}`, { artifact: artifact.slice(0, 30) });
+    this.reason('escalate', target, `Replay ACCEPTED — ${result}`, { artifact: artifact.slice(0, 30), role: 'replay-success' });
   }
 
   onReplayFailed(target: string, reason: string): void {
     this.canvas('replay_failed', { target, detail: reason, confirmed: false });
+    // Emit reasoning for replay failures on high-value targets so LLM can provide insight
+    const surfaceInfo = this.memory.surfaces.classified.get(target);
+    if (surfaceInfo && (surfaceInfo.zone === 'privileged' || surfaceInfo.sensitivity === 'admin' || surfaceInfo.sensitivity === 'config')) {
+      this.reason('replay', target, `Replay REJECTED on high-value target — ${reason}`, {
+        zone: surfaceInfo.zone,
+        sensitivity: surfaceInfo.sensitivity,
+      });
+    } else if (this.memory.surfaces.highValue.includes(target)) {
+      this.reason('replay', target, `Replay REJECTED on high-value target — ${reason}`, {
+        zone: 'privileged',
+      });
+    }
   }
 
   // ── Path Hooks ───────────────────────────────────────────────────────
