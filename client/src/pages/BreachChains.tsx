@@ -599,7 +599,17 @@ function NewEngagementModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   const [mode, setMode]           = useState("live");
 
   const createMut = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/breach-chains", { targetUrl, profile, executionMode: mode }),
+    mutationFn: () => apiRequest("POST", "/api/breach-chains", {
+      name: new URL(targetUrl).hostname,
+      assetIds: [targetUrl],
+      targetDomains: ["application"],
+      config: {
+        executionMode: mode,
+        enabledPhases: profile === "full_chain"
+          ? ["application_compromise", "credential_extraction", "cloud_iam_escalation", "container_k8s_breakout"]
+          : ["application_compromise", "credential_extraction", "cloud_iam_escalation", "container_k8s_breakout", "lateral_movement", "impact_assessment"],
+      },
+    }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Engagement started" }); onSuccess(); onClose(); },
     onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
@@ -675,13 +685,7 @@ export default function BreachChains() {
   const [selectedChain, setSelectedChain] = useState<BreachChain | null>(null);
   const [showNewModal, setShowNewModal]   = useState(false);
 
-  // Auto-select running chain if nothing selected
-  useEffect(() => {
-    if (!selectedChain) {
-      const running = chains.find(c => c.status === "running");
-      if (running) setSelectedChain(running);
-    }
-  }, [chains, selectedChain]);
+  // No auto-select — let the user choose which chain to view
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-full">
