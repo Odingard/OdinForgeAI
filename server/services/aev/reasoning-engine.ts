@@ -123,6 +123,15 @@ export class ReasoningEngine {
   private operatorSummary: OperatorSummary;
   private lastPrimaryPathId: string | null = null;
 
+  // ── Stability guards (Phase 12A) ──────────────────────────────────
+  private recentReasoningKeys = new Set<string>();  // dedup window
+  private recentCanvasKeys = new Set<string>();
+  private lastPrimaryScore = 0;
+  private readonly PRIMARY_PATH_THRESHOLD = 10;     // min score diff to switch primary
+  private readonly REASONING_DEDUP_WINDOW_MS = 2000; // suppress same message within 2s
+  private lastReasoningTimestamps = new Map<string, number>();
+  private lastSummaryJson = '';                      // suppress unchanged summary broadcasts
+
   constructor(chainId: string) {
     this.chainId = chainId;
     this.memory = {
@@ -149,6 +158,15 @@ export class ReasoningEngine {
   // ── Reasoning Emission ───────────────────────────────────────────────
 
   reason(intent: ReasoningIntent, target: string, message: string, context?: ReasoningEvent['context']): void {
+    // Spam suppression: skip identical message within dedup window
+    const dedupKey = `${intent}:${target}:${message}`;
+    const now = Date.now();
+    const lastSeen = this.lastReasoningTimestamps.get(dedupKey);
+    if (lastSeen && now - lastSeen < this.REASONING_DEDUP_WINDOW_MS) {
+      return; // suppress duplicate
+    }
+    this.lastReasoningTimestamps.set(dedupKey, now);
+
     const event: ReasoningEvent = {
       timestamp: new Date().toISOString(),
       chainId: this.chainId,
@@ -157,7 +175,11 @@ export class ReasoningEngine {
       message,
       context,
     };
+
+    // Bounded buffer: keep last 100 events
     this.events.push(event);
+    if (this.events.length > 100) this.events = this.events.slice(-100);
+
     this.memory.stats.reasoningEvents++;
     console.log(`[REASON:${intent}] ${message}${target ? ` → ${target}` : ''}`);
 
@@ -176,6 +198,13 @@ export class ReasoningEngine {
   // ── Canvas Emission ──────────────────────────────────────────────────
 
   canvas(type: CanvasEventType, opts: Partial<Omit<CanvasEvent, 'timestamp' | 'chainId' | 'type'>> = {}): void {
+    // Canvas dedup: skip identical source+type within same run
+    const canvasKey = `${type}:${opts.source || ''}:${opts.target || ''}:${opts.detail || ''}`;
+    if (this.recentCanvasKeys.has(canvasKey) && type !== 'primary_path_changed') {
+      return; // suppress duplicate canvas event
+    }
+    this.recentCanvasKeys.add(canvasKey);
+
     const event: CanvasEvent = {
       timestamp: new Date().toISOString(),
       chainId: this.chainId,
@@ -183,7 +212,11 @@ export class ReasoningEngine {
       confirmed: false,
       ...opts,
     };
+
+    // Bounded buffer: keep last 250 canvas events
     this.canvasEvents.push(event);
+    if (this.canvasEvents.length > 250) this.canvasEvents = this.canvasEvents.slice(-250);
+
     this.memory.stats.canvasEvents++;
 
     // Broadcast through existing WebSocket channel
@@ -198,8 +231,11 @@ export class ReasoningEngine {
     } catch { /* wsService not initialized (test/CLI context) */ }
   }
 
-  /** Broadcast current operator summary to frontend */
+  /** Broadcast current operator summary to frontend — only if changed */
   broadcastSummary(): void {
+    const currentJson = JSON.stringify(this.operatorSummary);
+    if (currentJson === this.lastSummaryJson) return; // no change — suppress
+    this.lastSummaryJson = currentJson;
     try {
       wsService.broadcastToChannel(`breach_chain:${this.chainId}`, {
         type: 'operator_summary',
@@ -309,7 +345,12 @@ export class ReasoningEngine {
   onPrimaryPathChanged(pathId: string, name: string, score: number, reason: string): void {
     const prev = this.lastPrimaryPathId;
     if (prev === pathId) return; // no change
+    // Flicker prevention: only switch if score diff exceeds threshold
+    if (prev && Math.abs(score - this.lastPrimaryScore) < this.PRIMARY_PATH_THRESHOLD) {
+      return; // suppress small score oscillations
+    }
     this.lastPrimaryPathId = pathId;
+    this.lastPrimaryScore = score;
     this.memory.paths.primaryId = pathId;
     this.memory.paths.primaryScore = score;
     this.operatorSummary.currentPrimaryPath = name;
