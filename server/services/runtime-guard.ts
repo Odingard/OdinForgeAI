@@ -1,9 +1,24 @@
 import { db } from "../db";
 import { hitlApprovalRequests, type HitlApprovalRequest, type HitlRiskLevel } from "@shared/schema";
 import { eq, and, lt } from "drizzle-orm";
-import { searchPolicies, type PolicySearchResult } from "./rag/policy-search";
 import { wsService } from "./websocket";
 import { createHmac, randomBytes } from "crypto";
+
+// core-v2: policy-search module removed — inline stub types
+interface PolicySearchResult {
+  id?: string;
+  content: string;
+  similarity: number;
+  metadata: { policyType?: string; filename?: string; [key: string]: any };
+}
+
+async function searchPolicies(
+  _query: string,
+  _opts: { organizationId: string; limit: number; minSimilarity: number }
+): Promise<PolicySearchResult[]> {
+  // core-v2: policy search removed — return empty results
+  return [];
+}
 
 const APPROVAL_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -186,7 +201,7 @@ class RuntimeGuard {
       riskLevel,
       riskReason,
       matchedPolicies: matchedPolicies.map(p => ({
-        policyId: p.id,
+        policyId: parseInt(p.id || "0", 10) || 0,
         policyType: p.metadata.policyType || "general",
         matchedContent: p.content.substring(0, 200),
         similarity: p.similarity,

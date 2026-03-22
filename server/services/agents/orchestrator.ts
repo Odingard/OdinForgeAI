@@ -16,24 +16,16 @@ import type {
 import type { AdversaryProfile, EvaluationPhaseProgress, DebateSummary } from "@shared/schema";
 import { runDebateModule, filterVerifiedFindings, type DebateResult } from "./debate-module";
 import { applyNoiseReduction, type NoiseReductionResult } from "./noise-reduction";
-import { runReconAgent } from "./recon";
 import { runExploitAgent } from "./exploit";
-import { runLateralAgent } from "./lateral";
-import { runBusinessLogicAgent, runEnhancedBusinessLogicEngine, shouldRunEnhancedEngine } from "./business-logic";
-import { runMultiVectorAnalysisAgent, shouldRunMultiVectorAnalysis } from "./multi-vector";
-import { runImpactAgent } from "./impact";
 import { synthesizeResults } from "./synthesizer";
 import { createFallbackGraph } from "./graph-synthesizer";
 import { generateEvidenceFromAnalysis } from "./evidence-collector";
 import { generateDeterministicScore } from "./scoring-engine";
 import { parseCVSSVector } from "../cvss-parser";
 import { getEPSSScores } from "../threat-intel/epss-client";
-import { generateRemediationGuidance } from "./remediation-engine";
 import { AevTelemetryRecorder } from "../aev-telemetry";
 import { runWithHeartbeat, updateAgentHeartbeat } from "./heartbeat-tracker";
 import { withCircuitBreaker } from "./circuit-breaker";
-import { getAgentPolicyContext } from "./policy-context";
-import { checkExploitChain, checkLateralMovement } from "./policy-guardian";
 import { wsService } from "../websocket";
 import { storage } from "../../storage";
 import { createAuditLogger } from "../audit-logger";
@@ -186,35 +178,16 @@ async function runPipeline(
   onProgress?.("Policy Engine", "policy", 1, "Loading Rules of Engagement...");
 
   let policyContext = "";
-  try {
-    policyContext = await getAgentPolicyContext(
-      "penetration testing",
-      `${exposureType} assessment on ${assetId}`,
-      {
-        organizationId: options?.organizationId,
-        executionMode: options?.executionMode || "safe",
-        targetType: exposureType,
-      }
-    );
-    console.log(`[Orchestrator] Loaded policy context (${policyContext.length} chars)`);
-  } catch (err) {
-    console.warn("[Orchestrator] Failed to load policy context:", err);
-  }
+  // core-v2: getAgentPolicyContext (policy-context module) removed — skip policy loading
+  console.log(`[Orchestrator] Policy context loading skipped (core-v2 strip-down)`);
 
   // ──────────────────────────────────────────────────────────────
   // Tier -1: Load ground-truth scan data (no LLM, DB queries only)
   // ──────────────────────────────────────────────────────────────
   onProgress?.("Data Loader", "ground_truth", 2, "Loading real scan data...");
-  let realScanData: import("./scan-data-loader").RealScanData | undefined;
-  try {
-    const { loadScanDataForAsset } = await import("./scan-data-loader");
-    realScanData = await loadScanDataForAsset(assetId, options?.organizationId || "default", evaluationId);
-    const avail = realScanData.dataAvailability;
-    const sources = [avail.hasRecon && "recon", avail.hasNetwork && "network", avail.hasAuth && "auth", avail.hasCloud && "cloud", avail.hasExploitValidation && "exploit", avail.hasTelemetry && "telemetry"].filter(Boolean);
-    console.log(`[Orchestrator] Ground truth loaded: ${sources.length}/6 sources (${sources.join(", ") || "none"}) — coverage ${(avail.coverageScore * 100).toFixed(0)}%`);
-  } catch (err) {
-    console.warn("[Orchestrator] Failed to load scan data (agents will proceed without ground truth):", err);
-  }
+  // core-v2: scan-data-loader module removed — ground truth loading skipped
+  let realScanData: any | undefined;
+  console.log(`[Orchestrator] Ground truth loading skipped (core-v2 strip-down)`);
 
   const context: AgentContext = {
     assetId,
@@ -249,67 +222,9 @@ async function runPipeline(
   // ──────────────────────────────────────────────────────────────
   onProgress?.("Recon Engine", "recon_engine", 3, "Running Phase 1 reconnaissance...");
 
-  try {
-    const { analyzeDns, analyzeSubdomains, analyzePorts, analyzeSslTls, analyzeHeaders, analyzeTech, analyzeWaf } = await import("../recon/index");
-    const { mapReconToAgentMemory } = await import("../recon/aev-mapper");
-    const host = assetId.replace(/^https?:\/\//, "").split("/")[0];
-
-    // Run 7 infrastructure modules in parallel with 30s timeout
-    const infraPromise = Promise.all([
-      analyzeDns(host),
-      analyzeSubdomains(host),
-      analyzePorts(host),
-      analyzeSslTls(host),
-      analyzeHeaders(assetId.startsWith("http") ? assetId : `https://${host}`),
-      analyzeTech(assetId.startsWith("http") ? assetId : `https://${host}`),
-      analyzeWaf(assetId.startsWith("http") ? assetId : `https://${host}`),
-    ]);
-
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 90_000));
-    const infraResult = await Promise.race([infraPromise, timeoutPromise]);
-
-    if (infraResult) {
-      const [dns, subdomains, ports, ssl, headers, tech, waf] = infraResult;
-      // Store partial recon result for downstream agents
-      const partialRecon = { dns, subdomains, ports, ssl, headers, tech, waf };
-      memory.reconScan = { fullRecon: partialRecon as any };
-      // Map to ReconFindings shape so downstream agents see real data
-      const mappedFindings = mapReconToAgentMemory({
-        target: { host },
-        timestamp: new Date().toISOString(),
-        duration: 0,
-        ...partialRecon,
-        apiDiscovery: { baseUrl: host, endpoints: [], totalDiscovered: 0, hasSwagger: false, hasOpenApi: false },
-        endpointChecks: [],
-        techFingerprints: new Map(),
-        extractedSecrets: new Map(),
-        summary: { totalEndpoints: 0, totalIssues: 0, criticalIssues: 0, highIssues: 0, mediumIssues: 0, lowIssues: 0, topIssues: [] },
-      });
-      // Pre-populate recon findings so Tier 1 LLM agent has real data to work with
-      if (!memory.recon) memory.recon = mappedFindings;
-      else Object.assign(memory.recon, mappedFindings);
-
-      const openPorts = ports.openPorts?.length || 0;
-      const aliveSubdomains = subdomains.aliveCount || 0;
-      console.log(`[Orchestrator] Phase 1 recon complete: ${openPorts} open ports, ${aliveSubdomains} live subdomains, ${tech.technologies?.length || 0} technologies`);
-    } else {
-      console.warn("[Orchestrator] Phase 1 recon timed out (30s)");
-    }
-  } catch (err) {
-    console.warn("[Orchestrator] Phase 1 recon failed (non-fatal), falling back to legacy external-recon:", err);
-    // Fall back to the old external-recon module
-    try {
-      const { fullRecon } = await import("../external-recon");
-      const target = assetId.startsWith("http") ? assetId : `https://${assetId}`;
-      const fallbackResult = await Promise.race([
-        fullRecon(target, { portScan: true, sslCheck: true, httpFingerprint: true, dnsEnum: true, authSurface: true, generateSummary: true }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
-      ]);
-      if (fallbackResult) memory.externalRecon = fallbackResult;
-    } catch (fallbackErr) {
-      console.warn("[Orchestrator] Legacy external recon also failed:", fallbackErr);
-    }
-  }
+  // core-v2: recon/index, recon/aev-mapper, and external-recon modules removed
+  // Phase 1 recon engine is no longer available — exploit agent handles its own fingerprinting
+  console.log(`[Orchestrator] Phase 1 recon skipped (core-v2 strip-down — recon modules removed)`);
 
   // ──────────────────────────────────────────────────────────────
   // Tier 1: Recon Agent (1 LLM call, max 30s)
@@ -320,22 +235,13 @@ async function runPipeline(
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
     "Initiating reconnaissance phase to discover attack surface and entry points");
 
-  const reconResult = await withCircuitBreaker(
-    "openai",
-    () => runWithHeartbeat(evaluationId, "Recon Agent",
-      () => runReconAgent(memory, (stage: string, progress: number, message: string) => {
-        updateAgentHeartbeat(evaluationId, "Recon Agent", stage, progress, message);
-        onProgress?.("Recon Agent", stage, Math.min(20, 5 + Math.floor(progress * 0.15)), message);
-      })
-    ),
-    () => ({
-      success: true,
-      findings: { attackSurface: [], entryPoints: [], apiEndpoints: [], authMechanisms: [], technologies: [], potentialVulnerabilities: [] },
-      agentName: "Recon Agent",
-      processingTime: 0,
-    }),
-    AGENT_CB_TIMEOUT_MS
-  );
+  // core-v2: runReconAgent removed — use empty findings (exploit agent does its own fingerprinting)
+  const reconResult = {
+    success: true,
+    findings: { attackSurface: [] as string[], entryPoints: [] as string[], apiEndpoints: [] as string[], authMechanisms: [] as string[], technologies: [] as string[], potentialVulnerabilities: [] as string[] },
+    agentName: "Recon Agent",
+    processingTime: 0,
+  };
   memory.recon = reconResult.findings;
 
   const reconSummary = `Discovered ${reconResult.findings.attackSurface?.length || 0} attack surface elements`;
@@ -377,26 +283,8 @@ async function runPipeline(
   // ──────────────────────────────────────────────────────────────
   onProgress?.("Plan Agent", "plan", 22, "Building attack plan...");
 
-  try {
-    const { runPlanAgent } = await import("./plan");
-    const planResult = await withCircuitBreaker(
-      "openai",
-      () => runPlanAgent(memory),
-      () => ({
-        success: true,
-        findings: { prioritizedChains: [], totalTurnBudget: 12, skippedVectors: [] },
-        agentName: "Plan Agent",
-        processingTime: 0,
-      }),
-      15_000
-    );
-    memory.plan = planResult.findings;
-    if (planResult.findings.prioritizedChains.length > 0) {
-      console.log(`[Orchestrator] Plan agent produced ${planResult.findings.prioritizedChains.length} prioritized chains`);
-    }
-  } catch (err) {
-    console.warn("[Orchestrator] Plan agent failed (non-fatal):", err);
-  }
+  // core-v2: plan agent removed — exploit agent runs without pre-planned chains
+  console.log(`[Orchestrator] Plan agent skipped (core-v2 strip-down)`);
 
   // ──────────────────────────────────────────────────────────────
   // Tier 2: Sequential — Exploit → Business Logic → Multi-Vector
@@ -434,23 +322,9 @@ async function runPipeline(
   wsService.sendSharedMemoryUpdate(evaluationId, "exploit_agent", "ExploitAgent", "exploit", exploitSummary);
 
   // --- Business Logic Agent ---
+  // core-v2: runBusinessLogicAgent removed — return empty findings
   await trackPhase("business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
-  let blResult: { success: boolean; findings: BusinessLogicFindings; agentName: string; processingTime: number };
-  try {
-    blResult = await withCircuitBreaker(
-      "openai",
-      () => runWithHeartbeat(evaluationId, "Business Logic Agent",
-        () => runBusinessLogicAgent(memory, (stage: string, progress: number, message: string) => {
-          updateAgentHeartbeat(evaluationId, "Business Logic Agent", stage, progress, message);
-          onProgress?.("Business Logic Agent", stage, 30 + Math.floor(progress * 0.1), message);
-        })
-      ),
-      () => ({ success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 }),
-      AGENT_CB_TIMEOUT_MS
-    );
-  } catch {
-    blResult = { success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 };
-  }
+  const blResult = { success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 };
 
   const blSummary = `Found ${blResult.findings.workflowAbuse?.length || 0} workflow abuse patterns`;
   await trackPhase("business_logic", {
@@ -459,24 +333,8 @@ async function runPipeline(
   });
 
   // --- Multi-Vector Agent (optional) ---
+  // core-v2: shouldRunMultiVectorAnalysis and runMultiVectorAnalysisAgent removed — always null
   let mvResult: { success: boolean; findings: MultiVectorFindings; agentName: string; processingTime: number } | null = null;
-  if (shouldRunMultiVectorAnalysis(exposureType)) {
-    try {
-      mvResult = await withCircuitBreaker(
-        "openai",
-        () => runWithHeartbeat(evaluationId, "Multi-Vector Agent",
-          () => runMultiVectorAnalysisAgent(memory, (stage: string, progress: number, message: string) => {
-            updateAgentHeartbeat(evaluationId, "Multi-Vector Agent", stage, progress, message);
-            onProgress?.("Multi-Vector Agent", stage, 35 + Math.floor(progress * 0.1), message);
-          })
-        ),
-        () => ({ success: true, findings: EMPTY_MV_FINDINGS, agentName: "Multi-Vector Agent", processingTime: 0 }),
-        AGENT_CB_TIMEOUT_MS
-      );
-    } catch {
-      mvResult = null;
-    }
-  }
 
   console.log(`[Orchestrator] Tier 2 completed in ${Date.now() - tier2Start}ms`);
 
@@ -576,7 +434,7 @@ async function runPipeline(
 
   memory.exploit = debatedExploitFindings;
   memory.businessLogic = blResult.findings;
-  if (mvResult) memory.multiVector = mvResult.findings;
+  if (mvResult) memory.multiVector = (mvResult as { findings: MultiVectorFindings }).findings;
 
   // ──────────────────────────────────────────────────────────────
   // Tier 3: Sequential — Lateral → Impact → Enhanced BL
@@ -587,7 +445,8 @@ async function runPipeline(
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
     "Running lateral movement, impact assessment, and enhanced analysis sequentially (rate limit aware)");
 
-  const runEnhanced = shouldRunEnhancedEngine(exposureType);
+  // core-v2: shouldRunEnhancedEngine removed — always false
+  const runEnhanced = false;
 
   // Skip lateral movement agent when no exploits were found (nothing to pivot from)
   const skipLateral = !debatedExploitFindings.exploitable || debatedExploitFindings.exploitChains.length === 0;
@@ -596,27 +455,9 @@ async function runPipeline(
   }
 
   // --- Lateral Agent ---
+  // core-v2: runLateralAgent removed — return empty findings
   await trackPhase("lateral", { status: "running", startedAt: new Date().toISOString(), message: "Identifying lateral movement paths..." });
-  let lateralResult: { success: boolean; findings: LateralFindings; agentName: string; processingTime: number };
-  if (skipLateral) {
-    lateralResult = { success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 };
-  } else {
-    try {
-      lateralResult = await withCircuitBreaker(
-        "openai",
-        () => runWithHeartbeat(evaluationId, "Lateral Movement Agent",
-          () => runLateralAgent(memory, (stage: string, progress: number, message: string) => {
-            updateAgentHeartbeat(evaluationId, "Lateral Movement Agent", stage, progress, message);
-            onProgress?.("Lateral Movement Agent", stage, 50 + Math.floor(progress * 0.1), message);
-          })
-        ),
-        () => ({ success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 }),
-        AGENT_CB_TIMEOUT_MS
-      );
-    } catch {
-      lateralResult = { success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 };
-    }
-  }
+  const lateralResult = { success: true, findings: EMPTY_LATERAL_FINDINGS, agentName: "Lateral Movement Agent", processingTime: 0 };
 
   const lateralSummary = `Discovered ${lateralResult.findings.pivotPaths?.length || 0} lateral movement paths`;
   await trackPhase("lateral", {
@@ -626,23 +467,9 @@ async function runPipeline(
   wsService.sendSharedMemoryUpdate(evaluationId, "lateral_agent", "LateralAgent", "lateral", lateralSummary);
 
   // --- Impact Agent ---
+  // core-v2: runImpactAgent removed — return empty findings
   await trackPhase("impact", { status: "running", startedAt: new Date().toISOString(), message: "Assessing business impact..." });
-  let impactResult: { success: boolean; findings: ImpactFindings; agentName: string; processingTime: number };
-  try {
-    impactResult = await withCircuitBreaker(
-      "openai",
-      () => runWithHeartbeat(evaluationId, "Impact Agent",
-        () => runImpactAgent(memory, (stage: string, progress: number, message: string) => {
-          updateAgentHeartbeat(evaluationId, "Impact Agent", stage, progress, message);
-          onProgress?.("Impact Agent", stage, 55 + Math.floor(progress * 0.1), message);
-        })
-      ),
-      () => ({ success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 }),
-      AGENT_CB_TIMEOUT_MS
-    );
-  } catch {
-    impactResult = { success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 };
-  }
+  const impactResult = { success: true, findings: EMPTY_IMPACT_FINDINGS, agentName: "Impact Agent", processingTime: 0 };
 
   const impactSummary = `Data exposure severity: ${impactResult.findings.dataExposure?.severity || "unknown"}`;
   await trackPhase("impact", {
@@ -651,36 +478,8 @@ async function runPipeline(
   });
 
   // --- Enhanced Business Logic Engine (optional) ---
+  // core-v2: runEnhancedBusinessLogicEngine removed — always null
   let enhancedResult: { success: boolean; findings: EnhancedBusinessLogicFindings; agentName: string; processingTime: number } | null = null;
-  if (runEnhanced) {
-    try {
-      enhancedResult = await withCircuitBreaker(
-        "openai",
-        () => runWithHeartbeat(evaluationId, "Business Logic Engine",
-          () => runEnhancedBusinessLogicEngine(memory, (stage: string, progress: number, message: string) => {
-            updateAgentHeartbeat(evaluationId, "Business Logic Engine", stage, progress, message);
-            onProgress?.("Business Logic Engine", stage, 60 + Math.floor(progress * 0.1), message);
-          })
-        ),
-        () => ({
-          success: true,
-          findings: {
-            basicFindings: EMPTY_BL_FINDINGS,
-            detailedFindings: [],
-            workflowAnalysis: null,
-            paymentFlowVulnerabilities: [],
-            stateTransitionViolations: [],
-            inferredWorkflows: [],
-          } as EnhancedBusinessLogicFindings,
-          agentName: "Business Logic Engine",
-          processingTime: 0,
-        }),
-        AGENT_CB_TIMEOUT_MS
-      );
-    } catch {
-      enhancedResult = null;
-    }
-  }
 
   console.log(`[Orchestrator] Tier 3 completed in ${Date.now() - tier3Start}ms`);
 
@@ -697,7 +496,7 @@ async function runPipeline(
 
   memory.lateral = guardedLateralFindings;
   memory.impact = impactResult.findings;
-  if (enhancedResult) memory.enhancedBusinessLogic = enhancedResult.findings;
+  if (enhancedResult) memory.enhancedBusinessLogic = (enhancedResult as { findings: EnhancedBusinessLogicFindings }).findings;
 
   // ──────────────────────────────────────────────────────────────
   // Tier 4: Synthesizer (1 LLM call)
@@ -749,15 +548,8 @@ async function runPipeline(
     exploitToolCallLog
   );
 
-  // Upload evidence — awaited in dev/benchmark, fire-and-forget in production
-  const evidenceUpload = import("../evidence-uploader").then(({ uploadAndLinkEvidence, EVIDENCE_UPLOAD_SYNC }) => {
-    const p = uploadAndLinkEvidence(evaluationId, options?.organizationId || "default", evidenceArtifacts);
-    if (EVIDENCE_UPLOAD_SYNC) return p;
-    p.catch(() => {});
-  }).catch(() => {});
-  if (process.env.NODE_ENV !== "production" || process.env.BENCHMARK_MODE === "1") {
-    await evidenceUpload;
-  }
+  // core-v2: evidence-uploader module removed — skip upload
+  // Evidence artifacts are still generated and returned in the result
 
   // Look up CVSS data, asset criticality, EPSS, and KEV for deterministic scoring
   let cvssData: ReturnType<typeof parseCVSSVector> | undefined;
@@ -829,21 +621,9 @@ async function runPipeline(
     kevRansomwareUse,
   });
 
+  // core-v2: generateRemediationGuidance (remediation-engine) removed — skip
   onProgress?.("Remediation Engine", "remediation", 95, "Generating remediation guidance...");
-  const remediationGuidance = await generateRemediationGuidance({
-    assetId,
-    exposureType,
-    priority,
-    description,
-    exploitable: result.exploitable,
-    attackPath: result.attackPath,
-    attackGraph,
-    businessLogicFindings: memory.enhancedBusinessLogic?.detailedFindings,
-    multiVectorFindings: memory.multiVector?.findings,
-    intelligentScore,
-  }, evaluationId, (stage, progress, message) => {
-    onProgress?.("Remediation Engine", stage, 95 + Math.floor(progress / 25), message);
-  });
+  const remediationGuidance = undefined as any;
 
   const totalProcessingTime = Date.now() - startTime;
 
@@ -955,219 +735,47 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
 
 // ──────────────────────────────────────────────────────────────
 // PolicyGuardian: Exploit chain check loop
+// core-v2: checkExploitChain (policy-guardian) removed — pass-through all chains
 // ──────────────────────────────────────────────────────────────
 async function runPolicyGuardianCheckLoop(
   exploitFindings: ExploitFindings,
-  agentName: string,
-  guardianContext: {
+  _agentName: string,
+  _guardianContext: {
     organizationId?: string;
     executionMode?: "safe" | "simulation" | "live";
     targetType?: string;
     assetId?: string;
     evaluationId?: string;
   },
-  evaluationId: string,
-  memory: AgentMemory,
-  onProgress?: ProgressCallback
+  _evaluationId: string,
+  _memory: AgentMemory,
+  _onProgress?: ProgressCallback
 ): Promise<ExploitFindings> {
-  if (!exploitFindings.exploitChains || exploitFindings.exploitChains.length === 0) {
-    return exploitFindings;
-  }
-
-  const allowedChains: typeof exploitFindings.exploitChains = [];
-  let blockedCount = 0;
-  let modifiedCount = 0;
-
-  for (let i = 0; i < exploitFindings.exploitChains.length; i++) {
-    const chain = exploitFindings.exploitChains[i];
-
-    onProgress?.(
-      "Policy Guardian",
-      "policy_check",
-      40 + Math.floor((i / exploitFindings.exploitChains.length) * 5),
-      `Checking exploit chain ${i + 1}/${exploitFindings.exploitChains.length}: ${chain.name}`
-    );
-
-    try {
-      const checkResult = await checkExploitChain(chain, guardianContext);
-
-      const policyNames = checkResult.relevantPolicies.map((p) =>
-        p.metadata.filename || p.metadata.policyType || "policy"
-      );
-
-      wsService.sendReasoningTrace(
-        evaluationId,
-        "policy_guardian",
-        "PolicyGuardian",
-        `Evaluating "${chain.name}": ${checkResult.reasoning}`,
-        {
-          context: `Exploit chain: ${chain.technique || "unknown technique"}`,
-          policiesChecked: policyNames.length > 0 ? policyNames : ["default-policy"],
-          decision: checkResult.decision,
-        }
-      );
-
-      const safetyDecision: SafetyDecision = {
-        id: `sd-${Date.now()}-${i}`,
-        evaluationId,
-        agentName,
-        originalAction: `${chain.name}: ${chain.description}`,
-        decision: checkResult.decision,
-        modifiedAction: checkResult.modifiedAction,
-        reasoning: checkResult.reasoning,
-        policyReferences: checkResult.relevantPolicies.map((p) =>
-          `${p.metadata.filename || "policy"}: ${p.content.substring(0, 80)}...`
-        ),
-        timestamp: checkResult.timestamp,
-      };
-
-      memory.safetyDecisions?.push(safetyDecision);
-
-      wsService.sendSafetyBlock(
-        evaluationId,
-        agentName,
-        checkResult.decision,
-        `${chain.name}: ${chain.description}`,
-        checkResult.reasoning,
-        checkResult.modifiedAction
-      );
-
-      switch (checkResult.decision) {
-        case "ALLOW":
-          allowedChains.push(chain);
-          break;
-        case "DENY":
-          blockedCount++;
-          console.log(`[Orchestrator] Blocked exploit chain: ${chain.name} - ${checkResult.reasoning}`);
-          break;
-        case "MODIFY":
-          modifiedCount++;
-          allowedChains.push({
-            ...chain,
-            name: `[MODIFIED] ${chain.name}`,
-            description: checkResult.modifiedAction || chain.description,
-          });
-          console.log(`[Orchestrator] Modified exploit chain: ${chain.name}`);
-          break;
-      }
-    } catch (error) {
-      console.error(`[Orchestrator] Policy check failed for chain ${chain.name}:`, error);
-      if (guardianContext.executionMode === "safe") {
-        blockedCount++;
-      } else {
-        allowedChains.push(chain);
-      }
-    }
-  }
-
-  console.log(`[Orchestrator] Policy Guardian results: ${allowedChains.length} allowed, ${blockedCount} blocked, ${modifiedCount} modified`);
-
-  return {
-    ...exploitFindings,
-    exploitChains: allowedChains,
-    exploitable: allowedChains.length > 0 && exploitFindings.exploitable,
-  };
+  // core-v2: policy-guardian module removed — allow all chains through
+  return exploitFindings;
 }
 
 // ──────────────────────────────────────────────────────────────
 // PolicyGuardian: Lateral movement check loop
 // ──────────────────────────────────────────────────────────────
+// PolicyGuardian: Lateral movement check loop
+// core-v2: checkLateralMovement (policy-guardian) removed — pass-through all paths
+// ──────────────────────────────────────────────────────────────
 async function runLateralGuardianCheckLoop(
   lateralFindings: LateralFindings,
-  guardianContext: {
+  _guardianContext: {
     organizationId?: string;
     executionMode?: "safe" | "simulation" | "live";
     targetType?: string;
     assetId?: string;
     evaluationId?: string;
   },
-  evaluationId: string,
-  memory: AgentMemory,
-  onProgress?: ProgressCallback
+  _evaluationId: string,
+  _memory: AgentMemory,
+  _onProgress?: ProgressCallback
 ): Promise<LateralFindings> {
-  if (!lateralFindings.pivotPaths || lateralFindings.pivotPaths.length === 0) {
-    return lateralFindings;
-  }
-
-  const allowedPaths: typeof lateralFindings.pivotPaths = [];
-  let blockedCount = 0;
-
-  for (let i = 0; i < lateralFindings.pivotPaths.length; i++) {
-    const path = lateralFindings.pivotPaths[i];
-
-    onProgress?.(
-      "Policy Guardian",
-      "policy_check",
-      70 + Math.floor((i / lateralFindings.pivotPaths.length) * 3),
-      `Checking lateral path ${i + 1}/${lateralFindings.pivotPaths.length}: ${path.from} → ${path.to}`
-    );
-
-    try {
-      const checkResult = await checkLateralMovement(path, guardianContext);
-
-      const policyNames = checkResult.relevantPolicies.map((p) =>
-        p.metadata.filename || p.metadata.policyType || "policy"
-      );
-
-      wsService.sendReasoningTrace(
-        evaluationId,
-        "policy_guardian",
-        "PolicyGuardian",
-        `Evaluating lateral path "${path.from} → ${path.to}": ${checkResult.reasoning}`,
-        {
-          context: `Lateral movement via ${path.method}`,
-          policiesChecked: policyNames.length > 0 ? policyNames : ["default-policy"],
-          decision: checkResult.decision,
-        }
-      );
-
-      const safetyDecision: SafetyDecision = {
-        id: `sd-lat-${Date.now()}-${i}`,
-        evaluationId,
-        agentName: "Lateral Movement Agent",
-        originalAction: `${path.from} → ${path.to}: ${path.method}`,
-        decision: checkResult.decision,
-        modifiedAction: checkResult.modifiedAction,
-        reasoning: checkResult.reasoning,
-        policyReferences: checkResult.relevantPolicies.map((p) =>
-          `${p.metadata.filename || "policy"}: ${p.content.substring(0, 80)}...`
-        ),
-        timestamp: checkResult.timestamp,
-      };
-
-      memory.safetyDecisions?.push(safetyDecision);
-
-      wsService.sendSafetyBlock(
-        evaluationId,
-        "Lateral Movement Agent",
-        checkResult.decision,
-        `${path.from} → ${path.to}: ${path.method}`,
-        checkResult.reasoning,
-        checkResult.modifiedAction
-      );
-
-      if (checkResult.decision === "ALLOW" || checkResult.decision === "MODIFY") {
-        allowedPaths.push(path);
-      } else {
-        blockedCount++;
-        console.log(`[Orchestrator] Blocked lateral path: ${path.from} → ${path.to}`);
-      }
-    } catch (error) {
-      console.error(`[Orchestrator] Policy check failed for lateral path:`, error);
-      if (guardianContext.executionMode === "safe") {
-        blockedCount++;
-      } else {
-        allowedPaths.push(path);
-      }
-    }
-  }
-
-  console.log(`[Orchestrator] Lateral Guardian results: ${allowedPaths.length} allowed, ${blockedCount} blocked`);
-
-  return {
-    ...lateralFindings,
-    pivotPaths: allowedPaths,
-  };
+  // core-v2: policy-guardian module removed — allow all lateral paths through
+  return lateralFindings;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -1175,7 +783,7 @@ async function runLateralGuardianCheckLoop(
 // ──────────────────────────────────────────────────────────────
 function buildConfidenceBreakdown(
   debateResult: DebateResult | undefined,
-  realScanData: import("./scan-data-loader").RealScanData | undefined
+  realScanData: any | undefined
 ): ConfidenceBreakdown | undefined {
   if (!debateResult && !realScanData) return undefined;
 

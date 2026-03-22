@@ -11,7 +11,8 @@
 
 import { EventEmitter } from "events";
 import { BREACH_ENHANCEMENT_FLAGS, isBreachFlagEnabled } from "../../../shared/schema";
-import type { SubAgentCredential } from "./sub-agent-manager";
+// core-v2: sub-agent-manager removed — inline the type
+type SubAgentCredential = { username: string; password?: string; hash?: string; privilegeTier: string; sourceSystem: string };
 
 // ── Types ──────────────────────────────────────────────────────────────────
 

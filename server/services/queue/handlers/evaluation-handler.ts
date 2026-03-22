@@ -180,44 +180,8 @@ export async function handleEvaluationJob(
     });
 
     // Post-evaluation hooks (non-blocking)
-    try {
-      const { markAssetEvaluated } = await import("../../continuous-validation/index");
-      if (assetId) markAssetEvaluated(assetId).catch(() => {});
-
-      // Extract ATT&CK techniques from attack graph for SIEM validation
-      const attackGraph = result.attackGraph as any;
-      const techniques: Array<{ mitreAttackId: string; mitreTactic: string }> = [];
-      if (attackGraph?.edges) {
-        for (const edge of attackGraph.edges) {
-          if (edge.techniqueId) {
-            techniques.push({
-              mitreAttackId: edge.techniqueId,
-              mitreTactic: edge.tactic || "unknown",
-            });
-          }
-        }
-      }
-      if (techniques.length > 0 && organizationId) {
-        const { runPostEvaluationValidation } = await import("../../siem-integration/index");
-        runPostEvaluationValidation(evaluationId, organizationId, techniques, assetId).catch(err => {
-          console.error("[SIEM] Post-evaluation validation failed:", err.message);
-        });
-      }
-
-      // Intelligence Engine narrative generation (non-blocking)
-      if (organizationId) {
-        const { runPostEvaluationIntelligence } = await import("../../intelligence-client");
-        const dbResult = await storage.getResultByEvaluationId(evaluationId);
-        if (dbResult) {
-          runPostEvaluationIntelligence(evaluation, dbResult, organizationId).catch(err => {
-            console.error("[Intelligence] Post-evaluation hook failed:", (err as Error).message);
-          });
-        }
-      }
-    } catch (hookErr) {
-      // Hooks should never break evaluation completion
-      console.error("[PostEvalHooks] Error:", hookErr);
-    }
+    // core-v2: continuous-validation, siem-integration, and intelligence-client removed
+    // These hooks are no longer available in the stripped-down core
 
     await job.updateProgress?.({
       percent: 100,

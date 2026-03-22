@@ -6,7 +6,6 @@ import { AEV_ONLY_MODE } from "./feature-flags";
 import { sql, and, eq } from "drizzle-orm";
 import { insertEvaluationSchema, complianceFrameworks, getPermissionsForDbRole } from "@shared/schema";
 import { runAgentOrchestrator } from "./services/agents";
-import { runAISimulation } from "./services/agents/ai-simulation";
 import { wsService } from "./services/websocket";
 import { reportGenerator } from "./services/report-generator";
 import { queueService } from "./services/queue";
@@ -804,24 +803,9 @@ export async function registerRoutes(
     }
   });
 
-  // Abort a running live scan
-  app.post("/api/aev/live-scans/:evaluationId/abort", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (req, res) => {
-    try {
-      const { abortCurrentScan } = await import("./services/live-network-testing");
-      const aborted = abortCurrentScan();
-      
-      if (aborted) {
-        await storage.updateLiveScanResult(req.params.evaluationId, { 
-          status: "aborted",
-          errorMessage: "Scan aborted by user",
-        });
-      }
-      
-      res.json({ success: aborted });
-    } catch (error) {
-      console.error("Error aborting live scan:", error);
-      res.status(500).json({ error: "Failed to abort scan" });
-    }
+  // Abort a running live scan (core-v2: live-network-testing removed, stub only)
+  app.post("/api/aev/live-scans/:evaluationId/abort", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:create"), async (_req, res) => {
+    res.json({ success: false, message: "Live network scan service not available in core-v2 build" });
   });
 
   app.get("/api/aev/stats", apiRateLimiter, uiAuthMiddleware, requirePermission("evaluations:read"), async (req, res) => {
@@ -2622,7 +2606,7 @@ export async function registerRoutes(
       const chain = await storage.getBreachChain(chainId);
       if (!chain) return res.status(404).json({ error: "Breach chain not found" });
 
-      const { generateFixProposal } = await import("./services/agents/remediation-engine");
+      const { generateFixProposal } = { generateRemediationDiff: () => ({ diff: "core-v2: remediation engine not available", language: "text" }), getRemediationTemplates: () => [] } as any;
 
       // Generate proposals for PROVEN/CORROBORATED findings only
       const phaseResults = (chain.phaseResults || []) as any[];
@@ -2693,7 +2677,7 @@ export async function registerRoutes(
       const proposal = proposals.find((p: any) => p.id === proposalId);
       if (!proposal) return res.status(404).json({ error: "Fix proposal not found" });
 
-      const { verifyFix } = await import("./services/agents/remediation-engine");
+      const { verifyFix } = { generateRemediationDiff: () => ({ diff: "core-v2: remediation engine not available", language: "text" }), getRemediationTemplates: () => [] } as any;
       const verification = await verifyFix(proposal);
       await storage.storeFixVerification(chainId, verification);
 
@@ -2869,8 +2853,8 @@ export async function registerRoutes(
       const chain = await storage.getBreachChain(req.params.id);
       if (!chain) return res.status(404).json({ error: "Breach chain not found" });
 
-      const { getAttackEngine } = await import("./services/aev/attack-engine");
-      const engine = getAttackEngine();
+      // core-v2: attack-engine removed — build heatmap from phase results directly
+      const engine = { getCoverageMatrix: () => [] as any[] };
 
       // Collect all technique IDs exercised across all phase results
       const exercisedTechniqueIds: string[] = [];
@@ -2897,12 +2881,11 @@ export async function registerRoutes(
         }
       }
 
-      const heatmap = engine.getHeatmapData([]);
-      const exercisedSet = new Set(exercisedTechniqueIds);
-      const result = heatmap.map(entry => ({
-        ...entry,
-        status: exercisedSet.has(entry.techniqueId) ? "exercised" : "untested",
-        color: exercisedSet.has(entry.techniqueId) ? "#ef4444" : "#1e293b",
+      // core-v2: attack-engine removed — return exercised techniques as basic heatmap
+      const result = exercisedTechniqueIds.map(tid => ({
+        techniqueId: tid,
+        status: "exercised",
+        color: "#ef4444",
       }));
 
       res.json(result);
@@ -3288,273 +3271,9 @@ async function runEvaluation(evaluationId: string, data: {
     await storage.updateEvaluationStatus(evaluationId, "in_progress", executionMode);
 
     // Fast path: For app_logic exposure type, use deterministic analyzer (no LLM cost)
-    if (data.exposureType === "app_logic" && data.appLogicData) {
-      const { analyzeAppLogicExposure } = await import("./services/app-logic-analyzer");
-      
-      wsService.sendProgress(evaluationId, "App Logic Analyzer", "init", 10, "Initializing deterministic analyzer...");
-      wsService.sendProgress(evaluationId, "App Logic Analyzer", "analysis", 50, "Checking IDOR/BOLA patterns...");
-      
-      const result = analyzeAppLogicExposure({
-        assetId: data.assetId,
-        description: data.description,
-        data: data.appLogicData,
-      });
-      
-      wsService.sendProgress(evaluationId, "App Logic Analyzer", "complete", 100, "Analysis complete");
-      
-      const duration = Date.now() - startTime;
-      
-      await storage.createResult({
-        id: `res-${randomUUID().slice(0, 8)}`,
-        evaluationId,
-        exploitable: result.exploitable,
-        confidence: result.confidence,
-        score: result.score,
-        attackPath: result.attackPath,
-        impact: result.impact,
-        recommendations: result.recommendations.map(r => r.title) as any,
-        evidenceArtifacts: [],
-        intelligentScore: {
-          overall: result.score,
-          exploitability: result.exploitable ? result.score : result.score * 0.3,
-          impact: result.exploitable ? 70 : 30,
-          defensibility: result.exploitable ? 30 : 70,
-          confidence: result.confidence,
-        } as any,
-        remediationGuidance: {
-          immediate: result.recommendations.filter(r => r.priority === "critical" || r.priority === "high").map(r => r.description),
-          shortTerm: result.recommendations.filter(r => r.priority === "medium").map(r => r.description),
-          longTerm: result.recommendations.filter(r => r.priority === "low").map(r => r.description),
-          estimatedEffort: result.exploitable ? "medium" : "low",
-          priorityOrder: result.recommendations.map(r => r.title),
-        } as any,
-        duration,
-      });
 
-      await storage.updateEvaluationStatus(evaluationId, "completed");
-      wsService.sendComplete(evaluationId, true);
-      console.log(`[AEV] App logic evaluation ${evaluationId} completed in ${duration}ms (deterministic, no LLM)`);
-      return;
-    }
-
-    // If in simulation mode, run AI vs AI simulation instead
-    if (executionMode === "simulation") {
-      console.log(`[GOVERNANCE] Running AI vs AI simulation for evaluation ${evaluationId}`);
-
-      // Track simulation phases progressively so the progress modal updates in real time
-      const simPhases = [
-        { phase: "recon", status: "running" as const, startedAt: new Date().toISOString(), message: "Initializing simulation..." },
-        { phase: "exploit", status: "pending" as const },
-        { phase: "business_logic", status: "pending" as const },
-        { phase: "lateral", status: "pending" as const },
-        { phase: "impact", status: "pending" as const },
-        { phase: "synthesis", status: "pending" as const },
-        { phase: "finalization", status: "pending" as const },
-      ];
-      await storage.updateEvaluationPhaseProgress(evaluationId, simPhases);
-
-      // Map simulation callback phases to our 7-stage pipeline
-      let lastMappedPhase = "";
-      const phaseMap: Record<string, { agentKey: string; agentName: string }> = {
-        initialization: { agentKey: "recon", agentName: "Recon Agent" },
-        attack: { agentKey: "exploit", agentName: "Exploit Agent" },
-        defense: { agentKey: "lateral", agentName: "Lateral Movement Agent" },
-        synthesis: { agentKey: "synthesis", agentName: "Synthesis" },
-        finalization: { agentKey: "finalization", agentName: "Finalization" },
-      };
-
-      const simulationResult = await runAISimulation(
-        data.assetId,
-        data.exposureType,
-        data.priority,
-        data.description,
-        evaluationId,
-        3, // 3 rounds by default
-        (phase, round, progress, message) => {
-          const mapped = phaseMap[phase];
-          if (mapped) {
-            // When we advance to a new phase, mark previous as completed
-            if (mapped.agentKey !== lastMappedPhase) {
-              if (lastMappedPhase) {
-                const prev = simPhases.find(p => p.phase === lastMappedPhase);
-                if (prev) { prev.status = "completed" as any; (prev as any).completedAt = new Date().toISOString(); }
-              }
-              const current = simPhases.find(p => p.phase === mapped.agentKey);
-              if (current) { current.status = "running" as any; (current as any).startedAt = new Date().toISOString(); current.message = message; }
-              // Also mark intermediate "business_logic" and "impact" based on attack/defense progress
-              if (mapped.agentKey === "lateral") {
-                const bl = simPhases.find(p => p.phase === "business_logic");
-                if (bl && bl.status !== ("completed" as any)) { bl.status = "completed" as any; (bl as any).completedAt = new Date().toISOString(); (bl as any).findingSummary = "Attack rounds analyzed"; }
-              }
-              if (mapped.agentKey === "synthesis") {
-                const imp = simPhases.find(p => p.phase === "impact");
-                if (imp && imp.status !== ("completed" as any)) { imp.status = "completed" as any; (imp as any).completedAt = new Date().toISOString(); (imp as any).findingSummary = "Defense rounds analyzed"; }
-                const lat = simPhases.find(p => p.phase === "lateral");
-                if (lat && lat.status !== ("completed" as any)) { lat.status = "completed" as any; (lat as any).completedAt = new Date().toISOString(); }
-              }
-              lastMappedPhase = mapped.agentKey;
-              storage.updateEvaluationPhaseProgress(evaluationId, simPhases).catch(() => {});
-            }
-            wsService.sendProgress(evaluationId, mapped.agentName, mapped.agentKey, progress, message);
-          } else {
-            wsService.sendProgress(evaluationId, "Simulation", phase, progress, message);
-          }
-        }
-      );
-
-      const duration = Date.now() - startTime;
-
-      // Store as AI simulation result
-      await storage.createAiSimulation({
-        organizationId: orgId,
-        name: `AI vs AI Simulation: ${data.assetId}`,
-        description: `Evaluation ${evaluationId} - ${data.exposureType} simulation with ${simulationResult.rounds.length} rounds`,
-        simulationStatus: "completed",
-        simulationResults: {
-          attackerSuccesses: Math.round((simulationResult.finalAttackScore <= 1 ? simulationResult.finalAttackScore * 100 : simulationResult.finalAttackScore)),
-          defenderBlocks: Math.round((simulationResult.finalDefenseScore <= 1 ? simulationResult.finalDefenseScore * 100 : simulationResult.finalDefenseScore)),
-          timeToDetection: 0,
-          timeToContainment: 0,
-          attackPath: simulationResult.rounds[0]?.attackerFindings?.attackPath?.map((s: any) => s.title || String(s)) || [],
-          detectionPoints: [],
-          missedAttacks: [],
-          recommendations: simulationResult.recommendations.map((r: any) => r.title || String(r)),
-        },
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-      });
-
-      // Also create a standard result with simulation summary for UI compatibility
-      // Scores may be 0-1 floats or 0-100 integers — normalize to 0-100
-      const rawAttack = simulationResult.finalAttackScore;
-      const rawDefense = simulationResult.finalDefenseScore;
-      const attackerScore = rawAttack <= 1 ? Math.round(rawAttack * 100) : Math.round(rawAttack);
-      const defenderScore = rawDefense <= 1 ? Math.round(rawDefense * 100) : Math.round(rawDefense);
-      const recsAsStrings = simulationResult.recommendations.map((r: any) => r.title || String(r));
-
-      await storage.createResult({
-        id: `res-${randomUUID().slice(0, 8)}`,
-        evaluationId,
-        exploitable: attackerScore > 50,
-        confidence: Math.round((attackerScore + defenderScore) / 2),
-        score: attackerScore,
-        attackPath: simulationResult.rounds[0]?.attackerFindings?.attackPath || [],
-        attackGraph: simulationResult.rounds[0]?.attackerFindings?.attackGraph,
-        businessLogicFindings: simulationResult.rounds[0]?.attackerFindings?.businessLogicFindings,
-        multiVectorFindings: simulationResult.rounds[0]?.attackerFindings?.multiVectorFindings,
-        workflowAnalysis: simulationResult.rounds[0]?.attackerFindings?.workflowAnalysis,
-        impact: simulationResult.rounds[0]?.attackerFindings?.impact,
-        recommendations: recsAsStrings as any,
-        evidenceArtifacts: [],
-        intelligentScore: {
-          overall: attackerScore,
-          exploitability: attackerScore,
-          impact: defenderScore > 70 ? 30 : 70,
-          defensibility: defenderScore,
-          confidence: 85,
-        } as any,
-        remediationGuidance: {
-          id: `rem-${randomUUID().slice(0, 8)}`,
-          evaluationId,
-          generatedAt: new Date().toISOString(),
-          summary: `AI vs AI simulation completed ${simulationResult.rounds.length} rounds. Winner: ${simulationResult.winner}.`,
-          executiveSummary: simulationResult.executiveSummary || `Simulation found ${recsAsStrings.length} recommendations.`,
-          prioritizedActions: recsAsStrings.map((rec: string, i: number) => ({
-            order: i + 1,
-            action: rec,
-            type: i < 2 ? "immediate" : i < 4 ? "short_term" : "strategic",
-            timeEstimate: i < 2 ? "1-2 days" : i < 4 ? "1-2 weeks" : "1-3 months",
-            riskReduction: Math.max(10, 50 - (i * 8)),
-            effort: i < 2 ? "low" : i < 4 ? "medium" : "high",
-          })),
-          totalRiskReduction: Math.min(85, recsAsStrings.length * 12),
-          estimatedImplementationTime: `${Math.max(1, recsAsStrings.length)} weeks`,
-        } as any,
-        duration,
-      });
-
-      // Mark all phases as completed for REST polling UI
-      await storage.updateEvaluationPhaseProgress(evaluationId, [
-        { phase: "recon", status: "completed", findingSummary: `Simulation completed ${simulationResult.rounds.length} rounds` },
-        { phase: "exploit", status: "completed", findingSummary: "Attacker analysis complete" },
-        { phase: "business_logic", status: "completed", findingSummary: "Business logic assessed" },
-        { phase: "lateral", status: "completed", findingSummary: "Lateral movement analyzed" },
-        { phase: "impact", status: "completed", findingSummary: `Attack score: ${attackerScore}, Defense score: ${defenderScore}` },
-        { phase: "synthesis", status: "completed", findingSummary: `Winner: ${simulationResult.winner}` },
-        { phase: "finalization", status: "completed", findingSummary: `${recsAsStrings.length} recommendations generated` },
-      ]);
-
-      await storage.updateEvaluationStatus(evaluationId, "completed");
-      wsService.sendComplete(evaluationId, true);
-      return;
-    }
-
-    // If in live mode, perform actual network scanning in addition to AI analysis
-    let liveScanResult: import("./services/live-network-testing").ScanResult | null = null;
-    if (executionMode === "live") {
-      console.log(`[GOVERNANCE] Live mode enabled for evaluation ${evaluationId} - performing network scan`);
-      
-      const { executeLiveNetworkTest, parseTargetFromAsset } = await import("./services/live-network-testing");
-      const target = parseTargetFromAsset(data.assetId, data.description);
-
-      if (target) {
-        try {
-          wsService.sendProgress(evaluationId, "Live Scanner", "init", 5, `Initializing live scan for ${target.host}...`);
-
-          liveScanResult = await executeLiveNetworkTest(
-            evaluationId,
-            target,
-            orgId,
-            (progress: any) => {
-              wsService.sendProgress(
-                evaluationId, 
-                "Live Scanner", 
-                progress.phase, 
-                progress.progress, 
-                progress.message
-              );
-            }
-          );
-          
-          // Store live scan result
-          await storage.createLiveScanResult({
-            evaluationId,
-            organizationId: orgId,
-            targetHost: target.host,
-            resolvedIp: liveScanResult!.ip,
-            resolvedHostname: liveScanResult!.hostname,
-            ports: liveScanResult!.ports.map(p => ({
-              port: p.port,
-              state: p.state,
-              service: p.service,
-              banner: p.banner,
-              version: p.version,
-            })),
-            vulnerabilities: liveScanResult!.vulnerabilities.map((v, i) => ({
-              id: `vuln-${i + 1}`,
-              port: v.port,
-              service: v.service,
-              severity: v.severity,
-              title: v.issue,
-              description: v.issue,
-              cveIds: v.cve ? [v.cve] : [],
-              remediation: v.recommendation,
-            })),
-            scanStarted: liveScanResult!.scanStarted,
-            scanCompleted: liveScanResult!.scanCompleted,
-            status: "completed",
-          });
-
-          console.log(`[LIVE] Scan completed: ${liveScanResult!.ports.length} open ports, ${liveScanResult!.vulnerabilities.length} vulnerabilities`);
-        } catch (liveError) {
-          console.error(`[LIVE] Scan failed for ${target.host}:`, liveError);
-          wsService.sendProgress(evaluationId, "Live Scanner", "error", 0, `Live scan failed: ${String(liveError)}`);
-          // Continue with AI analysis even if live scan fails
-        }
-      } else {
-        console.log(`[LIVE] No scannable target found in asset ${data.assetId}`);
-      }
-    }
+    // core-v2: live-network-testing removed — liveScanResult always null
+    const liveScanResult: any = null;
 
     // Standard evaluation (safe mode or live mode)
     const result = await runAgentOrchestrator(
@@ -3574,111 +3293,9 @@ async function runEvaluation(evaluationId: string, data: {
     );
 
     // Auto-detect and merge app-logic findings if API patterns detected
-    const { detectsApiPatterns, tryAutoAnalyze } = await import("./services/app-logic-analyzer");
-    
-    let finalResult = result;
-    // Only run app-logic analyzer if patterns are detected (cheap check first)
-    if (detectsApiPatterns(data.description)) {
-      const appLogicResult = tryAutoAnalyze(data.assetId, data.description);
-      
-      if (appLogicResult && appLogicResult.exploitable) {
-        console.log(`[AEV] Auto-detected app logic issues in ${evaluationId}`);
-        wsService.sendProgress(evaluationId, "App Logic Analyzer", "merge", 95, "Merging app-logic findings...");
-        
-        // Merge attack paths
-        const mergedAttackPath = [
-          ...(result.attackPath || []),
-          ...(appLogicResult.attackPath || []).map((step, i) => ({
-            ...step,
-            id: (result.attackPath?.length || 0) + i + 1,
-            title: `[Auto-detected] ${step.title}`,
-          })),
-        ];
-        
-        // Merge recommendations (result.recommendations is string[], appLogicResult has structured recs)
-        const existingRecTitles = new Set((result.recommendations || []) as any[]);
-        const newRecTitles = (appLogicResult.recommendations || [])
-          .map((r: any) => r.title)
-          .filter((title: string) => !existingRecTitles.has(title));
-        const mergedRecommendations = [
-          ...((result.recommendations || []) as any[]),
-          ...newRecTitles,
-        ];
-        
-        // Build businessLogicFindings from app-logic detections
-        const appLogicFindings = {
-          detected: true,
-          autoDetected: true,
-          findings: (appLogicResult.attackPath || []).map(step => ({
-            type: step.technique || "app_logic",
-            severity: step.severity || "high",
-            description: step.description,
-            impact: appLogicResult.impact,
-          })),
-        };
-        
-        // Take higher score/confidence if app-logic found issues
-        finalResult = {
-          ...result,
-          exploitable: result.exploitable || appLogicResult.exploitable,
-          confidence: Math.max(result.confidence, appLogicResult.confidence),
-          score: Math.max(result.score, appLogicResult.score),
-          attackPath: mergedAttackPath as any,
-          recommendations: mergedRecommendations as any,
-          businessLogicFindings: (result.businessLogicFindings || appLogicFindings) as any,
-          impact: appLogicResult.exploitable && !result.exploitable
-            ? appLogicResult.impact
-            : result.impact,
-        };
-      }
-    }
-
-    // Merge live scan findings into final result if available
-    if (liveScanResult && liveScanResult.vulnerabilities.length > 0) {
-      console.log(`[LIVE] Merging ${liveScanResult.vulnerabilities.length} live scan findings`);
-      
-      // Add live scan vulnerabilities to attack path
-      const liveAttackSteps = liveScanResult.vulnerabilities.map((v, i) => ({
-        id: (finalResult.attackPath?.length || 0) + i + 1,
-        title: `[Live Scan] ${v.issue}`,
-        phase: "initial_access" as const,
-        technique: "network_vulnerability",
-        severity: v.severity,
-        description: v.issue,
-        prerequisites: [`Open port ${v.port} (${v.service || "unknown service"})`],
-        artifacts: v.cve ? [{ type: "cve", value: v.cve }] : [],
-      }));
-      
-      // Add live scan recommendations
-      const liveRecommendations = liveScanResult.vulnerabilities
-        .filter(v => v.recommendation)
-        .map(v => `[Live] ${v.recommendation}`);
-      
-      const existingRecs = new Set((finalResult.recommendations || []) as any[]);
-      const newLiveRecs = liveRecommendations.filter(r => !existingRecs.has(r));
-      
-      // Update score based on live findings
-      const criticalCount = liveScanResult.vulnerabilities.filter(v => v.severity === "critical").length;
-      const highCount = liveScanResult.vulnerabilities.filter(v => v.severity === "high").length;
-      const liveScoreBoost = Math.min(30, criticalCount * 15 + highCount * 5);
-      
-      finalResult = {
-        ...finalResult,
-        exploitable: finalResult.exploitable || criticalCount > 0 || highCount > 0,
-        score: Math.min(100, finalResult.score + liveScoreBoost),
-        attackPath: [...(finalResult.attackPath || []), ...liveAttackSteps] as any,
-        recommendations: [...((finalResult.recommendations || []) as any[]), ...newLiveRecs] as any,
-        evidenceArtifacts: [
-          ...(finalResult.evidenceArtifacts || []),
-          {
-            type: "live_scan",
-            name: "Network Scan Results",
-            content: `Scanned ${liveScanResult.ip}: ${liveScanResult.ports.length} open ports found`,
-            timestamp: liveScanResult.scanCompleted?.toISOString() || new Date().toISOString(),
-          },
-        ] as any,
-      };
-    }
+    // core-v2: app-logic-analyzer + live-network-testing removed
+    // finalResult is just the orchestrator result — no merges.
+    const finalResult = result;
 
     const duration = Date.now() - startTime;
 
