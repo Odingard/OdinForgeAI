@@ -1,7 +1,9 @@
 import * as React from "react";
 import { X, CheckCircle2, AlertTriangle, AlertCircle, Info, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useSound } from "@/lib/sounds";
+
+// Sounds removed in core-v2 strip; no-op stub
+const useSound = () => ({ play: (_type: string) => {} });
 
 type ToastType = "success" | "error" | "warning" | "info" | "scan";
 

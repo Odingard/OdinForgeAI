@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useLoadDemoData } from "@/hooks/useDemoData";
-import { FlaskConical, LucideIcon } from "lucide-react";
+import { LucideIcon } from "lucide-react";
 import { ReactNode } from "react";
 
 export interface EnhancedEmptyStateProps {
@@ -13,7 +12,6 @@ export interface EnhancedEmptyStateProps {
     onClick: () => void;
     icon?: LucideIcon;
   };
-  showDemoButton?: boolean;
   steps?: string[];
   previewImage?: string;
   children?: ReactNode;
@@ -28,12 +26,10 @@ export function EnhancedEmptyState({
   title,
   description,
   primaryAction,
-  showDemoButton = true,
   steps,
   previewImage,
   children,
 }: EnhancedEmptyStateProps) {
-  const loadDemoData = useLoadDemoData();
 
   return (
     <Card>
@@ -92,25 +88,7 @@ export function EnhancedEmptyState({
               {primaryAction.label}
             </Button>
           )}
-
-          {showDemoButton && (
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => loadDemoData.mutate()}
-              disabled={loadDemoData.isPending}
-            >
-              <FlaskConical className="h-4 w-4 mr-2" />
-              {loadDemoData.isPending ? "Loading..." : "Try with Demo Data"}
-            </Button>
-          )}
         </div>
-
-        {showDemoButton && (
-          <p className="text-xs text-muted-foreground mt-3">
-            Demo data is perfect for exploring features and testing workflows
-          </p>
-        )}
       </CardContent>
     </Card>
   );

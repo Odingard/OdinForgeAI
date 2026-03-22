@@ -1,5 +1,0 @@
-{
-  "failOnExploitability": true,
-  "failOnSeverities": ["critical", "high"],
-  "maxSummaryFindings": 10
-}

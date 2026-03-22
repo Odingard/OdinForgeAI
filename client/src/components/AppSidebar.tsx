@@ -1,15 +1,10 @@
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard,
-  Server,
-  ScanSearch,
   Link2,
-  Radar,
-  Calendar,
   FileText,
   Settings,
 } from "lucide-react";
-import { ShieldValknut, OdinGardBrand } from "./OdinForgeLogo";
+import { OdinGardBrand } from "./OdinForgeLogo";
 import {
   Sidebar,
   SidebarContent,
@@ -30,20 +25,11 @@ import { useQuery } from "@tanstack/react-query";
 interface NavItem {
   title: string;
   href: string;
-  icon: typeof LayoutDashboard;
-  aevHidden?: boolean;
+  icon: typeof Link2;
 }
 
 const coreItems: NavItem[] = [
-  { title: "Dashboard", href: "/", icon: LayoutDashboard },
-  { title: "Assets", href: "/assets", icon: Server },
-  { title: "Assessments", href: "/full-assessment", icon: ScanSearch },
   { title: "Breach Chains", href: "/breach-chains", icon: Link2 },
-];
-
-const opsItems: NavItem[] = [
-  { title: "Live Scans", href: "/scans", icon: Radar },
-  { title: "Scheduled Scans", href: "/scheduled-scans", icon: Calendar, aevHidden: true },
   { title: "Reports", href: "/reports", icon: FileText },
 ];
 
@@ -99,9 +85,6 @@ function NavGroup({ label, items }: { label: string; items: NavItem[] }) {
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, hasPermission } = useAuth();
-  const isAevOnly = useAevOnlyMode();
-
-  const filteredOps = isAevOnly ? opsItems.filter((i) => !i.aevHidden) : opsItems;
 
   const showSettings =
     hasPermission("org:manage_settings") || hasPermission("org:manage_users");
@@ -123,17 +106,8 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
 
-      {isAevOnly && (
-        <div className="mx-3 mt-3 px-2 py-1.5 rounded border border-red-500/30 bg-red-500/10 text-center">
-          <span className="text-[10px] uppercase tracking-widest font-semibold text-red-400">
-            AEV-ONLY MODE
-          </span>
-        </div>
-      )}
-
       <SidebarContent className="pt-2">
         <NavGroup label="Core" items={coreItems} />
-        <NavGroup label="Operations" items={filteredOps} />
 
         {showSettings && (
           <SidebarGroup>
