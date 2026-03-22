@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OdinForge — App Shell Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090f;--panel:#0c1018;--panel2:#0f1520;--nav:#090c14;
+  --border:#1a2535;--border2:#243348;--hover:rgba(255,255,255,.025);
+  --red:#e8384f;--red-dim:rgba(232,56,79,.09);--red-border:rgba(232,56,79,.22);
+  --green:#22c55e;--green-dim:rgba(34,197,94,.08);
+  --blue:#60a5fa;--blue-dim:rgba(96,165,250,.1);
+  --amber:#f59e0b;--amber-dim:rgba(245,158,11,.09);
+  --purple:#a78bfa;
+  --t1:#eaf0f8;--t2:#7a93ad;--t3:#3a5166;--t4:#1e3148;
+  --mono:'IBM Plex Mono',Consolas,'Courier New',monospace;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--t1);font-family:var(--sans);overflow:hidden}
+.shell{height:100vh;display:grid;grid-template-columns:220px 1fr;grid-template-rows:48px 1fr 24px;background:var(--bg)}
+
+/* ── TOP BAR ── */
+.topbar{grid-column:1/-1;display:flex;align-items:center;border-bottom:1px solid var(--border);background:var(--panel)}
+.tb-logo{width:220px;height:100%;display:flex;align-items:center;gap:10px;padding:0 16px;border-right:1px solid var(--border);flex-shrink:0}
+.tb-mark{width:28px;height:28px;background:var(--red);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tb-mark svg{width:15px;height:15px;fill:none;stroke:#fff;stroke-width:2}
+.tb-wordmark{font-size:15px;font-weight:700;color:var(--t1);letter-spacing:.01em}
+.tb-wordmark span{color:var(--red)}
+.tb-wordmark small{display:block;font-family:var(--mono);font-size:8px;font-weight:400;letter-spacing:.18em;color:var(--t4);margin-top:1px}
+.tb-page{padding:0 18px;display:flex;flex-direction:column;gap:1px}
+.tb-page-name{font-size:13px;font-weight:600;color:var(--t1)}
+.tb-page-sub{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--t3)}
+.tb-alert{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--red-dim);border:1px solid var(--red-border);font-family:var(--mono);font-size:9px;letter-spacing:.07em;color:var(--red);margin-left:12px}
+.tb-alert-dot{width:5px;height:5px;border-radius:50%;background:var(--red);animation:blink 1.8s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.tb-right{margin-left:auto;display:flex;height:100%;align-items:stretch}
+.tb-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 16px;border-left:1px solid var(--border);gap:1px}
+.tb-stat-v{font-family:var(--mono);font-size:14px;font-weight:500;line-height:1;color:var(--t1)}
+.tb-stat-l{font-family:var(--mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3)}
+.tb-user{display:flex;align-items:center;gap:10px;padding:0 16px;border-left:1px solid var(--border);cursor:pointer}
+.tb-user:hover{background:var(--hover)}
+.tb-avatar{width:28px;height:28px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+.tb-user-name{font-size:12px;font-weight:500;color:var(--t1)}
+.tb-user-role{font-family:var(--mono);font-size:9px;letter-spacing:.07em;color:var(--t3)}
+
+/* ── SIDEBAR ── */
+.sidebar{background:var(--nav);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.nav-section{padding:16px 12px 4px;font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--t4)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:12px;font-weight:500;color:var(--t2);cursor:pointer;border-left:2px solid transparent;transition:all .12s;user-select:none}
+.nav-item svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5}
+.nav-item:hover{color:var(--t1);background:var(--hover)}
+.nav-item.active{color:var(--t1);background:rgba(255,255,255,.04);border-left-color:var(--red)}
+.nav-badge{margin-left:auto;font-family:var(--mono);font-size:9px;padding:1px 6px;background:var(--red-dim);color:var(--red);border:1px solid var(--red-border)}
+.nav-spacer{flex:1}
+.nav-settings{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:12px;color:var(--t3);cursor:pointer;transition:all .12s}
+.nav-settings svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5}
+.nav-settings:hover{color:var(--t2);background:var(--hover)}
+.nav-footer{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border);cursor:pointer;transition:background .12s}
+.nav-footer:hover{background:var(--hover)}
+.nav-footer-av{width:26px;height:26px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+.nav-footer-name{font-size:12px;font-weight:500;color:var(--t1)}
+.nav-footer-role{font-family:var(--mono);font-size:8px;letter-spacing:.07em;color:var(--t3)}
+
+/* ── MAIN ── */
+.main{overflow:hidden;display:flex;flex-direction:column;background:var(--bg)}
+.main-inner{flex:1;overflow-y:auto;padding:20px}
+
+/* ── STATUS BAR ── */
+.statusbar{grid-column:1/-1;display:flex;align-items:center;padding:0 18px;gap:14px;border-top:1px solid var(--border);background:var(--panel);font-family:var(--mono);font-size:9px;letter-spacing:.07em;color:var(--t4)}
+.sb-live{color:var(--blue);display:flex;align-items:center;gap:5px;margin-left:auto}
+.sb-live::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--blue)}
+
+/* ── CONTENT ── */
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.page-title{font-size:16px;font-weight:600;color:var(--t1)}
+.page-actions{display:flex;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border:1px solid;font-size:11px;font-weight:500;cursor:pointer;transition:all .12s;font-family:var(--sans)}
+.btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.5;flex-shrink:0}
+.btn-primary{background:var(--red);border-color:var(--red);color:#fff}
+.btn-primary:hover{background:#d42e44}
+.btn-ghost{background:transparent;border-color:var(--border2);color:var(--t2)}
+.btn-ghost:hover{border-color:var(--t2);color:var(--t1)}
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
+.kpi{background:var(--panel);border:1px solid var(--border);padding:14px 16px}
+.kpi-lbl{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.kpi-dot{width:5px;height:5px;border-radius:50%;background:var(--t4)}
+.kpi-dot.r{background:var(--red)}.kpi-dot.g{background:var(--green)}.kpi-dot.b{background:var(--blue)}.kpi-dot.o{background:var(--amber)}
+.kpi-val{font-family:var(--mono);font-size:28px;font-weight:500;line-height:1;letter-spacing:-.02em;color:var(--t1)}
+.kpi-val.r{color:var(--red)}.kpi-val.g{color:var(--green)}.kpi-val.b{color:var(--blue)}.kpi-val.o{color:var(--amber)}
+.kpi-foot{margin-top:6px;font-family:var(--mono);font-size:9px;color:var(--t3)}
+.table-wrap{background:var(--panel);border:1px solid var(--border);overflow:hidden}
+.table-head{display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr 1fr 100px;padding:8px 16px;background:rgba(0,0,0,.2);border-bottom:1px solid var(--border)}
+.th{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--t3);text-transform:uppercase}
+.table-row{display:grid;grid-template-columns:2fr 1.2fr 1fr 1fr 1fr 100px;padding:11px 16px;border-bottom:1px solid rgba(26,37,53,.6);cursor:pointer;align-items:center;transition:background .1s}
+.table-row:hover{background:var(--panel2)}
+.table-row:last-child{border-bottom:none}
+.td{font-size:12px;color:var(--t2)}
+.td.name{font-weight:600;color:var(--t1)}
+.td.sub{font-family:var(--mono);font-size:9px;color:var(--t3);margin-top:2px}
+.td.mono{font-family:var(--mono);font-size:11px}
+.chip{display:inline-flex;align-items:center;padding:2px 8px;font-family:var(--mono);font-size:9px;font-weight:500;letter-spacing:.06em;border:1px solid}
+.chip-run{color:var(--green);border-color:rgba(34,197,94,.25);background:var(--green-dim)}
+.chip-done{color:var(--t3);border-color:var(--border);background:rgba(255,255,255,.03)}
+.chip-crit{color:var(--red);border-color:var(--red-border);background:var(--red-dim)}
+.chip-high{color:var(--amber);border-color:rgba(245,158,11,.25);background:var(--amber-dim)}
+.chip-med{color:var(--blue);border-color:rgba(96,165,250,.25);background:var(--blue-dim)}
+.td-actions{display:flex;gap:6px;justify-content:flex-end}
+.icon-btn{width:26px;height:26px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border2);cursor:pointer;transition:all .12s;background:transparent}
+.icon-btn svg{width:12px;height:12px;stroke:var(--t3);fill:none;stroke-width:1.5}
+.icon-btn:hover{border-color:var(--t2)}.icon-btn:hover svg{stroke:var(--t1)}
+.table-empty{padding:40px 16px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--t4)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="tb-logo">
+      <div class="tb-mark">
+        <svg viewBox="0 0 24 24"><path d="M12 2L4 6v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V6l-8-4z"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="tb-wordmark">Odin<span>Forge</span><small>AEV PLATFORM</small></div>
+    </div>
+    <div class="tb-page">
+      <div class="tb-page-name">Breach Chains</div>
+      <div class="tb-page-sub">Threat Operations Center</div>
+    </div>
+    <div class="tb-alert">
+      <div class="tb-alert-dot"></div>
+      2 BREACH PATHS DETECTED
+    </div>
+    <div class="tb-right">
+      <div class="tb-stat"><div class="tb-stat-v" style="color:var(--blue)">2</div><div class="tb-stat-l">Active</div></div>
+      <div class="tb-stat"><div class="tb-stat-v" style="color:var(--red)">7</div><div class="tb-stat-l">Critical</div></div>
+      <div class="tb-stat"><div class="tb-stat-v" style="color:var(--amber)">2</div><div class="tb-stat-l">Breaches</div></div>
+      <div class="tb-stat"><div class="tb-stat-v" style="color:var(--green)">NOMINAL</div><div class="tb-stat-l">Engine</div></div>
+      <div class="tb-user">
+        <div class="tb-avatar">D</div>
+        <div>
+          <div class="tb-user-name">Dre</div>
+          <div class="tb-user-role">OPERATOR</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="nav-section">Operations</div>
+    <div class="nav-item active" onclick="nav(this,'Breach Chains','Threat Operations Center')">
+      <svg viewBox="0 0 24 24"><path d="M12 2L4 6v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V6l-8-4z"/></svg>
+      Breach Chains
+      <span class="nav-badge">2</span>
+    </div>
+    <div class="nav-item" onclick="nav(this,'Reports','Engagement deliverables')">
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+      Reports
+    </div>
+    <div class="nav-spacer"></div>
+    <div class="nav-settings" onclick="nav(this,'Settings','System configuration')">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </div>
+    <div class="nav-footer">
+      <div class="nav-footer-av">D</div>
+      <div>
+        <div class="nav-footer-name">Dre</div>
+        <div class="nav-footer-role">OPERATOR</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+    <div class="main-inner" id="mainContent">
+
+      <div class="page-header">
+        <div class="page-title" id="pageTitle">Breach Chains</div>
+        <div class="page-actions">
+          <button class="btn btn-ghost">
+            <svg viewBox="0 0 24 24"><path d="M3 4h18M3 12h18M3 20h18"/></svg>
+            Filter
+          </button>
+          <button class="btn btn-primary" onclick="showNewChainModal()">
+            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Engagement
+          </button>
+        </div>
+      </div>
+
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="kpi-lbl"><span class="kpi-dot b"></span>Active Ops</div>
+          <div class="kpi-val b">2</div>
+          <div class="kpi-foot">chains running</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl"><span class="kpi-dot r"></span>Critical Findings</div>
+          <div class="kpi-val r">7</div>
+          <div class="kpi-foot">across all chains</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl"><span class="kpi-dot o"></span>Credentials</div>
+          <div class="kpi-val o">14</div>
+          <div class="kpi-foot">harvested total</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl"><span class="kpi-dot g"></span>Completed</div>
+          <div class="kpi-val g">6</div>
+          <div class="kpi-foot">this month</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl"><span class="kpi-dot"></span>Risk Grade</div>
+          <div class="kpi-val r">F</div>
+          <div class="kpi-foot">last engagement</div>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <div class="table-head">
+          <div class="th">target / chain id</div>
+          <div class="th">status</div>
+          <div class="th">phase</div>
+          <div class="th">findings</div>
+          <div class="th">grade</div>
+          <div class="th" style="text-align:right">actions</div>
+        </div>
+
+        <div class="table-row" onclick="openChain(this)">
+          <div>
+            <div class="td name">https://target.acme.corp</div>
+            <div class="td sub">bc-a3f8c2d1 &middot; full-chain &middot; live &middot; started 00:14 ago</div>
+          </div>
+          <div class="td"><span class="chip chip-run">running</span></div>
+          <div class="td mono" style="color:var(--amber)">3 · cloud iam</div>
+          <div class="td mono"><span style="color:var(--red)">4 crit</span> / 2 high</div>
+          <div class="td mono" style="color:var(--amber)">—</div>
+          <div class="td td-actions">
+            <div class="icon-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <div class="icon-btn" title="Pause"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></div>
+            <div class="icon-btn" title="Stop"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>
+          </div>
+        </div>
+
+        <div class="table-row" onclick="openChain(this)">
+          <div>
+            <div class="td name">https://api.prod.sixsense.io</div>
+            <div class="td sub">bc-7e2d5f8a &middot; deep &middot; live &middot; started 01:02 ago</div>
+          </div>
+          <div class="td"><span class="chip chip-run">running</span></div>
+          <div class="td mono" style="color:var(--red)">5 · lateral</div>
+          <div class="td mono"><span style="color:var(--red)">3 crit</span> / 4 high</div>
+          <div class="td mono" style="color:var(--amber)">—</div>
+          <div class="td td-actions">
+            <div class="icon-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <div class="icon-btn" title="Pause"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></div>
+            <div class="icon-btn" title="Stop"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></div>
+          </div>
+        </div>
+
+        <div class="table-row">
+          <div>
+            <div class="td name">https://app.demo.acme.corp</div>
+            <div class="td sub">bc-c1d4e7a2 &middot; full-chain &middot; live &middot; 2026-03-21</div>
+          </div>
+          <div class="td"><span class="chip chip-done">completed</span></div>
+          <div class="td mono" style="color:var(--t3)">6 · impact</div>
+          <div class="td mono"><span style="color:var(--red)">5 crit</span> / 3 high</div>
+          <div class="td mono" style="color:var(--red);font-weight:700">F</div>
+          <div class="td td-actions">
+            <div class="icon-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <div class="icon-btn" title="Download Package"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+            <div class="icon-btn" title="Seal"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+          </div>
+        </div>
+
+        <div class="table-row">
+          <div>
+            <div class="td name">https://staging.internal.co</div>
+            <div class="td sub">bc-f4a7b2c5 &middot; standard &middot; safe &middot; 2026-03-19</div>
+          </div>
+          <div class="td"><span class="chip chip-done">completed</span></div>
+          <div class="td mono" style="color:var(--t3)">6 · impact</div>
+          <div class="td mono"><span style="color:var(--amber)">0 crit</span> / 5 high</div>
+          <div class="td mono" style="color:var(--amber);font-weight:700">C</div>
+          <div class="td td-actions">
+            <div class="icon-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <div class="icon-btn" title="Download Package"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+            <div class="icon-btn" title="Seal"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+          </div>
+        </div>
+
+        <div class="table-row">
+          <div>
+            <div class="td name">https://dev.api.example.io</div>
+            <div class="td sub">bc-d8e1f4a7 &middot; standard &middot; live &middot; 2026-03-17</div>
+          </div>
+          <div class="td"><span class="chip chip-done">completed</span></div>
+          <div class="td mono" style="color:var(--t3)">6 · impact</div>
+          <div class="td mono"><span style="color:var(--red)">2 crit</span> / 1 high</div>
+          <div class="td mono" style="color:var(--amber);font-weight:700">D</div>
+          <div class="td td-actions">
+            <div class="icon-btn" title="View"><svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
+            <div class="icon-btn" title="Download Package"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+            <div class="icon-btn" title="Sealed"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="statusbar">
+    <span>engine</span><span style="color:var(--t3)">Mjolnir v4.2</span>
+    <span style="color:var(--border2)">&middot;</span>
+    <span>build</span><span style="color:var(--t3)">2026.03.17</span>
+    <span style="color:var(--border2)">&middot;</span>
+    <span>odingard security // six sense enterprise services</span>
+    <div class="sb-live">2 chains active</div>
+  </div>
+
+</div>
+
+<!-- NEW CHAIN MODAL -->
+<div id="modalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50;display:none;align-items:center;justify-content:center" onclick="if(event.target===this)closeModal()">
+  <div style="background:var(--panel);border:1px solid var(--border2);width:480px;max-height:80vh;overflow-y:auto">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:14px;font-weight:600;color:var(--t1)">New Engagement</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--t3);margin-top:2px">Configure breach chain parameters</div>
+      </div>
+      <button onclick="closeModal()" style="background:transparent;border:none;color:var(--t3);font-size:18px;cursor:pointer;line-height:1;padding:2px 6px">✕</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:16px">
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:6px">Target URL</div>
+        <input style="width:100%;background:var(--bg);border:1px solid var(--border2);color:var(--t1);font-family:var(--mono);font-size:12px;padding:9px 12px;outline:none" type="text" placeholder="https://target.example.com" onfocus="this.style.borderColor='var(--red)'" onblur="this.style.borderColor='var(--border2)'">
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Profile</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div class="profile-opt selected" onclick="selectProfile(this)" style="padding:10px;border:1px solid var(--red-border);background:var(--red-dim);cursor:pointer;text-align:center">
+            <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--red)">Standard</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--t3);margin-top:3px">Phases 1–4</div>
+          </div>
+          <div class="profile-opt" onclick="selectProfile(this)" style="padding:10px;border:1px solid var(--border2);cursor:pointer;text-align:center">
+            <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--t2)">Deep</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--t3);margin-top:3px">All 6 phases</div>
+          </div>
+          <div class="profile-opt" onclick="selectProfile(this)" style="padding:10px;border:1px solid var(--border2);cursor:pointer;text-align:center">
+            <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--t2)">MSSP</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--t3);margin-top:3px">White-label</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:8px">Execution Mode</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <div class="mode-opt" onclick="selectMode(this)" style="padding:10px;border:1px solid var(--border2);cursor:pointer;text-align:center">
+            <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--green)">Safe</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--t3);margin-top:3px">Passive only</div>
+          </div>
+          <div class="mode-opt" onclick="selectMode(this)" style="padding:10px;border:1px solid var(--border2);cursor:pointer;text-align:center">
+            <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--amber)">Simulation</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--t3);margin-top:3px">Safe payloads</div>
+          </div>
+          <div class="mode-opt selected" onclick="selectMode(this)" style="padding:10px;border:1px solid var(--red-border);background:var(--red-dim);cursor:pointer;text-align:center">
+            <div style="font-family:var(--mono);font-size:10px;font-weight:700;color:var(--red)">Live</div>
+            <div style="font-family:var(--mono);font-size:8px;color:var(--t3);margin-top:3px">Real exploits</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="closeModal()">
+        <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:none;stroke:#fff;stroke-width:1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Start Engagement
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+function nav(el,title,sub){
+  document.querySelectorAll('.nav-item').forEach(i=>i.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('pageTitle').textContent=title;
+  document.querySelector('.tb-page-name').textContent=title;
+  document.querySelector('.tb-page-sub').textContent=sub;
+}
+function openChain(row){row.style.background='var(--panel2)';setTimeout(()=>row.style.background='',200);}
+let modal=document.getElementById('modalOverlay');
+function showNewChainModal(){modal.style.display='flex';}
+function closeModal(){modal.style.display='none';}
+function selectProfile(el){document.querySelectorAll('.profile-opt').forEach(o=>{o.style.borderColor='var(--border2)';o.style.background='transparent';o.querySelector('div').style.color='var(--t2)';});el.style.borderColor='var(--red-border)';el.style.background='var(--red-dim)';el.querySelector('div').style.color='var(--red)';}
+function selectMode(el){document.querySelectorAll('.mode-opt').forEach(o=>{o.style.borderColor='var(--border2)';o.style.background='transparent';});el.style.borderColor='var(--red-border)';el.style.background='var(--red-dim)';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+</script>
+</body>
+</html>

