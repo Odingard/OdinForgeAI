@@ -136,12 +136,12 @@ export class ReasoningEngine {
   private lastReasoningTimestamps = new Map<string, number>();
   private lastSummaryJson = '';                      // suppress unchanged summary broadcasts
 
-  // ── LLM-assisted reasoning ─────────────────────────────────────────
+  // ── LLM-assisted reasoning (demoted: target 3-5 calls per run) ────
   private llmRouter: LlmRouter;
   private reasoningLlmCalls = 0;
-  private readonly MAX_REASONING_LLM_CALLS = 100;
-  // Relaxed: all intents are candidates; filtering happens in reason() based on context
-  private readonly MEANINGFUL_INTENTS = new Set<ReasoningIntent>(['explore', 'validate', 'escalate', 'pivot', 'replay', 'summarize']);
+  private readonly MAX_REASONING_LLM_CALLS = 5;
+  // Only high-signal intents qualify for LLM reasoning
+  private readonly MEANINGFUL_INTENTS = new Set<ReasoningIntent>(['escalate', 'replay', 'summarize']);
 
   constructor(chainId: string) {
     this.chainId = chainId;
@@ -325,38 +325,37 @@ export class ReasoningEngine {
 
   // ── LLM Reasoning Qualification ──────────────────────────────────────
 
-  /** Track which validate classes we've already sent to LLM (first-of-each-class) */
-  private validatedClasses = new Set<string>();
-
   /**
    * Determines if this reasoning event qualifies for an LLM call.
-   * Filters to produce ~10-20 LLM reasoning lines per run.
+   * Demoted: target 3-5 LLM reasoning lines per run, not 0 and not 20.
+   *
+   * Only returns true for:
+   * - Primary path promoted or demoted
+   * - Replay succeeded
+   * - Replay failed on high-value target
+   * - Convergence summary
+   * - Final operator summary
    */
   private qualifiesForLlmReasoning(intent: ReasoningIntent, target: string, context?: ReasoningEvent['context']): boolean {
     switch (intent) {
-      case 'explore':
-        // Only for high-value surfaces (privileged zone or admin/config sensitivity)
-        return context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config';
-      case 'validate': {
-        // First of each vulnerability class only
-        const classKey = context?.confidence || target;
-        if (this.validatedClasses.has(classKey)) return false;
-        this.validatedClasses.add(classKey);
-        return true;
-      }
       case 'escalate':
-        // Always qualify — role changes are rare and high-signal
-        return true;
-      case 'pivot':
-        // Only when an artifact was actually gained
-        return !!context?.artifact;
+        // Only for primary path promotion/demotion (role change)
+        return !!context?.pathId;
       case 'replay':
-        // Start, success, or fail on high-value targets
-        return context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config' || true;
+        // Replay succeeded
+        if (context?.role === 'llm-enhanced') return false; // avoid recursion
+        if (/ACCEPTED|succeeded/i.test(target || '')) return true;
+        // Replay failed on high-value target
+        if (context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config') return true;
+        return false;
       case 'summarize':
-        // Only for primary path changes or convergence summaries
-        return !!context?.pathId || /primary|converge/i.test(target || '');
+        // Convergence summary or final operator summary
+        if (/converge|final|complete/i.test(target || '')) return true;
+        // Primary path change
+        if (context?.pathId) return true;
+        return false;
       default:
+        // explore, validate, exploit, pivot — no LLM reasoning
         return false;
     }
   }
