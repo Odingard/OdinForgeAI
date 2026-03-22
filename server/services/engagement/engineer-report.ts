@@ -22,6 +22,11 @@ import type { EvaluatedFinding } from "../evidence-quality-gate";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface EngineerReport {
+  // Branding
+  companyName: string;
+  companyTagline: string;
+  logoPath: string;
+
   reportId: string;
   engagementId: string;
   generatedAt: string;
@@ -249,6 +254,11 @@ export function generateEngineerReport(
   }
 
   return {
+    // Branding
+    companyName: "Odingard Security",
+    companyTagline: "by Six Sense Enterprise Services",
+    logoPath: "/odingard-logo.png",
+
     reportId: `eng-${chain.id}`,
     engagementId: chain.id,
     generatedAt: new Date().toISOString(),

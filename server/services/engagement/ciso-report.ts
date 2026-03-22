@@ -24,6 +24,11 @@ import type { EvaluatedFinding } from "../evidence-quality-gate";
 export type RiskGrade = "A" | "B" | "C" | "D" | "E" | "F";
 
 export interface CISOReport {
+  // Branding
+  companyName: string;
+  companyTagline: string;
+  logoPath: string;
+
   reportId: string;
   engagementId: string;
   generatedAt: string;
@@ -336,6 +341,11 @@ export function generateCISOReport(chain: BreachChain, primaryAttackPath?: any):
   const highs = filtered.customerFindings.filter(f => f.severity === "high").length;
 
   return {
+    // Branding
+    companyName: "Odingard Security",
+    companyTagline: "by Six Sense Enterprise Services",
+    logoPath: "/odingard-logo.png",
+
     reportId: `ciso-${chain.id}`,
     engagementId: chain.id,
     generatedAt: new Date().toISOString(),
