@@ -57,6 +57,7 @@ import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } fr
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
 import { createBreachEventEmitter, emitCognitiveEvent, type BreachEventEmitter } from "../lib/breach-event-emitter";
 import { formatError } from "../lib/exploit-diagnostics";
+import { getPortfolioOrchestrator } from "./aev/portfolio-orchestrator";
 import {
   recordEngagementStart,
   recordEngagementComplete,
@@ -260,6 +261,11 @@ export async function runBreachChain(
   });
 
   broadcastBreachProgress(chainId, "starting", 0, "Breach chain initiated — LIVE MODE ENFORCED");
+
+  // Phase 13: Register run with portfolio orchestrator
+  const portfolio = getPortfolioOrchestrator();
+  portfolio.registerRun(chainId, chainId, chain.assetIds?.[0] || "unknown");
+  portfolio.updateRunState(chainId, "discovering");
 
   // ── AGENT_MESH: Event-driven 4-agent mesh replaces sequential pipeline ────
   if (isAgentMeshEnabled()) {
@@ -549,6 +555,17 @@ export async function runBreachChain(
       // GTM v1.0: Replay — record phase start
       replayRecorder.recordPhaseStart(phaseName, chain.assetIds?.[0] || "unknown");
 
+      // Phase 13: Update portfolio lifecycle state per phase
+      const phaseToLifecycle: Record<string, string> = {
+        application_compromise: 'exploiting',
+        credential_extraction: 'validating',
+        cloud_iam_escalation: 'replaying',
+        container_k8s_breakout: 'replaying',
+        lateral_movement: 'replaying',
+        impact_assessment: 'summarizing',
+      };
+      portfolio.updateRunState(chainId, (phaseToLifecycle[phaseName] || 'exploiting') as any);
+
       // Execute phase with timeout
       const executor = getPhaseExecutor(phaseName);
       const phaseResult = await Promise.race([
@@ -829,6 +846,20 @@ export async function runBreachChain(
     broadcastBreachProgress(chainId, "completed", 100,
       `Breach chain complete — ${finalQualityVerdict.summary.proven} proven, ${allDetectionRules.length} detection rules generated`);
 
+    // Phase 13: Update portfolio with final stats
+    const portfolioFindingsCount = phaseResults.reduce((s: number, pr: any) => s + (pr.findings?.length || 0), 0);
+    portfolio.updateRunStats(chainId, {
+      findingsCount: portfolioFindingsCount,
+      pathsCount: (unifiedGraph as any)?.nodes?.length || 0,
+      replaySuccesses: 0, // TODO: pipe from pivot results when available
+      primaryPath: executiveSummary?.slice(0, 80) || null,
+      highestTrustZone: 'authenticated', // from surface model when wired
+      highestSensitivity: portfolioFindingsCount > 0 ? 'config' : 'generic',
+      primaryPathConfidence: portfolioFindingsCount >= 5 ? 'strong' : portfolioFindingsCount > 0 ? 'moderate' : 'low',
+      primaryPathScore: overallRiskScore || 0,
+    });
+    portfolio.updateRunState(chainId, "completed");
+
     // ── GTM v1.0: Prometheus metrics — engagement complete ──────────────
     recordEngagementComplete(Date.now() - startTime);
     recordDetectionRules(allDetectionRules.length);
@@ -870,6 +901,7 @@ export async function runBreachChain(
     }).catch(() => {});
   } catch (error) {
     log.error({ err: error }, "Breach chain failed");
+    portfolio.updateRunState(chainId, "failed");
     // Decrement active engagement gauge on failure
     recordEngagementComplete(Date.now() - startTime);
     await storage.updateBreachChain(chainId, {

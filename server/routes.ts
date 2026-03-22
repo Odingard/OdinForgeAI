@@ -165,6 +165,50 @@ export async function registerRoutes(
     res.json({ aevOnly: AEV_ONLY_MODE });
   });
 
+  // ========== PORTFOLIO ORCHESTRATION ENDPOINTS (Phase 13) ==========
+
+  app.get("/api/portfolio/summary", apiRateLimiter, uiAuthMiddleware, async (_req, res) => {
+    try {
+      const { getPortfolioOrchestrator } = await import("./services/aev/portfolio-orchestrator");
+      const portfolio = getPortfolioOrchestrator();
+      res.json(portfolio.getPortfolioSummary());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get portfolio summary" });
+    }
+  });
+
+  app.get("/api/portfolio/runs", apiRateLimiter, uiAuthMiddleware, async (_req, res) => {
+    try {
+      const { getPortfolioOrchestrator } = await import("./services/aev/portfolio-orchestrator");
+      const portfolio = getPortfolioOrchestrator();
+      res.json(portfolio.getAllRuns());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get runs" });
+    }
+  });
+
+  app.get("/api/portfolio/runs/:runId", apiRateLimiter, uiAuthMiddleware, async (req, res) => {
+    try {
+      const { getPortfolioOrchestrator } = await import("./services/aev/portfolio-orchestrator");
+      const portfolio = getPortfolioOrchestrator();
+      const run = portfolio.getRun(req.params.runId);
+      if (!run) return res.status(404).json({ error: "Run not found" });
+      res.json(run);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get run" });
+    }
+  });
+
+  app.get("/api/portfolio/ranking", apiRateLimiter, uiAuthMiddleware, async (_req, res) => {
+    try {
+      const { getPortfolioOrchestrator } = await import("./services/aev/portfolio-orchestrator");
+      const portfolio = getPortfolioOrchestrator();
+      res.json(portfolio.rankTargets());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to rank targets" });
+    }
+  });
+
   // ========== UI AUTHENTICATION ENDPOINTS ==========
   // These routes are for control plane UI authentication ONLY
   // They do NOT affect /api/* service-to-service authentication

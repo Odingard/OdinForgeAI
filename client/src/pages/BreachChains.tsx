@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
 import { BreachChainExport } from "@/components/BreachChainExport";
 import { CanvasPanel } from "@/components/canvas/CanvasPanel";
+import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import {
   Link2,
   Play,
@@ -39,6 +40,8 @@ import {
   ArrowRight,
   FileBarChart,
   Download,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
 import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
@@ -1363,6 +1366,7 @@ export default function BreachChains() {
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [showComparison, setShowComparison] = useState(false);
+  const [viewMode, setViewMode] = useState<"chains" | "portfolio">("chains");
 
   // Form state
   const [formData, setFormData] = useState({
@@ -1597,8 +1601,65 @@ export default function BreachChains() {
         </div>
       </div>
 
+      {/* View mode toggle */}
+      <div style={{ display: "flex", gap: 4, background: "var(--falcon-panel-2)", borderRadius: 6, padding: 3, width: "fit-content" }}>
+        <button
+          onClick={() => setViewMode("chains")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 4,
+            border: "none",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            color: viewMode === "chains" ? "var(--falcon-t1)" : "var(--falcon-t4)",
+            background: viewMode === "chains" ? "var(--falcon-panel)" : "transparent",
+          }}
+        >
+          <List style={{ width: 13, height: 13 }} />
+          Chain List
+        </button>
+        <button
+          onClick={() => setViewMode("portfolio")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 4,
+            border: "none",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            color: viewMode === "portfolio" ? "var(--falcon-t1)" : "var(--falcon-t4)",
+            background: viewMode === "portfolio" ? "var(--falcon-panel)" : "transparent",
+          }}
+        >
+          <LayoutGrid style={{ width: 13, height: 13 }} />
+          Portfolio
+        </button>
+      </div>
+
+      {/* Portfolio view */}
+      {viewMode === "portfolio" && (
+        <PortfolioPanel
+          onSelectRun={(chainId) => {
+            const chain = chains.find((c) => c.id === chainId);
+            if (chain) {
+              setSelectedChain(chain);
+              setViewMode("chains");
+            }
+          }}
+        />
+      )}
+
       {/* Chains view */}
-      {<>
+      {viewMode === "chains" && <>
 
       {/* Create Breach Chain Modal */}
       {isCreateOpen && (
@@ -2068,6 +2129,7 @@ export default function BreachChains() {
       )}
 
       </>}
+      {/* End of chains view conditional */}
     </div>
   );
 }
