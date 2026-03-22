@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { LiveAttackCanvas } from "./LiveAttackCanvas";
-import { CanvasLegend } from "./CanvasLegend";
-import { ReasoningStream } from "../reasoning/ReasoningStream";
+import { ActionFeed } from "./ActionFeed";
+import { EvidencePanel } from "./EvidencePanel";
+import type { EvidenceData } from "./EvidencePanel";
+import "../../styles/canvas.css";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,6 +14,45 @@ interface CanvasPanelProps {
   operatorSummary: any;
   /** Pass chain data so we can render completed chains, not just live ones */
   chain?: any;
+}
+
+// ── Risk grade helper ────────────────────────────────────────────────────────
+
+function gradeColor(grade: string | null | undefined): string {
+  if (!grade) return "#334155";
+  switch (grade.toUpperCase()) {
+    case "A": return "#22c55e";
+    case "B": return "#22c55e";
+    case "C": return "#f59e0b";
+    case "D": return "#f59e0b";
+    case "F": return "#ef4444";
+    default:  return "#334155";
+  }
+}
+
+// ── Elapsed timer ────────────────────────────────────────────────────────────
+
+function formatElapsed(seconds: number): string {
+  const mm = String(Math.floor(seconds / 60)).padStart(2, "0");
+  const ss = String(seconds % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+// ── Status helpers ───────────────────────────────────────────────────────────
+
+function statusDotClass(status: string | undefined): string {
+  if (!status) return "cv-dot";
+  if (status === "running" || status === "scanning") return "cv-dot run";
+  if (status === "completed" || status === "failed") return "cv-dot done";
+  return "cv-dot";
+}
+
+function statusLabel(status: string | undefined): string {
+  if (!status) return "ready";
+  if (status === "running") return "scanning";
+  if (status === "completed") return "breach confirmed";
+  if (status === "failed") return "assessment failed";
+  return status;
 }
 
 /**
@@ -32,41 +73,45 @@ function synthesizeFromChain(chain: any): {
   const graph = chain.unifiedAttackGraph;
   const ts = chain.completedAt || chain.startedAt || new Date().toISOString();
 
-  // Map attack graph tactics to trust zones for coloring
-  const tacticToZone: Record<string, string> = {
-    'reconnaissance': 'public',
-    'resource-development': 'public',
-    'initial-access': 'authenticated',
-    'execution': 'authenticated',
-    'persistence': 'authenticated',
-    'privilege-escalation': 'privileged',
-    'defense-evasion': 'authenticated',
-    'credential-access': 'privileged',
-    'discovery': 'public',
-    'lateral-movement': 'internal_like',
-    'collection': 'privileged',
-    'command-and-control': 'internal_like',
-    'exfiltration': 'privileged',
-    'impact': 'privileged',
+  // Map attack graph tactics to breach phases for layout
+  const tacticToPhase: Record<string, string> = {
+    'reconnaissance': 'application_compromise',
+    'resource-development': 'application_compromise',
+    'initial-access': 'application_compromise',
+    'execution': 'application_compromise',
+    'persistence': 'credential_extraction',
+    'privilege-escalation': 'cloud_iam_escalation',
+    'defense-evasion': 'application_compromise',
+    'credential-access': 'credential_extraction',
+    'discovery': 'application_compromise',
+    'lateral-movement': 'lateral_movement',
+    'collection': 'lateral_movement',
+    'command-and-control': 'container_k8s_breakout',
+    'exfiltration': 'impact_assessment',
+    'impact': 'impact_assessment',
   };
 
   // Build canvas nodes from attack graph
   if (graph?.nodes) {
     for (const node of graph.nodes) {
-      const zone = tacticToZone[node.tactic] || (node.nodeType === 'objective' ? 'privileged' : node.nodeType === 'entry' ? 'public' : 'authenticated');
+      const phase = tacticToPhase[node.tactic] || (
+        node.nodeType === 'objective' ? 'impact_assessment'
+          : node.nodeType === 'entry' ? 'application_compromise'
+            : 'credential_extraction'
+      );
+      const severity = node.tactic?.includes('credential') || node.tactic?.includes('privilege')
+        ? 'critical'
+        : node.nodeType === 'objective' ? 'critical' : 'high';
+
       canvasEvents.push({
         canvasType: 'node_discovered',
         source: node.label || node.id,
-        zone,
-        sensitivity: node.tactic?.includes('credential') ? 'auth' : node.tactic?.includes('privilege') ? 'admin' : 'generic',
-        confirmed: true,
-        timestamp: ts,
-      });
-      canvasEvents.push({
-        canvasType: 'node_classified',
-        source: node.label || node.id,
-        zone,
+        phase,
+        severity,
+        label: node.label || node.id,
         detail: node.description,
+        kind: node.nodeType === 'entry' ? 'phase_spine' : 'finding',
+        technique: node.technique,
         confirmed: true,
         timestamp: ts,
       });
@@ -96,11 +141,10 @@ function synthesizeFromChain(chain: any): {
     reasoningStream.push({
       reasoningIntent: 'summarize',
       target: '',
-      message: `Phase ${phaseName}: ${status} — ${findingCount} findings`,
+      message: `Phase ${phaseName}: ${status} \u2014 ${findingCount} findings`,
       timestamp: phase.completedAt || ts,
     });
 
-    // Add each finding as a validate event
     for (const finding of (phase.findings || [])) {
       reasoningStream.push({
         reasoningIntent: 'validate',
@@ -111,7 +155,6 @@ function synthesizeFromChain(chain: any): {
     }
   }
 
-  // Add executive summary as final reasoning
   if (chain.executiveSummary) {
     reasoningStream.push({
       reasoningIntent: 'summarize',
@@ -121,7 +164,7 @@ function synthesizeFromChain(chain: any): {
     });
   }
 
-  // Build operator summary from chain data
+  // Build operator summary
   const totalFindings = phaseResults.reduce((s: number, p: any) => s + (p.findings?.length || 0), 0);
   const operatorSummary = {
     currentObjective: chain.status === 'completed' ? 'Assessment complete' : chain.status === 'failed' ? 'Assessment failed' : 'Running',
@@ -129,6 +172,11 @@ function synthesizeFromChain(chain: any): {
     findingsCount: totalFindings,
     pathsCount: graph?.nodes?.length || 0,
     replaySuccesses: 0,
+    credentialCount: chain.totalCredentialsHarvested || 0,
+    riskGrade: chain.riskGrade || null,
+    status: chain.status,
+    targetUrl: chain.targetUrl || null,
+    durationMs: chain.durationMs || null,
     lastMeaningfulChange: chain.status === 'completed'
       ? `Completed in ${chain.durationMs ? Math.round(chain.durationMs / 1000) + 's' : 'unknown'}`
       : chain.status,
@@ -147,100 +195,115 @@ export function CanvasPanel({
   operatorSummary: liveOperatorSummary,
   chain,
 }: CanvasPanelProps) {
-  // If we have live events, use them. Otherwise synthesize from stored chain data.
   const hasLiveData = liveCanvasEvents.length > 0 || liveReasoningStream.length > 0;
 
   const synthesized = useMemo(
     () => (!hasLiveData && chain ? synthesizeFromChain(chain) : null),
-    [hasLiveData, chain]
+    [hasLiveData, chain],
   );
 
   const canvasEvents = hasLiveData ? liveCanvasEvents : (synthesized?.canvasEvents || []);
   const reasoningStream = hasLiveData ? liveReasoningStream : (synthesized?.reasoningStream || []);
   const operatorSummary = liveOperatorSummary || synthesized?.operatorSummary || null;
+
+  // Evidence panel state
+  const [selectedEvidence, setSelectedEvidence] = useState<EvidenceData | null>(null);
+
+  const handleNodeClick = useCallback((data: EvidenceData) => {
+    setSelectedEvidence(data);
+  }, []);
+
+  const handleCloseEvidence = useCallback(() => {
+    setSelectedEvidence(null);
+  }, []);
+
+  // Elapsed timer
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const status = operatorSummary?.status || chain?.status;
+    if (status === "running") {
+      if (!timerRef.current) {
+        timerRef.current = setInterval(() => {
+          setElapsed((prev) => prev + 1);
+        }, 1000);
+      }
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (operatorSummary?.durationMs || chain?.durationMs) {
+        const ms = operatorSummary?.durationMs || chain?.durationMs;
+        setElapsed(Math.round(ms / 1000));
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [operatorSummary?.status, operatorSummary?.durationMs, chain?.status, chain?.durationMs]);
+
+  // Stats
+  const findingsCount = operatorSummary?.findingsCount ?? 0;
+  const credentialCount = operatorSummary?.credentialCount ?? 0;
+  const nodeCount = operatorSummary?.pathsCount ?? canvasEvents.filter((e: any) => e.canvasType === "node_discovered").length;
+  const grade = operatorSummary?.riskGrade || chain?.riskGrade || null;
+  const status = operatorSummary?.status || chain?.status;
+  const targetUrl = operatorSummary?.targetUrl || chain?.targetUrl || "\u2014 awaiting target \u2014";
+
+  // Current phase from reasoning
+  const currentPhase = operatorSummary?.currentPhase || null;
+
   return (
-    <div className="flex flex-col h-full gap-2">
-      {/* Top row: Canvas + Operator Panel */}
-      <div className="flex flex-1 min-h-0 gap-2">
-        {/* Attack Canvas */}
-        <div className="flex-1 min-w-0 flex flex-col gap-1">
+    <div className="cv-root" style={{ fontFamily: "monospace", fontSize: "12px" }}>
+      {/* ── Top Bar ─────────────────────────────────────────────────────── */}
+      <div className="cv-top">
+        <span className="cv-brand">OdinForge AEV</span>
+        <span className="cv-tgt">{targetUrl}</span>
+        <div className="cv-sts">
+          <div className="cv-sv">
+            <span className="cv-sv-n" style={{ color: "#ef4444" }}>{findingsCount}</span>{" "}findings
+          </div>
+          <div className="cv-sv">
+            <span className="cv-sv-n" style={{ color: "#f59e0b" }}>{credentialCount}</span>{" "}creds
+          </div>
+          <div className="cv-sv">
+            <span className="cv-sv-n">{nodeCount}</span>{" "}nodes
+          </div>
+          <div className="cv-sv">
+            <span className="cv-sv-n">{formatElapsed(elapsed)}</span>
+          </div>
+          <div className="cv-sv">
+            <span className="cv-sv-n" style={{ color: gradeColor(grade) }}>
+              {grade || "\u2014"}
+            </span>{" "}grade
+          </div>
+        </div>
+        <div className="cv-chip">
+          <div className={statusDotClass(status)} />
+          <span>{statusLabel(status)}</span>
+        </div>
+      </div>
+
+      {/* ── Body: Left column + Right evidence panel ────────────────────── */}
+      <div className="cv-body">
+        <div className="cv-left">
+          {/* Action Feed (top ~185px) */}
+          <ActionFeed events={reasoningStream} currentPhase={currentPhase} />
+
+          {/* Network Breach Map (fills remaining space) */}
           <LiveAttackCanvas
             canvasEvents={canvasEvents}
             reasoningStream={reasoningStream}
             operatorSummary={operatorSummary}
             chainId={chainId}
-          />
-          <CanvasLegend />
-        </div>
-
-        {/* Operator Panel */}
-        <div className="w-72 shrink-0 bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))] p-4 overflow-y-auto">
-          <h3 className="text-sm font-semibold text-[hsl(var(--foreground))] mb-3 uppercase tracking-wider">
-            Operator
-          </h3>
-
-          <OperatorField
-            label="Objective"
-            value={operatorSummary?.currentObjective}
-          />
-          <OperatorField
-            label="Primary Path"
-            value={operatorSummary?.currentPrimaryPath}
-            fallback="None"
-          />
-          <OperatorField
-            label="Findings"
-            value={operatorSummary?.findingsCount?.toString()}
-            fallback="0"
-          />
-          <OperatorField
-            label="Paths"
-            value={operatorSummary?.pathsCount?.toString()}
-            fallback="0"
-          />
-          <OperatorField
-            label="Replay Successes"
-            value={operatorSummary?.replaySuccesses?.toString()}
-            fallback="0"
-          />
-          <OperatorField
-            label="Last Change"
-            value={operatorSummary?.lastMeaningfulChange}
-          />
-          <OperatorField
-            label="Active Artifact"
-            value={operatorSummary?.activeArtifact}
-            fallback="None"
+            onNodeClick={handleNodeClick}
           />
         </div>
-      </div>
 
-      {/* Bottom row: Reasoning Stream */}
-      <div className="h-48 shrink-0">
-        <ReasoningStream events={reasoningStream} />
-      </div>
-    </div>
-  );
-}
-
-// ── Operator Field ───────────────────────────────────────────────────────────
-
-function OperatorField({
-  label,
-  value,
-  fallback = "...",
-}: {
-  label: string;
-  value?: string | null;
-  fallback?: string;
-}) {
-  return (
-    <div className="mb-2.5">
-      <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-0.5">
-        {label}
-      </div>
-      <div className="text-xs text-gray-300 break-words">
-        {value || fallback}
+        {/* Evidence Panel (right, 270px, collapsible) */}
+        <EvidencePanel data={selectedEvidence} onClose={handleCloseEvidence} />
       </div>
     </div>
   );

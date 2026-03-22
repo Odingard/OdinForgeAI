@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { EvidenceData, AssetProofItem } from "./EvidencePanel";
 import "../../styles/canvas.css";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -6,52 +7,104 @@ import "../../styles/canvas.css";
 interface CanvasNode {
   id: string;
   label: string;
-  zone: string;
-  role: string;
   x: number;
   y: number;
-  isPrimary: boolean;
-  hasGlow: boolean;
-  exploited: boolean;
-  replayed: boolean;
+  r: number;
+  col: string;
+  data: EvidenceData;
+  isMuted: boolean;
 }
 
 interface CanvasEdge {
   id: string;
-  from: string;
-  to: string;
-  confirmed: boolean;
-  replayed: boolean;
-  isPrimary: boolean;
+  fromId: string;
+  toId: string;
+  col: string;
+  dashed: boolean;
+  crossLink: boolean;
 }
 
-interface LiveAttackCanvasProps {
+export interface LiveAttackCanvasProps {
   canvasEvents: any[];
   reasoningStream: any[];
   operatorSummary: any;
   chainId: string;
+  onNodeClick?: (data: EvidenceData) => void;
 }
 
-// ── Zone → fill color mapping ────────────────────────────────────────────────
+// ── Layout constants ─────────────────────────────────────────────────────────
 
-const ZONE_COLORS: Record<string, string> = {
-  public: "#3b82f6",        // blue-500
-  authenticated: "#eab308", // yellow-500
-  privileged: "#ef4444",    // red-500
-  internal_like: "#a855f7", // purple-500
+const SVG_W = 510;
+const SVG_H = 295;
+
+const PHASE_X: Record<string, number> = {
+  application_compromise: 90,
+  credential_extraction: 210,
+  cloud_iam_escalation: 370,
+  container_k8s_breakout: 200,
+  lateral_movement: 370,
+  impact_assessment: 300,
 };
 
-const DEFAULT_NODE_COLOR = "#6b7280"; // gray-500
+const PHASE_COL: Record<string, string> = {
+  application_compromise: "#ef4444",
+  credential_extraction: "#f59e0b",
+  cloud_iam_escalation: "#3b82f6",
+  container_k8s_breakout: "#8b5cf6",
+  lateral_movement: "#06b6d4",
+  impact_assessment: "#ef4444",
+};
 
-// ── Role → x-position band ──────────────────────────────────────────────────
+const SEV_COL: Record<string, string> = {
+  critical: "#ef4444",
+  high: "#f59e0b",
+  medium: "#3b82f6",
+  low: "#334155",
+  info: "#334155",
+};
 
-function xForRole(role: string, width: number): number {
-  switch (role) {
-    case "entry":  return width * 0.15;
-    case "pivot":  return width * 0.5;
-    case "target": return width * 0.85;
-    default:       return width * 0.5;
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function truncateLabel(raw: string, maxLen = 10): string {
+  if (raw.length <= maxLen) return raw;
+  return raw.slice(0, maxLen);
+}
+
+function hashJitter(s: string, range: number): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
   }
+  return ((h % range) + range) % range;
+}
+
+function buildAssets(evt: any): AssetProofItem[] {
+  const assets: AssetProofItem[] = [];
+  const ctx = evt.context || {};
+  if (ctx.targetUrl || evt.targetUrl) assets.push({ k: "target", v: ctx.targetUrl || evt.targetUrl, c: "blue" });
+  if (ctx.ip) assets.push({ k: "IP address", v: ctx.ip, c: "red" });
+  if (ctx.port) assets.push({ k: "port", v: String(ctx.port), c: "" });
+  if (ctx.technique || evt.technique) assets.push({ k: "technique", v: ctx.technique || evt.technique, c: "" });
+  if (ctx.service) assets.push({ k: "service", v: ctx.service, c: "" });
+  if (evt.detail) assets.push({ k: "detail", v: evt.detail, c: "" });
+  return assets;
+}
+
+function buildEvidenceData(evt: any): EvidenceData {
+  const ctx = evt.context || {};
+  return {
+    title: evt.label || evt.detail || evt.source || "Unknown",
+    sev: evt.severity || ctx.severity || "info",
+    technique: ctx.technique || evt.technique || undefined,
+    mitre: ctx.mitre || evt.mitre || undefined,
+    assets: buildAssets(evt),
+    status: ctx.statusCode || evt.statusCode || undefined,
+    evidence: ctx.evidence || evt.responseSnippet || ctx.responseSnippet || undefined,
+    extracted: ctx.extracted || undefined,
+    curl: ctx.curlCommand || evt.curlCommand || undefined,
+    ts: evt.timestamp || undefined,
+    hash: ctx.hash || evt.evidenceHash || null,
+  };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -61,67 +114,53 @@ export function LiveAttackCanvas({
   reasoningStream: _reasoningStream,
   operatorSummary: _operatorSummary,
   chainId,
+  onNodeClick,
 }: LiveAttackCanvasProps) {
   const [nodes, setNodes] = useState<Map<string, CanvasNode>>(new Map());
-  const [edges, setEdges] = useState<Map<string, CanvasEdge>>(new Map());
-  const [primaryNodeIds, setPrimaryNodeIds] = useState<Set<string>>(new Set());
-
-  // Track which events we have already processed
+  const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [processedCount, setProcessedCount] = useState(0);
+  const [hintText, setHintText] = useState("click any confirmed node to inspect full asset evidence");
+  const [hintActive, setHintActive] = useState(false);
+  const yCounters = useRef<Record<string, number>>({});
 
-  // Reset state when chainId changes
   useEffect(() => {
     setNodes(new Map());
-    setEdges(new Map());
-    setPrimaryNodeIds(new Set());
+    setEdges([]);
     setProcessedCount(0);
+    yCounters.current = {};
   }, [chainId]);
 
-  // Process new canvas events incrementally
   const processEvent = useCallback(
     (evt: any) => {
       const canvasType: string = evt.canvasType || evt.type || "";
-      const sourceId: string = evt.source || "";
-      const targetId: string = evt.target || "";
 
       switch (canvasType) {
         case "node_discovered": {
-          if (!sourceId) break;
+          const id = evt.source || evt.nodeId || "";
+          if (!id) break;
           setNodes((prev) => {
+            if (prev.has(id)) return prev;
             const next = new Map(prev);
-            if (!next.has(sourceId)) {
-              const role = evt.context?.role || guessRole(sourceId, next.size);
-              const svgWidth = 800;
-              const svgHeight = 500;
-              const jitterY = 100 + Math.random() * (svgHeight - 200);
-              next.set(sourceId, {
-                id: sourceId,
-                label: truncateLabel(sourceId),
-                zone: evt.zone || "public",
-                role,
-                x: xForRole(role, svgWidth),
-                y: jitterY,
-                isPrimary: false,
-                hasGlow: false,
-                exploited: false,
-                replayed: false,
-              });
-            }
-            return next;
-          });
-          break;
-        }
+            const phase: string = evt.phase || evt.zone || "application_compromise";
+            const sev: string = evt.severity || "medium";
+            const baseX = PHASE_X[phase] || SVG_W * 0.5;
+            const col = SEV_COL[sev] || PHASE_COL[phase] || "#6b7280";
+            const count = yCounters.current[phase] || 0;
+            yCounters.current[phase] = count + 1;
+            const baseY = 40 + count * 32 + hashJitter(id, 15);
+            const jitterX = hashJitter(id + "x", 50) - 25;
+            const r = sev === "critical" || evt.kind === "phase_spine" ? 17 : 13;
+            const label = evt.label ? truncateLabel(evt.label) : truncateLabel(id);
 
-        case "node_classified": {
-          if (!sourceId) break;
-          setNodes((prev) => {
-            const existing = prev.get(sourceId);
-            if (!existing) return prev;
-            const next = new Map(prev);
-            next.set(sourceId, {
-              ...existing,
-              zone: evt.zone || existing.zone,
-              hasGlow: true,
+            next.set(id, {
+              id,
+              label,
+              x: Math.max(r + 2, Math.min(SVG_W - r - 2, baseX + jitterX)),
+              y: Math.max(r + 2, Math.min(SVG_H - r - 2, baseY)),
+              r,
+              col,
+              data: buildEvidenceData(evt),
+              isMuted: sev === "info",
             });
             return next;
           });
@@ -129,94 +168,64 @@ export function LiveAttackCanvas({
         }
 
         case "edge_confirmed": {
-          const edgeId = `${sourceId}->${targetId || "?"}`;
+          const from = evt.source || evt.fromNodeId || "";
+          const to = evt.target || evt.toNodeId || "";
+          if (!from || !to) break;
+          const edgeId = `${from}->${to}`;
           setEdges((prev) => {
-            const next = new Map(prev);
-            next.set(edgeId, {
-              id: edgeId,
-              from: sourceId,
-              to: targetId,
-              confirmed: true,
-              replayed: false,
-              isPrimary: false,
-            });
-            return next;
+            if (prev.some((e) => e.id === edgeId)) return prev;
+            return [
+              ...prev,
+              {
+                id: edgeId,
+                fromId: from,
+                toId: to,
+                col: evt.col || "#ef4444",
+                dashed: evt.dashed ?? false,
+                crossLink: evt.crossLink ?? false,
+              },
+            ];
           });
           break;
         }
 
-        case "replay_succeeded": {
-          if (targetId) {
-            setNodes((prev) => {
-              const existing = prev.get(targetId);
-              if (!existing) return prev;
-              const next = new Map(prev);
-              next.set(targetId, { ...existing, replayed: true });
-              return next;
-            });
-          }
-          // Also mark any edge to this target as replayed
-          setEdges((prev) => {
-            let changed = false;
-            const next = new Map(prev);
-            next.forEach((edge, key) => {
-              if (edge.to === targetId && !edge.replayed) {
-                next.set(key, { ...edge, replayed: true });
-                changed = true;
-              }
-            });
-            return changed ? next : prev;
-          });
-          break;
-        }
-
-        case "primary_path_changed": {
-          // sourceId contains pathId — mark matching nodes
-          // For now treat all nodes on the current path as primary;
-          // since the server doesn't send explicit node lists for a path,
-          // we mark all confirmed-edge-connected nodes as primary.
-          setEdges((prev) => {
-            const next = new Map(prev);
-            const newPrimary = new Set<string>();
-            next.forEach((edge, key) => {
-              if (edge.confirmed) {
-                next.set(key, { ...edge, isPrimary: true });
-                newPrimary.add(edge.from);
-                if (edge.to) newPrimary.add(edge.to);
-              }
-            });
-            setPrimaryNodeIds(newPrimary);
-            return next;
-          });
+        case "node_classified": {
+          const id = evt.source || evt.nodeId || "";
+          if (!id) break;
           setNodes((prev) => {
+            const existing = prev.get(id);
+            if (!existing) return prev;
             const next = new Map(prev);
-            let changed = false;
-            next.forEach((node, key) => {
-              const shouldBePrimary = primaryNodeIds.has(key);
-              if (node.isPrimary !== shouldBePrimary) {
-                next.set(key, { ...node, isPrimary: shouldBePrimary });
-                changed = true;
-              }
+            const updatedData = { ...existing.data };
+            if (evt.detail) updatedData.evidence = evt.detail;
+            if (evt.severity) updatedData.sev = evt.severity;
+            next.set(id, {
+              ...existing,
+              data: updatedData,
+              col: SEV_COL[evt.severity || ""] || existing.col,
             });
-            return changed ? next : prev;
+            return next;
           });
           break;
         }
 
         case "artifact_gained": {
-          if (!sourceId) break;
+          const id = evt.source || evt.nodeId || "";
+          if (!id) break;
           setNodes((prev) => {
-            const existing = prev.get(sourceId);
+            const existing = prev.get(id);
             if (!existing) return prev;
             const next = new Map(prev);
-            next.set(sourceId, { ...existing, hasGlow: true, exploited: true });
+            const updatedData = { ...existing.data };
+            if (evt.detail) updatedData.extracted = evt.detail;
+            next.set(id, { ...existing, data: updatedData });
             return next;
           });
           break;
         }
       }
     },
-    [primaryNodeIds],
+    [],
   );
 
   useEffect(() => {
@@ -228,149 +237,140 @@ export function LiveAttackCanvas({
     setProcessedCount(canvasEvents.length);
   }, [canvasEvents, processedCount, processEvent]);
 
-  // ── Render ──────────────────────────────────────────────────────────────
+  // Resolve edge coordinates from node positions at render time
+  const resolvedEdges = edges.map((edge) => {
+    const fromNode = nodes.get(edge.fromId);
+    const toNode = nodes.get(edge.toId);
+    if (!fromNode || !toNode) return null;
+    return { ...edge, x1: fromNode.x, y1: fromNode.y, x2: toNode.x, y2: toNode.y };
+  }).filter((e): e is CanvasEdge & { x1: number; y1: number; x2: number; y2: number } => e !== null);
 
   const nodeArray = Array.from(nodes.values());
-  const edgeArray = Array.from(edges.values());
-  const hasPrimary = primaryNodeIds.size > 0;
 
   return (
-    <svg
-      viewBox="0 0 800 500"
-      className="w-full h-full bg-[hsl(var(--card))] rounded-lg border border-[hsl(var(--border))]"
-      preserveAspectRatio="xMidYMid meet"
-    >
-      {/* Edges */}
-      {edgeArray.map((edge) => {
-        const fromNode = nodes.get(edge.from);
-        const toNode = edge.to ? nodes.get(edge.to) : null;
-        if (!fromNode) return null;
-        const x1 = fromNode.x;
-        const y1 = fromNode.y;
-        const x2 = toNode ? toNode.x : fromNode.x + 80;
-        const y2 = toNode ? toNode.y : fromNode.y;
-
-        const dimmed = hasPrimary && !edge.isPrimary;
-
-        let strokeColor = "#4b5563"; // gray-600
-        let strokeDash = "6 4";       // dashed = inferred
-        let className = "canvas-edge";
-
-        if (edge.confirmed) {
-          strokeColor = "#9ca3af"; // gray-400
-          strokeDash = "none";
-        }
-
-        if (edge.replayed) {
-          strokeColor = "#22c55e"; // green-500
-          className = "canvas-edge canvas-edge-replay";
-          strokeDash = "8 4";
-        }
-
-        if (edge.isPrimary && !edge.replayed) {
-          strokeColor = "#ffffff";
-        }
-
-        return (
-          <line
-            key={edge.id}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke={strokeColor}
-            strokeWidth={edge.isPrimary ? 2.5 : 1.5}
-            strokeDasharray={strokeDash}
-            className={`${className}${dimmed ? " canvas-node-dimmed" : ""}`}
-          />
-        );
-      })}
-
-      {/* Nodes */}
-      {nodeArray.map((node) => {
-        const fill = ZONE_COLORS[node.zone] || DEFAULT_NODE_COLOR;
-        const r = node.hasGlow ? 14 : 10;
-        const dimmed = hasPrimary && !node.isPrimary && !primaryNodeIds.has(node.id);
-
-        let outlineColor = "transparent";
-        let outlineWidth = 0;
-        if (node.exploited) {
-          outlineColor = "#f97316"; // orange-500
-          outlineWidth = 2;
-        }
-        if (node.replayed) {
-          outlineColor = "#22c55e"; // green-500
-          outlineWidth = 2;
-        }
-        if (node.isPrimary || primaryNodeIds.has(node.id)) {
-          outlineColor = "#ffffff";
-          outlineWidth = 3;
-        }
-
-        const nodeClass = [
-          "canvas-node",
-          (node.isPrimary || primaryNodeIds.has(node.id)) ? "canvas-node-primary" : "",
-          dimmed ? "canvas-node-dimmed" : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-
-        return (
-          <g key={node.id} className={nodeClass}>
-            <circle
-              cx={node.x}
-              cy={node.y}
-              r={r}
-              fill={fill}
-              stroke={outlineColor}
-              strokeWidth={outlineWidth}
-            />
-            <text
-              x={node.x}
-              y={node.y + r + 14}
-              textAnchor="middle"
-              className="fill-[hsl(var(--foreground))]"
-              fontSize={10}
-              fontFamily="monospace"
-            >
-              {node.label}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Empty state */}
-      {nodeArray.length === 0 && (
-        <text
-          x={400}
-          y={250}
-          textAnchor="middle"
-          className="fill-gray-500"
-          fontSize={14}
-          fontFamily="monospace"
+    <div className="cv-gf">
+      <div className="cv-gh">
+        <span className="cv-gh-t">network breach map</span>
+        <span
+          className="cv-gh-hint"
+          style={{ color: hintActive ? "#60a5fa" : undefined }}
         >
-          Waiting for canvas events...
-        </text>
-      )}
-    </svg>
+          {hintText}
+        </span>
+      </div>
+      <div className="cv-gb">
+        <svg
+          className="cv-gs"
+          viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+          preserveAspectRatio="xMidYMid meet"
+        >
+          <defs>
+            <marker
+              id="ar"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="4"
+              markerHeight="4"
+              orient="auto-start-reverse"
+            >
+              <path
+                d="M2 1L8 5L2 9"
+                fill="none"
+                stroke="context-stroke"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </marker>
+          </defs>
+
+          {/* Edges */}
+          {resolvedEdges.map((edge) => (
+            <line
+              key={edge.id}
+              x1={edge.x1}
+              y1={edge.y1}
+              x2={edge.x2}
+              y2={edge.y2}
+              stroke={edge.col}
+              strokeWidth={edge.crossLink ? 1 : 0.7}
+              strokeDasharray={edge.dashed ? "3 3" : edge.crossLink ? "6 3" : "400"}
+              strokeDashoffset={edge.dashed ? "0" : "400"}
+              strokeOpacity={edge.dashed ? 0.2 : edge.crossLink ? 0.5 : 1}
+              markerEnd="url(#ar)"
+              className={edge.dashed ? "" : "cv-edge-draw"}
+            />
+          ))}
+
+          {/* Nodes */}
+          {nodeArray.map((node) => (
+            <g
+              key={node.id}
+              className="cv-node-appear"
+              style={{
+                cursor: node.isMuted ? "default" : "pointer",
+                transformOrigin: `${node.x}px ${node.y}px`,
+              }}
+              onClick={() => {
+                if (!node.isMuted && onNodeClick) {
+                  onNodeClick(node.data);
+                }
+              }}
+              onMouseEnter={() => {
+                if (!node.isMuted) {
+                  setHintText(node.data.title);
+                  setHintActive(true);
+                }
+              }}
+              onMouseLeave={() => {
+                setHintText("click any confirmed node to inspect full asset evidence");
+                setHintActive(false);
+              }}
+            >
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={node.r + 5}
+                fill="transparent"
+                stroke="transparent"
+              />
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={node.r}
+                fill="#0d1117"
+                stroke={node.col}
+                strokeWidth="1.5"
+              />
+              <text
+                x={node.x}
+                y={node.y}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={node.r > 15 ? 10 : 7}
+                fontFamily="monospace"
+                fill={node.col}
+              >
+                {node.label}
+              </text>
+            </g>
+          ))}
+
+          {/* Empty state */}
+          {nodeArray.length === 0 && (
+            <text
+              x={SVG_W / 2}
+              y={SVG_H / 2}
+              textAnchor="middle"
+              fontFamily="monospace"
+              fontSize="10"
+              fill="#334155"
+            >
+              network map loading...
+            </text>
+          )}
+        </svg>
+      </div>
+    </div>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function truncateLabel(url: string): string {
-  try {
-    const u = new URL(url);
-    const path = u.pathname.length > 20 ? u.pathname.slice(0, 20) + "..." : u.pathname;
-    return u.hostname.replace(/^www\./, "") + path;
-  } catch {
-    return url.length > 28 ? url.slice(0, 28) + "..." : url;
-  }
-}
-
-function guessRole(_id: string, existingCount: number): string {
-  // First node is entry, last-ish is target, middle is pivot
-  if (existingCount === 0) return "entry";
-  if (existingCount < 3) return "pivot";
-  return Math.random() > 0.6 ? "target" : "pivot";
 }
