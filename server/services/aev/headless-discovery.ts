@@ -69,6 +69,13 @@ export async function runHeadlessDiscovery(
     maxInteractions?: number;
     timeoutMs?: number;
     onRouteDiscovered?: (route: HeadlessDiscoveredRoute) => void;
+    /** Auth config — passed to browser context for authenticated discovery */
+    auth?: {
+      type?: string;
+      cookies?: string[];
+      token?: string;
+      headers?: Record<string, string>;
+    };
   } = {}
 ): Promise<HeadlessDiscoveredRoute[]> {
   const maxDepth = options.maxDepth ?? 3;
@@ -116,10 +123,41 @@ export async function runHeadlessDiscovery(
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
 
-    const context = await browser.newContext({
+    // Build context options with auth if available
+    const contextOpts: any = {
       userAgent: 'OdinForge-AEV/1.0 (Security Assessment)',
       viewport: { width: 1280, height: 720 },
-    });
+    };
+
+    // Apply auth headers to browser context
+    if (options.auth?.headers) {
+      contextOpts.extraHTTPHeaders = options.auth.headers;
+    }
+    if (options.auth?.token) {
+      contextOpts.extraHTTPHeaders = {
+        ...contextOpts.extraHTTPHeaders,
+        'Authorization': `Bearer ${options.auth.token}`,
+      };
+    }
+
+    const context = await browser.newContext(contextOpts);
+
+    // Apply auth cookies to browser context
+    if (options.auth?.cookies && options.auth.cookies.length > 0) {
+      try {
+        const parsedUrl = new URL(targetUrl);
+        const cookieObjects = options.auth.cookies.map(c => {
+          const [name, ...valueParts] = c.split('=');
+          return {
+            name: name.trim(),
+            value: valueParts.join('=').trim(),
+            domain: parsedUrl.hostname,
+            path: '/',
+          };
+        });
+        await context.addCookies(cookieObjects);
+      } catch { /* skip invalid cookies */ }
+    }
 
     const page = await context.newPage();
 

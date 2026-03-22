@@ -157,10 +157,50 @@ export class FrontierQueue {
     };
   }
 
+  /** Reprioritize pending items based on session role change */
+  reprioritizeForRole(role: 'anonymous' | 'user' | 'admin'): number {
+    let adjusted = 0;
+    for (const item of this.queue) {
+      if (item.processed) continue;
+      const lower = item.url.toLowerCase();
+
+      if (role === 'admin') {
+        // Admin: boost privileged surfaces, deprioritize login/register
+        if (/admin|config|management|debug|internal/i.test(lower)) {
+          item.priority = Math.min(100, item.priority + 20);
+          adjusted++;
+        }
+        if (/login|register|signup/i.test(lower)) {
+          item.priority = Math.max(10, item.priority - 15);
+        }
+      } else if (role === 'user') {
+        // User: boost authenticated surfaces
+        if (/account|profile|me|user|dashboard/i.test(lower)) {
+          item.priority = Math.min(100, item.priority + 15);
+          adjusted++;
+        }
+        if (item.type === 'auth_family') {
+          item.priority = Math.min(100, item.priority + 10);
+        }
+      }
+      // anonymous: no changes — default priorities are already anonymous-biased
+    }
+
+    // Re-sort after adjustments
+    if (adjusted > 0) {
+      this.queue.sort((a, b) => b.priority - a.priority);
+    }
+
+    return adjusted;
+  }
+
   // ── Seeding ────────────────────────────────────────────────────────
 
   /** Seed from discovered high-value endpoints */
-  seedFromDiscovery(endpoints: Array<{ url: string; method?: string; trustZone?: string; sensitivity?: string; chainRole?: string; discoverySource?: string }>): number {
+  seedFromDiscovery(endpoints: Array<{
+    url: string; method?: string; trustZone?: string; sensitivity?: string;
+    chainRole?: string; discoverySource?: string; discoveryConfidence?: number;
+  }>): number {
     let seeded = 0;
 
     for (const ep of endpoints) {
@@ -176,9 +216,14 @@ export class FrontierQueue {
       if (ep.chainRole === 'target') priority += 15;
       if (ep.chainRole === 'pivot') priority += 10;
 
-      // Multi-source discovery boost
-      if (ep.discoverySource === 'headless') priority += 10;
-      if (ep.discoverySource === 'js_extract') priority += 5;
+      // Discovery source quality boost — XHR-observed outranks common-path probes
+      if (ep.discoverySource === 'headless') priority += 15;
+      if (ep.discoverySource === 'js_extract') priority += 10;
+      if (ep.discoverySource === 'common_path') priority += 0; // no boost
+
+      // Discovery confidence boost — high-confidence routes get priority
+      if (ep.discoveryConfidence && ep.discoveryConfidence > 0.8) priority += 15;
+      else if (ep.discoveryConfidence && ep.discoveryConfidence > 0.6) priority += 8;
 
       // Determine type from URL patterns
       let type: FrontierItemType = 'endpoint';
