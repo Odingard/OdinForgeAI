@@ -18,6 +18,10 @@ import type {
 } from "@shared/schema";
 import { reportIntegrityFilter } from "../report-integrity-filter";
 import type { EvaluatedFinding } from "../evidence-quality-gate";
+import { LlmRouter } from "../../../src/llm/router";
+import { isLlmConfigured } from "../../../src/llm/config";
+import { quickSafetyCheck } from "../../../src/llm/safety-boundary";
+import { recordLlmFailure } from "../../../src/llm/router-health";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -295,9 +299,41 @@ function mapBusinessImpact(finalImpact: string): { impact: string; expanded: str
   };
 }
 
+// ─── LLM Executive Summary Polish ────────────────────────────────────────────
+
+/**
+ * Optionally refine a structured executive summary into executive-ready language.
+ * Returns null on failure — caller keeps the deterministic output.
+ * NEVER alters evidence, findings, or endpoint labels.
+ */
+async function maybeRefineExecutiveSummary(structuredSummary: string): Promise<string | null> {
+  if (!isLlmConfigured()) return null;
+
+  try {
+    const router = new LlmRouter();
+    const resp = await router.reportWriter([
+      {
+        role: "system",
+        content: "Convert this structured engine output into executive-ready language. Do not invent steps, impact, or artifacts. Preserve exact path names and endpoint labels. Do not confirm findings or fabricate evidence.",
+      },
+      {
+        role: "user",
+        content: structuredSummary,
+      },
+    ]);
+
+    const text = resp.text.trim();
+    if (!text || !quickSafetyCheck(text)) return null;
+    return text;
+  } catch (err) {
+    recordLlmFailure("report_writer", "router", "auto", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function generateCISOReport(chain: BreachChain, primaryAttackPath?: any): CISOReport {
+export async function generateCISOReport(chain: BreachChain, primaryAttackPath?: any): Promise<CISOReport> {
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const context = chain.currentContext as BreachPhaseContext | null;
   const domains = (chain.domainsBreached as string[] | null) ?? [];
@@ -353,9 +389,13 @@ export function generateCISOReport(chain: BreachChain, primaryAttackPath?: any):
     riskGrade: grade,
     riskGradeRationale: rationale,
     overallRiskScore: chain.overallRiskScore ?? 0,
-    breachChainNarrative: primaryAttackPath
-      ? buildExecutiveSummaryFromPath(primaryAttackPath)
-      : buildBreachNarrative(chain),
+    breachChainNarrative: await (async () => {
+      const deterministic = primaryAttackPath
+        ? buildExecutiveSummaryFromPath(primaryAttackPath)
+        : buildBreachNarrative(chain);
+      const refined = await maybeRefineExecutiveSummary(deterministic);
+      return (refined && refined.length > 0) ? refined : deterministic;
+    })(),
     businessImpact: {
       summary: primaryAttackPath
         ? buildBusinessImpactFromPath(primaryAttackPath)

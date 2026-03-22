@@ -12,6 +12,10 @@
  */
 
 import { wsService } from '../websocket';
+import { LlmRouter } from '../../../src/llm/router';
+import { isLlmConfigured } from '../../../src/llm/config';
+import { quickSafetyCheck } from '../../../src/llm/safety-boundary';
+import { recordLlmFailure } from '../../../src/llm/router-health';
 
 // ── Intent Classes ───────────────────────────────────────────────────────────
 
@@ -132,8 +136,15 @@ export class ReasoningEngine {
   private lastReasoningTimestamps = new Map<string, number>();
   private lastSummaryJson = '';                      // suppress unchanged summary broadcasts
 
+  // ── LLM-assisted reasoning ─────────────────────────────────────────
+  private llmRouter: LlmRouter;
+  private reasoningLlmCalls = 0;
+  private readonly MAX_REASONING_LLM_CALLS = 100;
+  private readonly MEANINGFUL_INTENTS = new Set<ReasoningIntent>(['explore', 'validate', 'escalate', 'summarize']);
+
   constructor(chainId: string) {
     this.chainId = chainId;
+    this.llmRouter = new LlmRouter();
     this.memory = {
       surfaces: { highValue: [], failed: [], classified: new Map() },
       artifacts: { tokens: [], identifiers: [], schemaHints: [], credentials: [] },
@@ -166,6 +177,37 @@ export class ReasoningEngine {
       return; // suppress duplicate
     }
     this.lastReasoningTimestamps.set(dedupKey, now);
+
+    // For meaningful intents, try LLM-assisted reasoning (fire-and-forget)
+    // The deterministic message is always emitted immediately; LLM result
+    // supplements it as a follow-on event if it returns in time.
+    if (this.MEANINGFUL_INTENTS.has(intent) && isLlmConfigured() && this.reasoningLlmCalls < this.MAX_REASONING_LLM_CALLS) {
+      const contextSummary = context ? Object.entries(context).map(([k, v]) => `${k}=${v}`).join(', ') : '';
+      this.generateReasoningLine(intent, target, `${message} | ${contextSummary}`).then(llmLine => {
+        if (llmLine) {
+          // Emit a supplementary LLM-enhanced reasoning event
+          const llmEvent: ReasoningEvent = {
+            timestamp: new Date().toISOString(),
+            chainId: this.chainId,
+            intent,
+            target,
+            message: llmLine,
+            context: { ...context, role: 'llm-enhanced' },
+          };
+          this.events.push(llmEvent);
+          if (this.events.length > 100) this.events = this.events.slice(-100);
+          try {
+            const { intent: _lt, chainId: _lc, ...llmRest } = llmEvent;
+            wsService.broadcastToChannel(`breach_chain:${this.chainId}`, {
+              type: 'reasoning_event',
+              chainId: this.chainId,
+              reasoningIntent: llmEvent.intent,
+              ...llmRest,
+            } as any);
+          } catch { /* wsService not initialized */ }
+        }
+      }).catch(() => { /* LLM failure — deterministic message already emitted */ });
+    }
 
     const event: ReasoningEvent = {
       timestamp: new Date().toISOString(),
@@ -243,6 +285,39 @@ export class ReasoningEngine {
         ...this.operatorSummary,
       } as any);
     } catch { /* wsService not initialized */ }
+  }
+
+  // ── LLM-Assisted Reasoning ─────────────────────────────────────────
+
+  /**
+   * Generate a concise reasoning line via LLM. Falls back to null on failure.
+   * Only called for meaningful intents, never for spam-suppressed events.
+   */
+  async generateReasoningLine(intent: ReasoningIntent, target: string, context: string): Promise<string | null> {
+    if (!isLlmConfigured()) return null;
+    if (this.reasoningLlmCalls >= this.MAX_REASONING_LLM_CALLS) return null;
+
+    try {
+      this.reasoningLlmCalls++;
+      const resp = await this.llmRouter.reasoningStream([
+        {
+          role: 'system',
+          content: 'Produce one concise operator-facing reasoning line. Deterministic, no fluff, no speculation. Do not confirm findings or fabricate evidence.',
+        },
+        {
+          role: 'user',
+          content: `Intent: ${intent}\nTarget: ${target}\nContext: ${context}`,
+        },
+      ]);
+
+      const text = resp.text.trim();
+      if (!text || !quickSafetyCheck(text)) return null;
+      // Truncate to reasonable single-line length
+      return text.slice(0, 300);
+    } catch (err) {
+      recordLlmFailure('reasoning_stream', 'router', 'auto', err instanceof Error ? err.message : String(err));
+      return null;
+    }
   }
 
   // ── Surface Intelligence Hooks ───────────────────────────────────────

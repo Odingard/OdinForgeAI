@@ -14,11 +14,9 @@ import type { AgentRole } from "./agent-roles";
 
 // Standalone logger — no dependency on server/services/logger
 const log = {
-  warn: (msg: string, ...args: any[]) => console.warn(`[LLM-SAFETY] ${msg}`, ...args),
-  error: (msg: string, ...args: any[]) => console.error(`[LLM-SAFETY] ${msg}`, ...args),
+  warn: (...args: any[]) => console.warn(`[LLM-SAFETY]`, ...args),
+  error: (...args: any[]) => console.error(`[LLM-SAFETY]`, ...args),
 };
-
-const log = serviceLogger("llm-safety");
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

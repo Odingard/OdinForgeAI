@@ -405,10 +405,10 @@ function sha256(data: string): string {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function sealEngagementPackage(
+export async function sealEngagementPackage(
   chain: BreachChain,
   sealedBy: string
-): EngagementPackage {
+): Promise<EngagementPackage> {
   const packageId = `pkg-${randomUUID().slice(0, 12)}`;
 
   // Phase 14: Extract attack paths and generate remediation
@@ -418,8 +418,8 @@ export function sealEngagementPackage(
   const remediationPlan = generatePathRemediation(primaryAttackPath, pathFindings);
 
   // Generate all 5 components (now path-aware)
-  const cisoReport = generateCISOReport(chain, primaryAttackPath);
-  const engineerReport = generateEngineerReport(chain, primaryAttackPath, supportingAttackPaths, remediationPlan);
+  const cisoReport = await generateCISOReport(chain, primaryAttackPath);
+  const engineerReport = await generateEngineerReport(chain, primaryAttackPath, supportingAttackPaths, remediationPlan);
   const evidenceJSON = buildEvidenceJSON(chain);
   const mirrorRules = buildDefendersMirror(chain);
   const replayHTML = generateReplayHTML(chain);

@@ -1,16 +1,22 @@
 import { LlmRouterConfig } from "./types";
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return value;
+function optionalEnv(name: string, fallback = "not-configured"): string {
+  return process.env[name] || fallback;
 }
 
 function parseNumber(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** Returns true if at least one LLM provider has real API keys configured */
+export function isLlmConfigured(): boolean {
+  return !!(
+    process.env.OPENAI_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.GEMINI_API_KEY
+  );
 }
 
 export const llmConfig: LlmRouterConfig = {
@@ -20,16 +26,16 @@ export const llmConfig: LlmRouterConfig = {
     planner: {
       primary: {
         provider: "openai",
-        model: requireEnv("ODINFORGE_PRIMARY_MODEL"),
+        model: optionalEnv("ODINFORGE_PRIMARY_MODEL"),
       },
       fallbacks: [
         {
           provider: "anthropic",
-          model: requireEnv("ODINFORGE_REVIEW_MODEL"),
+          model: optionalEnv("ODINFORGE_REVIEW_MODEL"),
         },
         {
           provider: "google",
-          model: requireEnv("ODINFORGE_DEEP_MODEL"),
+          model: optionalEnv("ODINFORGE_DEEP_MODEL"),
         },
       ],
       temperature: 0.2,
@@ -39,12 +45,12 @@ export const llmConfig: LlmRouterConfig = {
     endpoint_typing: {
       primary: {
         provider: "openai",
-        model: requireEnv("ODINFORGE_FAST_MODEL"),
+        model: optionalEnv("ODINFORGE_FAST_MODEL"),
       },
       fallbacks: [
         {
           provider: "google",
-          model: requireEnv("ODINFORGE_DEEP_MODEL"),
+          model: optionalEnv("ODINFORGE_DEEP_MODEL"),
         },
       ],
       temperature: 0,
@@ -54,12 +60,12 @@ export const llmConfig: LlmRouterConfig = {
     request_shaping: {
       primary: {
         provider: "openai",
-        model: requireEnv("ODINFORGE_FAST_MODEL"),
+        model: optionalEnv("ODINFORGE_FAST_MODEL"),
       },
       fallbacks: [
         {
           provider: "anthropic",
-          model: requireEnv("ODINFORGE_REVIEW_MODEL"),
+          model: optionalEnv("ODINFORGE_REVIEW_MODEL"),
         },
       ],
       temperature: 0,
@@ -69,12 +75,12 @@ export const llmConfig: LlmRouterConfig = {
     reasoning_stream: {
       primary: {
         provider: "openai",
-        model: requireEnv("ODINFORGE_FAST_MODEL"),
+        model: optionalEnv("ODINFORGE_FAST_MODEL"),
       },
       fallbacks: [
         {
           provider: "anthropic",
-          model: requireEnv("ODINFORGE_REVIEW_MODEL"),
+          model: optionalEnv("ODINFORGE_REVIEW_MODEL"),
         },
       ],
       temperature: 0.2,
@@ -84,16 +90,16 @@ export const llmConfig: LlmRouterConfig = {
     report_writer: {
       primary: {
         provider: "openai",
-        model: requireEnv("ODINFORGE_PRIMARY_MODEL"),
+        model: optionalEnv("ODINFORGE_PRIMARY_MODEL"),
       },
       fallbacks: [
         {
           provider: "anthropic",
-          model: requireEnv("ODINFORGE_REVIEW_MODEL"),
+          model: optionalEnv("ODINFORGE_REVIEW_MODEL"),
         },
         {
           provider: "google",
-          model: requireEnv("ODINFORGE_DEEP_MODEL"),
+          model: optionalEnv("ODINFORGE_DEEP_MODEL"),
         },
       ],
       temperature: 0.2,
@@ -103,12 +109,12 @@ export const llmConfig: LlmRouterConfig = {
     code_review: {
       primary: {
         provider: "anthropic",
-        model: requireEnv("ODINFORGE_REVIEW_MODEL"),
+        model: optionalEnv("ODINFORGE_REVIEW_MODEL"),
       },
       fallbacks: [
         {
           provider: "openai",
-          model: requireEnv("ODINFORGE_PRIMARY_MODEL"),
+          model: optionalEnv("ODINFORGE_PRIMARY_MODEL"),
         },
       ],
       temperature: 0.1,
@@ -118,12 +124,12 @@ export const llmConfig: LlmRouterConfig = {
     long_context_analysis: {
       primary: {
         provider: "google",
-        model: requireEnv("ODINFORGE_DEEP_MODEL"),
+        model: optionalEnv("ODINFORGE_DEEP_MODEL"),
       },
       fallbacks: [
         {
           provider: "openai",
-          model: requireEnv("ODINFORGE_PRIMARY_MODEL"),
+          model: optionalEnv("ODINFORGE_PRIMARY_MODEL"),
         },
       ],
       temperature: 0.1,

@@ -16,7 +16,16 @@ import type { LlmProvider, LlmTask } from "./types";
 
 // Map old types to new
 type ModelTier = "primary" | "tactical" | "reviewer";
-type TaskType = LlmTask;
+// Agent roles reference task types that extend beyond the core LlmTask routing table
+type TaskType = LlmTask
+  | "graphql_template"
+  | "frontier_planning"
+  | "path_ranking"
+  | "cross_phase_planning"
+  | "reasoning_message"
+  | "run_summary"
+  | "remediation_draft"
+  | "architecture_check";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

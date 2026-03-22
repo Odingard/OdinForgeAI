@@ -35,6 +35,10 @@ export interface FrontierItem {
   discoverySource: string;   // crawl, headless, js_extract, frontier_expansion, finding_pivot, artifact_replay
   processed: boolean;
   result?: 'discovered' | 'dead_end' | 'already_seen' | 'skipped';
+  /** LLM planner advisory hint — informational only */
+  plannerHint?: string;
+  /** LLM planner priority boost (capped at +15, never exceeds hard priority classes) */
+  plannerPriorityBoost?: number;
 }
 
 export interface FrontierConfig {
@@ -103,8 +107,14 @@ export class FrontierQueue {
     const id = `frontier-${this.itemCounter++}`;
     this.queue.push({ ...item, id, processed: false });
 
-    // Sort by priority (highest first)
-    this.queue.sort((a, b) => b.priority - a.priority);
+    // Sort by effective priority (base + capped planner boost), highest first
+    this.queue.sort((a, b) => {
+      const aBoost = Math.min(a.plannerPriorityBoost ?? 0, 15);
+      const bBoost = Math.min(b.plannerPriorityBoost ?? 0, 15);
+      const aEff = Math.min(a.priority + aBoost, 100);
+      const bEff = Math.min(b.priority + bBoost, 100);
+      return bEff - aEff;
+    });
 
     return id;
   }
@@ -186,9 +196,15 @@ export class FrontierQueue {
       // anonymous: no changes — default priorities are already anonymous-biased
     }
 
-    // Re-sort after adjustments
+    // Re-sort after adjustments (including planner boosts)
     if (adjusted > 0) {
-      this.queue.sort((a, b) => b.priority - a.priority);
+      this.queue.sort((a, b) => {
+        const aBoost = Math.min(a.plannerPriorityBoost ?? 0, 15);
+        const bBoost = Math.min(b.plannerPriorityBoost ?? 0, 15);
+        const aEff = Math.min(a.priority + aBoost, 100);
+        const bEff = Math.min(b.priority + bBoost, 100);
+        return bEff - aEff;
+      });
     }
 
     return adjusted;

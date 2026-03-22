@@ -209,6 +209,18 @@ export async function registerRoutes(
     }
   });
 
+  // ========== LLM HEALTH ENDPOINT ==========
+
+  app.get("/api/llm/health", apiRateLimiter, uiAuthMiddleware, async (_req, res) => {
+    try {
+      const { getLlmHealth } = await import("../src/llm/router-health");
+      const health = getLlmHealth();
+      res.json(health);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get LLM health" });
+    }
+  });
+
   // ========== UI AUTHENTICATION ENDPOINTS ==========
   // These routes are for control plane UI authentication ONLY
   // They do NOT affect /api/* service-to-service authentication
@@ -2803,7 +2815,7 @@ export async function registerRoutes(
       const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
       const { buildCISOReportPDF } = await import("./services/engagement/pdf-renderer");
 
-      const pkg = sealEngagementPackage(chain, "pdf-export");
+      const pkg = await sealEngagementPackage(chain, "pdf-export");
       const primaryPath = pkg.metadata.primaryAttackPath;
       const remediation = pkg.metadata.remediationPlan;
 
@@ -2846,7 +2858,7 @@ export async function registerRoutes(
       const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
       const { buildEngineerReportPDF } = await import("./services/engagement/pdf-renderer");
 
-      const pkg = sealEngagementPackage(chain, "pdf-export");
+      const pkg = await sealEngagementPackage(chain, "pdf-export");
       const docDef = buildEngineerReportPDF(pkg.components.engineerReport);
 
       const PdfPrinter = (await import("pdfmake")).default;
@@ -2892,7 +2904,7 @@ export async function registerRoutes(
       const { generateReengagementOffer } = await import("./services/engagement/reengagement-offer");
 
       const sealedBy = (req as any).uiUser?.email || "system";
-      const pkg = sealEngagementPackage(chain, sealedBy);
+      const pkg = await sealEngagementPackage(chain, sealedBy);
 
       // Phase 14: Inject portfolio summary if multiple runs exist
       try {
@@ -2938,7 +2950,7 @@ export async function registerRoutes(
       if (!chain) return res.status(404).json({ error: "Breach chain not found" });
 
       const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
-      const pkg = sealEngagementPackage(chain, "readonly-generation");
+      const pkg = await sealEngagementPackage(chain, "readonly-generation");
 
       // Return requested component or full package
       const component = req.query.component as string | undefined;

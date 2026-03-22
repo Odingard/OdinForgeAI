@@ -18,6 +18,10 @@ import type {
 } from "@shared/schema";
 import { reportIntegrityFilter } from "../report-integrity-filter";
 import type { EvaluatedFinding } from "../evidence-quality-gate";
+import { LlmRouter } from "../../../src/llm/router";
+import { isLlmConfigured } from "../../../src/llm/config";
+import { quickSafetyCheck } from "../../../src/llm/safety-boundary";
+import { recordLlmFailure } from "../../../src/llm/router-health";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -188,14 +192,74 @@ function buildChainTrace(phases: BreachPhaseResult[]): ChainTraceEntry[] {
   }));
 }
 
+// ─── LLM Narrative Polish ────────────────────────────────────────────────────
+
+/**
+ * Optionally refine the primary attack path narrative.
+ * NEVER alters evidence blocks, findings tables, or step ordering.
+ */
+async function maybeRefineNarrative(narrative: string): Promise<string | null> {
+  if (!isLlmConfigured() || !narrative) return null;
+
+  try {
+    const router = new LlmRouter();
+    const resp = await router.reportWriter([
+      {
+        role: "system",
+        content: "Refine this technical attack path narrative for an engineer audience. Preserve exact endpoint paths, HTTP methods, status codes, and step ordering. Do not invent steps or artifacts. Do not confirm findings.",
+      },
+      {
+        role: "user",
+        content: narrative,
+      },
+    ]);
+
+    const text = resp.text.trim();
+    if (!text || !quickSafetyCheck(text)) return null;
+    return text;
+  } catch (err) {
+    recordLlmFailure("report_writer", "router", "auto", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/**
+ * Optionally refine remediation wording for clarity.
+ * NEVER alters the remediation action itself — only improves readability.
+ */
+async function maybeRefineRemediation(remediation: string): Promise<string | null> {
+  if (!isLlmConfigured() || !remediation) return null;
+
+  try {
+    const router = new LlmRouter();
+    const resp = await router.reportWriter([
+      {
+        role: "system",
+        content: "Improve the wording of this remediation guidance for a security engineer. Preserve the exact fix, references, and severity. Do not invent new remediations. Be concise.",
+      },
+      {
+        role: "user",
+        content: remediation,
+      },
+    ]);
+
+    const text = resp.text.trim();
+    if (!text || !quickSafetyCheck(text)) return null;
+    return text;
+  } catch (err) {
+    recordLlmFailure("report_writer", "router", "auto", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function generateEngineerReport(
+export async function generateEngineerReport(
   chain: BreachChain,
   primaryAttackPath?: any,
   supportingAttackPaths?: any[],
   remediationPlan?: any
-): EngineerReport {
+): Promise<EngineerReport> {
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const config = chain.config as any;
 
@@ -253,6 +317,30 @@ export function generateEngineerReport(
     });
   }
 
+  // LLM-assisted narrative polish for primary attack path
+  // Never alters evidence blocks, findings tables, or step ordering
+  let polishedPrimaryPath = primaryAttackPath || null;
+  if (primaryAttackPath?.name && isLlmConfigured()) {
+    const pathNarrative = `Attack path: ${primaryAttackPath.name}\nSteps: ${JSON.stringify(primaryAttackPath.steps?.map((s: any) => s.action) ?? [])}\nImpact: ${primaryAttackPath.finalImpact ?? 'unknown'}`;
+    const refined = await maybeRefineNarrative(pathNarrative);
+    if (refined) {
+      polishedPrimaryPath = { ...primaryAttackPath, narrativePolish: refined };
+    }
+  }
+
+  // LLM-assisted remediation polish (batch — limit to first 5 diffs to control costs)
+  if (isLlmConfigured() && remediationDiffs.length > 0) {
+    const batchSize = Math.min(remediationDiffs.length, 5);
+    for (let i = 0; i < batchSize; i++) {
+      const diff = remediationDiffs[i];
+      const combined = `Finding: ${diff.findingTitle}\nCurrent: ${diff.currentState}\nRecommended: ${diff.recommendedState}`;
+      const polished = await maybeRefineRemediation(combined);
+      if (polished) {
+        remediationDiffs[i] = { ...diff, recommendedState: polished };
+      }
+    }
+  }
+
   return {
     // Branding
     companyName: "Odingard Security",
@@ -264,7 +352,7 @@ export function generateEngineerReport(
     generatedAt: new Date().toISOString(),
     organizationId: chain.organizationId,
     // Phase 14: Path-first sections
-    primaryAttackPath: primaryAttackPath || null,
+    primaryAttackPath: polishedPrimaryPath,
     supportingAttackPaths: supportingAttackPaths || [],
     remediationPlan: remediationPlan || null,
     // Phase-by-phase detail
