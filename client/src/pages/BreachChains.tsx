@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { Play, Pause, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText } from "lucide-react";
+import { Play, Pause, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -358,6 +358,11 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Chain paused" }); }});
   const stopMut = useMutation({ mutationFn: () => apiRequest("POST", `/api/breach-chains/${chain.id}/stop`),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Chain stopped" }); }});
+  const deleteMut = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/breach-chains/${chain.id}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Engagement deleted" }); onBack(); },
+    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
 
   const totalFindings = (chain.phaseResults || []).flatMap((p: any) => p.findings || []).length;
   const critFindings  = (chain.phaseResults || []).flatMap((p: any) => p.findings || []).filter((f: any) => f.severity === "critical").length;
@@ -432,6 +437,17 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
               <StopCircle className="w-[11px] h-[11px]" /> Stop
             </button>
           )}
+          {chain.status !== "running" && (
+            <button
+              onClick={() => { if (window.confirm("Delete this engagement? This cannot be undone.")) deleteMut.mutate(); }}
+              disabled={deleteMut.isPending}
+              className="f-btn f-btn-ghost"
+              style={{ fontSize: 11, padding: "5px 10px", color: "var(--red)" }}
+              title="Delete engagement"
+            >
+              <Trash2 className="w-[11px] h-[11px]" /> {deleteMut.isPending ? "Deleting..." : "Delete"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -492,6 +508,12 @@ function ChainsListView({ chains, onSelect, onCreate }: {
   onSelect: (c: BreachChain) => void;
   onCreate: () => void;
 }) {
+  const { toast } = useToast();
+  const deleteChainMut = useMutation({
+    mutationFn: (chainId: string) => apiRequest("DELETE", `/api/breach-chains/${chainId}`),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Engagement deleted" }); },
+    onError: (e: Error) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
+  });
   const totalCrit = chains.reduce((s, c) =>
     s + (c.phaseResults || []).flatMap((p: any) => p.findings || []).filter((f: any) => f.severity === "critical").length, 0);
   const running   = chains.filter(c => c.status === "running").length;
@@ -577,6 +599,15 @@ function ChainsListView({ chains, onSelect, onCreate }: {
                       <button title="Download" className="f-icon-btn"
                         style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border2)", background: "transparent", cursor: "pointer" }}>
                         <Download className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
+                      </button>
+                    )}
+                    {chain.status !== "running" && (
+                      <button
+                        onClick={() => { if (window.confirm("Delete this engagement? This cannot be undone.")) deleteChainMut.mutate(chain.id); }}
+                        title="Delete"
+                        className="f-icon-btn"
+                        style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border2)", background: "transparent", cursor: "pointer" }}>
+                        <Trash2 className="w-[11px] h-[11px]" style={{ stroke: "var(--red)" }} />
                       </button>
                     )}
                   </div>
