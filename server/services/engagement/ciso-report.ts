@@ -272,11 +272,15 @@ export function generateCISOReport(chain: BreachChain, primaryAttackPath?: any):
     riskGradeRationale: rationale,
     overallRiskScore: chain.overallRiskScore ?? 0,
     breachChainNarrative: primaryAttackPath
-      ? `PRIMARY RISK: ${primaryAttackPath.narrative} ${buildBreachNarrative(chain)}`
+      ? `PRIMARY BREACH PATH: ${primaryAttackPath.name}\n` +
+        `Confidence: ${primaryAttackPath.confidence} | Score: ${primaryAttackPath.score}/100\n\n` +
+        `${primaryAttackPath.narrative}\n\n` +
+        `Why this path matters: ${primaryAttackPath.confidence === 'critical' || primaryAttackPath.confidence === 'strong' ? 'Replay-backed progression with artifact use. ' : ''}` +
+        `${primaryAttackPath.steps?.length ?? 0} validated steps from entry to impact.`
       : buildBreachNarrative(chain),
     businessImpact: {
       summary: primaryAttackPath
-        ? `${primaryAttackPath.businessImpact} Assessment identified ${filtered.customerFindings.length} confirmed findings. ${criticals} critical and ${highs} high severity issues require immediate attention.`
+        ? `${primaryAttackPath.businessImpact}`
         : `Assessment identified ${filtered.customerFindings.length} confirmed findings across ${domains.length} domain(s). ${criticals} critical and ${highs} high severity issues require immediate attention.`,
       domainsCompromised: domains,
       maxPrivilegeAchieved: chain.maxPrivilegeAchieved ?? "none",

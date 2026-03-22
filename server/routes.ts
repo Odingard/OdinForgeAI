@@ -2800,6 +2800,17 @@ export async function registerRoutes(
 
       const sealedBy = (req as any).uiUser?.email || "system";
       const pkg = sealEngagementPackage(chain, sealedBy);
+
+      // Phase 14: Inject portfolio summary if multiple runs exist
+      try {
+        const { getPortfolioOrchestrator } = await import("./services/aev/portfolio-orchestrator");
+        const portfolio = getPortfolioOrchestrator();
+        const allRuns = portfolio.getAllRuns();
+        if (allRuns.length > 1 && pkg.metadata) {
+          (pkg.metadata as any).portfolioSummary = portfolio.getPortfolioSummary();
+        }
+      } catch { /* portfolio not initialized — skip */ }
+
       const sealEvent = createSealEvent(pkg);
 
       // Deactivate per-engagement API keys (ADR-009)
