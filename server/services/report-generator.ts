@@ -783,9 +783,9 @@ WRITING RULES — follow these precisely:
     return JSON.stringify(data, null, 2);
   }
 
-  exportToSarif(evaluations: any[], results: any[], organizationId: string): string {
-    const { generateSarifReport } = require("./sarif-exporter");
-    return JSON.stringify(generateSarifReport(evaluations, results, organizationId), null, 2);
+  exportToSarif(_evaluations: any[], _results: any[], _organizationId: string): string {
+    // core-v2: sarif-exporter removed — return empty SARIF structure
+    return JSON.stringify({ version: "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", runs: [] }, null, 2);
   }
   
   private generateExecutiveNarrative(
