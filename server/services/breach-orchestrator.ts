@@ -61,7 +61,8 @@ function isAgentMeshEnabled(): boolean {
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
 import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
-import { createBreachEventEmitter, type BreachEventEmitter } from "../lib/breach-event-emitter";
+import { createBreachEventEmitter, emitCognitiveEvent, type BreachEventEmitter } from "../lib/breach-event-emitter";
+import { formatError } from "../lib/exploit-diagnostics";
 import {
   recordEngagementStart,
   recordEngagementComplete,
@@ -561,6 +562,29 @@ export async function runBreachChain(
 
       phaseResults.push(phaseResult);
       log.info({ phase: phaseName, status: phaseResult.status, findings: phaseResult.findings?.length ?? 0 }, `Phase executor returned`);
+
+      // ── 0-findings diagnostic ─────────────────────────────────────────
+      // If a phase completed with zero findings, emit a cognitive event
+      // explaining what happened so operators see WHY, not just silence.
+      if (phaseResult.findings.length === 0) {
+        const reason = phaseResult.error
+          ? `Phase error: ${phaseResult.error}`
+          : phaseResult.status === "skipped"
+            ? `Phase skipped: ${phaseResult.error || "prerequisite not met"}`
+            : `Phase completed but no exploitable findings validated. ` +
+              `Sub-agent runs: ${phaseResult.subAgentRuns?.length ?? 0}. ` +
+              `This may indicate: target not vulnerable to tested payloads, WAF blocking, ` +
+              `or crawl discovered 0 endpoints (check [AEE:precheck] and [AEE:crawl] logs).`;
+
+        emitCognitiveEvent({
+          type: "intelligence.strategy",
+          chainId,
+          summary: `Phase ${phaseName}: 0 findings`,
+          detail: reason,
+          timestamp: new Date().toISOString(),
+        });
+        log.warn({ phase: phaseName }, `0-findings diagnostic: ${reason}`);
+      }
 
       // Merge output context
       if (phaseResult.status === "completed") {
@@ -1610,8 +1634,17 @@ async function executeApplicationCompromise(
         });
       }
     } catch (err: any) {
-      console.warn(`[BreachOrchestrator] Active exploit engine error for ${assetId}:`, err.message);
+      console.error(`[BreachOrchestrator] Active exploit engine FAILED for ${assetId}:`, err.message);
       subAgentRuns.push({ name: `Active Exploit Engine (${assetId})`, status: "failed", error: err.message });
+
+      emitCognitiveEvent({
+        type: "exploration.failed",
+        chainId: chain.id,
+        target: assetId,
+        summary: `Exploit engine failed for ${assetId}`,
+        detail: formatError(err),
+        timestamp: new Date().toISOString(),
+      });
       // Fall through to AI pipeline — active exploits are additive, not blocking
     }
 

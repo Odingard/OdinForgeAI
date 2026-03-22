@@ -233,3 +233,45 @@ export class BreachEventEmitter {
 export function createBreachEventEmitter(chainId: string): BreachEventEmitter {
   return new BreachEventEmitter(chainId);
 }
+
+// ─── Cognitive Events ────────────────────────────────────────────────────────
+// Lightweight diagnostic events for the exploit engine and orchestrator.
+// These fire alongside the existing granular breach events — they provide
+// human-readable "what is the engine thinking" signals for debugging
+// and for future UI rendering (reasoning panel, live feed).
+
+export type CognitiveEventType =
+  | "exploration.started"
+  | "exploration.failed"
+  | "exploration.succeeded"
+  | "intelligence.strategy"
+  | "intelligence.hypothesis"
+  | "adaptation.pivot";
+
+export interface CognitiveEvent {
+  type: CognitiveEventType;
+  chainId: string;
+  target?: string;
+  summary: string;
+  detail?: string;
+  timestamp: string;
+}
+
+/**
+ * Emit a cognitive event via the existing WebSocket service.
+ * Falls back to console.log if wsService is unavailable (e.g. in tests).
+ */
+export function emitCognitiveEvent(event: CognitiveEvent): void {
+  try {
+    const { type: _eventType, chainId: _chainId, ...rest } = event;
+    wsService.broadcastBreachEvent(event.chainId, {
+      type: "breach_cognitive_event",
+      chainId: event.chainId,
+      cognitiveType: event.type,
+      ...rest,
+    } as unknown as BreachEvent);
+  } catch {
+    // wsService not initialized (test/CLI context) — log instead
+    console.log(`[COGNITIVE] ${event.type} | ${event.summary}${event.detail ? ` | ${event.detail}` : ""}`);
+  }
+}
