@@ -1,0 +1,20 @@
+{
+  "target": "https://brokencrystals.com",
+  "timestamp": "2026-03-22T09:21:38.465Z",
+  "durationMs": 11310,
+  "crawl": {
+    "endpoints": 0,
+    "technologies": [],
+    "sitemapFound": false,
+    "robotsFound": false,
+    "apiSpecFound": false
+  },
+  "exploits": {
+    "attempts": 0,
+    "validated": 0,
+    "credentials": 0,
+    "attackPaths": 0
+  },
+  "findings": [],
+  "verdict": "NO_FINDINGS"
+}
