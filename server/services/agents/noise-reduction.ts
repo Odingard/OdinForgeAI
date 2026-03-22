@@ -12,7 +12,15 @@
  */
 
 import type { ExploitFindings, ReconFindings, NoiseReductionStats } from "./types";
-import type { RealScanData } from "./scan-data-loader";
+
+// core-v2: RealScanData type formerly from scan-data-loader — inline definition
+interface RealScanData {
+  networkData?: { openPorts: Array<{ port: number; service?: string }> };
+  reconData?: { openPorts: Array<{ port: number; service?: string }>; technologies: string[] };
+  exploitValidation?: { results: Array<{ exploitType: string; verdict: string; exploitable: boolean; confidence: number }> };
+  dataAvailability: { hasRecon: boolean; hasNetwork: boolean; hasAuth: boolean; hasCloud: boolean; hasExploitValidation: boolean; hasTelemetry: boolean; coverageScore: number };
+  [key: string]: any;
+}
 
 interface ExploitChain {
   name: string;

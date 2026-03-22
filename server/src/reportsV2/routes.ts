@@ -285,7 +285,6 @@ export function registerReportV2Routes(app: Express): void {
       // Compute Breach Realization Score if breach_validation report requested
       let breachScoreJson: string | undefined;
       if (reportTypes.includes("breach_validation")) {
-        const { computeBreachRealizationScore } = await import("../../services/report-logic");
 
         // Build evaluation/result maps for BRS computation
         const evalDataForBRS = evaluationsWithResults.map(er => ({
@@ -317,7 +316,13 @@ export function registerReportV2Routes(app: Express): void {
           }
         }
 
-        const brs = computeBreachRealizationScore(evalDataForBRS, resultMapForBRS, breachChainData);
+        // core-v2: computeBreachRealizationScore (report-logic) removed — inline minimal stub
+        const brs = {
+          score: 0,
+          grade: "N/A",
+          evaluationCount: evalDataForBRS.length,
+          breachChainAvailable: !!breachChainData,
+        };
         breachScoreJson = JSON.stringify(brs, null, 2);
       }
 

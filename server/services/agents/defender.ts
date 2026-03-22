@@ -1,8 +1,6 @@
 import type { AgentMemory, AgentResult, ProgressCallback, ExploitFindings, LateralFindings, BusinessLogicFindings, MultiVectorFindings } from "./types";
 import { wrapAgentError } from "./error-classifier";
-import { formatExecutionModeConstraints } from "./policy-context";
 import { openai } from "./openai-client";
-import { buildAllGroundTruth } from "./scan-data-loader";
 
 export interface DefenderFindings {
   detectedAttacks: DetectedAttack[];
@@ -73,7 +71,7 @@ export async function runDefenderAgent(
 
   const attackContext = buildAttackContext(memory);
   const policyContext = memory.context.policyContext || "";
-  const executionModeConstraints = formatExecutionModeConstraints(memory.context.executionMode || "safe");
+  const executionModeConstraints = `Execution mode: ${memory.context.executionMode || "safe"}`;
 
   const systemPrompt = `You are the DEFENDER AGENT, an AI-powered blue team security system for OdinForge AI.
 
@@ -91,7 +89,7 @@ ${policyContext}`;
 
   // Inject all verified scan data for realistic defense simulation
   const groundTruthContext = memory.groundTruth
-    ? buildAllGroundTruth(memory.groundTruth)
+    ? JSON.stringify(memory.groundTruth).slice(0, 2000)
     : "";
 
   const userPrompt = `Analyze the defensive posture against these identified attacks:

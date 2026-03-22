@@ -8,18 +8,16 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { UIAuthProvider, useUIAuth } from "./contexts/UIAuthContext";
 import { ViewModeProvider } from "./contexts/ViewModeContext";
+import "../src/styles/canvas.css";
 import { CyberToastProvider } from "@/components/ui/cyber-toast";
-import { useAevOnlyMode } from "./components/AppSidebar";
 import { ShieldValknut } from "./components/OdinForgeLogo";
 import { NotificationsPopover } from "./components/NotificationsPopover";
-import { DemoDataBanner } from "./components/DemoDataBanner";
 import { TrialBanner } from "./components/TrialBanner";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Shield,
   FileText,
-  FlaskConical,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -32,19 +30,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 // Lazy load pages
-const Assets = lazy(() => import("@/pages/Assets"));
+const BreachChains = lazy(() => import("@/pages/BreachChains"));
 const Reports = lazy(() => import("@/pages/Reports"));
-const Agents = lazy(() => import("@/pages/Agents"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const Login = lazy(() => import("@/pages/Login"));
 const Signup = lazy(() => import("@/pages/Signup"));
-const FullAssessment = lazy(() => import("@/pages/FullAssessment"));
-const LiveScans = lazy(() => import("@/pages/LiveScans"));
-const ScheduledScans = lazy(() => import("@/pages/ScheduledScans"));
-const Simulations = lazy(() => import("@/pages/Simulations"));
-const BreachChains = lazy(() => import("@/pages/BreachChains"));
-const AssessmentWizard = lazy(() => import("@/pages/AssessmentWizard"));
-const DashboardPage = lazy(() => import("@/components/Dashboard").then(m => ({ default: m.Dashboard })));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -90,39 +80,15 @@ function PageLoader() {
 }
 
 function Router() {
-  const isAevOnly = useAevOnlyMode();
   return (
     <AppErrorBoundary>
     <Suspense fallback={<PageLoader />}>
       <Switch>
         <Route path="/"><Redirect to="/breach-chains" /></Route>
-        <Route path="/dashboard" component={DashboardPage} />
         <Route path="/login"><Redirect to="/breach-chains" /></Route>
         <Route path="/signup"><Redirect to="/breach-chains" /></Route>
-        <Route path="/risk"><Redirect to="/breach-chains" /></Route>
-        <Route path="/dashboard/ciso"><Redirect to="/dashboard" /></Route>
-        <Route path="/assets" component={Assets} />
-        <Route path="/infrastructure"><Redirect to="/admin/settings?tab=integrations" /></Route>
-        <Route path="/reports" component={Reports} />
-        <Route path="/governance"><Redirect to="/admin/settings?tab=governance" /></Route>
-        {!isAevOnly && <Route path="/agents" component={Agents} />}
-        <Route path="/full-assessment" component={FullAssessment} />
-        <Route path="/recon"><Redirect to="/full-assessment?tab=live-recon" /></Route>
-        <Route path="/advanced"><Redirect to="/" /></Route>
-        <Route path="/approvals"><Redirect to="/full-assessment?tab=approvals" /></Route>
-        <Route path="/approvals/history"><Redirect to="/full-assessment?tab=approvals" /></Route>
-        <Route path="/jobs"><Redirect to="/" /></Route>
-        <Route path="/health"><Redirect to="/" /></Route>
-        <Route path="/audit"><Redirect to="/admin/settings?tab=audit-logs" /></Route>
-        <Route path="/sessions"><Redirect to="/scans?tab=sessions" /></Route>
-        <Route path="/scans" component={LiveScans} />
-        {!isAevOnly && <Route path="/scheduled-scans" component={ScheduledScans} />}
-        <Route path="/sandbox"><Redirect to="/full-assessment?tab=sandbox" /></Route>
-        {!isAevOnly && <Route path="/simulations" component={Simulations} />}
         <Route path="/breach-chains" component={BreachChains} />
-        <Route path="/assess" component={AssessmentWizard} />
-        {!isAevOnly && <Route path="/billing"><Redirect to="/admin/settings?tab=billing" /></Route>}
-        <Route path="/admin/users"><Redirect to="/admin/settings?tab=users" /></Route>
+        <Route path="/reports" component={Reports} />
         <Route path="/admin/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
@@ -131,18 +97,12 @@ function Router() {
   );
 }
 
-/* ── Route labels ── */
+/* -- Route labels -- */
 const ROUTE_LABELS: Record<string, [string, string]> = {
   "/": ["", "Breach Chain Intelligence"],
   "/breach-chains": ["", "Breach Chain Intelligence"],
-  "/full-assessment": ["", "Validate"],
-  "/assets": ["", "Validate"],
-  "/scans": ["", "Validate"],
-  "/scheduled-scans": ["", "Validate"],
-  "/assess": ["", "Validate"],
   "/reports": ["", "Reports"],
   "/admin/settings": ["", "Settings"],
-  "/dashboard": ["", "Dashboard"],
 };
 
 /* ══════════════════════════
@@ -319,12 +279,6 @@ function FalconSidebar() {
       badge: breachCount > 0 ? { count: breachCount, style: "r" } : undefined,
     },
     {
-      icon: FlaskConical,
-      title: "Validate",
-      href: "/full-assessment",
-      matchPaths: ["/assets", "/scans", "/scheduled-scans", "/assess", "/agents"],
-    },
-    {
       icon: FileText,
       title: "Reports",
       href: "/reports",
@@ -467,7 +421,6 @@ function AppLayout() {
       <main className="flex flex-col overflow-hidden" style={{ background: "var(--falcon-bg)" }}>
         <div className="flex flex-col gap-[14px] p-5 flex-1 overflow-auto">
           <TrialBanner />
-          <DemoDataBanner />
           <Router />
         </div>
       </main>

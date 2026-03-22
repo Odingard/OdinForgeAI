@@ -1,10 +1,9 @@
-import { useState, lazy, Suspense } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Settings as SettingsIcon,
   Building2,
   Shield,
   Bell,
@@ -12,33 +11,7 @@ import {
   AlertTriangle,
   Save,
   RefreshCw,
-  Lock,
-  Mail,
-  Phone,
-  Clock,
-  KeyRound,
-  Webhook,
-  Activity,
-  Gauge,
-  Users,
-  CreditCard,
-  Plug,
-  ShieldAlert,
-  FileText,
-  Loader2
 } from "lucide-react";
-
-const UserManagementPanel = lazy(() => import("@/pages/UserManagement"));
-const BillingPanel = lazy(() => import("@/pages/BillingPage"));
-const IntegrationsPanel = lazy(() => import("@/pages/Infrastructure"));
-const GovernancePanel = lazy(() => import("@/pages/Governance"));
-const AuditLogsPanel = lazy(() => import("@/pages/AuditLogs"));
-
-const PanelFallback = () => (
-  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 256 }}>
-    <Loader2 className="h-8 w-8 animate-spin" style={{ color: "var(--falcon-t4)" }} />
-  </div>
-);
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -243,28 +216,6 @@ export default function Settings() {
         <button className={`f-tab ${activeTab === "api" ? "active" : ""}`} onClick={() => setActiveTab("api")} data-testid="tab-api">
           <Key className="h-4 w-4" />
           <span className="hidden sm:inline">API</span>
-        </button>
-        {canManageUsers && (
-          <button className={`f-tab ${activeTab === "users" ? "active" : ""}`} onClick={() => setActiveTab("users")} data-testid="tab-users">
-            <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">Users</span>
-          </button>
-        )}
-        <button className={`f-tab ${activeTab === "billing" ? "active" : ""}`} onClick={() => setActiveTab("billing")} data-testid="tab-billing">
-          <CreditCard className="h-4 w-4" />
-          <span className="hidden sm:inline">Billing</span>
-        </button>
-        <button className={`f-tab ${activeTab === "integrations" ? "active" : ""}`} onClick={() => setActiveTab("integrations")} data-testid="tab-integrations">
-          <Plug className="h-4 w-4" />
-          <span className="hidden sm:inline">Integrations</span>
-        </button>
-        <button className={`f-tab ${activeTab === "governance" ? "active" : ""}`} onClick={() => setActiveTab("governance")} data-testid="tab-governance">
-          <ShieldAlert className="h-4 w-4" />
-          <span className="hidden sm:inline">Governance</span>
-        </button>
-        <button className={`f-tab ${activeTab === "audit-logs" ? "active" : ""}`} onClick={() => setActiveTab("audit-logs")} data-testid="tab-audit-logs">
-          <FileText className="h-4 w-4" />
-          <span className="hidden sm:inline">Audit Logs</span>
         </button>
       </div>
 
@@ -834,50 +785,6 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Users Tab */}
-      {canManageUsers && activeTab === "users" && (
-        <div>
-          <Suspense fallback={<PanelFallback />}>
-            <UserManagementPanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Billing Tab */}
-      {activeTab === "billing" && (
-        <div>
-          <Suspense fallback={<PanelFallback />}>
-            <BillingPanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Integrations Tab */}
-      {activeTab === "integrations" && (
-        <div>
-          <Suspense fallback={<PanelFallback />}>
-            <IntegrationsPanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Governance Tab */}
-      {activeTab === "governance" && (
-        <div>
-          <Suspense fallback={<PanelFallback />}>
-            <GovernancePanel />
-          </Suspense>
-        </div>
-      )}
-
-      {/* Audit Logs Tab */}
-      {activeTab === "audit-logs" && (
-        <div>
-          <Suspense fallback={<PanelFallback />}>
-            <AuditLogsPanel />
-          </Suspense>
-        </div>
-      )}
     </div>
   );
 }

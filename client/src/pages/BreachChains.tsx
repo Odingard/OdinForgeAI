@@ -6,6 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
 import { BreachChainExport } from "@/components/BreachChainExport";
+import { CanvasPanel } from "@/components/canvas/CanvasPanel";
+import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import {
   Link2,
   Play,
@@ -38,6 +40,8 @@ import {
   ArrowRight,
   FileBarChart,
   Download,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, BreachPhaseContext, BreachPhaseName, AttackGraph } from "@shared/schema";
 import { LiveBreachChainGraph } from "@/components/LiveBreachChainGraph";
@@ -628,6 +632,9 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     edges,
     surfaceSignals,
     reasoningEvents,
+    reasoningStream,
+    canvasEvents,
+    operatorSummary,
   } = useBreachChainUpdates({
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
@@ -636,7 +643,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const displayGraph = latestGraph ?? (chain.unifiedAttackGraph as AttackGraph | null);
   const hasGraph = displayGraph && displayGraph.nodes?.length > 0;
 
-  const [tab, setTab] = useState(hasGraph ? "graph" : "overview");
+  const [tab, setTab] = useState("canvas"); // Always default to canvas — shows live or synthesized
   const [showExport, setShowExport] = useState(false);
   const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
 
@@ -658,9 +665,47 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     },
   });
 
+  // Download branded CISO PDF report from server-side renderer
+  const downloadCISOPdf = async () => {
+    try {
+      const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/report/pdf`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `OdinForge-CISO-Report-${chain.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Downloaded", description: "CISO PDF report downloaded." });
+    } catch (error: any) {
+      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
+    }
+  };
+
+  // Download branded Technical PDF report from server-side renderer
+  const downloadTechnicalPdf = async () => {
+    try {
+      const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/report/technical-pdf`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `OdinForge-Technical-Report-${chain.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Downloaded", description: "Technical PDF report downloaded." });
+    } catch (error: any) {
+      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
+    }
+  };
+
   // Download engagement package component
   const downloadPackageComponent = async (component: string) => {
     try {
+      // CISO report downloads as branded PDF, not raw JSON
+      if (component === "ciso") {
+        return downloadCISOPdf();
+      }
       const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/package?component=${component}`);
       if (component === "replay") {
         const html = await res.text();
@@ -720,21 +765,33 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     <div style={{ width: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div className="f-tab-bar" style={{ flex: 1 }}>
-          <button className={`f-tab ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}>Overview</button>
-          <button className={`f-tab ${tab === "graph" ? "active" : ""}`} onClick={() => setTab("graph")}>Attack Graph</button>
+          <button className={`f-tab ${tab === "canvas" ? "active" : ""}`} onClick={() => setTab("canvas")}>Live Canvas</button>
           <button className={`f-tab ${tab === "phases" ? "active" : ""}`} onClick={() => setTab("phases")}>Phase Results</button>
-          <button className={`f-tab ${tab === "credentials" ? "active" : ""}`} onClick={() => setTab("credentials")}>Credentials</button>
-          <button className={`f-tab ${tab === "heatmap" ? "active" : ""}`} onClick={() => setTab("heatmap")}>ATT&CK Coverage</button>
-          <button className={`f-tab ${tab === "defenses" ? "active" : ""}`} onClick={() => setTab("defenses")}>Defense Gaps</button>
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, paddingLeft: 12 }}>
+          <button
+            className="f-btn f-btn-secondary"
+            style={{ fontSize: 11, padding: "4px 10px" }}
+            onClick={() => downloadCISOPdf()}
+          >
+            <FileBarChart style={{ width: 12, height: 12, marginRight: 5 }} />
+            CISO PDF
+          </button>
+          <button
+            className="f-btn f-btn-secondary"
+            style={{ fontSize: 11, padding: "4px 10px" }}
+            onClick={() => downloadTechnicalPdf()}
+          >
+            <FileBarChart style={{ width: 12, height: 12, marginRight: 5 }} />
+            Technical PDF
+          </button>
           <button
             className="f-btn f-btn-secondary"
             style={{ fontSize: 11, padding: "4px 10px" }}
             onClick={() => setShowExport(true)}
           >
             <Download style={{ width: 12, height: 12, marginRight: 5 }} />
-            Export
+            Board Export
           </button>
           {chain.status === "completed" && !isSealed && (
             <button
@@ -776,365 +833,20 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
         />
       )}
 
-      {tab === "overview" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
-            <div className="f-kpi">
-              <div className="f-kpi-lbl">
-                <span className={`f-kpi-dot ${(chain.overallRiskScore ?? 0) >= 70 ? "r" : (chain.overallRiskScore ?? 0) >= 40 ? "o" : "g"}`} />
-                Risk Score
-              </div>
-              <div className={`f-kpi-val ${(chain.overallRiskScore ?? 0) >= 70 ? "r" : (chain.overallRiskScore ?? 0) >= 40 ? "o" : "g"}`}>
-                {chain.overallRiskScore ?? "\u2014"}
-              </div>
-              <div className="f-kpi-foot">overall</div>
-            </div>
-            <div className="f-kpi">
-              <div className="f-kpi-lbl"><span className="f-kpi-dot y" />Credentials</div>
-              <div className="f-kpi-val y">{chain.totalCredentialsHarvested ?? 0}</div>
-              <div className="f-kpi-foot">harvested</div>
-            </div>
-            <div className="f-kpi">
-              <div className="f-kpi-lbl"><span className="f-kpi-dot r" />Assets</div>
-              <div className="f-kpi-val r">{chain.totalAssetsCompromised ?? 0}</div>
-              <div className="f-kpi-foot">compromised</div>
-            </div>
-            <div className="f-kpi">
-              <div className="f-kpi-lbl"><span className="f-kpi-dot" style={{ background: "#a78bfa" }} />Domains</div>
-              <div className="f-kpi-val" style={{ color: "#a78bfa" }}>{(chain.domainsBreached as string[] | null)?.length ?? 0}</div>
-              <div className="f-kpi-foot">breached</div>
-            </div>
-            <div className="f-kpi">
-              <div className="f-kpi-lbl"><span className="f-kpi-dot" />Max Privilege</div>
-              <div className="f-kpi-val" style={{ color: PRIVILEGE_COLORS[chain.maxPrivilegeAchieved || "none"] || "var(--falcon-t3)", fontSize: 16 }}>
-                {chain.maxPrivilegeAchieved || "none"}
-              </div>
-              <div className="f-kpi-foot">achieved</div>
-            </div>
-          </div>
-
-          <div className="f-panel">
-            <div className="f-panel-head">
-              <div className="f-panel-title"><span className="f-panel-dot" />Phase Timeline</div>
-              <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Progression through breach chain phases</span>
-            </div>
-            <div style={{ padding: "12px 16px" }}>
-              <PhaseTimeline
-                phaseResults={phaseResults}
-                currentPhase={chain.currentPhase}
-                enabledPhases={enabledPhases}
-              />
-            </div>
-          </div>
-
-          {(chain.domainsBreached as string[] | null)?.length ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--falcon-t1)" }}>Domains breached:</span>
-              {(chain.domainsBreached as string[]).map((d, i) => (
-                <span key={i} className="f-chip f-chip-gray">{d}</span>
-              ))}
-            </div>
-          ) : null}
-
-          {/* Breach context inline — credentials + assets */}
-          {context && (context.credentials?.length > 0 || context.compromisedAssets?.length > 0) && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {context.credentials?.length > 0 && (
-                <div className="f-panel">
-                  <div className="f-panel-head">
-                    <div className="f-panel-title">
-                      <Key style={{ width: 13, height: 13, color: "var(--falcon-yellow)", marginRight: 6 }} />
-                      Harvested Credentials
-                    </div>
-                  </div>
-                  <div style={{ padding: "8px 16px 12px", display: "flex", flexDirection: "column", gap: 5 }}>
-                    {context.credentials.slice(0, 6).map((cred, idx) => (
-                      <div key={cred.id || idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, border: "1px solid var(--falcon-border)", fontSize: 11 }}>
-                        <span className="f-chip f-chip-gray" style={{ fontSize: 9, flexShrink: 0 }}>{cred.type}</span>
-                        <span style={{ color: "var(--falcon-t1)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cred.username || "—"}</span>
-                        {cred.domain && <span style={{ color: "var(--falcon-t4)", fontSize: 10 }}>@{cred.domain}</span>}
-                        <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 9, fontWeight: 600, padding: "2px 5px", borderRadius: 3, color: cred.accessLevel === "admin" || cred.accessLevel === "system" ? "var(--falcon-red)" : "var(--falcon-t3)", background: cred.accessLevel === "admin" || cred.accessLevel === "system" ? "rgba(239,68,68,0.15)" : "var(--falcon-panel-2)" }}>
-                          {cred.accessLevel}
-                        </span>
-                      </div>
-                    ))}
-                    {context.credentials.length > 6 && <span style={{ fontSize: 10, color: "var(--falcon-t4)", padding: "2px 8px" }}>+{context.credentials.length - 6} more — see Credentials tab</span>}
-                  </div>
-                </div>
-              )}
-              {context.compromisedAssets?.length > 0 && (
-                <div className="f-panel">
-                  <div className="f-panel-head">
-                    <div className="f-panel-title">
-                      <Server style={{ width: 13, height: 13, color: "var(--falcon-red)", marginRight: 6 }} />
-                      Compromised Assets
-                    </div>
-                  </div>
-                  <div style={{ padding: "8px 16px 12px", display: "flex", flexDirection: "column", gap: 5 }}>
-                    {context.compromisedAssets.slice(0, 6).map((asset, idx) => (
-                      <div key={asset.id || idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4, border: "1px solid var(--falcon-border)", fontSize: 11 }}>
-                        <span className="f-chip f-chip-gray" style={{ fontSize: 9, flexShrink: 0 }}>{asset.assetType}</span>
-                        <span style={{ color: "var(--falcon-t1)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{asset.name}</span>
-                        <span style={{ marginLeft: "auto", flexShrink: 0, fontSize: 9, fontWeight: 600, padding: "2px 5px", borderRadius: 3, color: asset.accessLevel === "admin" || asset.accessLevel === "system" ? "var(--falcon-red)" : "var(--falcon-t3)", background: asset.accessLevel === "admin" || asset.accessLevel === "system" ? "rgba(239,68,68,0.15)" : "var(--falcon-panel-2)" }}>
-                          {asset.accessLevel}
-                        </span>
-                      </div>
-                    ))}
-                    {context.compromisedAssets.length > 6 && <span style={{ fontSize: 10, color: "var(--falcon-t4)", padding: "2px 8px" }}>+{context.compromisedAssets.length - 6} more</span>}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* GTM v1.0 Features Status */}
-          <div className="f-panel">
-            <div className="f-panel-head">
-              <div className="f-panel-title"><span className="f-panel-dot" />GTM Features</div>
-              <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Evidence Quality Gate, Detection Rules, Reachability Chain</span>
-            </div>
-            <div style={{ padding: "12px 16px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-              {/* Evidence Quality */}
-              {(() => {
-                const eqs = chain.evidenceQualitySummary as { proven?: number; corroborated?: number; inferred?: number; unverifiable?: number } | null;
-                const total = eqs ? (eqs.proven || 0) + (eqs.corroborated || 0) + (eqs.inferred || 0) + (eqs.unverifiable || 0) : 0;
-                return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: eqs ? "var(--falcon-green)" : "var(--falcon-t4)" }} />
-                      Evidence Quality Gate
-                    </div>
-                    {eqs && total > 0 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ color: "#22c55e", fontWeight: 600 }}>PROVEN</span>
-                          <span style={{ color: "var(--falcon-t1)" }}>{eqs.proven || 0}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ color: "#3b82f6", fontWeight: 600 }}>CORROBORATED</span>
-                          <span style={{ color: "var(--falcon-t1)" }}>{eqs.corroborated || 0}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ color: "#f59e0b", fontWeight: 600 }}>INFERRED</span>
-                          <span style={{ color: "var(--falcon-t1)" }}>{eqs.inferred || 0}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ color: "#ef4444", fontWeight: 600 }}>UNVERIFIABLE</span>
-                          <span style={{ color: "var(--falcon-t1)" }}>{eqs.unverifiable || 0}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{chain.status === "completed" ? "No evidence data" : "Runs after chain completes"}</span>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Detection Rules (Defender's Mirror) */}
-              {(() => {
-                const rules = chain.detectionRules as Array<{ format?: string; ruleName?: string }> | null;
-                const ruleCount = rules?.length || 0;
-                const sigmaCount = rules?.filter(r => r.format === "sigma").length || 0;
-                const yaraCount = rules?.filter(r => r.format === "yara").length || 0;
-                const splunkCount = rules?.filter(r => r.format === "splunk_spl").length || 0;
-                return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: ruleCount > 0 ? "var(--falcon-green)" : "var(--falcon-t4)" }} />
-                      Defender's Mirror
-                    </div>
-                    {ruleCount > 0 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10 }}>
-                        <div style={{ color: "var(--falcon-t1)", fontWeight: 600 }}>{ruleCount} detection rules</div>
-                        {sigmaCount > 0 && <span style={{ color: "var(--falcon-t3)" }}>{sigmaCount} Sigma</span>}
-                        {yaraCount > 0 && <span style={{ color: "var(--falcon-t3)" }}>{yaraCount} YARA</span>}
-                        {splunkCount > 0 && <span style={{ color: "var(--falcon-t3)" }}>{splunkCount} Splunk SPL</span>}
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{chain.status === "completed" ? "No rules generated" : "Runs after chain completes"}</span>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Reachability Chain */}
-              {(() => {
-                const rc = chain.reachabilityChain as { nodes?: unknown[]; edges?: unknown[]; deepestNode?: { depth?: number } } | null;
-                return (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 600, color: "var(--falcon-t1)" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: rc ? "var(--falcon-green)" : "var(--falcon-t4)" }} />
-                      Reachability Chain
-                    </div>
-                    {rc ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10 }}>
-                        <div style={{ color: "var(--falcon-t1)" }}>{rc.nodes?.length || 0} nodes, {rc.edges?.length || 0} edges</div>
-                        <div style={{ color: "var(--falcon-t3)" }}>Max depth: {rc.deepestNode?.depth ?? "—"}</div>
-                      </div>
-                    ) : (
-                      <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>{chain.status === "completed" ? "No reachability data" : "Runs after chain completes"}</span>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === "phases" && (
-        <div className="f-panel">
-          <div className="f-panel-head">
-            <div className="f-panel-title"><span className="f-panel-dot" />Phase-by-Phase Results</div>
-            <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>Click a phase to expand its findings</span>
-          </div>
-          <div style={{ padding: "12px 16px" }}>
-            <PhaseResultsDetail phaseResults={phaseResults} />
-          </div>
-        </div>
-      )}
-
-
-      {tab === "graph" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Live sub-agent activity strip */}
-          {chain.status === "running" && phaseResults.length > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 6, background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.2)", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "var(--falcon-green)", display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--falcon-green)", display: "inline-block", boxShadow: "0 0 6px var(--falcon-green)", animation: "pulse 1.5s infinite" }} />
-                LIVE
-              </span>
-              <span style={{ fontSize: 10, color: "var(--falcon-t4)", flexShrink: 0 }}>Active phases:</span>
-              {phaseResults.map(r => {
-                const meta = PHASE_META[r.phaseName];
-                const isActive = r.status === "running";
-                const isDone = r.status === "completed" || r.status === "failed" || r.status === "skipped";
-                return (
-                  <span key={r.phaseName} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600, flexShrink: 0, color: isActive ? "var(--falcon-green)" : isDone ? "var(--falcon-t4)" : "var(--falcon-t3)", background: isActive ? "rgba(34,197,94,0.15)" : "transparent", border: isActive ? "1px solid rgba(34,197,94,0.3)" : "1px solid transparent" }}>
-                    {isActive && "⟳ "}{meta?.label || r.phaseName}
-                    {isDone && " ✓"}
-                  </span>
-                );
-              })}
-            </div>
-          )}
-          {/* Export/config buttons moved to tab bar */}
-
-          <LiveBreachChainGraph
-            graph={displayGraph}
-            nodes={nodes}
-            edges={edges}
-            surfaceSignals={surfaceSignals}
-            reasoningEvents={reasoningEvents}
-            riskScore={chain.overallRiskScore ?? undefined}
-            assetsCompromised={chain.totalAssetsCompromised ?? undefined}
-            credentialsHarvested={chain.totalCredentialsHarvested ?? undefined}
-            currentPhase={chain.currentPhase ?? undefined}
-            isRunning={chain.status === "running"}
-            liveEvents={liveEvents}
-          />
-
-          {/* Remediation Progress Panel */}
-          {criticalNodes.length > 0 && (
-            <div className="f-panel">
-              <div className="f-panel-head">
-                <div className="f-panel-title">
-                  <CheckCircle2 style={{ width: 14, height: 14, color: "var(--falcon-green)", marginRight: 6 }} />
-                  Remediation Progress
-                </div>
-                <span style={{ fontSize: 10, color: "var(--falcon-t4)" }}>
-                  {fixedCount} of {criticalNodes.length} critical path nodes remediated
-                </span>
-              </div>
-              <div style={{ padding: "12px 16px" }}>
-                {/* Progress bar */}
-                <div style={{ marginBottom: 12 }}>
-                  <div className="f-tb-track" style={{ height: 6 }}>
-                    <div
-                      className="f-tb-fill"
-                      style={{
-                        width: `${(fixedCount / Math.max(criticalNodes.length, 1)) * 100}%`,
-                        background: "var(--falcon-green)",
-                        transition: "width 0.3s ease",
-                      }}
-                    />
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--falcon-t4)", marginTop: 4 }}>
-                    <span>{fixedCount} fixed</span>
-                    <span>{criticalNodes.length - fixedCount} remaining</span>
-                  </div>
-                </div>
-                {/* Node list */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {criticalNodes.map((node) => {
-                    const remStatus = node.remediationStatus || "open";
-                    return (
-                      <div key={node.id} style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "7px 10px",
-                        borderRadius: 6,
-                        border: "1px solid var(--falcon-border)",
-                        fontSize: 12,
-                      }}>
-                        <span style={{ flex: 1, color: "var(--falcon-t1)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {node.label}
-                        </span>
-                        <span className={`f-chip ${
-                          remStatus === "verified_fixed" ? "f-chip-low" :
-                          remStatus === "in_progress" ? "f-chip-med" :
-                          remStatus === "accepted_risk" ? "f-chip-gray" :
-                          "f-chip-crit"
-                        }`} style={{ fontSize: 9, flexShrink: 0 }}>
-                          {remStatus === "verified_fixed" ? "Fixed"
-                            : remStatus === "in_progress" ? "In Progress"
-                            : remStatus === "accepted_risk" ? "Accepted Risk"
-                            : "Open"}
-                        </span>
-                        <select
-                          className="f-select"
-                          style={{ fontSize: 10, padding: "2px 6px", width: "auto", flexShrink: 0 }}
-                          value={remStatus}
-                          onChange={(e) => remediateMutation.mutate({ nodeId: node.id, status: e.target.value })}
-                          disabled={remediateMutation.isPending}
-                        >
-                          <option value="open">Open</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="verified_fixed">Verified Fixed</option>
-                          <option value="accepted_risk">Accepted Risk</option>
-                        </select>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-
-      {tab === "heatmap" && (
-        <AttackHeatmap
-          breachChainId={chain.id}
-          isRunning={chain.status === "running"}
+      {tab === "canvas" && (
+        <CanvasPanel
+          chainId={chain.id}
+          canvasEvents={canvasEvents}
+          reasoningStream={reasoningStream}
+          operatorSummary={operatorSummary}
+          chain={chain}
         />
       )}
 
-      {tab === "credentials" && (
-        <CredentialWeb
-          breachChainId={chain.id}
-          isRunning={chain.status === "running"}
-        />
-      )}
 
-      {tab === "defenses" && (
-        <DefenseGapPanel
-          breachChainId={chain.id}
-          isRunning={chain.status === "running"}
-        />
-      )}
+
+
+
 
       {(tab as string) === "package" && isSealed && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1148,7 +860,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
               {[
-                { key: "ciso", label: "CISO Report", desc: "Risk Grade, breach narrative, compliance implications" },
+                { key: "ciso", label: "CISO Report (PDF)", desc: "Risk Grade, breach narrative, compliance implications" },
                 { key: "engineer", label: "Engineer Report", desc: "Full chain trace, HTTP evidence, remediation diffs" },
                 { key: "evidence", label: "Evidence JSON", desc: "Machine-readable findings for SIEM ingestion" },
                 { key: "defenders-mirror", label: "Defender's Mirror", desc: "Sigma, YARA, Splunk SPL detection rules" },
@@ -1349,6 +1061,7 @@ export default function BreachChains() {
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [showComparison, setShowComparison] = useState(false);
+  const [viewMode, setViewMode] = useState<"chains" | "portfolio">("chains");
 
   // Form state
   const [formData, setFormData] = useState({
@@ -1583,8 +1296,65 @@ export default function BreachChains() {
         </div>
       </div>
 
+      {/* View mode toggle */}
+      <div style={{ display: "flex", gap: 4, background: "var(--falcon-panel-2)", borderRadius: 6, padding: 3, width: "fit-content" }}>
+        <button
+          onClick={() => setViewMode("chains")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 4,
+            border: "none",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            color: viewMode === "chains" ? "var(--falcon-t1)" : "var(--falcon-t4)",
+            background: viewMode === "chains" ? "var(--falcon-panel)" : "transparent",
+          }}
+        >
+          <List style={{ width: 13, height: 13 }} />
+          Chain List
+        </button>
+        <button
+          onClick={() => setViewMode("portfolio")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 4,
+            border: "none",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+            color: viewMode === "portfolio" ? "var(--falcon-t1)" : "var(--falcon-t4)",
+            background: viewMode === "portfolio" ? "var(--falcon-panel)" : "transparent",
+          }}
+        >
+          <LayoutGrid style={{ width: 13, height: 13 }} />
+          Portfolio
+        </button>
+      </div>
+
+      {/* Portfolio view */}
+      {viewMode === "portfolio" && (
+        <PortfolioPanel
+          onSelectRun={(chainId) => {
+            const chain = chains.find((c) => c.id === chainId);
+            if (chain) {
+              setSelectedChain(chain);
+              setViewMode("chains");
+            }
+          }}
+        />
+      )}
+
       {/* Chains view */}
-      {<>
+      {viewMode === "chains" && <>
 
       {/* Create Breach Chain Modal */}
       {isCreateOpen && (
@@ -2054,6 +1824,7 @@ export default function BreachChains() {
       )}
 
       </>}
+      {/* End of chains view conditional */}
     </div>
   );
 }

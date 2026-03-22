@@ -1,7 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 import type { IncomingMessage } from "http";
-import { jwtAuthService, type TokenValidationResult } from "./jwt-auth";
 
 interface AEVProgressEvent {
   type: "aev_progress";
@@ -249,7 +248,8 @@ class WebSocketService {
     // Validate JWT token if provided
     if (token) {
       try {
-        const validation: TokenValidationResult = await jwtAuthService.validateToken(token);
+        // core-v2: jwtAuthService removed — skip JWT validation, treat token as opaque
+        const validation: { valid: boolean; error?: string; payload?: { sub?: string; organizationId?: string; tenantId?: string } } = { valid: false, error: "JWT auth service not available (core-v2)" };
         if (validation.valid && validation.payload) {
           authenticated = true;
           userId = validation.payload.sub;

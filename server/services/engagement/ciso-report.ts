@@ -24,6 +24,11 @@ import type { EvaluatedFinding } from "../evidence-quality-gate";
 export type RiskGrade = "A" | "B" | "C" | "D" | "E" | "F";
 
 export interface CISOReport {
+  // Branding
+  companyName: string;
+  companyTagline: string;
+  logoPath: string;
+
   reportId: string;
   engagementId: string;
   generatedAt: string;
@@ -218,9 +223,81 @@ function deriveComplianceImplications(domains: string[]): string[] {
   return implications;
 }
 
+// ─── Executive Summary Templates (Phase 14) ─────────────────────────────────
+
+function buildExecutiveSummaryFromPath(path: any): string {
+  const steps = path.steps || [];
+  // Extract clean vulnerability name and endpoint from step data
+  const rawTechnique = steps[0]?.technique || steps[0]?.action || 'unknown vulnerability';
+  const entryVuln = rawTechnique.includes(' → ') ? rawTechnique.split(' → ').slice(1).join(' → ') : rawTechnique;
+  const entryPoint = rawTechnique.includes(' → ') ? rawTechnique.split(' → ')[0] : (path.name?.split(' → ')[0] || 'target endpoint');
+  const stepCount = steps.length;
+
+  const artifactSummary = path.artifacts?.length > 0
+    ? `confirmed artifact use (${path.artifacts.slice(0, 3).join(', ')})`
+    : 'no artifact reuse observed';
+
+  const pivotSummary = (path.confidence === 'critical' || path.confidence === 'strong')
+    ? 'replay-backed progression'
+    : 'direct exploit chaining';
+
+  const targetSummary = path.finalImpact?.toLowerCase() || 'system compromise';
+
+  const { impact, expanded } = mapBusinessImpact(path.finalImpact || '');
+
+  return `### Primary Breach Path\n${path.name}\n\n` +
+    `Confidence: ${path.confidence}\nPath Score: ${path.score}/100\n\n` +
+    `An attacker can exploit ${entryVuln} on ${entryPoint}, progressing through a validated attack chain consisting of ${stepCount} steps. ` +
+    `Each stage of this path was confirmed with direct evidence, demonstrating a viable route from initial access to impactful system compromise.\n\n` +
+    `### Why This Path Matters\nThis path was identified as the highest risk because it:\n` +
+    `- progresses from entry to impact in ${stepCount} validated steps\n` +
+    `- includes ${artifactSummary}\n` +
+    `- demonstrates ${pivotSummary}\n` +
+    `- targets ${targetSummary}\n\n` +
+    `### Business Impact\n${impact}\n\nIn practical terms, this means:\n${expanded}`;
+}
+
+function buildBusinessImpactFromPath(path: any): string {
+  const { impact, expanded } = mapBusinessImpact(path.finalImpact || '');
+  return `${impact}\n\n${expanded}`;
+}
+
+function mapBusinessImpact(finalImpact: string): { impact: string; expanded: string } {
+  const lower = finalImpact.toLowerCase();
+
+  if (lower.includes('admin')) {
+    return {
+      impact: 'Full administrative control over application systems',
+      expanded: 'An attacker could modify configuration, manage users, and control system behavior.',
+    };
+  }
+  if (lower.includes('config') || lower.includes('secret') || lower.includes('credential')) {
+    return {
+      impact: 'Unauthorized modification of system configuration',
+      expanded: 'An attacker could alter application behavior, security controls, or service integrations.',
+    };
+  }
+  if (lower.includes('user') || lower.includes('account') || lower.includes('data')) {
+    return {
+      impact: 'Unauthorized access to user accounts and sensitive data',
+      expanded: 'An attacker could access or manipulate user information, including personal and financial data.',
+    };
+  }
+  if (lower.includes('critical') || lower.includes('proven') || lower.includes('validated')) {
+    return {
+      impact: 'Critical exploitable vulnerability with validated attack chain',
+      expanded: 'An attacker has a confirmed path from initial access to system compromise, backed by real exploitation evidence.',
+    };
+  }
+  return {
+    impact: 'Confirmed security weakness with potential for escalation',
+    expanded: 'While direct impact may be limited, this condition enables further attack progression.',
+  };
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function generateCISOReport(chain: BreachChain): CISOReport {
+export function generateCISOReport(chain: BreachChain, primaryAttackPath?: any): CISOReport {
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const context = chain.currentContext as BreachPhaseContext | null;
   const domains = (chain.domainsBreached as string[] | null) ?? [];
@@ -264,6 +341,11 @@ export function generateCISOReport(chain: BreachChain): CISOReport {
   const highs = filtered.customerFindings.filter(f => f.severity === "high").length;
 
   return {
+    // Branding
+    companyName: "Odingard Security",
+    companyTagline: "by Six Sense Enterprise Services",
+    logoPath: "/odingard-logo.png",
+
     reportId: `ciso-${chain.id}`,
     engagementId: chain.id,
     generatedAt: new Date().toISOString(),
@@ -271,9 +353,13 @@ export function generateCISOReport(chain: BreachChain): CISOReport {
     riskGrade: grade,
     riskGradeRationale: rationale,
     overallRiskScore: chain.overallRiskScore ?? 0,
-    breachChainNarrative: buildBreachNarrative(chain),
+    breachChainNarrative: primaryAttackPath
+      ? buildExecutiveSummaryFromPath(primaryAttackPath)
+      : buildBreachNarrative(chain),
     businessImpact: {
-      summary: `Assessment identified ${filtered.customerFindings.length} confirmed findings across ${domains.length} domain(s). ${criticals} critical and ${highs} high severity issues require immediate attention.`,
+      summary: primaryAttackPath
+        ? buildBusinessImpactFromPath(primaryAttackPath)
+        : `Assessment identified ${filtered.customerFindings.length} confirmed findings across ${domains.length} domain(s). ${criticals} critical and ${highs} high severity issues require immediate attention.`,
       domainsCompromised: domains,
       maxPrivilegeAchieved: chain.maxPrivilegeAchieved ?? "none",
       credentialExposure: chain.totalCredentialsHarvested ?? 0,

@@ -13,7 +13,7 @@ export interface AgentContext {
   executionMode?: "safe" | "simulation" | "live";
   policyContext?: string;
   /** Ground-truth scan data from real handlers — injected by orchestrator */
-  realScanData?: import("./scan-data-loader").RealScanData;
+  realScanData?: any;
 }
 
 export interface ReconFindings {
@@ -253,13 +253,12 @@ export interface AgentMemory {
   impact?: ImpactFindings;
   safetyDecisions?: SafetyDecision[];
   /** Ground-truth data from real scan handlers — used by all agents */
-  groundTruth?: import("./scan-data-loader").RealScanData;
+  groundTruth?: any;
   /** Structured external recon results from fullRecon() — real scan data */
-  externalRecon?: import("../external-recon").ReconResult;
+  externalRecon?: any;
   /** Phase 1 recon engine results — real infrastructure scanning */
   reconScan?: {
-    fullRecon: import("../recon/index").FullReconResult;
-    agentReport?: import("../recon/agents/orchestrator").AgentRunReport;
+    fullRecon?: any;
   };
   /** Attack plan derived from recon findings — guides exploit agent */
   plan?: PlanFindings;

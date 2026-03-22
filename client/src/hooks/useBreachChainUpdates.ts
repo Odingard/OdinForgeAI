@@ -79,6 +79,11 @@ export function useBreachChainUpdates({
   const [reasoningEvents, setReasoningEvents] = useState<BreachReasoningEvent[]>([]);
   const [phaseTransitions, setPhaseTransitions] = useState<BreachPhaseTransitionEvent[]>([]);
 
+  // ── Phase 11: Reasoning / Canvas / Operator state ───────────────────
+  const [reasoningStream, setReasoningStream] = useState<any[]>([]);
+  const [canvasEvents, setCanvasEvents] = useState<any[]>([]);
+  const [operatorSummary, setOperatorSummary] = useState<any>(null);
+
   const cleanupRef = useRef<NodeJS.Timeout | null>(null);
 
   // Expire old live events
@@ -100,6 +105,9 @@ export function useBreachChainUpdates({
     setSurfaceSignals([]);
     setReasoningEvents([]);
     setPhaseTransitions([]);
+    setReasoningStream([]);
+    setCanvasEvents([]);
+    setOperatorSummary(null);
     setLatestGraph(null);
     setLiveEvents([]);
   }, [chainId]);
@@ -157,6 +165,25 @@ export function useBreachChainUpdates({
           onGraphUpdate?.(data as BreachChainUpdateMessage);
           break;
 
+        // ── Phase 11: Reasoning / Canvas / Operator events ──────────────
+        case "reasoning_event":
+          setReasoningStream(prev => {
+            const next = [...prev, data];
+            return next.length > MAX_REASONING_EVENTS ? next.slice(-MAX_REASONING_EVENTS) : next;
+          });
+          break;
+
+        case "canvas_event":
+          setCanvasEvents(prev => {
+            const next = [...prev, data];
+            return next.length > MAX_SURFACE_SIGNALS ? next.slice(-MAX_SURFACE_SIGNALS) : next;
+          });
+          break;
+
+        case "operator_summary":
+          setOperatorSummary(data);
+          break;
+
         case "breach_chain_live_event": {
           const event: LiveEvent = {
             id: `live-${++_liveEventCounter}`,
@@ -200,6 +227,10 @@ export function useBreachChainUpdates({
     surfaceSignals,
     reasoningEvents,
     phaseTransitions,
+    // Phase 11: Reasoning / Canvas / Operator
+    reasoningStream,
+    canvasEvents,
+    operatorSummary,
     // Legacy (backward compat)
     latestGraph,
     liveEvents,

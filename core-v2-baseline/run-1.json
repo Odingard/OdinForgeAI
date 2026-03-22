@@ -1,0 +1,56 @@
+{
+  "baseline": "core-v2-baseline",
+  "capturedAt": "2026-03-22T02:50:00Z",
+  "branch": "core-v2",
+  "buildState": {
+    "tsc": "PASS (0 errors)",
+    "viteBuild": "PASS (6.66s)",
+    "tests": "PASS (29 files, 335 tests, 1.37s)"
+  },
+  "successfulRun": {
+    "chainId": "bc-e45a996e",
+    "target": "https://brokencrystals.com",
+    "status": "completed",
+    "codePath": "AGENT_MESH=true (mesh orchestrator, not sequential)",
+    "durationMs": 21068,
+    "overallRiskScore": 95,
+    "totalFindings": 3,
+    "credentialsHarvested": 1,
+    "phasesRun": ["application_compromise", "credential_extraction", "impact_assessment"],
+    "phase1DurationMs": 21068,
+    "evidenceQualities": ["proven"],
+    "findings": [
+      {
+        "id": "aev-jwt-none-algorithm-*",
+        "severity": "critical",
+        "source": "active_exploit_engine",
+        "evidenceQuality": "proven",
+        "technique": "JWT none algorithm",
+        "statusCode": 200,
+        "hasResponseBody": true
+      }
+    ],
+    "note": "Ran via Agent Mesh path. 3 findings total including credential extraction. Risk score 95."
+  },
+  "failedRun": {
+    "chainId": "bc-091334b5",
+    "target": "https://www.brokencrystals.com",
+    "status": "completed (SHOULD HAVE BEEN FAILED)",
+    "codePath": "AGENT_MESH=true (mesh orchestrator)",
+    "durationMs": 1916,
+    "overallRiskScore": 0,
+    "totalFindings": 0,
+    "totalEvents": 4,
+    "executiveSummary": "Agent Mesh completed: 4 events, 0 findings in 2s",
+    "rootCause": "www.brokencrystals.com has no DNS A record. ScanAgent silently returned 0 endpoints. Chain reported 'completed' with 0 findings instead of 'failed' with diagnostic.",
+    "acceptanceContractViolation": "CHECK 2 FAIL — chain completed silently with 0 findings instead of failing with CONNECTIVITY FAILURE diagnostic"
+  },
+  "knownIssues": [
+    "Agent Mesh path is active in production (AGENT_MESH=true) — sequential path not tested",
+    "DNS failure produces silent 0-findings completion instead of explicit failure",
+    "Active exploit engine has 12 silent catch blocks that swallow errors",
+    "No connectivity pre-check before crawl",
+    "www.brokencrystals.com ≠ brokencrystals.com (no www subdomain exists)"
+  ],
+  "packageSealTest": "NOT TESTED — requires authenticated API call. Will test after core-v2 strip."
+}

@@ -22,10 +22,20 @@ import type { EvaluatedFinding } from "../evidence-quality-gate";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface EngineerReport {
+  // Branding
+  companyName: string;
+  companyTagline: string;
+  logoPath: string;
+
   reportId: string;
   engagementId: string;
   generatedAt: string;
   organizationId: string;
+
+  // Phase 14: Path-first report structure
+  primaryAttackPath: any | null;
+  supportingAttackPaths: any[];
+  remediationPlan: any | null;
 
   chainTrace: ChainTraceEntry[];
   findingDetails: EngineerFindingDetail[];
@@ -180,7 +190,12 @@ function buildChainTrace(phases: BreachPhaseResult[]): ChainTraceEntry[] {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function generateEngineerReport(chain: BreachChain): EngineerReport {
+export function generateEngineerReport(
+  chain: BreachChain,
+  primaryAttackPath?: any,
+  supportingAttackPaths?: any[],
+  remediationPlan?: any
+): EngineerReport {
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const config = chain.config as any;
 
@@ -239,10 +254,20 @@ export function generateEngineerReport(chain: BreachChain): EngineerReport {
   }
 
   return {
+    // Branding
+    companyName: "Odingard Security",
+    companyTagline: "by Six Sense Enterprise Services",
+    logoPath: "/odingard-logo.png",
+
     reportId: `eng-${chain.id}`,
     engagementId: chain.id,
     generatedAt: new Date().toISOString(),
     organizationId: chain.organizationId,
+    // Phase 14: Path-first sections
+    primaryAttackPath: primaryAttackPath || null,
+    supportingAttackPaths: supportingAttackPaths || [],
+    remediationPlan: remediationPlan || null,
+    // Phase-by-phase detail
     chainTrace: buildChainTrace(phases),
     findingDetails,
     remediationDiffs,

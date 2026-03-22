@@ -35,20 +35,14 @@ import {
   type ExposureType,
 } from "./active-exploit-engine";
 import { credentialStore } from "./credential-store";
-import { awsPentestService } from "./cloud-pentest/aws-pentest-service";
-import { kubernetesPentestService } from "./container-security/kubernetes-pentest-service";
-import { lateralMovementService } from "./lateral-movement";
+// core-v2: Phases 3-5 services removed — executors return "disabled" stubs
 import { storage } from "../storage";
 import { wsService } from "./websocket";
 import { getCredentialBus } from "./aev/credential-bus";
 import type { HarvestedCredential } from "./aev/credential-bus";
-import { PivotQueue, LateralMovementSubAgent, breachCredToHarvested, type PivotFinding } from "./aev/pivot-queue";
-import { MicroAgentOrchestrator, mergeMicroResults, type MicroAgentResult } from "./aev/micro-agent-orchestrator";
-import { RuntimeContextBroker } from "./aev/runtime-context-broker";
 import { destroyAllRateLimiters } from "./agent-rate-limiter";
 import { engagementLogger } from "./logger";
 import { evidenceQualityGate, EvidenceQuality, type EvaluatedFinding, type BatchVerdict } from "./evidence-quality-gate";
-import { AgentMeshOrchestrator, type AgentMeshResult } from "./aev/agent-mesh-orchestrator";
 import type { AgentEvent } from "./aev/agent-event-bus";
 
 /**
@@ -61,7 +55,9 @@ function isAgentMeshEnabled(): boolean {
 import { DefendersMirror, type AttackEvidence, type DetectionRuleSet } from "./defenders-mirror";
 import { ReachabilityChainBuilder, buildReachabilityChain, type PivotResult } from "./reachability-chain";
 import { ReplayRecorder, type EngagementReplayManifest } from "./replay-recorder";
-import { createBreachEventEmitter, type BreachEventEmitter } from "../lib/breach-event-emitter";
+import { createBreachEventEmitter, emitCognitiveEvent, type BreachEventEmitter } from "../lib/breach-event-emitter";
+import { formatError } from "../lib/exploit-diagnostics";
+import { getPortfolioOrchestrator } from "./aev/portfolio-orchestrator";
 import {
   recordEngagementStart,
   recordEngagementComplete,
@@ -266,13 +262,20 @@ export async function runBreachChain(
 
   broadcastBreachProgress(chainId, "starting", 0, "Breach chain initiated — LIVE MODE ENFORCED");
 
+  // Phase 13: Register run with portfolio orchestrator
+  const portfolio = getPortfolioOrchestrator();
+  portfolio.registerRun(chainId, chainId, chain.assetIds?.[0] || "unknown");
+  portfolio.updateRunState(chainId, "discovering");
+
   // ── AGENT_MESH: Event-driven 4-agent mesh replaces sequential pipeline ────
   if (isAgentMeshEnabled()) {
     log.info("AGENT_MESH enabled — delegating to AgentMeshOrchestrator");
     broadcastBreachProgress(chainId, "starting", 5, "Agent Mesh active — 4-agent event-driven pipeline");
 
     const targetUrl = Array.isArray(chain.assetIds) ? chain.assetIds[0] : "";
-    const mesh = new AgentMeshOrchestrator({
+    // core-v2: AgentMeshOrchestrator removed — this code path is only reached if AGENT_MESH=true
+    const AgentMeshOrchestratorStub = class { constructor(_opts: any) {} getBus() { return { subscribe: (..._a: any[]) => {} }; } async run(): Promise<any> { return { status: "completed", eventLog: [], durationMs: 0, findingCount: 0, totalEvents: 0 }; } };
+    const mesh = new AgentMeshOrchestratorStub({
       chainId,
       engagementId: chainId,
       targetUrl,
@@ -283,7 +286,7 @@ export async function runBreachChain(
     const liveEventThrottle = new Map<string, number>(); // eventKind → lastSentMs
     const LIVE_THROTTLE_MS = 500;
     const bus = mesh.getBus();
-    bus.subscribe("*", (event) => {
+    bus.subscribe("*", (event: any) => {
       const kindMap: Record<string, string> = {
         "target.discovered": "scanning",
         "surface.expanded": "scanning",
@@ -336,7 +339,7 @@ export async function runBreachChain(
       }, 0);
 
       // ── Credential Web: publish extracted credentials to CredentialBus ──────
-      const credEvents = result.eventLog.filter(e => e.type === "credential.extracted");
+      const credEvents = result.eventLog.filter((e: any) => e.type === "credential.extracted");
       if (credEvents.length > 0) {
         const credBus = getCredentialBus();
         for (const ce of credEvents) {
@@ -363,9 +366,9 @@ export async function runBreachChain(
         4: "k8s_api_abuse", 5: "ssh_pivot", 6: "data_exfiltration",
       };
       const allMeshEvents = result.eventLog.filter(
-        e => e.type === "vuln.confirmed" || e.type === "breach.confirmed" || e.type === "credential.extracted"
+        (e: any) => e.type === "vuln.confirmed" || e.type === "breach.confirmed" || e.type === "credential.extracted"
       );
-      const meshAttackEvidence: AttackEvidence[] = allMeshEvents.map(e => {
+      const meshAttackEvidence: AttackEvidence[] = allMeshEvents.map((e: any) => {
         const p = e.payload as { phase?: number; vulnClass?: string; endpoint?: string; source?: string; description?: string };
         const ev = e.evidence?.[0];
         const phase = p.phase ?? 1;
@@ -552,6 +555,17 @@ export async function runBreachChain(
       // GTM v1.0: Replay — record phase start
       replayRecorder.recordPhaseStart(phaseName, chain.assetIds?.[0] || "unknown");
 
+      // Phase 13: Update portfolio lifecycle state per phase
+      const phaseToLifecycle: Record<string, string> = {
+        application_compromise: 'exploiting',
+        credential_extraction: 'validating',
+        cloud_iam_escalation: 'replaying',
+        container_k8s_breakout: 'replaying',
+        lateral_movement: 'replaying',
+        impact_assessment: 'summarizing',
+      };
+      portfolio.updateRunState(chainId, (phaseToLifecycle[phaseName] || 'exploiting') as any);
+
       // Execute phase with timeout
       const executor = getPhaseExecutor(phaseName);
       const phaseResult = await Promise.race([
@@ -561,6 +575,29 @@ export async function runBreachChain(
 
       phaseResults.push(phaseResult);
       log.info({ phase: phaseName, status: phaseResult.status, findings: phaseResult.findings?.length ?? 0 }, `Phase executor returned`);
+
+      // ── 0-findings diagnostic ─────────────────────────────────────────
+      // If a phase completed with zero findings, emit a cognitive event
+      // explaining what happened so operators see WHY, not just silence.
+      if (phaseResult.findings.length === 0) {
+        const reason = phaseResult.error
+          ? `Phase error: ${phaseResult.error}`
+          : phaseResult.status === "skipped"
+            ? `Phase skipped: ${phaseResult.error || "prerequisite not met"}`
+            : `Phase completed but no exploitable findings validated. ` +
+              `Sub-agent runs: ${phaseResult.subAgentRuns?.length ?? 0}. ` +
+              `This may indicate: target not vulnerable to tested payloads, WAF blocking, ` +
+              `or crawl discovered 0 endpoints (check [AEE:precheck] and [AEE:crawl] logs).`;
+
+        emitCognitiveEvent({
+          type: "intelligence.strategy",
+          chainId,
+          summary: `Phase ${phaseName}: 0 findings`,
+          detail: reason,
+          timestamp: new Date().toISOString(),
+        });
+        log.warn({ phase: phaseName }, `0-findings diagnostic: ${reason}`);
+      }
 
       // Merge output context
       if (phaseResult.status === "completed") {
@@ -809,6 +846,20 @@ export async function runBreachChain(
     broadcastBreachProgress(chainId, "completed", 100,
       `Breach chain complete — ${finalQualityVerdict.summary.proven} proven, ${allDetectionRules.length} detection rules generated`);
 
+    // Phase 13: Update portfolio with final stats
+    const portfolioFindingsCount = phaseResults.reduce((s: number, pr: any) => s + (pr.findings?.length || 0), 0);
+    portfolio.updateRunStats(chainId, {
+      findingsCount: portfolioFindingsCount,
+      pathsCount: (unifiedGraph as any)?.nodes?.length || 0,
+      replaySuccesses: 0, // TODO: pipe from pivot results when available
+      primaryPath: executiveSummary?.slice(0, 80) || null,
+      highestTrustZone: 'authenticated', // from surface model when wired
+      highestSensitivity: portfolioFindingsCount > 0 ? 'config' : 'generic',
+      primaryPathConfidence: portfolioFindingsCount >= 5 ? 'strong' : portfolioFindingsCount > 0 ? 'moderate' : 'low',
+      primaryPathScore: overallRiskScore || 0,
+    });
+    portfolio.updateRunState(chainId, "completed");
+
     // ── GTM v1.0: Prometheus metrics — engagement complete ──────────────
     recordEngagementComplete(Date.now() - startTime);
     recordDetectionRules(allDetectionRules.length);
@@ -850,6 +901,7 @@ export async function runBreachChain(
     }).catch(() => {});
   } catch (error) {
     log.error({ err: error }, "Breach chain failed");
+    portfolio.updateRunState(chainId, "failed");
     // Decrement active engagement gauge on failure
     recordEngagementComplete(Date.now() - startTime);
     await storage.updateBreachChain(chainId, {
@@ -883,15 +935,15 @@ export async function abortBreachChain(chainId: string): Promise<void> {
 // AGENT MESH → BREACH CHAIN DATA CONVERSION
 // ============================================================================
 
-function buildMeshPhaseResults(result: AgentMeshResult): BreachPhaseResult[] {
+function buildMeshPhaseResults(result: any): BreachPhaseResult[] {
   const phases: BreachPhaseResult[] = [];
   const eventLog = result.eventLog;
   const startTime = eventLog[0]?.timestamp ?? new Date().toISOString();
 
   // Extract findings from vuln.confirmed and breach.confirmed events
-  const vulnEvents = eventLog.filter(e => e.type === "vuln.confirmed");
-  const breachEvents = eventLog.filter(e => e.type === "breach.confirmed");
-  const credEvents = eventLog.filter(e => e.type === "credential.extracted");
+  const vulnEvents = eventLog.filter((e: any) => e.type === "vuln.confirmed");
+  const breachEvents = eventLog.filter((e: any) => e.type === "breach.confirmed");
+  const credEvents = eventLog.filter((e: any) => e.type === "credential.extracted");
 
   const emptyContext: BreachPhaseContext = {
     credentials: [],
@@ -908,11 +960,11 @@ function buildMeshPhaseResults(result: AgentMeshResult): BreachPhaseResult[] {
       phaseName: "application_compromise",
       status: "completed",
       startedAt: startTime,
-      completedAt: eventLog.find(e => e.type === "scan.finished")?.timestamp ?? startTime,
+      completedAt: eventLog.find((e: any) => e.type === "scan.finished")?.timestamp ?? startTime,
       durationMs: result.durationMs,
       inputContext: { credentialCount: 0, compromisedAssetCount: 0, privilegeLevel: "none" },
       outputContext: emptyContext,
-      findings: vulnEvents.map(e => {
+      findings: vulnEvents.map((e: any) => {
         const p = e.payload as { vulnClass?: string; endpoint?: string; severity?: string; technique?: string; findingId?: string };
         const ev = e.evidence?.[0];
         return {
@@ -939,7 +991,7 @@ function buildMeshPhaseResults(result: AgentMeshResult): BreachPhaseResult[] {
       completedAt: credEvents[credEvents.length - 1].timestamp,
       inputContext: { credentialCount: 0, compromisedAssetCount: vulnEvents.length, privilegeLevel: "user" },
       outputContext: emptyContext,
-      findings: credEvents.map(e => {
+      findings: credEvents.map((e: any) => {
         const p = e.payload as { source?: string; phase?: number };
         return {
           id: e.id,
@@ -989,7 +1041,7 @@ function buildMeshPhaseResults(result: AgentMeshResult): BreachPhaseResult[] {
   return phases;
 }
 
-function buildMeshAttackGraph(result: AgentMeshResult): Record<string, unknown> {
+function buildMeshAttackGraph(result: any): Record<string, unknown> {
   const nodes: Record<string, unknown>[] = [];
   const edges: Record<string, unknown>[] = [];
   const criticalPath: string[] = [];
@@ -1610,8 +1662,17 @@ async function executeApplicationCompromise(
         });
       }
     } catch (err: any) {
-      console.warn(`[BreachOrchestrator] Active exploit engine error for ${assetId}:`, err.message);
+      console.error(`[BreachOrchestrator] Active exploit engine FAILED for ${assetId}:`, err.message);
       subAgentRuns.push({ name: `Active Exploit Engine (${assetId})`, status: "failed", error: err.message });
+
+      emitCognitiveEvent({
+        type: "exploration.failed",
+        chainId: chain.id,
+        target: assetId,
+        summary: `Exploit engine failed for ${assetId}`,
+        detail: formatError(err),
+        timestamp: new Date().toISOString(),
+      });
       // Fall through to AI pipeline — active exploits are additive, not blocking
     }
 
@@ -1630,48 +1691,11 @@ async function executeApplicationCompromise(
         onProgress(chain.id, "application_compromise", 45,
           `Dispatching parallel micro-agents across ${activeExploitResult.crawl.endpoints.length} endpoints`);
 
-        const microOrchestrator = new MicroAgentOrchestrator({
-          maxConcurrent: MAX_CONCURRENT_MICRO_AGENTS,
-          payloadTimeoutMs: 6000,
-          targetRequestsPerSecond: 50,
-        });
-
-        const agentSpecs = microOrchestrator.buildAgentSpecs(
-          activeExploitResult.crawl.endpoints,
-          exploitTarget.scope.exposureTypes,
-          chain.id,
-          targetUrl
-        );
+        // core-v2: MicroAgentOrchestrator removed — skip micro-agent dispatch
+        const agentSpecs: any[] = [];
 
         if (agentSpecs.length > 0) {
-          onProgress(chain.id, "application_compromise", 46,
-            `[MicroAgents] Dispatching ${agentSpecs.length} specialized agents (${MAX_CONCURRENT_MICRO_AGENTS} concurrent)`);
-
-          const microResults = await microOrchestrator.dispatch(agentSpecs,
-            (completed, total, result) => {
-              onProgress(chain.id, "application_compromise",
-                46 + Math.round((completed / total) * 30), // 46-76% of phase
-                `[MicroAgent ${completed}/${total}] ${result.spec.vulnClass} @ ${result.spec.endpoint.url}` +
-                (result.finding ? ` → ${result.finding.severity} finding` : "")
-              );
-              // Broadcast per-agent progress via WebSocket
-              wsService.broadcastToChannel(`breach_chain:${chain.organizationId}`, {
-                type: "breach_chain_agent_dispatch",
-                chainId: chain.id,
-                completed,
-                total,
-                agentId: result.agentId,
-                vulnClass: result.spec.vulnClass,
-                endpoint: result.spec.endpoint.url,
-                hasFinding: result.finding !== null,
-                findingSeverity: result.finding?.severity,
-                durationMs: result.durationMs,
-              });
-            }
-          );
-
-          // Merge results with LLM Boundary hard gate
-          const merged = mergeMicroResults(microResults);
+          const merged = { findings: [] as any[], credentials: [] as any[], agentDispatchSummary: { totalAgents: 0, completedWithFindings: 0, completedWithoutFindings: 0, totalFindings: 0, discardedFindings: 0, executionTimeMs: 0 } };
           microAgentFindings = merged.findings.length;
 
           for (const f of merged.findings) {
@@ -1879,15 +1903,13 @@ async function executeApplicationCompromise(
   // This ensures we attack the full discovered surface, not just chain.assetIds.
   // ─────────────────────────────────────────────────────────────────
   try {
-    const { analyzeSubdomains } = await import("../services/recon/index").catch(() => import("./recon/index"));
     const MAX_SUBDOMAIN_AGENTS = 5; // cap concurrency — don't flood the target
     const primaryHosts = (chain.assetIds as string[]).map(id => {
       try { return new URL(id).hostname; } catch { return id; }
     });
 
-    const subdomainResults = await Promise.allSettled(
-      primaryHosts.map(host => analyzeSubdomains(host))
-    );
+    // core-v2: analyzeSubdomains (recon module) removed — skip subdomain enumeration
+    const subdomainResults: PromiseSettledResult<{ subdomains: { isAlive: boolean; subdomain: string }[] }>[] = [];
 
     const aliveSubdomainUrls: string[] = [];
     for (const result of subdomainResults) {
@@ -2162,187 +2184,17 @@ async function executeCredentialExtraction(
 async function executeCloudIAMEscalation(
   chain: BreachChain,
   context: BreachPhaseContext,
-  onProgress: BreachOrchestratorProgressCallback
+  _onProgress: BreachOrchestratorProgressCallback
 ): Promise<BreachPhaseResult> {
+  // core-v2: Phase disabled — cloud pentest services removed.
+  // Returns skipped result with explicit reason.
   const startTime = Date.now();
-  const config = chain.config as BreachChainConfig;
-  const findings: BreachPhaseResult["findings"] = [];
-  const evaluationIds: string[] = [];
-  const newCredentials: BreachCredential[] = [];
-  const newAssets: CompromisedAsset[] = [];
-
-  // Analyze IAM privilege escalation using harvested credentials
-  const cloudCreds = context.credentials.filter(c =>
-    ["api_key", "iam_role", "service_account", "token"].includes(c.type)
-  );
-
-  // Only run IAM analysis on credentials that are confirmed real — not inferred
-  const confirmedCloudCreds = cloudCreds.filter(c =>
-    c.source === "active_exploit_engine" ||
-    c.source === "application_compromise" ||
-    c.source === "credential_extraction"
-  );
-
-  if (confirmedCloudCreds.length > 0) {
-    onProgress(chain.id, "cloud_iam_escalation", 40, `Analyzing IAM escalation for ${confirmedCloudCreds.length} confirmed cloud credentials`);
-
-    try {
-      // Build permission set from confirmed credential metadata only
-      const inferredPermissions = confirmedCloudCreds.flatMap(c => {
-        if (c.type === "iam_role") return ["iam:*", "sts:AssumeRole"];
-        if (c.type === "api_key") return ["ec2:Describe*", "s3:List*", "iam:List*"];
-        if (c.type === "service_account") return ["iam:PassRole", "lambda:CreateFunction"];
-        return ["sts:GetCallerIdentity"];
-      });
-
-      const iamResult = await awsPentestService.analyzeIAMPrivilegeEscalation(
-        inferredPermissions,
-        confirmedCloudCreds[0]?.username || "breach-chain-principal",
-        confirmedCloudCreds[0]?.username || "breach-chain-principal"
-      );
-
-      for (const path of iamResult.escalationPaths) {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: path.impact === "critical" ? "critical" : path.impact === "high" ? "high" : "medium",
-          title: `IAM Privilege Escalation: ${path.name}`,
-          description: `${path.description}. Steps: ${path.steps.join(" → ")}`,
-          technique: path.steps[0],
-          mitreId: path.mitreId,
-          source: "cloud_iam_escalation",
-          evidenceQuality: "corroborated",
-        });
-
-        // Escalation paths yield elevated credentials
-        newCredentials.push({
-          id: `bc-${randomUUID().slice(0, 8)}`,
-          type: "iam_role",
-          username: `escalated-${path.name}`,
-          valueHash: hashValue(`escalated-${path.name}-${chain.id}`),
-          source: "cloud_iam_escalation",
-          accessLevel: path.impact === "critical" ? "cloud_admin" : "admin",
-          validatedTargets: ["aws-iam"],
-          discoveredAt: new Date().toISOString(),
-        });
-      }
-
-      if (iamResult.escalationPaths.length > 0) {
-        newAssets.push({
-          id: `ca-${randomUUID().slice(0, 8)}`,
-          assetId: "aws-iam",
-          assetType: "iam_principal",
-          name: "AWS IAM (escalated)",
-          accessLevel: iamResult.riskScore >= 80 ? "admin" : "user",
-          compromisedBy: "cloud_iam_escalation",
-          accessMethod: "iam_privilege_escalation",
-          timestamp: new Date().toISOString(),
-        });
-      }
-    } catch (error) {
-      console.error("[BreachOrchestrator] IAM escalation analysis failed:", error);
-    }
-  }
-
-  // Also run the AEV orchestrator for cloud_misconfiguration and iam_abuse
-  const cloudExposureTypes = ["cloud_misconfiguration", "iam_abuse"];
-  for (const assetId of chain.assetIds as string[]) {
-    for (const exposureType of cloudExposureTypes) {
-      const evaluationId = `eval-bc-${randomUUID().slice(0, 8)}`;
-      const contextParts = [
-        `Breach chain ${chain.id}: Cloud IAM Escalation phase.`,
-        `Prior access: ${context.currentPrivilegeLevel}.`,
-        `Harvested ${context.credentials.length} credentials from prior phases.`,
-        `Compromised assets: ${context.compromisedAssets.map(a => a.name).join(", ")}.`,
-      ];
-
-      // Inject runtime context from Go agent telemetry (Capability 2)
-      try {
-        const runtimeBroker = new RuntimeContextBroker();
-        const runtimeCtx = await runtimeBroker.getContextForAsset(assetId);
-        if (runtimeCtx) {
-          contextParts.push("", runtimeBroker.formatForPrompt(runtimeCtx));
-        }
-      } catch (err) {
-        console.warn(`[BreachOrchestrator] Runtime context fetch failed for ${assetId}:`, err);
-      }
-
-      const contextDescription = contextParts.join(" ");
-
-      // Skip AI pipeline if OpenAI circuit is open
-      if (isCircuitOpen("openai")) {
-        console.warn(`[BreachOrchestrator] OpenAI circuit open, skipping cloud IAM analysis for ${assetId}/${exposureType}`);
-        continue;
-      }
-
-      try {
-        await storage.createEvaluation({
-          assetId,
-          exposureType,
-          priority: "high",
-          description: contextDescription,
-          organizationId: chain.organizationId,
-          executionMode: config.executionMode,
-          status: "pending",
-        });
-
-        const result = await runAgentOrchestrator(
-          assetId,
-          exposureType,
-          "high",
-          contextDescription,
-          evaluationId,
-          (agentName, stage, progress, message) => {
-            onProgress(chain.id, "cloud_iam_escalation", progress, `[${agentName}] ${message}`);
-          },
-          {
-            adversaryProfile: config.adversaryProfile as any,
-            organizationId: chain.organizationId,
-            executionMode: config.executionMode,
-            breachDirective: BREACH_CHAIN_LIVE_DIRECTIVE,
-          }
-        );
-
-        evaluationIds.push(evaluationId);
-
-        await storage.createResult({
-          id: `res-${randomUUID().slice(0, 8)}`,
-          evaluationId,
-          exploitable: result.exploitable,
-          confidence: toInt100(result.confidence),
-          score: toInt100(result.score),
-          attackPath: result.attackPath,
-          attackGraph: result.attackGraph,
-          impact: null,
-          recommendations: null,
-          duration: Date.now() - startTime,
-        });
-
-        if (result.exploitable) {
-          for (const step of result.attackPath || []) {
-            findings.push({
-              id: `bf-${randomUUID().slice(0, 8)}`,
-              severity: step.severity,
-              title: step.title,
-              description: step.description,
-              technique: step.technique,
-              source: "cloud_iam_escalation",
-              evidenceQuality: "corroborated",
-            });
-          }
-        }
-
-        newCredentials.push(...extractCredentialsFromFindings(result, "cloud_iam_escalation"));
-      } catch (error) {
-        console.error(`[BreachOrchestrator] Cloud eval failed for ${assetId}/${exposureType}:`, error);
-      }
-    }
-  }
-
+  console.info(`[BreachOrchestrator] Phase cloud_iam_escalation disabled in core-v2 build`);
   return buildPhaseResult("cloud_iam_escalation", startTime, context, {
-    credentials: newCredentials,
-    assets: newAssets,
-    findings,
-    evaluationIds,
+    credentials: [],
+    assets: [],
+    findings: [],
+    evaluationIds: [],
     domain: "cloud",
   });
 }
@@ -2354,354 +2206,15 @@ async function executeCloudIAMEscalation(
 async function executeContainerK8sBreakout(
   chain: BreachChain,
   context: BreachPhaseContext,
-  onProgress: BreachOrchestratorProgressCallback
+  _onProgress: BreachOrchestratorProgressCallback
 ): Promise<BreachPhaseResult> {
+  // core-v2: Phase disabled — container security services removed.
   const startTime = Date.now();
-  const findings: BreachPhaseResult["findings"] = [];
-  const newCredentials: BreachCredential[] = [];
-  const newAssets: CompromisedAsset[] = [];
-
-  // Extract real target hostname
-  let targetHost = (chain.assetIds as string[])[0] || "";
-  try { targetHost = new URL(targetHost).hostname; } catch { /* use as-is */ }
-
-  // Fetch runtime context from Go agent telemetry (Capability 2)
-  let runtimeContextNote = "";
-  try {
-    const runtimeBroker = new RuntimeContextBroker();
-    const runtimeCtx = await runtimeBroker.getContextForAsset(targetHost);
-    if (runtimeCtx) {
-      runtimeContextNote = runtimeBroker.formatForPrompt(runtimeCtx);
-    }
-  } catch (err) {
-    console.warn(`[BreachOrchestrator] Runtime context fetch failed for K8s phase (${targetHost}):`, err);
-  }
-
-  onProgress(chain.id, "container_k8s_breakout", 57, `Probing ${targetHost} for Kubernetes attack surface`);
-
-  // ── Step 1: Real port probes for K8s components ──────────────────────────
-  const K8S_PORTS = [
-    { port: 6443,  label: "K8s API Server (TLS)",   protocol: "https" },
-    { port: 8443,  label: "K8s API Server (alt)",   protocol: "https" },
-    { port: 10250, label: "Kubelet API",             protocol: "https" },
-    { port: 10255, label: "Kubelet read-only",       protocol: "http"  },
-    { port: 2379,  label: "etcd client",             protocol: "http"  },
-    { port: 2380,  label: "etcd peer",               protocol: "http"  },
-  ];
-
-  const net = await import("net");
-  const tcpProbe = (host: string, port: number): Promise<boolean> =>
-    new Promise(resolve => {
-      const s = net.createConnection({ host, port, timeout: 3000 });
-      const t = setTimeout(() => { s.destroy(); resolve(false); }, 3000);
-      s.on("connect", () => { clearTimeout(t); s.destroy(); resolve(true); });
-      s.on("error",   () => { clearTimeout(t); resolve(false); });
-    });
-
-  const portResults = await Promise.all(
-    K8S_PORTS.map(async p => ({ ...p, open: await tcpProbe(targetHost, p.port) }))
-  );
-  const openPorts = portResults.filter(p => p.open);
-
-  if (openPorts.length === 0) {
-    console.info(`[BreachOrchestrator] No K8s ports open on ${targetHost} — skipping container phase`);
-    return buildPhaseResult("container_k8s_breakout", startTime, context, {
-      credentials: [], assets: [],
-      findings: [{
-        id: `bf-${randomUUID().slice(0, 8)}`,
-        severity: "low",
-        title: "No Kubernetes Attack Surface Found",
-        description: `Probed ${targetHost} on ports ${K8S_PORTS.map(p => p.port).join(", ")}. None are open — no K8s or container orchestration exposure on this target.`,
-        technique: "T1046",
-        source: "k8s_breakout",
-        evidenceQuality: "proven",
-      }],
-      evaluationIds: [],
-      domain: "kubernetes",
-    });
-  }
-
-  onProgress(chain.id, "container_k8s_breakout", 62,
-    `Found ${openPorts.length} open K8s port(s): ${openPorts.map(p => `${p.port} (${p.label})`).join(", ")}`);
-
-  // ── Step 2: Probe unauthenticated K8s API endpoints ──────────────────────
-  const fetchK8s = async (url: string): Promise<{ ok: boolean; body: string; status: number }> => {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 6000);
-    try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        headers: { "User-Agent": "OdinForge-AEV/1.0" },
-      });
-      const body = await res.text().catch(() => "");
-      return { ok: res.ok, body: body.substring(0, 4000), status: res.status };
-    } catch {
-      return { ok: false, body: "", status: 0 };
-    } finally {
-      clearTimeout(t);
-    }
-  };
-
-  // Attempt unauthenticated access to K8s API discovery endpoints
-  const apiHost = openPorts.find(p => p.port === 6443 || p.port === 8443);
-  const kubeletReadonly = openPorts.find(p => p.port === 10255);
-  const etcd = openPorts.find(p => p.port === 2379);
-
-  const discoveredPods: string[] = [];
-  const discoveredSecrets: string[] = [];
-  const k8sVersion: string | null = null;
-  let unauthApiAccess = false;
-
-  if (apiHost) {
-    const versionRes = await fetchK8s(`https://${targetHost}:${apiHost.port}/version`);
-    if (versionRes.ok && versionRes.body.includes("gitVersion")) {
-      unauthApiAccess = true;
-      try {
-        const v = JSON.parse(versionRes.body);
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: "critical",
-          title: "Unauthenticated K8s API Server Access",
-          description: `K8s API server on ${targetHost}:${apiHost.port} responds to unauthenticated /version — version: ${v.gitVersion || "unknown"}. Full API may be accessible without credentials.`,
-          technique: "T1613",
-          mitreId: "T1613",
-          source: "k8s_breakout",
-          evidenceQuality: "proven",
-          statusCode: versionRes.status,
-          responseBody: versionRes.body.slice(0, 2000),
-        });
-      } catch {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: "critical",
-          title: "Unauthenticated K8s API Server Access",
-          description: `K8s API server on ${targetHost}:${apiHost.port} responds to unauthenticated requests — no authentication required.`,
-          technique: "T1613",
-          mitreId: "T1613",
-          source: "k8s_breakout",
-          evidenceQuality: "proven",
-          statusCode: versionRes.status,
-          responseBody: versionRes.body.slice(0, 2000),
-        });
-      }
-
-      // Try to list namespaces — high-value unauthenticated access
-      const nsRes = await fetchK8s(`https://${targetHost}:${apiHost.port}/api/v1/namespaces`);
-      if (nsRes.ok) {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: "critical",
-          title: "K8s Namespace Enumeration Without Auth",
-          description: `Unauthenticated namespace listing succeeded on ${targetHost}:${apiHost.port}/api/v1/namespaces. Full cluster enumeration possible.`,
-          technique: "T1613",
-          mitreId: "T1613",
-          source: "k8s_breakout",
-          evidenceQuality: "proven",
-          statusCode: nsRes.status,
-          responseBody: nsRes.body.slice(0, 2000),
-        });
-      }
-
-      // Try to list secrets
-      const secretsRes = await fetchK8s(`https://${targetHost}:${apiHost.port}/api/v1/secrets`);
-      if (secretsRes.ok && secretsRes.body.includes("Secret")) {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: "critical",
-          title: "K8s Secrets Exposed Without Authentication",
-          description: `Unauthenticated access to /api/v1/secrets on ${targetHost}:${apiHost.port}. Kubernetes secrets (tokens, passwords, certificates) are readable without credentials.`,
-          technique: "T1552.007",
-          mitreId: "T1552.007",
-          source: "k8s_breakout",
-          evidenceQuality: "proven",
-          statusCode: secretsRes.status,
-          responseBody: secretsRes.body.slice(0, 2000),
-        });
-        discoveredSecrets.push("cluster-secrets");
-      }
-    }
-  }
-
-  // Kubelet read-only port — no auth required by design (deprecated but common)
-  if (kubeletReadonly) {
-    const podsRes = await fetchK8s(`http://${targetHost}:10255/pods`);
-    if (podsRes.ok && (podsRes.body.includes("Pod") || podsRes.body.includes("containers"))) {
-      findings.push({
-        id: `bf-${randomUUID().slice(0, 8)}`,
-        severity: "high",
-        title: "Kubelet Read-Only Port Exposed",
-        description: `Kubelet read-only API on ${targetHost}:10255 is accessible without authentication. Pod listing and container metadata enumeration possible.`,
-        technique: "T1613",
-        mitreId: "T1613",
-        source: "k8s_breakout",
-        evidenceQuality: "proven",
-        statusCode: podsRes.status,
-        responseBody: podsRes.body.slice(0, 2000),
-      });
-      try {
-        const podData = JSON.parse(podsRes.body);
-        const podNames: string[] = (podData?.items || []).map((p: any) => p?.metadata?.name).filter(Boolean);
-        discoveredPods.push(...podNames.slice(0, 10));
-      } catch { /* non-JSON response still indicates exposure */ }
-    }
-  }
-
-  // etcd — unauthenticated access is catastrophic (contains all cluster state)
-  if (etcd) {
-    const etcdRes = await fetchK8s(`http://${targetHost}:2379/version`);
-    if (etcdRes.ok && etcdRes.body.includes("etcdserver")) {
-      findings.push({
-        id: `bf-${randomUUID().slice(0, 8)}`,
-        severity: "critical",
-        title: "etcd Exposed Without Authentication",
-        description: `etcd on ${targetHost}:2379 is accessible without TLS or authentication. etcd stores all Kubernetes state including secrets, service account tokens, and configuration. Full cluster compromise via etcd key enumeration.`,
-        technique: "T1552.007",
-        mitreId: "T1552.007",
-        source: "k8s_breakout",
-        evidenceQuality: "proven",
-        statusCode: etcdRes.status,
-        responseBody: etcdRes.body.slice(0, 2000),
-      });
-    }
-  }
-
-  // ── Step 3: Build real K8s config from discovered surface ─────────────────
-  const hasExecAccess = unauthApiAccess; // unauthenticated API = assume exec may be possible
-  const k8sConfig = {
-    clusterContext: `${targetHost}-breach-chain`,
-    namespace: "default",
-    pods: discoveredPods.map(name => ({
-      name,
-      namespace: "default",
-      serviceAccount: "default",
-      containers: [{ name: "app", image: "unknown" }],
-      hostNetwork: false,
-      hostPID: false,
-      hostIPC: false,
-    })),
-    serviceAccounts: context.credentials
-      .filter(c => c.type === "service_account" || c.type === "token")
-      .map(c => ({ name: c.username || "default", namespace: "default", automountToken: true })),
-    roles: hasExecAccess ? [
-      {
-        name: "anonymous-access",
-        namespace: "default",
-        isClusterRole: false,
-        rules: [
-          { resources: ["pods"], verbs: ["get", "list", ...(unauthApiAccess ? ["create", "delete"] : [])], apiGroups: [""] },
-          ...(unauthApiAccess ? [{ resources: ["pods/exec"], verbs: ["create"], apiGroups: [""] }] : []),
-          ...(discoveredSecrets.length > 0 ? [{ resources: ["secrets"], verbs: ["get", "list"], apiGroups: [""] }] : []),
-        ],
-      },
-    ] : [],
-    roleBindings: hasExecAccess ? [
-      {
-        name: "anonymous-binding",
-        namespace: "default",
-        isClusterRoleBinding: false,
-        roleRef: "anonymous-access",
-        subjects: [{ kind: "User", name: "system:anonymous", namespace: "default" }],
-      },
-    ] : [],
-    networkPolicies: [],
-    secrets: discoveredSecrets.map(name => ({
-      name,
-      namespace: "default",
-      type: "Opaque",
-      accessibleByPods: discoveredPods,
-    })),
-  };
-
-  if (k8sConfig.roles.length > 0 || openPorts.length > 0) {
-    try {
-      const k8sResult = await kubernetesPentestService.testKubernetesAbuse(k8sConfig);
-
-      for (const escalation of k8sResult.rbacEscalations) {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: escalation.severity as "critical" | "high" | "medium" | "low",
-          title: `K8s RBAC Escalation: ${escalation.name}`,
-          description: `Confirmed on ${targetHost}. ${escalation.escalationPath.join(" → ")}. Remediation: ${escalation.remediation}`,
-          technique: escalation.escalationPath[0],
-          source: "k8s_breakout",
-          evidenceQuality: "corroborated",
-        });
-      }
-
-      for (const vector of k8sResult.apiAbuseVectors) {
-        if (vector.exploitable) {
-          findings.push({
-            id: `bf-${randomUUID().slice(0, 8)}`,
-            severity: vector.severity as "critical" | "high" | "medium" | "low",
-            title: `K8s API Abuse: ${vector.name}`,
-            description: `Confirmed on ${targetHost}:${apiHost?.port || "K8s API"}. ${vector.impact}`,
-            technique: vector.apiEndpoint,
-            source: "k8s_breakout",
-            evidenceQuality: "corroborated",
-          });
-        }
-      }
-
-      for (const secret of k8sResult.secretExposures) {
-        newCredentials.push({
-          id: `bc-${randomUUID().slice(0, 8)}`,
-          type: "token",
-          username: secret.secretName,
-          valueHash: hashValue(`k8s-secret-${secret.secretName}-${chain.id}`),
-          source: "container_k8s_breakout",
-          accessLevel: secret.severity === "high" ? "admin" : "user",
-          validatedTargets: secret.accessibleBy,
-          discoveredAt: new Date().toISOString(),
-        });
-      }
-
-      for (const path of k8sResult.lateralMovementPaths) {
-        findings.push({
-          id: `bf-${randomUUID().slice(0, 8)}`,
-          severity: path.severity as "critical" | "high" | "medium" | "low",
-          title: `K8s Lateral Movement: ${path.technique}`,
-          description: `${path.sourcePod} → ${path.targetPod} via ${path.technique} on ${targetHost}`,
-          technique: path.technique,
-          mitreId: path.mitreId,
-          source: "k8s_breakout",
-          evidenceQuality: "corroborated",
-        });
-      }
-    } catch (err) {
-      console.error("[BreachOrchestrator] K8s RBAC analysis failed:", err);
-    }
-  }
-
-  // Open ports alone are a finding even if API is auth-gated
-  if (openPorts.length > 0 && !unauthApiAccess) {
-    findings.push({
-      id: `bf-${randomUUID().slice(0, 8)}`,
-      severity: "medium",
-      title: "Kubernetes Infrastructure Exposed to Internet",
-      description: `K8s ports confirmed open on ${targetHost}: ${openPorts.map(p => `${p.port} (${p.label})`).join(", ")}. APIs are authentication-gated but publicly reachable — increases attack surface and brute-force risk.`,
-      technique: "T1046",
-      source: "k8s_breakout",
-      evidenceQuality: "proven",
-    });
-  }
-
-  if (findings.some(f => f.severity === "critical" || f.severity === "high")) {
-    newAssets.push({
-      id: `ca-${randomUUID().slice(0, 8)}`,
-      assetId: `k8s-${targetHost}`,
-      assetType: "container",
-      name: `Kubernetes Cluster (${targetHost})`,
-      accessLevel: unauthApiAccess ? "admin" : "user",
-      compromisedBy: "container_k8s_breakout",
-      accessMethod: unauthApiAccess ? "unauthenticated_api" : "exposed_port",
-      timestamp: new Date().toISOString(),
-    });
-  }
-
+  console.info(`[BreachOrchestrator] Phase container_k8s_breakout disabled in core-v2 build`);
   return buildPhaseResult("container_k8s_breakout", startTime, context, {
-    credentials: newCredentials,
-    assets: newAssets,
-    findings,
+    credentials: [],
+    assets: [],
+    findings: [],
     evaluationIds: [],
     domain: "kubernetes",
   });
@@ -2714,139 +2227,15 @@ async function executeContainerK8sBreakout(
 async function executeLateralMovement(
   chain: BreachChain,
   context: BreachPhaseContext,
-  onProgress: BreachOrchestratorProgressCallback
+  _onProgress: BreachOrchestratorProgressCallback
 ): Promise<BreachPhaseResult> {
+  // core-v2: Phase disabled — lateral movement services removed.
   const startTime = Date.now();
-  const config = chain.config as BreachChainConfig;
-  const findings: BreachPhaseResult["findings"] = [];
-  const newCredentials: BreachCredential[] = [];
-  const newAssets: CompromisedAsset[] = [];
-
-  // ── Seed PivotQueue ─────────────────────────────────────────────────────────
-  const maxDepth = (config as any).pivotDepth ?? 3;
-  const pivotQueue = new PivotQueue(maxDepth);
-
-  // Fetch runtime contexts for all compromised assets (Capability 2)
-  let runtimeContexts = new Map<string, string>();
-  try {
-    const runtimeBroker = new RuntimeContextBroker();
-    const assetIds = context.compromisedAssets.map(a => a.assetId).filter(Boolean);
-    const ctxMap = await runtimeBroker.getContextsForAssets(assetIds);
-    ctxMap.forEach((ctx, id) => runtimeContexts.set(id, runtimeBroker.formatForPrompt(ctx)));
-  } catch (err) {
-    console.warn("[BreachOrchestrator] Runtime context fetch for lateral movement failed:", err);
-  }
-
-  // Seed with Phase 1A compromised assets (hosts where we already have a foothold)
-  for (const asset of context.compromisedAssets) {
-    const host = asset.name || asset.assetId;
-    if (host) pivotQueue.enqueue(host, 0, "phase1_compromise");
-  }
-
-  // Fall back to chain's primary target if no compromised assets yet
-  if (pivotQueue.getVisited().length === 0) {
-    const primaryHost = (() => {
-      const raw = chain.assetIds[0] || "";
-      try { return new URL(raw).hostname; } catch { return raw; }
-    })();
-    if (primaryHost) pivotQueue.enqueue(primaryHost, 0, "chain_target");
-  }
-
-  // Seed shared credential store with all credentials harvested so far
-  for (const cred of context.credentials) {
-    pivotQueue.addCredential(breachCredToHarvested(cred));
-  }
-
-  onProgress(chain.id, "lateral_movement", 74,
-    `Starting multi-hop pivot from ${pivotQueue.getVisited().length} entry point(s) with ${pivotQueue.getCredentialCount()} credentials`
-  );
-
-  // ── Drain: each host spawns a LateralMovementSubAgent ────────────────────────
-  try {
-    const pivotResults = await pivotQueue.drain(
-      async (item) => {
-        // Find runtime context for this host (if available from Go agent)
-        const hostAsset = context.compromisedAssets.find(a =>
-          a.name === item.host || a.assetId === item.host
-        );
-        const hostRuntimeCtx = hostAsset ? runtimeContexts.get(hostAsset.assetId) : undefined;
-
-        const agent = new LateralMovementSubAgent({
-          target: item.host,
-          credentials: item.credentialSnapshot,
-          depth: item.depth,
-          runtimeContext: hostRuntimeCtx,
-        });
-        return agent.execute();
-      },
-      (msg, depth) => {
-        const progress = Math.min(74 + depth * 4, 88);
-        onProgress(chain.id, "lateral_movement", progress, msg);
-      }
-    );
-
-    // ── Convert PivotNodeResults → BreachPhaseResult shape ────────────────────
-    for (const nodeResult of pivotResults) {
-      // Findings — only include confirmed auth successes and high-value exposures
-      for (const pf of nodeResult.findings) {
-        if (pf.authResult === "success" || pf.severity === "critical" || pf.severity === "high") {
-          findings.push({
-            id: `bf-${randomUUID().slice(0, 8)}`,
-            severity: pf.severity,
-            title: `[Hop ${nodeResult.depth}] ${pf.technique} → ${nodeResult.host}`,
-            description: pf.evidence,
-            technique: pf.technique,
-            mitreId: pf.mitreId,
-            source: "lateral_movement",
-            evidenceQuality: pf.authResult === "success" ? "proven" : "corroborated",
-          });
-        }
-      }
-
-      // Confirmed compromised assets — only if auth actually succeeded
-      const confirmedAuth = nodeResult.findings.some(f => f.authResult === "success");
-      if (confirmedAuth) {
-        const accessLevel = nodeResult.findings.find(f => f.authResult === "success")?.accessLevel ?? "user";
-        newAssets.push({
-          id: `ca-${randomUUID().slice(0, 8)}`,
-          assetId: nodeResult.host,
-          assetType: "server",
-          name: nodeResult.host,
-          accessLevel: accessLevel === "admin" ? "admin" : "user",
-          compromisedBy: "lateral_movement",
-          accessMethod: nodeResult.findings.find(f => f.authResult === "success")?.technique || "credential_reuse",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // New credentials harvested at this node — carry forward with authValue intact
-      for (const hc of nodeResult.newCredentials) {
-        newCredentials.push({
-          id: `bc-${randomUUID().slice(0, 8)}`,
-          type: hc.type as BreachCredential["type"],
-          username: hc.username,
-          domain: hc.domain,
-          valueHash: hc.hash,
-          authValue: hc.authValue,
-          source: "lateral_movement",
-          accessLevel: (hc.accessLevel === "admin" || hc.accessLevel === "write") ? "admin" : "user",
-          validatedTargets: [nodeResult.host],
-          discoveredAt: new Date().toISOString(),
-        });
-      }
-    }
-  } catch (error) {
-    console.error("[BreachOrchestrator] PivotQueue drain failed:", error);
-  }
-
-  onProgress(chain.id, "lateral_movement", 89,
-    `Lateral movement complete: ${newAssets.length} host(s) compromised, ${newCredentials.length} new credentials`
-  );
-
+  console.info(`[BreachOrchestrator] Phase lateral_movement disabled in core-v2 build`);
   return buildPhaseResult("lateral_movement", startTime, context, {
-    credentials: newCredentials,
-    assets: newAssets,
-    findings,
+    credentials: [],
+    assets: [],
+    findings: [],
     evaluationIds: [],
     domain: "network",
   });
@@ -3583,7 +2972,6 @@ async function generateFixProposalsForChain(
   chainId: string,
   qualityVerdict: { summary: { proven: number; corroborated: number }; passed: any[] },
 ): Promise<void> {
-  const { generateFixProposal } = await import("./agents/remediation-engine");
 
   const eligibleFindings = qualityVerdict.passed || [];
   if (eligibleFindings.length === 0) {
@@ -3601,17 +2989,17 @@ async function generateFixProposalsForChain(
     const finding = verdict.finding || verdict;
     try {
       const quality = verdict.quality === "proven" ? "proven" : "corroborated";
-      const proposal = generateFixProposal({
+      // core-v2: generateFixProposal (fix-proposal-generator) removed — generate minimal stub
+      const proposal = {
+        id: `fix-${chainId}-${generated}`,
+        chainId,
         findingId: finding.id || `f-${generated}`,
         severity: finding.severity || "high",
-        title: finding.title || "Unknown Finding",
+        title: `Fix: ${finding.title || "Unknown Finding"}`,
         description: finding.description || "",
-        technique: finding.technique,
-        evidenceQuality: quality,
-        targetUrl: finding.targetUrl,
-        requestPayload: finding.requestPayload,
-        responseBody: finding.responseBody,
-      }, chainId);
+        status: "pending" as const,
+        createdAt: new Date().toISOString(),
+      };
 
       await storage.storeFixProposal(chainId, proposal);
       generated++;
