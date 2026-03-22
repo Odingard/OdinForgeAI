@@ -2,357 +2,198 @@ import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
-import { Lock, Mail, AlertCircle, Shield, Target, GitBranch, Activity } from "lucide-react";
-import { ShieldValknut, OdinGardBrand } from "@/components/OdinForgeLogo";
 import { useUIAuth } from "@/contexts/UIAuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 const loginSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  email: z.string().email("Valid email required"),
+  password: z.string().min(8, "Minimum 8 characters"),
 });
-
 type LoginFormData = z.infer<typeof loginSchema>;
 
-interface LoginProps {
-  onLoginSuccess: () => void;
-}
+interface LoginProps { onLoginSuccess: () => void; }
 
-// ── Animated background with floating threat indicators ──────────────────
-
-function ThreatCanvas() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    let w = canvas.parentElement?.clientWidth || 800;
-    let h = canvas.parentElement?.clientHeight || 900;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    ctx.scale(dpr, dpr);
-
-    // Nodes — simulated network topology
-    interface TNode { x: number; y: number; vx: number; vy: number; r: number; color: string; pulse: number }
-    const nodes: TNode[] = [];
-    for (let i = 0; i < 18; i++) {
-      nodes.push({
-        x: Math.random() * w,
-        y: Math.random() * h,
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: (Math.random() - 0.5) * 0.3,
-        r: 2 + Math.random() * 2,
-        color: ["#ef4444", "#38bdf8", "#a855f7", "#22c55e"][Math.floor(Math.random() * 4)],
-        pulse: Math.random() * Math.PI * 2,
-      });
-    }
-
-    let t = 0;
-    let animId: number;
-
-    function draw() {
-      t += 0.008;
-      ctx!.clearRect(0, 0, w, h);
-
-      // Update nodes
-      for (const n of nodes) {
-        n.x += n.vx;
-        n.y += n.vy;
-        if (n.x < 0 || n.x > w) n.vx *= -1;
-        if (n.y < 0 || n.y > h) n.vy *= -1;
-        n.pulse += 0.02;
-      }
-
-      // Draw connections
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const dx = nodes[i].x - nodes[j].x;
-          const dy = nodes[i].y - nodes[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 200) {
-            const alpha = (1 - dist / 200) * 0.08;
-            ctx!.beginPath();
-            ctx!.moveTo(nodes[i].x, nodes[i].y);
-            ctx!.lineTo(nodes[j].x, nodes[j].y);
-            ctx!.strokeStyle = `rgba(56, 189, 248, ${alpha})`;
-            ctx!.lineWidth = 0.5;
-            ctx!.stroke();
-          }
-        }
-      }
-
-      // Draw nodes
-      for (const n of nodes) {
-        const pulseR = n.r + Math.sin(n.pulse) * 1;
-        // Outer glow
-        const grad = ctx!.createRadialGradient(n.x, n.y, 0, n.x, n.y, pulseR * 6);
-        grad.addColorStop(0, n.color + "18");
-        grad.addColorStop(1, "transparent");
-        ctx!.fillStyle = grad;
-        ctx!.beginPath();
-        ctx!.arc(n.x, n.y, pulseR * 6, 0, Math.PI * 2);
-        ctx!.fill();
-        // Core
-        ctx!.beginPath();
-        ctx!.arc(n.x, n.y, pulseR, 0, Math.PI * 2);
-        ctx!.fillStyle = n.color + "60";
-        ctx!.fill();
-      }
-
-      // Scan line
-      const scanY = (t * 80) % h;
-      const scanGrad = ctx!.createLinearGradient(0, scanY - 40, 0, scanY + 40);
-      scanGrad.addColorStop(0, "transparent");
-      scanGrad.addColorStop(0.5, "rgba(56, 189, 248, 0.03)");
-      scanGrad.addColorStop(1, "transparent");
-      ctx!.fillStyle = scanGrad;
-      ctx!.fillRect(0, scanY - 40, w, 80);
-
-      animId = requestAnimationFrame(draw);
-    }
-
-    draw();
-
-    const onResize = () => {
-      w = canvas.parentElement?.clientWidth || 800;
-      h = canvas.parentElement?.clientHeight || 900;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
-    };
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      cancelAnimationFrame(animId);
-      window.removeEventListener("resize", onResize);
-    };
-  }, []);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0 pointer-events-none"
-      style={{ width: "100%", height: "100%" }}
-    />
-  );
-}
-
-// ── Stat counter with rolling animation ──────────────────────────────────
-
-function StatCounter({ label, value, suffix = "" }: { label: string; value: string; suffix?: string }) {
-  return (
-    <div className="text-center">
-      <div className="text-2xl xl:text-3xl font-bold tracking-tight text-foreground">
-        {value}<span className="text-cyan-400">{suffix}</span>
-      </div>
-      <div className="text-[10px] uppercase tracking-widest text-muted-foreground mt-1">{label}</div>
-    </div>
-  );
-}
-
-// ── Main Login Component ─────────────────────────────────────────────────
+const BOOT_LINES = [
+  { cls: "hi",  text: "OdinForge AEV  //  Mjolnir Engine v4.2",            delay: 0    },
+  { cls: "",    text: "Build 2026.03.17-prod  //  Odingard Security",       delay: 200  },
+  { cls: "",    text: "",                                                    delay: 420  },
+  { cls: "hi",  text: "BOOT SEQUENCE",                                      delay: 600  },
+  { cls: "ok",  text: "  [OK]  kernel integrity verified",                  delay: 720  },
+  { cls: "ok",  text: "  [OK]  evidence contract runtime loaded",           delay: 920  },
+  { cls: "ok",  text: "  [OK]  exploit engine calibrated (50+ payloads)",   delay: 1100 },
+  { cls: "ok",  text: "  [OK]  agent mesh online  (300 concurrent slots)",  delay: 1280 },
+  { cls: "ok",  text: "  [OK]  EvidenceContract v2.0 enforced",             delay: 1460 },
+  { cls: "ok",  text: "  [OK]  phase executors 1-6 ready",                  delay: 1640 },
+  { cls: "ok",  text: "  [OK]  defender mirror — sigma engine ready",       delay: 1820 },
+  { cls: "ok",  text: "  [OK]  breach chain replay recorder ready",         delay: 2000 },
+  { cls: "ok",  text: "  [OK]  PostgreSQL 15 — connected",                  delay: 2180 },
+  { cls: "ok",  text: "  [OK]  Redis 7 — connected",                        delay: 2360 },
+  { cls: "ok",  text: "  [OK]  WebSocket mesh — listening on :5000/ws",     delay: 2540 },
+  { cls: "",    text: "",                                                    delay: 2700 },
+  { cls: "warn",text: "  [!!]  active engagements detected",                delay: 2860 },
+  { cls: "warn",text: "  [!!]  critical findings pending review",           delay: 3020 },
+  { cls: "",    text: "",                                                    delay: 3200 },
+  { cls: "red", text: "AUTHENTICATION REQUIRED",                            delay: 3340 },
+  { cls: "",    text: "",                                                    delay: 3420 },
+];
 
 export default function Login({ onLoginSuccess }: LoginProps) {
-  const { toast } = useToast();
   const { login } = useUIAuth();
+  const { toast } = useToast();
+  const [bootDone, setBootDone] = useState(false);
+  const [visibleLines, setVisibleLines] = useState<typeof BOOT_LINES>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bootRef = useRef<HTMLDivElement>(null);
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
   });
 
+  useEffect(() => {
+    BOOT_LINES.forEach((line, i) => {
+      setTimeout(() => {
+        setVisibleLines(prev => [...prev, line]);
+        if (bootRef.current) bootRef.current.scrollTop = bootRef.current.scrollHeight;
+      }, line.delay);
+    });
+    setTimeout(() => setBootDone(true), 3700);
+  }, []);
+
   async function onSubmit(data: LoginFormData) {
     setIsSubmitting(true);
     setError(null);
     try {
       await login(data.email, data.password);
-      toast({ title: "Welcome back", description: "You have successfully signed in." });
+      toast({ title: "Access granted", description: "Welcome back, operator." });
+      onLoginSuccess();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Login failed";
-      setError(message);
-      toast({ title: "Authentication failed", description: message, variant: "destructive" });
+      const msg = err instanceof Error ? err.message : "Authentication failed";
+      setError(msg);
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  const clsMap: Record<string, string> = {
+    hi:   "text-[#7a93ad]",
+    ok:   "text-[#22c55e]",
+    warn: "text-[#f59e0b]",
+    red:  "text-[#e8384f]",
+    "":   "text-[#3a5166]",
+  };
+
   return (
-    <div className="min-h-screen flex bg-[#060910] relative overflow-hidden">
-      {/* Left Panel — Hero */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] relative flex-col justify-between p-12 xl:p-16">
-        <ThreatCanvas />
+    <div className="min-h-screen flex items-center justify-center bg-[#07090f] relative overflow-hidden">
+      {/* scanline overlay */}
+      <div className="absolute inset-0 pointer-events-none z-0"
+        style={{ background: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px)" }} />
 
-        {/* Subtle grid overlay */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-[0.03]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(56,189,248,1) 1px, transparent 1px), linear-gradient(90deg, rgba(56,189,248,1) 1px, transparent 1px)",
-            backgroundSize: "48px 48px",
-          }}
-        />
+      <div className="w-full max-w-[520px] relative z-10 px-6">
 
-        <div className="relative z-10">
-          {/* Logo */}
-          <div className="mb-20">
-            <img src="/odinforge-lockup-horizontal.png" alt="OdinForge — Adversarial Exposure Validation" className="h-14" />
-          </div>
-
-          {/* Hero copy */}
-          <div className="max-w-xl">
-            <h1 className="text-4xl xl:text-[3.25rem] font-extrabold tracking-tight leading-[1.08] mb-5">
-              <span className="text-slate-100">Breach simulations</span>
-              <br />
-              <span className="text-slate-100">that prove </span>
-              <span className="text-cyan-400">real risk.</span>
-            </h1>
-            <p className="text-base xl:text-lg text-slate-400 leading-relaxed max-w-md">
-              Autonomous exploit agents chain vulnerabilities into full attack paths.
-              Every finding ships with the HTTP evidence that confirms it.
-            </p>
-          </div>
-
-          {/* Stats strip */}
-          <div className="mt-14 flex items-center gap-8 xl:gap-12">
-            <StatCounter value="6" suffix="-phase" label="Breach Chains" />
-            <div className="h-8 w-px bg-slate-700/50" />
-            <StatCounter value="12" suffix="-turn" label="Exploit Agent" />
-            <div className="h-8 w-px bg-slate-700/50" />
-            <StatCounter value="10" suffix="+" label="Vuln Classes" />
-            <div className="h-8 w-px bg-slate-700/50" />
-            <StatCounter value="100" suffix="%" label="Evidence-Backed" />
-          </div>
-        </div>
-
-        {/* Capabilities strip */}
-        <div className="relative z-10 mt-auto pt-16">
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-            {[
-              { icon: Target, label: "Exploit Verification", desc: "Proven payloads, not theory" },
-              { icon: GitBranch, label: "Attack Path Mapping", desc: "Multi-phase breach chains" },
-              { icon: Shield, label: "Defense Gap Analysis", desc: "See what your SOC missed" },
-              { icon: Activity, label: "Live Breach Replay", desc: "Watch attacks unfold" },
-            ].map((cap) => (
-              <div key={cap.label} className="group">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <cap.icon className="h-3.5 w-3.5 text-cyan-400/70" />
-                  <span className="text-xs font-semibold text-slate-300">{cap.label}</span>
-                </div>
-                <span className="text-[11px] text-slate-500 leading-relaxed">{cap.desc}</span>
-              </div>
+        {/* Boot sequence */}
+        {!bootDone && (
+          <div ref={bootRef} className="font-mono text-[11px] leading-[1.8] max-h-[360px] overflow-hidden">
+            {visibleLines.map((line, i) => (
+              <div key={i} className={clsMap[line.cls] ?? "text-[#3a5166]"}>{line.text || "\u00a0"}</div>
             ))}
+            <span className="inline-block w-[8px] h-[13px] bg-[#e8384f] align-middle animate-[blink_.8s_step-end_infinite]" />
           </div>
+        )}
 
-          <div className="mt-8 pt-6 border-t border-slate-800/60 flex items-center gap-6">
-            <OdinGardBrand size="sm" className="opacity-40" />
-            <span className="h-3 w-px bg-slate-800" />
-            <span className="text-[11px] text-slate-600">BSL 1.1 Licensed</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Panel — Login Form */}
-      <div className="flex-1 flex items-center justify-center relative z-10 p-6"
-        style={{ background: "linear-gradient(135deg, rgba(6,9,16,0.97) 0%, rgba(10,15,25,0.98) 100%)" }}
-      >
-        {/* Subtle accent border on left edge */}
-        <div className="hidden lg:block absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-cyan-500/20 to-transparent" />
-
-        <div className="w-full max-w-[400px]">
-          {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-10">
-            <img src="/odinforge-lockup-stacked.png" alt="OdinForge" className="h-28 mx-auto" />
-          </div>
-
-          {/* Form card */}
-          <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 backdrop-blur-xl p-8 shadow-2xl shadow-black/30">
-            <div className="mb-7">
-              <h2 className="text-xl font-bold tracking-tight text-slate-100">Sign in</h2>
-              <p className="text-sm text-slate-500 mt-1">Access the control plane</p>
+        {/* Login form */}
+        {bootDone && (
+          <div className="font-mono animate-[fadein_.3s_ease]">
+            {/* Brand */}
+            <div className="flex items-center gap-[14px] mb-8 pb-6 border-b border-[#1a2535]">
+              <div className="w-[38px] h-[38px] bg-[#e8384f] flex items-center justify-center flex-shrink-0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
+                  <path d="M12 2L4 6v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V6l-8-4z"/>
+                  <path d="M9 12l2 2 4-4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+              <div>
+                <div className="text-[18px] font-bold text-[#eaf0f8] font-sans tracking-[.01em]">
+                  Odin<span className="text-[#e8384f]">Forge</span>
+                </div>
+                <div className="text-[9px] tracking-[.18em] text-[#1e3148] mt-[2px]">
+                  adversarial exposure validation
+                </div>
+              </div>
             </div>
 
+            {/* Error */}
             {error && (
-              <div className="flex items-center gap-2 p-3 mb-5 bg-red-500/8 border border-red-500/20 rounded-lg text-sm text-red-400">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                <span>{error}</span>
+              <div className="flex items-center gap-2 text-[10px] text-[#e8384f] px-[10px] py-[8px] border border-[rgba(232,56,79,.22)] bg-[rgba(232,56,79,.09)] mb-4">
+                <span className="text-[#e8384f]">✕</span> {error}
               </div>
             )}
 
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-                <FormField control={form.control} name="email" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-medium text-slate-400 uppercase tracking-wider">Email</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-600" />
-                        <Input
-                          type="email"
-                          placeholder="operator@company.com"
-                          className="pl-10 h-11 bg-slate-800/40 border-slate-700/50 text-slate-200 placeholder:text-slate-600 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-lg"
-                          autoComplete="email"
-                          data-testid="input-email"
-                          {...field}
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+              <div>
+                <div className="text-[9px] tracking-[.15em] uppercase text-[#3a5166] mb-[6px] flex items-center gap-[5px]">
+                  <span className="text-[#e8384f]">›</span> operator identity
+                </div>
+                <input
+                  type="email"
+                  placeholder="operator@sixsenseenterprise.com"
+                  className="w-full bg-[#0c1018] border border-[#243348] text-[#eaf0f8] font-mono text-[12px] px-[12px] py-[10px] outline-none transition-colors focus:border-[#e8384f] placeholder:text-[#1e3148]"
+                  autoComplete="email"
+                  data-testid="input-email"
+                  {...form.register("email")}
+                />
+                {form.formState.errors.email && (
+                  <div className="text-[9px] text-[#e8384f] mt-1">{form.formState.errors.email.message}</div>
+                )}
+              </div>
 
-                <FormField control={form.control} name="password" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-medium text-slate-400 uppercase tracking-wider">Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-600" />
-                        <Input
-                          type="password"
-                          placeholder="Enter your password"
-                          className="pl-10 h-11 bg-slate-800/40 border-slate-700/50 text-slate-200 placeholder:text-slate-600 focus:border-cyan-500/50 focus:ring-cyan-500/20 rounded-lg"
-                          autoComplete="current-password"
-                          data-testid="input-password"
-                          {...field}
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+              <div>
+                <div className="text-[9px] tracking-[.15em] uppercase text-[#3a5166] mb-[6px] flex items-center gap-[5px]">
+                  <span className="text-[#e8384f]">›</span> access key
+                </div>
+                <input
+                  type="password"
+                  placeholder="••••••••••••••••"
+                  className="w-full bg-[#0c1018] border border-[#243348] text-[#eaf0f8] font-mono text-[12px] px-[12px] py-[10px] outline-none transition-colors focus:border-[#e8384f] placeholder:text-[#1e3148]"
+                  autoComplete="current-password"
+                  data-testid="input-password"
+                  {...form.register("password")}
+                />
+                {form.formState.errors.password && (
+                  <div className="text-[9px] text-[#e8384f] mt-1">{form.formState.errors.password.message}</div>
+                )}
+              </div>
 
-                <Button
-                  type="submit"
-                  className="w-full h-11 text-sm font-semibold bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 border-0 shadow-lg shadow-red-900/20 rounded-lg"
-                  disabled={isSubmitting}
-                  data-testid="button-login"
-                >
-                  {isSubmitting ? (
-                    <><div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />Signing in...</>
-                  ) : "Sign in"}
-                </Button>
-              </form>
-            </Form>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                data-testid="button-login"
+                className="w-full mt-2 py-[11px] bg-[#e8384f] border-none text-white font-mono text-[11px] font-bold tracking-[.12em] uppercase cursor-pointer transition-colors hover:bg-[#d42e44] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? "Authenticating..." : "Authenticate →"}
+              </button>
+            </form>
 
-            <div className="mt-6 pt-5 border-t border-slate-800/60 text-center text-sm text-slate-500">
-              Don't have an account?{" "}
-              <a href="/signup" className="text-cyan-400 font-medium hover:text-cyan-300 transition-colors" data-testid="link-signup">Create one</a>
+            <div className="mt-5 pt-4 border-t border-[#1a2535] flex items-center justify-between">
+              <div className="text-[9px] text-[#1e3148] tracking-[.06em]">MFA · RBAC · BSL 1.1</div>
+              <a href="/signup" className="text-[10px] text-[#60a5fa] hover:underline" data-testid="link-signup">
+                Request access
+              </a>
             </div>
           </div>
+        )}
+      </div>
 
-          <p className="text-center text-[11px] text-slate-600 mt-5">
-            Multi-factor authentication &middot; Role-based access control
-          </p>
-        </div>
+      {/* Status strip */}
+      <div className="absolute bottom-0 left-0 right-0 flex items-center gap-4 px-6 py-2 border-t border-[#1a2535] bg-[#0c1018] font-mono text-[9px] tracking-[.07em] text-[#1e3148]">
+        <div className="w-[5px] h-[5px] rounded-full bg-[#22c55e] animate-[pulse_2s_ease-in-out_infinite]" />
+        <span className="text-[#3a5166]">engine nominal</span>
+        <span className="text-[#1a2535]">·</span>
+        <span className="text-[#3a5166]">mjolnir v4.2</span>
+        <span className="text-[#1a2535]">·</span>
+        <span className="text-[#3a5166]">build 2026.03.17</span>
+        <span className="ml-auto text-[#1e3148]">odingard security // six sense enterprise services</span>
       </div>
     </div>
   );
