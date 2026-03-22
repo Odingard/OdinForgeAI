@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { LiveAttackCanvas } from "./LiveAttackCanvas";
 import { CanvasLegend } from "./CanvasLegend";
 import { ReasoningStream } from "../reasoning/ReasoningStream";
@@ -9,16 +10,135 @@ interface CanvasPanelProps {
   canvasEvents: any[];
   reasoningStream: any[];
   operatorSummary: any;
+  /** Pass chain data so we can render completed chains, not just live ones */
+  chain?: any;
+}
+
+/**
+ * Synthesize canvas events + reasoning stream + operator summary
+ * from a completed chain's stored data. This ensures the canvas
+ * shows results even when the chain finished before the user opened it.
+ */
+function synthesizeFromChain(chain: any): {
+  canvasEvents: any[];
+  reasoningStream: any[];
+  operatorSummary: any;
+} {
+  if (!chain) return { canvasEvents: [], reasoningStream: [], operatorSummary: null };
+
+  const canvasEvents: any[] = [];
+  const reasoningStream: any[] = [];
+  const phaseResults = (chain.phaseResults || []) as any[];
+  const graph = chain.unifiedAttackGraph;
+  const ts = chain.completedAt || chain.startedAt || new Date().toISOString();
+
+  // Build canvas nodes from attack graph
+  if (graph?.nodes) {
+    for (const node of graph.nodes) {
+      canvasEvents.push({
+        canvasType: 'node_discovered',
+        source: node.label || node.id,
+        zone: node.tactic || 'unknown',
+        sensitivity: 'generic',
+        confirmed: true,
+        timestamp: ts,
+      });
+      canvasEvents.push({
+        canvasType: 'node_classified',
+        source: node.label || node.id,
+        zone: node.tactic || 'unknown',
+        detail: node.description,
+        confirmed: true,
+        timestamp: ts,
+      });
+    }
+  }
+
+  // Build canvas edges from attack graph
+  if (graph?.edges) {
+    for (const edge of graph.edges) {
+      canvasEvents.push({
+        canvasType: 'edge_confirmed',
+        source: edge.source,
+        target: edge.target,
+        detail: edge.technique || edge.description,
+        confirmed: true,
+        timestamp: ts,
+      });
+    }
+  }
+
+  // Build reasoning from phase results
+  for (const phase of phaseResults) {
+    const phaseName = phase.phaseName || 'unknown';
+    const findingCount = (phase.findings || []).length;
+    const status = phase.status || 'unknown';
+
+    reasoningStream.push({
+      reasoningIntent: 'summarize',
+      target: '',
+      message: `Phase ${phaseName}: ${status} — ${findingCount} findings`,
+      timestamp: phase.completedAt || ts,
+    });
+
+    // Add each finding as a validate event
+    for (const finding of (phase.findings || [])) {
+      reasoningStream.push({
+        reasoningIntent: 'validate',
+        target: finding.technique || phaseName,
+        message: `${finding.severity?.toUpperCase()}: ${finding.title || finding.description?.slice(0, 80)}`,
+        timestamp: phase.completedAt || ts,
+      });
+    }
+  }
+
+  // Add executive summary as final reasoning
+  if (chain.executiveSummary) {
+    reasoningStream.push({
+      reasoningIntent: 'summarize',
+      target: '',
+      message: chain.executiveSummary,
+      timestamp: chain.completedAt || ts,
+    });
+  }
+
+  // Build operator summary from chain data
+  const totalFindings = phaseResults.reduce((s: number, p: any) => s + (p.findings?.length || 0), 0);
+  const operatorSummary = {
+    currentObjective: chain.status === 'completed' ? 'Assessment complete' : chain.status === 'failed' ? 'Assessment failed' : 'Running',
+    currentPrimaryPath: chain.executiveSummary?.slice(0, 80) || null,
+    findingsCount: totalFindings,
+    pathsCount: graph?.nodes?.length || 0,
+    replaySuccesses: 0,
+    lastMeaningfulChange: chain.status === 'completed'
+      ? `Completed in ${chain.durationMs ? Math.round(chain.durationMs / 1000) + 's' : 'unknown'}`
+      : chain.status,
+    activeArtifact: chain.totalCredentialsHarvested ? `${chain.totalCredentialsHarvested} credentials` : null,
+  };
+
+  return { canvasEvents, reasoningStream, operatorSummary };
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function CanvasPanel({
   chainId,
-  canvasEvents,
-  reasoningStream,
-  operatorSummary,
+  canvasEvents: liveCanvasEvents,
+  reasoningStream: liveReasoningStream,
+  operatorSummary: liveOperatorSummary,
+  chain,
 }: CanvasPanelProps) {
+  // If we have live events, use them. Otherwise synthesize from stored chain data.
+  const hasLiveData = liveCanvasEvents.length > 0 || liveReasoningStream.length > 0;
+
+  const synthesized = useMemo(
+    () => (!hasLiveData && chain ? synthesizeFromChain(chain) : null),
+    [hasLiveData, chain]
+  );
+
+  const canvasEvents = hasLiveData ? liveCanvasEvents : (synthesized?.canvasEvents || []);
+  const reasoningStream = hasLiveData ? liveReasoningStream : (synthesized?.reasoningStream || []);
+  const operatorSummary = liveOperatorSummary || synthesized?.operatorSummary || null;
   return (
     <div className="flex flex-col h-full gap-2">
       {/* Top row: Canvas + Operator Panel */}

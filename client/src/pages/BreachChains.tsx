@@ -643,7 +643,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
   const displayGraph = latestGraph ?? (chain.unifiedAttackGraph as AttackGraph | null);
   const hasGraph = displayGraph && displayGraph.nodes?.length > 0;
 
-  const [tab, setTab] = useState(chain.status === "running" ? "canvas" : hasGraph ? "graph" : "overview");
+  const [tab, setTab] = useState("canvas"); // Always default to canvas — shows live or synthesized
   const [showExport, setShowExport] = useState(false);
   const [highlightedNode, setHighlightedNode] = useState<string | undefined>(undefined);
 
@@ -790,6 +790,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
           canvasEvents={canvasEvents}
           reasoningStream={reasoningStream}
           operatorSummary={operatorSummary}
+          chain={chain}
         />
       )}
 
