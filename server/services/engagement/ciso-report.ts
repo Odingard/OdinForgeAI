@@ -220,7 +220,7 @@ function deriveComplianceImplications(domains: string[]): string[] {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function generateCISOReport(chain: BreachChain): CISOReport {
+export function generateCISOReport(chain: BreachChain, primaryAttackPath?: any): CISOReport {
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const context = chain.currentContext as BreachPhaseContext | null;
   const domains = (chain.domainsBreached as string[] | null) ?? [];
@@ -271,9 +271,13 @@ export function generateCISOReport(chain: BreachChain): CISOReport {
     riskGrade: grade,
     riskGradeRationale: rationale,
     overallRiskScore: chain.overallRiskScore ?? 0,
-    breachChainNarrative: buildBreachNarrative(chain),
+    breachChainNarrative: primaryAttackPath
+      ? `PRIMARY RISK: ${primaryAttackPath.narrative} ${buildBreachNarrative(chain)}`
+      : buildBreachNarrative(chain),
     businessImpact: {
-      summary: `Assessment identified ${filtered.customerFindings.length} confirmed findings across ${domains.length} domain(s). ${criticals} critical and ${highs} high severity issues require immediate attention.`,
+      summary: primaryAttackPath
+        ? `${primaryAttackPath.businessImpact} Assessment identified ${filtered.customerFindings.length} confirmed findings. ${criticals} critical and ${highs} high severity issues require immediate attention.`
+        : `Assessment identified ${filtered.customerFindings.length} confirmed findings across ${domains.length} domain(s). ${criticals} critical and ${highs} high severity issues require immediate attention.`,
       domainsCompromised: domains,
       maxPrivilegeAchieved: chain.maxPrivilegeAchieved ?? "none",
       credentialExposure: chain.totalCredentialsHarvested ?? 0,

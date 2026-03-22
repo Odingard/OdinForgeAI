@@ -32,21 +32,40 @@ function synthesizeFromChain(chain: any): {
   const graph = chain.unifiedAttackGraph;
   const ts = chain.completedAt || chain.startedAt || new Date().toISOString();
 
+  // Map attack graph tactics to trust zones for coloring
+  const tacticToZone: Record<string, string> = {
+    'reconnaissance': 'public',
+    'resource-development': 'public',
+    'initial-access': 'authenticated',
+    'execution': 'authenticated',
+    'persistence': 'authenticated',
+    'privilege-escalation': 'privileged',
+    'defense-evasion': 'authenticated',
+    'credential-access': 'privileged',
+    'discovery': 'public',
+    'lateral-movement': 'internal_like',
+    'collection': 'privileged',
+    'command-and-control': 'internal_like',
+    'exfiltration': 'privileged',
+    'impact': 'privileged',
+  };
+
   // Build canvas nodes from attack graph
   if (graph?.nodes) {
     for (const node of graph.nodes) {
+      const zone = tacticToZone[node.tactic] || (node.nodeType === 'objective' ? 'privileged' : node.nodeType === 'entry' ? 'public' : 'authenticated');
       canvasEvents.push({
         canvasType: 'node_discovered',
         source: node.label || node.id,
-        zone: node.tactic || 'unknown',
-        sensitivity: 'generic',
+        zone,
+        sensitivity: node.tactic?.includes('credential') ? 'auth' : node.tactic?.includes('privilege') ? 'admin' : 'generic',
         confirmed: true,
         timestamp: ts,
       });
       canvasEvents.push({
         canvasType: 'node_classified',
         source: node.label || node.id,
-        zone: node.tactic || 'unknown',
+        zone,
         detail: node.description,
         confirmed: true,
         timestamp: ts,

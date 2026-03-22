@@ -27,6 +27,11 @@ export interface EngineerReport {
   generatedAt: string;
   organizationId: string;
 
+  // Phase 14: Path-first report structure
+  primaryAttackPath: any | null;
+  supportingAttackPaths: any[];
+  remediationPlan: any | null;
+
   chainTrace: ChainTraceEntry[];
   findingDetails: EngineerFindingDetail[];
   remediationDiffs: RemediationDiff[];
@@ -180,7 +185,12 @@ function buildChainTrace(phases: BreachPhaseResult[]): ChainTraceEntry[] {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
-export function generateEngineerReport(chain: BreachChain): EngineerReport {
+export function generateEngineerReport(
+  chain: BreachChain,
+  primaryAttackPath?: any,
+  supportingAttackPaths?: any[],
+  remediationPlan?: any
+): EngineerReport {
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const config = chain.config as any;
 
@@ -243,6 +253,11 @@ export function generateEngineerReport(chain: BreachChain): EngineerReport {
     engagementId: chain.id,
     generatedAt: new Date().toISOString(),
     organizationId: chain.organizationId,
+    // Phase 14: Path-first sections
+    primaryAttackPath: primaryAttackPath || null,
+    supportingAttackPaths: supportingAttackPaths || [],
+    remediationPlan: remediationPlan || null,
+    // Phase-by-phase detail
     chainTrace: buildChainTrace(phases),
     findingDetails,
     remediationDiffs,
