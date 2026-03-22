@@ -13,9 +13,6 @@
 
 import { wsService } from '../websocket';
 import { LlmRouter } from '../../../src/llm/router';
-import { isLlmConfigured } from '../../../src/llm/config';
-import { quickSafetyCheck } from '../../../src/llm/safety-boundary';
-import { recordLlmFailure } from '../../../src/llm/router-health';
 
 // ── Intent Classes ───────────────────────────────────────────────────────────
 
@@ -136,12 +133,13 @@ export class ReasoningEngine {
   private lastReasoningTimestamps = new Map<string, number>();
   private lastSummaryJson = '';                      // suppress unchanged summary broadcasts
 
-  // ── LLM-assisted reasoning (demoted: target 3-5 calls per run) ────
+  // ── LLM reasoning removed from engine hot path ────────────────────
+  // LLM reasoning adds zero operational value during engine execution.
+  // Deterministic reasoning is always used. LLM will be reintroduced
+  // in the report/UI/Jarvis layer, not the engine hot path.
   private llmRouter: LlmRouter;
   private reasoningLlmCalls = 0;
-  private readonly MAX_REASONING_LLM_CALLS = 5;
-  // Only high-signal intents qualify for LLM reasoning
-  private readonly MEANINGFUL_INTENTS = new Set<ReasoningIntent>(['escalate', 'replay', 'summarize']);
+  private readonly MAX_REASONING_LLM_CALLS = 0;
 
   constructor(chainId: string) {
     this.chainId = chainId;
@@ -179,38 +177,7 @@ export class ReasoningEngine {
     }
     this.lastReasoningTimestamps.set(dedupKey, now);
 
-    // For meaningful intents with qualifying context, try LLM-assisted reasoning (fire-and-forget).
-    // The deterministic message is always emitted immediately; LLM result
-    // supplements it as a follow-on event if it returns in time.
-    // Target: 3-5 LLM reasoning lines per run.
-    const shouldCallLlm = this.MEANINGFUL_INTENTS.has(intent) && this.qualifiesForLlmReasoning(intent, target, message, context);
-    if (shouldCallLlm && isLlmConfigured() && this.reasoningLlmCalls < this.MAX_REASONING_LLM_CALLS) {
-      const contextSummary = context ? Object.entries(context).map(([k, v]) => `${k}=${v}`).join(', ') : '';
-      this.generateReasoningLine(intent, target, `${message} | ${contextSummary}`).then(llmLine => {
-        if (llmLine) {
-          // Emit a supplementary LLM-enhanced reasoning event
-          const llmEvent: ReasoningEvent = {
-            timestamp: new Date().toISOString(),
-            chainId: this.chainId,
-            intent,
-            target,
-            message: llmLine,
-            context: { ...context, role: 'llm-enhanced' },
-          };
-          this.events.push(llmEvent);
-          if (this.events.length > 100) this.events = this.events.slice(-100);
-          try {
-            const { intent: _lt, chainId: _lc, ...llmRest } = llmEvent;
-            wsService.broadcastToChannel(`breach_chain:${this.chainId}`, {
-              type: 'reasoning_event',
-              chainId: this.chainId,
-              reasoningIntent: llmEvent.intent,
-              ...llmRest,
-            } as any);
-          } catch { /* wsService not initialized */ }
-        }
-      }).catch(() => { /* LLM failure — deterministic message already emitted */ });
-    }
+    // LLM reasoning removed from engine hot path — deterministic only.
 
     const event: ReasoningEvent = {
       timestamp: new Date().toISOString(),
@@ -293,106 +260,18 @@ export class ReasoningEngine {
   // ── LLM-Assisted Reasoning ─────────────────────────────────────────
 
   /**
-   * Generate a concise reasoning line via LLM. Falls back to null on failure.
-   * Only called for meaningful intents, never for spam-suppressed events.
+   * LLM reasoning removed from engine hot path.
+   * Always returns null — deterministic messages are used instead.
+   * Kept as a stub so the method signature survives for post-run summary reintroduction.
    */
-  async generateReasoningLine(intent: ReasoningIntent, target: string, context: string): Promise<string | null> {
-    if (!isLlmConfigured()) return null;
-    if (this.reasoningLlmCalls >= this.MAX_REASONING_LLM_CALLS) return null;
-
-    try {
-      this.reasoningLlmCalls++;
-      const resp = await this.llmRouter.reasoningStream([
-        {
-          role: 'system',
-          content: 'Produce exactly one concise operator-facing reasoning line. Maximum 18 words. Deterministic, no fluff, no speculation, no unsupported adjectives.',
-        },
-        {
-          role: 'user',
-          content: `Intent: ${intent}\nTarget: ${target}\nContext: ${context}`,
-        },
-      ]);
-
-      const text = resp.text.trim();
-      if (!text || !quickSafetyCheck(text)) return null;
-      // Truncate to reasonable single-line length
-      return text.slice(0, 300);
-    } catch (err) {
-      recordLlmFailure('reasoning_stream', 'router', 'auto', err instanceof Error ? err.message : String(err));
-      return null;
-    }
+  async generateReasoningLine(_intent: ReasoningIntent, _target: string, _context: string): Promise<string | null> {
+    return null;
   }
 
-  // ── LLM Reasoning Qualification ──────────────────────────────────────
-
-  /**
-   * Determines if this reasoning event qualifies for an LLM call.
-   * Demoted: target 3-5 LLM reasoning lines per run, not 0 and not 20.
-   *
-   * Only returns true for:
-   * - Primary path promoted or demoted
-   * - Replay succeeded
-   * - Replay failed on high-value target
-   * - Convergence summary
-   * - Final operator summary
-   */
-  private qualifiesForLlmReasoning(intent: ReasoningIntent, target: string, message: string, context?: ReasoningEvent['context']): boolean {
-    // Avoid recursion from LLM-enhanced events
-    if (context?.role === 'llm-enhanced') return false;
-
-    // Combine target + message for keyword matching (target is often '' for summarize calls)
-    const text = `${target || ''} ${message || ''}`;
-
-    switch (intent) {
-      case 'escalate':
-        // Replay succeeded (onReplaySucceeded emits escalate with artifact + role='replay-success')
-        if (context?.role === 'replay-success') {
-          console.log(`[LLM:reasoning] Qualified: ${intent} → replay succeeded on ${target}`);
-          return true;
-        }
-        // Primary path promotion/demotion (role change with pathId)
-        if (context?.pathId) {
-          console.log(`[LLM:reasoning] Qualified: ${intent} → path promotion ${context.pathId}`);
-          return true;
-        }
-        // Only log skip for replay-like escalations (have artifact), not for schema hints etc.
-        if (context?.artifact) {
-          console.log(`[LLM:reasoning] Skipped: ${intent} — artifact present but no replay-success role`);
-        }
-        return false;
-
-      case 'replay':
-        // Replay succeeded (keyword match)
-        if (/ACCEPTED|succeeded/i.test(text)) {
-          console.log(`[LLM:reasoning] Qualified: ${intent} → replay succeeded on ${target}`);
-          return true;
-        }
-        // Replay failed on high-value target
-        if (context?.zone === 'privileged' || context?.sensitivity === 'admin' || context?.sensitivity === 'config') {
-          console.log(`[LLM:reasoning] Qualified: ${intent} → replay failed on high-value ${target}`);
-          return true;
-        }
-        return false;
-
-      case 'summarize':
-        // Primary path change (onPrimaryPathChanged passes pathId in context)
-        if (context?.pathId) {
-          console.log(`[LLM:reasoning] Qualified: ${intent} → primary path promoted ${context.pathId}`);
-          return true;
-        }
-        // Convergence summary or final operator summary (keywords in message, not just target)
-        if (/converge|final|complete|OPERATOR/i.test(text)) {
-          console.log(`[LLM:reasoning] Qualified: ${intent} → convergence/final summary`);
-          return true;
-        }
-        console.log(`[LLM:reasoning] Skipped: ${intent} — no pathId or convergence/final keywords`);
-        return false;
-
-      default:
-        // explore, validate, exploit, pivot — no LLM reasoning
-        return false;
-    }
-  }
+  // ── LLM Reasoning Qualification (removed from hot path) ─────────────
+  // qualifiesForLlmReasoning() removed — LLM reasoning is no longer
+  // called during engine execution. Will be reintroduced in the
+  // report/UI/Jarvis layer.
 
   // ── Surface Intelligence Hooks ───────────────────────────────────────
 
