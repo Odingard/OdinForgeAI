@@ -1,5 +1,8 @@
 export { runAgentOrchestrator } from "./orchestrator";
 export { runDefenderAgent } from "./defender";
+export { grabBanner, grabBanners } from "./grab-banner";
+export { gateReconSuccess, gateExploitConfirmed } from "./pipeline-gates";
+export { validateExploitFindings } from "./policy-guardian";
 export type {
   AgentContext,
   AgentMemory,
@@ -13,7 +16,12 @@ export type {
   EnhancedBusinessLogicFindings,
   MultiVectorFindings,
   ImpactFindings,
+  BannerInfo,
+  HttpFingerprint,
 } from "./types";
+export type { BannerResult } from "./grab-banner";
+export type { GateResult } from "./pipeline-gates";
+export type { PolicyGuardianContext, PolicyGuardianResult } from "./policy-guardian";
 export type {
   DefenderFindings,
   DetectedAttack,

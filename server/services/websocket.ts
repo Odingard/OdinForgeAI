@@ -62,8 +62,9 @@ interface SafetyBlockEvent {
   timestamp: string;
 }
 
-export type ReasoningTraceAgentType = 
+export type ReasoningTraceAgentType =
   | "policy_guardian"
+  | "pipeline_gate"
   | "exploit_agent"
   | "critic_agent"
   | "recon_agent"

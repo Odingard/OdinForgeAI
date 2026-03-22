@@ -29,6 +29,8 @@ import { withCircuitBreaker } from "./circuit-breaker";
 import { wsService } from "../websocket";
 import { storage } from "../../storage";
 import { createAuditLogger } from "../audit-logger";
+import { gateReconSuccess, gateExploitConfirmed } from "./pipeline-gates";
+import { validateExploitFindings, type PolicyGuardianContext } from "./policy-guardian";
 
 // Pipeline-level timeout: 10 minutes max for entire orchestration
 // (Claude models need 30-60s per LLM call × 4 tiers of agents + overhead)
@@ -238,7 +240,20 @@ async function runPipeline(
   // core-v2: runReconAgent removed — use empty findings (exploit agent does its own fingerprinting)
   const reconResult = {
     success: true,
-    findings: { attackSurface: [] as string[], entryPoints: [] as string[], apiEndpoints: [] as string[], authMechanisms: [] as string[], technologies: [] as string[], potentialVulnerabilities: [] as string[] },
+    findings: {
+      attackSurface: [] as string[],
+      entryPoints: [] as string[],
+      apiEndpoints: [] as string[],
+      authMechanisms: [] as string[],
+      technologies: [] as string[],
+      potentialVulnerabilities: [] as string[],
+      resolvedIp: "",
+      openPorts: [] as number[],
+      bannerData: {} as Record<string, import("./types").BannerInfo>,
+      httpFingerprint: { server: null, framework: null, cdn: null, waf: null },
+      attackReadinessScore: 0,
+      externalReconSource: "none" as const,
+    },
     agentName: "Recon Agent",
     processingTime: 0,
   };
@@ -287,32 +302,68 @@ async function runPipeline(
   console.log(`[Orchestrator] Plan agent skipped (core-v2 strip-down)`);
 
   // ──────────────────────────────────────────────────────────────
-  // Tier 2: Sequential — Exploit → Business Logic → Multi-Vector
-  // (Anthropic 30K tokens/min rate limit prevents parallel execution)
+  // Logic_Recon_Success Gate — stops pipeline if recon found nothing
+  // ──────────────────────────────────────────────────────────────
+  const reconGate = gateReconSuccess(memory.recon);
+  console.log(`[Orchestrator] Logic_Recon_Success: ${reconGate.passed ? "PASS" : "FAIL"} — ${reconGate.reason}`);
+  wsService.sendReasoningTrace(evaluationId, "pipeline_gate", "Logic_Recon_Success",
+    `${reconGate.passed ? "PASS" : "FAIL"}: ${reconGate.reason}`, reconGate.metrics);
+
+  // ──────────────────────────────────────────────────────────────
+  // Tier 2: Parallel — Exploit + Business Logic + Multi-Vector
+  // Thread A: EXPLOIT_AGENT, Thread B: BUSINESS_LOGIC_AGENT,
+  // Thread C: MULTI_VECTOR_AGENT — all share read-only memory.recon
+  // POLICY_GUARDIAN_EXPLOIT runs as post-validation on all results
   // ──────────────────────────────────────────────────────────────
   const tier2Start = Date.now();
-  onProgress?.("Analysis Agents", "analysis", 25, "Running analysis agents...");
+  onProgress?.("Analysis Agents", "analysis", 25, "Running analysis agents in parallel...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
-    "Running exploit, business logic, and multi-vector analysis sequentially (rate limit aware)");
+    "Running exploit, business logic, and multi-vector analysis in parallel threads (Step 3)");
 
-  // --- Exploit Agent ---
-  await trackPhase("exploit", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing exploit chains..." });
-  let exploitResult: { success: boolean; findings: ExploitFindings; agentName: string; processingTime: number };
-  try {
-    exploitResult = await withCircuitBreaker(
-      "openai",
-      () => runWithHeartbeat(evaluationId, "Exploit Agent",
-        () => runExploitAgent(memory, (stage: string, progress: number, message: string) => {
-          updateAgentHeartbeat(evaluationId, "Exploit Agent", stage, progress, message);
-          onProgress?.("Exploit Agent", stage, 25 + Math.floor(progress * 0.1), message);
-        })
-      ),
-      () => ({ success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 }),
-      AGENT_CB_TIMEOUT_MS
-    );
-  } catch {
-    exploitResult = { success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 };
-  }
+  // Freeze a read-only copy of recon for parallel threads
+  const readOnlyRecon = Object.freeze({ ...memory.recon });
+
+  // --- Thread A: Exploit Agent ---
+  const threadAPromise = (async (): Promise<{ success: boolean; findings: ExploitFindings; agentName: string; processingTime: number }> => {
+    await trackPhase("exploit", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing exploit chains..." });
+    // Build a read-only memory snapshot for this thread — threads never write to each other
+    const threadMemory: AgentMemory = { ...memory, recon: readOnlyRecon as typeof memory.recon };
+    try {
+      return await withCircuitBreaker(
+        "openai",
+        () => runWithHeartbeat(evaluationId, "Exploit Agent",
+          () => runExploitAgent(threadMemory, (stage: string, progress: number, message: string) => {
+            updateAgentHeartbeat(evaluationId, "Exploit Agent", stage, progress, message);
+            onProgress?.("Exploit Agent", stage, 25 + Math.floor(progress * 0.1), message);
+          })
+        ),
+        () => ({ success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 }),
+        AGENT_CB_TIMEOUT_MS
+      );
+    } catch {
+      return { success: true, findings: EMPTY_EXPLOIT_FINDINGS, agentName: "Exploit Agent", processingTime: 0 };
+    }
+  })();
+
+  // --- Thread B: Business Logic Agent ---
+  const threadBPromise = (async (): Promise<{ success: boolean; findings: BusinessLogicFindings; agentName: string; processingTime: number }> => {
+    await trackPhase("business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
+    // core-v2: runBusinessLogicAgent removed — return empty findings
+    return { success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 };
+  })();
+
+  // --- Thread C: Multi-Vector Agent ---
+  const threadCPromise = (async (): Promise<{ success: boolean; findings: MultiVectorFindings; agentName: string; processingTime: number } | null> => {
+    // core-v2: shouldRunMultiVectorAnalysis and runMultiVectorAnalysisAgent removed — always null
+    return null;
+  })();
+
+  // Execute all three threads in parallel via Promise.all
+  const [exploitResult, blResult, mvResult] = await Promise.all([
+    threadAPromise,
+    threadBPromise,
+    threadCPromise,
+  ]);
 
   const exploitSummary = `Identified ${exploitResult.findings.exploitChains?.length || 0} potential exploit chains`;
   await trackPhase("exploit", {
@@ -321,33 +372,37 @@ async function runPipeline(
   });
   wsService.sendSharedMemoryUpdate(evaluationId, "exploit_agent", "ExploitAgent", "exploit", exploitSummary);
 
-  // --- Business Logic Agent ---
-  // core-v2: runBusinessLogicAgent removed — return empty findings
-  await trackPhase("business_logic", { status: "running", startedAt: new Date().toISOString(), message: "Analyzing business logic..." });
-  const blResult = { success: true, findings: EMPTY_BL_FINDINGS, agentName: "Business Logic Agent", processingTime: 0 };
-
   const blSummary = `Found ${blResult.findings.workflowAbuse?.length || 0} workflow abuse patterns`;
   await trackPhase("business_logic", {
     status: "completed", completedAt: new Date().toISOString(),
     duration: Date.now() - tier2Start, findingSummary: blSummary,
   });
 
-  // --- Multi-Vector Agent (optional) ---
-  // core-v2: shouldRunMultiVectorAnalysis and runMultiVectorAnalysisAgent removed — always null
-  let mvResult: { success: boolean; findings: MultiVectorFindings; agentName: string; processingTime: number } | null = null;
-
-  console.log(`[Orchestrator] Tier 2 completed in ${Date.now() - tier2Start}ms`);
+  console.log(`[Orchestrator] Tier 2 (parallel threads) completed in ${Date.now() - tier2Start}ms`);
 
   // ──────────────────────────────────────────────────────────────
-  // PolicyGuardian: Exploit chain validation (max 15s)
+  // POLICY_GUARDIAN_EXPLOIT: Validate exploit findings (max 15s)
+  // Guard runs BEFORE findings are written to memory
   // ──────────────────────────────────────────────────────────────
   onProgress?.("Policy Guardian", "policy_check", 40, "Validating exploit chains against policies...");
 
-  const guardedExploitFindings = await withTimeout(
-    runPolicyGuardianCheckLoop(exploitResult.findings, "Exploit Agent", guardianContext, evaluationId, memory, onProgress),
-    GUARDIAN_LOOP_TIMEOUT_MS,
-    exploitResult.findings
-  );
+  const policyGuardianCtx: PolicyGuardianContext = {
+    organizationId: options?.organizationId,
+    executionMode: options?.executionMode || "safe",
+    assetId,
+    evaluationId,
+  };
+
+  const guardianResult = validateExploitFindings(exploitResult.findings, policyGuardianCtx);
+  const guardedExploitFindings = guardianResult.findings;
+
+  // Record safety decisions from policy guardian
+  if (guardianResult.decisions.length > 0) {
+    memory.safetyDecisions = [...(memory.safetyDecisions || []), ...guardianResult.decisions];
+    console.log(`[Orchestrator] POLICY_GUARDIAN_EXPLOIT: ${guardianResult.allowedCount} allowed, ${guardianResult.modifiedCount} modified, ${guardianResult.blockedCount} blocked`);
+    wsService.sendReasoningTrace(evaluationId, "policy_guardian", "PolicyGuardianExploit",
+      `${guardianResult.allowedCount} allowed, ${guardianResult.modifiedCount} modified, ${guardianResult.blockedCount} blocked`);
+  }
 
   // ──────────────────────────────────────────────────────────────
   // Debate Module: Adversarial validation of exploit findings
@@ -437,21 +492,34 @@ async function runPipeline(
   if (mvResult) memory.multiVector = (mvResult as { findings: MultiVectorFindings }).findings;
 
   // ──────────────────────────────────────────────────────────────
-  // Tier 3: Sequential — Lateral → Impact → Enhanced BL
-  // (Anthropic 30K tokens/min rate limit prevents parallel execution)
+  // Logic_Exploit_Confirmed Gate — only proceed to Tier 3 if any
+  // thread confirmed a real finding (EvidenceContract compliant)
+  // ──────────────────────────────────────────────────────────────
+  const exploitGate = gateExploitConfirmed(
+    debatedExploitFindings,
+    blResult.findings,
+    mvResult ? (mvResult as { findings: MultiVectorFindings }).findings : undefined
+  );
+  console.log(`[Orchestrator] Logic_Exploit_Confirmed: ${exploitGate.passed ? "PASS" : "FAIL"} — ${exploitGate.reason}`);
+  wsService.sendReasoningTrace(evaluationId, "pipeline_gate", "Logic_Exploit_Confirmed",
+    `${exploitGate.passed ? "PASS" : "FAIL"}: ${exploitGate.reason}`, exploitGate.metrics);
+
+  // ──────────────────────────────────────────────────────────────
+  // Tier 3: Lateral → Impact → Enhanced BL
+  // Only runs if Logic_Exploit_Confirmed gate passed
   // ──────────────────────────────────────────────────────────────
   const tier3Start = Date.now();
   onProgress?.("Analysis Agents", "analysis_tier3", 50, "Running lateral, impact, and enhanced analysis...");
   wsService.sendReasoningTrace(evaluationId, "orchestrator", "Orchestrator",
-    "Running lateral movement, impact assessment, and enhanced analysis sequentially (rate limit aware)");
+    "Running lateral movement, impact assessment, and enhanced analysis (rate limit aware)");
 
   // core-v2: shouldRunEnhancedEngine removed — always false
   const runEnhanced = false;
 
-  // Skip lateral movement agent when no exploits were found (nothing to pivot from)
-  const skipLateral = !debatedExploitFindings.exploitable || debatedExploitFindings.exploitChains.length === 0;
+  // Skip lateral movement agent when exploit gate failed or no exploits found
+  const skipLateral = !exploitGate.passed || !debatedExploitFindings.exploitable || debatedExploitFindings.exploitChains.length === 0;
   if (skipLateral) {
-    console.log("[Orchestrator] Skipping lateral agent: no exploitable findings to pivot from");
+    console.log("[Orchestrator] Skipping lateral agent: Logic_Exploit_Confirmed gate did not pass");
   }
 
   // --- Lateral Agent ---

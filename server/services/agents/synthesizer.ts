@@ -56,6 +56,11 @@ API Endpoints: ${memory.recon?.apiEndpoints.join(", ") || "None"}
 Auth Mechanisms: ${memory.recon?.authMechanisms.join(", ") || "None"}
 Technologies: ${memory.recon?.technologies.join(", ") || "None"}
 Potential Vulnerabilities: ${memory.recon?.potentialVulnerabilities.join(", ") || "None"}
+Resolved IP: ${memory.recon?.resolvedIp || "Unknown"}
+Open Ports: ${memory.recon?.openPorts.join(", ") || "None"}
+HTTP Fingerprint: ${memory.recon?.httpFingerprint ? `Server: ${memory.recon.httpFingerprint.server || "unknown"}, Framework: ${memory.recon.httpFingerprint.framework || "unknown"}, WAF: ${memory.recon.httpFingerprint.waf || "none"}` : "None"}
+Attack Readiness Score: ${memory.recon?.attackReadinessScore ?? "N/A"}
+External Recon Source: ${memory.recon?.externalReconSource || "none"}
 
 === EXPLOIT AGENT FINDINGS ===
 Exploitable: ${memory.exploit?.exploitable || false}

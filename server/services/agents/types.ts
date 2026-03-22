@@ -16,6 +16,19 @@ export interface AgentContext {
   realScanData?: any;
 }
 
+export interface BannerInfo {
+  service: string;
+  version: string | null;
+  banner: string | null;
+}
+
+export interface HttpFingerprint {
+  server: string | null;
+  framework: string | null;
+  cdn: string | null;
+  waf: string | null;
+}
+
 export interface ReconFindings {
   attackSurface: string[];
   entryPoints: string[];
@@ -23,6 +36,18 @@ export interface ReconFindings {
   authMechanisms: string[];
   technologies: string[];
   potentialVulnerabilities: string[];
+  /** Resolved IP address of the target */
+  resolvedIp: string;
+  /** Open TCP ports discovered during recon */
+  openPorts: number[];
+  /** Banner data keyed by port number */
+  bannerData: Record<string, BannerInfo>;
+  /** HTTP fingerprint of the target */
+  httpFingerprint: HttpFingerprint;
+  /** Attack readiness score 0-100 derived from recon data */
+  attackReadinessScore: number;
+  /** Whether recon data came from live scan, cache, or was unavailable */
+  externalReconSource: "live" | "cached" | "none";
 }
 
 export interface ExploitFindings {
