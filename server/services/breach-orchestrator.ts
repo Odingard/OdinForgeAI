@@ -1680,9 +1680,9 @@ async function executeApplicationCompromise(
             // ADR-001: Propagate HTTP evidence fields from AEE for EvidenceContract
             statusCode: (finding as any).statusCode ?? undefined,
             responseBody: (finding as any).responseBody ?? undefined,
-            curlCommand: (finding as any).curlCommand ?? undefined,
-            confidence: finding.confidence ?? undefined,
-            matchedPatterns: (finding as any).matchedPatterns ?? undefined,
+            ...((finding as any).curlCommand ? { curlCommand: (finding as any).curlCommand } : {}),
+            ...((finding as any).confidence != null ? { confidence: (finding as any).confidence } : {}),
+            ...((finding as any).matchedPatterns ? { matchedPatterns: (finding as any).matchedPatterns } : {}),
           });
           // Emit AI reasoning event: what the exploit agent confirmed and why it matters
           if (phase1Emitter) {
@@ -2039,9 +2039,9 @@ async function executeApplicationCompromise(
             // ADR-001: Propagate HTTP evidence fields from AEE for EvidenceContract
             statusCode: (finding as any).statusCode ?? undefined,
             responseBody: (finding as any).responseBody ?? undefined,
-            curlCommand: (finding as any).curlCommand ?? undefined,
-            confidence: finding.confidence ?? undefined,
-            matchedPatterns: (finding as any).matchedPatterns ?? undefined,
+            ...((finding as any).curlCommand ? { curlCommand: (finding as any).curlCommand } : {}),
+            ...((finding as any).confidence != null ? { confidence: (finding as any).confidence } : {}),
+            ...((finding as any).matchedPatterns ? { matchedPatterns: (finding as any).matchedPatterns } : {}),
           });
         }
         subAgentRuns.push({
