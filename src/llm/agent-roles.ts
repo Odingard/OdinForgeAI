@@ -12,7 +12,11 @@
  *   The deterministic engine remains the source of truth.
  */
 
-import type { ModelTier, TaskType } from "./model-router";
+import type { LlmProvider, LlmTask } from "./types";
+
+// Map old types to new
+type ModelTier = "primary" | "tactical" | "reviewer";
+type TaskType = LlmTask;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 

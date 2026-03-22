@@ -14,7 +14,11 @@
  *   but never bypass the deterministic engine or quality gate.
  */
 
-import { serviceLogger } from "../logger";
+// Standalone logger
+const serviceLogger = (_name: string) => ({
+  info: (msg: string, ...args: any[]) => console.log(`[LLM-MEMORY] ${msg}`, ...args),
+  warn: (msg: string, ...args: any[]) => console.warn(`[LLM-MEMORY] ${msg}`, ...args),
+});
 
 const log = serviceLogger("llm-memory");
 
