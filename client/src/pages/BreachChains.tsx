@@ -665,9 +665,30 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
     },
   });
 
+  // Download branded CISO PDF report from server-side renderer
+  const downloadCISOPdf = async () => {
+    try {
+      const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/report/pdf`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `OdinForge-CISO-Report-${chain.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Downloaded", description: "CISO PDF report downloaded." });
+    } catch (error: any) {
+      toast({ title: "Download Failed", description: error.message, variant: "destructive" });
+    }
+  };
+
   // Download engagement package component
   const downloadPackageComponent = async (component: string) => {
     try {
+      // CISO report downloads as branded PDF, not raw JSON
+      if (component === "ciso") {
+        return downloadCISOPdf();
+      }
       const res = await apiRequest("GET", `/api/breach-chains/${chain.id}/package?component=${component}`);
       if (component === "replay") {
         const html = await res.text();
@@ -734,10 +755,18 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
           <button
             className="f-btn f-btn-secondary"
             style={{ fontSize: 11, padding: "4px 10px" }}
+            onClick={() => downloadCISOPdf()}
+          >
+            <FileBarChart style={{ width: 12, height: 12, marginRight: 5 }} />
+            Download PDF
+          </button>
+          <button
+            className="f-btn f-btn-secondary"
+            style={{ fontSize: 11, padding: "4px 10px" }}
             onClick={() => setShowExport(true)}
           >
             <Download style={{ width: 12, height: 12, marginRight: 5 }} />
-            Export
+            Board Export
           </button>
           {chain.status === "completed" && !isSealed && (
             <button
@@ -806,7 +835,7 @@ function ChainDetail({ chain }: { chain: BreachChain }) {
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
               {[
-                { key: "ciso", label: "CISO Report", desc: "Risk Grade, breach narrative, compliance implications" },
+                { key: "ciso", label: "CISO Report (PDF)", desc: "Risk Grade, breach narrative, compliance implications" },
                 { key: "engineer", label: "Engineer Report", desc: "Full chain trace, HTTP evidence, remediation diffs" },
                 { key: "evidence", label: "Evidence JSON", desc: "Machine-readable findings for SIEM ingestion" },
                 { key: "defenders-mirror", label: "Defender's Mirror", desc: "Sigma, YARA, Splunk SPL detection rules" },

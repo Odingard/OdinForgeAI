@@ -228,13 +228,12 @@ function buildDefendersMirror(chain: BreachChain): DetectionRuleSet[] {
 // ─── Attack Path Extraction (Phase 14) ───────────────────────────────────────
 
 function extractAttackPaths(chain: BreachChain): { primary: PackageAttackPath | null; supporting: PackageAttackPath[] } {
-  const graph = chain.unifiedAttackGraph as any;
-  if (!graph?.nodes) return { primary: null, supporting: [] };
-
-  // The enriched attack paths are stored by the engine in the graph
-  // They may also be in the chain's phase results
+  // Build paths from phase-result findings — works with or without unifiedAttackGraph
   const phases = (chain.phaseResults as BreachPhaseResult[] | null) ?? [];
   const allFindings = phases.flatMap(p => (p.findings ?? []).map(f => ({ ...f, _phase: p.phaseName })));
+
+  // Early return only when there are genuinely no findings to work with
+  if (allFindings.length === 0) return { primary: null, supporting: [] };
 
   // Build paths from findings — group by severity and chain potential
   const criticalFindings = allFindings.filter(f => f.severity === 'critical');
