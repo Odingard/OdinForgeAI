@@ -327,62 +327,61 @@ function translatePathBusinessImpact(findings: any[]): string {
 
 // ─── Path-Based Remediation (Phase 14) ──────────────────────────────────────
 
-function generatePathRemediation(primaryPath: PackageAttackPath | null, findings: any[]): RemediationPlan {
-  const immediate: string[] = [];
-  const pivotDisruption: string[] = [];
-  const artifactProtection: string[] = [];
-  const privilegeBoundary: string[] = [];
-  const monitoring: string[] = [];
-
+function generatePathRemediation(primaryPath: PackageAttackPath | null, _findings: any[]): RemediationPlan {
   if (!primaryPath) {
-    return { immediate: ['Review all findings and prioritize by severity'], pivotDisruption: [], artifactProtection: [], privilegeBoundary: [], monitoring: ['Enable security monitoring'] };
+    return {
+      immediate: ['Review all findings and prioritize by severity'],
+      pivotDisruption: [],
+      artifactProtection: [],
+      privilegeBoundary: ['Enforce role-based access control across all sensitive functionality'],
+      monitoring: ['Enable security monitoring on high-risk endpoints'],
+    };
   }
 
-  // Analyze each step for remediation
-  for (const step of primaryPath.steps) {
-    const tech = (step.technique || '').toLowerCase();
-    const action = (step.action || '').toLowerCase();
+  const steps = primaryPath.steps || [];
+  const entryStep = steps[0];
+  const rawTech = entryStep?.technique || entryStep?.action || 'entry vulnerability';
+  const entryVuln = rawTech.includes(' → ') ? rawTech.split(' → ').slice(1).join(' → ') : rawTech;
+  const entryPoint = rawTech.includes(' → ') ? rawTech.split(' → ')[0] : (primaryPath.name?.split(' → ')[0] || 'affected endpoint');
+  const attackPatterns = Array.from(new Set(steps.map(s => s.technique).filter(Boolean))).join(', ');
 
-    // Immediate: block entry point
-    if (step.order === 1) {
-      if (tech.includes('sqli') || tech.includes('nosql')) immediate.push('Implement parameterized queries and input validation on all database-facing endpoints');
-      if (tech.includes('xss')) immediate.push('Apply output encoding and Content-Security-Policy headers');
-      if (tech.includes('graphql')) immediate.push('Disable GraphQL introspection in production and implement query depth limiting');
-      if (tech.includes('jwt') || tech.includes('auth')) immediate.push('Enforce strong JWT validation: reject none algorithm, require RS256, validate all claims');
-      if (tech.includes('ssrf')) immediate.push('Restrict outbound requests, block internal IP ranges, validate URL destinations');
-      if (tech.includes('traversal')) immediate.push('Normalize file paths, enforce allowlists, prevent directory traversal sequences');
-      if (tech.includes('command')) immediate.push('Remove shell execution, use language-native APIs, sanitize all input');
-    }
+  // Immediate: remediate entry point
+  const immediate: string[] = [
+    `Remediate ${entryVuln} on ${entryPoint}`,
+    'Apply strict input validation and secure handling for all affected components',
+    'Disable or restrict exposed functionality enabling initial access',
+  ];
 
-    // Pivot disruption
-    if (action.includes('pivot') || action.includes('replay') || action.includes('escalat')) {
-      pivotDisruption.push(`Break pivot at step ${step.order}: restrict ${step.technique} capability`);
-    }
-    if (tech.includes('graphql') && step.order > 1) {
-      pivotDisruption.push('Implement per-field authorization in GraphQL resolvers');
-    }
-
-    // Artifact protection
-    if (step.artifactsGained?.length) {
-      artifactProtection.push('Rotate all exposed credentials and tokens immediately');
-      artifactProtection.push('Implement short-lived tokens with automatic rotation');
+  // Pivot disruption: break chain at weakest link
+  const pivotDisruption: string[] = [];
+  for (const step of steps) {
+    if (step.order > 1) {
+      pivotDisruption.push(`Break chain progression at step ${step.order} by addressing ${step.technique}`);
     }
   }
+  pivotDisruption.push('Enforce strict authorization checks on all intermediate operations');
+  pivotDisruption.push('Remove or isolate functionality that enables chained exploitation');
+
+  // Artifact protection
+  const artifactProtection = [
+    'Rotate all potentially exposed credentials, tokens, and session artifacts',
+    'Enforce short-lived tokens and automatic rotation',
+    'Implement secure session handling (HttpOnly, SameSite, invalidation on privilege change)',
+  ];
 
   // Privilege boundary
-  if (primaryPath.finalImpact.toLowerCase().includes('admin')) {
-    privilegeBoundary.push('Enforce role-based access control with principle of least privilege');
-    privilegeBoundary.push('Separate admin and user authentication domains');
-  }
-  privilegeBoundary.push('Implement network segmentation between application tiers');
+  const privilegeBoundary = [
+    'Restrict access to privileged operations and administrative endpoints',
+    'Enforce role-based access control across all sensitive functionality',
+    'Ensure separation between public, authenticated, and privileged zones',
+  ];
 
   // Monitoring
-  monitoring.push('Deploy WAF rules matching the attack patterns from this assessment');
-  monitoring.push('Enable logging for all authentication and authorization events');
-  monitoring.push('Set alerts for GraphQL introspection attempts in production');
-  if (primaryPath.artifacts.length > 0) {
-    monitoring.push('Monitor for credential reuse and session anomalies');
-  }
+  const monitoring = [
+    `Deploy detection for attack patterns observed in this path: ${attackPatterns}`,
+    'Alert on replay behavior, token misuse, and abnormal authentication activity',
+    `Monitor high-risk endpoints such as ${entryPoint} and related surfaces`,
+  ];
 
   return {
     immediate: Array.from(new Set(immediate)),
