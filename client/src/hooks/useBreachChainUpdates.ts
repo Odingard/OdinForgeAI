@@ -89,11 +89,8 @@ export function useBreachChainUpdates({
   // Expire old live events
   useEffect(() => {
     cleanupRef.current = setInterval(() => {
-      const now = Date.now();
-      setLiveEvents(prev => {
-        const filtered = prev.filter(e => e.expiresAt > now);
-        return filtered.length === prev.length ? prev : filtered;
-      });
+      // Live events persist for the duration of the run — no expiry cleanup
+      // Old code expired events after 8s, causing the feed to appear empty
     }, 1000);
     return () => { if (cleanupRef.current) clearInterval(cleanupRef.current); };
   }, []);

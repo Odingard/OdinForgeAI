@@ -270,8 +270,10 @@ export function emitCognitiveEvent(event: CognitiveEvent): void {
       cognitiveType: event.type,
       ...rest,
     } as unknown as BreachEvent);
-  } catch {
+    // Debug: confirm events are being emitted
+    console.log(`[WS:COGNITIVE] ${event.chainId} | ${event.type} | ${event.summary?.slice(0, 80)}`);
+  } catch (err) {
     // wsService not initialized (test/CLI context) — log instead
-    console.log(`[COGNITIVE] ${event.type} | ${event.summary}${event.detail ? ` | ${event.detail}` : ""}`);
+    console.log(`[COGNITIVE:FALLBACK] ${event.type} | ${event.summary} | ERROR: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
