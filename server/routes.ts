@@ -3529,22 +3529,73 @@ export async function registerRoutes(
       const replayManifest = chain.replayManifest as Record<string, unknown> | null;
       const replayEvents = (replayManifest?.events as Array<Record<string, unknown>> || []);
 
-      // Extract discovered endpoints from phase results or graph nodes
-      const discoveredEndpoints: EngineRunContext["discoveredEndpoints"] = graphNodes
-        .filter((n: Record<string, unknown>) => n.type === "endpoint" || n.kind === "endpoint")
-        .map((n: Record<string, unknown>) => ({
-          url: String(n.url || n.label || ""),
-          method: String(n.method || "GET"),
-          discoverySource: String(n.discoverySource || "crawl"),
-          contentType: String(n.contentType || ""),
-        }));
+      // Extract discovered endpoints from findings across all phase results.
+      // Graph nodes are phase-level (not endpoint-level), so we extract unique
+      // endpoint URLs from finding titles/descriptions and from graph node labels.
+      const discoveredEndpoints: EngineRunContext["discoveredEndpoints"] = [];
+      const seenUrls = new Set<string>();
 
-      // If no endpoints from graph, estimate from phase 1 data
+      // 1. Extract endpoints from finding data (most reliable source)
+      for (const f of allFindings) {
+        const title = String(f.title || "");
+        const desc = String(f.description || "");
+        const technique = String(f.technique || f.exploitChain || "");
+
+        // Extract URLs from finding text: look for paths like /path or http://...
+        const urlPatterns = [
+          /https?:\/\/[^\s"',]+/gi,
+          /(?:GET|POST|PUT|DELETE|PATCH)\s+(\/[^\s→"',]+)/gi,
+          /\bon\s+(\/[^\s→"',]+)/gi,
+        ];
+        for (const pattern of urlPatterns) {
+          for (const text of [title, desc, technique]) {
+            let match;
+            const re = new RegExp(pattern.source, pattern.flags);
+            while ((match = re.exec(text)) !== null) {
+              const url = match[1] || match[0];
+              if (!seenUrls.has(url) && url.length > 1) {
+                seenUrls.add(url);
+                const methodMatch = text.match(new RegExp(`(GET|POST|PUT|DELETE|PATCH)\\s+${url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i'));
+                discoveredEndpoints.push({
+                  url,
+                  method: methodMatch ? methodMatch[1] : "GET",
+                  discoverySource: "finding",
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // 2. Supplement from graph nodes if they have URL-like labels
+      for (const n of graphNodes) {
+        const label = String(n.label || n.url || "");
+        if (label.startsWith("/") || label.startsWith("http")) {
+          if (!seenUrls.has(label)) {
+            seenUrls.add(label);
+            discoveredEndpoints.push({
+              url: label,
+              method: String(n.method || "GET"),
+              discoverySource: "graph",
+            });
+          }
+        }
+      }
+
+      // 3. If still empty, use total endpoint count from chain summary
       if (discoveredEndpoints.length === 0) {
+        const chainSummary = (chain as Record<string, unknown>).summary as Record<string, unknown> | undefined;
+        const totalEps = Number(
+          chainSummary?.totalEndpoints ||
+          chainSummary?.endpoints ||
+          (chain as Record<string, unknown>).totalEndpoints ||
+          0
+        );
+        // Also check phase 1 findings count as a minimum baseline
         const p1 = phaseResults.find((p: Record<string, unknown>) => p.phaseName === "application_compromise") as Record<string, unknown> | undefined;
-        const p1Summary = p1?.summary as Record<string, unknown> | undefined;
-        const endpointCount = Number(p1Summary?.endpoints || p1Summary?.totalEndpoints || 0);
-        for (let i = 0; i < endpointCount; i++) {
+        const p1Findings = ((p1?.findings as Array<unknown>) || []).length;
+        const endpointEstimate = Math.max(totalEps, p1Findings);
+        for (let i = 0; i < endpointEstimate; i++) {
           discoveredEndpoints.push({ url: `endpoint-${i}`, method: "GET" });
         }
       }
