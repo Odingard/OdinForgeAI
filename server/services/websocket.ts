@@ -702,7 +702,13 @@ class WebSocketService {
    * Replaces the coarse phase-level graph snapshot with per-event streaming.
    */
   broadcastBreachEvent(chainId: string, event: BreachEvent): void {
-    this.broadcastToChannel(`breach_chain:${chainId}`, event as unknown as WebSocketEvent);
+    // Broadcast to all authenticated clients — channel subscription is unreliable
+    // due to React state timing (subscribe fires before isConnected updates).
+    // In operator/managed-service context, all connected clients need breach events.
+    const payload = { ...event, chainId } as unknown as WebSocketEvent;
+    this.clients.forEach((_client, ws) => {
+      this.sendToClient(ws, payload);
+    });
   }
 
   getStats(): {
