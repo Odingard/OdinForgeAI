@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
+import { useBreachSSE } from "@/hooks/useBreachSSE";
 import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
 import { LaunchReadinessPanel } from "@/components/dashboard/LaunchReadinessPanel";
@@ -416,6 +417,8 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
   });
+  // SSE fallback for reliable live feed (WebSocket has React lifecycle timing issues)
+  const { events: sseEvents } = useBreachSSE(chain.id, chain.status === "running");
   const [elapsed, setElapsed] = useState(0);
   const tiRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>("map");
@@ -483,6 +486,22 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
       cls: e.eventKind === "vuln_confirmed" ? "crit" : e.eventKind === "credential_extracted" ? "warn" : "dim",
       _sortKey: new Date(e.timestamp || 0).getTime(),
     })),
+    // SSE events (reliable fallback for live feed)
+    ...sseEvents.map((e) => {
+      const agentMap: Record<string, string> = {
+        "exploration.started": "RECON", "exploration.succeeded": "CONFIRM",
+        "exploration.failed": "RECON", "intelligence.strategy": "SYS",
+        "intelligence.hypothesis": "EXPLOIT", "adaptation.pivot": "PIVOT",
+      };
+      return {
+        ts: fmtTime(e.timestamp),
+        agent: agentMap[e.cognitiveType || ""] || e.type?.replace("breach_", "").toUpperCase().slice(0, 7) || "SYS",
+        msg: e.summary || e.detail || e.decision || e.label || "event",
+        cls: e.cognitiveType?.includes("succeeded") || e.outcome === "confirmed" ? "crit"
+           : e.cognitiveType?.includes("failed") ? "warn" : "dim",
+        _sortKey: new Date(e.timestamp || 0).getTime(),
+      };
+    }),
   ];
   // Sort by time so events appear in chronological order
   feedRows.sort((a, b) => a._sortKey - b._sortKey);

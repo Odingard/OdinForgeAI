@@ -91,6 +91,42 @@ export async function registerRoutes(
     res.json(flags);
   });
 
+  // ── SSE: Live breach chain event stream ────────────────────────────────
+  // Reliable alternative to WebSocket — no subscription timing issues.
+  // Client opens EventSource, server pushes events as they happen.
+  const _sseClients = new Map<string, import("express").Response[]>();
+
+  // Register SSE event buffer on the app for the breach emitter to push to
+  (app as any)._sseClients = _sseClients;
+
+  app.get("/api/breach-chains/:chainId/events", async (req: any, res, next) => {
+    // EventSource can't set headers, so accept token as query param
+    const token = req.query.token as string;
+    if (token) req.headers.authorization = `Bearer ${token}`;
+    return uiAuthMiddleware(req, res, next);
+  }, (req: any, res) => {
+    const chainId = req.params.chainId;
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(`data: ${JSON.stringify({ type: "connected", chainId })}\n\n`);
+
+    if (!_sseClients.has(chainId)) _sseClients.set(chainId, []);
+    _sseClients.get(chainId)!.push(res);
+
+    req.on("close", () => {
+      const clients = _sseClients.get(chainId);
+      if (clients) {
+        const idx = clients.indexOf(res);
+        if (idx >= 0) clients.splice(idx, 1);
+        if (clients.length === 0) _sseClients.delete(chainId);
+      }
+    });
+  });
+
   app.get("/healthz", (_req, res) => {
     res.status(200).json({
       ok: true,

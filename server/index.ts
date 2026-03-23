@@ -11,6 +11,7 @@ import { initializeRLS } from "./services/rls-setup";
 import { initWsBridge } from "./services/ws-bridge";
 
 const app = express();
+(global as any).__expressApp = app;  // Expose for SSE breach event streaming
 const httpServer = createServer(app);
 
 declare module "http" {

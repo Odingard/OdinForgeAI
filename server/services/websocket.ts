@@ -702,13 +702,24 @@ class WebSocketService {
    * Replaces the coarse phase-level graph snapshot with per-event streaming.
    */
   broadcastBreachEvent(chainId: string, event: BreachEvent): void {
-    // Broadcast to all authenticated clients — channel subscription is unreliable
-    // due to React state timing (subscribe fires before isConnected updates).
-    // In operator/managed-service context, all connected clients need breach events.
+    // Broadcast to all authenticated WS clients
     const payload = { ...event, chainId } as unknown as WebSocketEvent;
     this.clients.forEach((_client, ws) => {
       this.sendToClient(ws, payload);
     });
+
+    // Also push to SSE clients (reliable fallback)
+    try {
+      const app = (global as any).__expressApp;
+      const sseClients: Map<string, any[]> | undefined = app?._sseClients;
+      if (sseClients) {
+        const chainClients = sseClients.get(chainId) || [];
+        const sseData = `data: ${JSON.stringify({ ...event, chainId })}\n\n`;
+        for (const res of chainClients) {
+          try { res.write(sseData); } catch { /* client gone */ }
+        }
+      }
+    } catch { /* no SSE available */ }
   }
 
   getStats(): {
