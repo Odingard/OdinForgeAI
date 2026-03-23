@@ -345,7 +345,7 @@ function NetworkMap({
         title: n.label, sev: n.severity ?? "info",
         technique: n.technique, ts: n.timestamp,
       };
-      drawNode({ id: n.nodeId, x: pos.x, y: pos.y, r: isSpine ? 17 : 13, label: n.label?.slice(0, 6) ?? "?", col, data: nodeData });
+      drawNode({ id: n.nodeId, x: pos.x, y: pos.y, r: isSpine ? 17 : 13, label: n.label?.slice(0, 18) ?? "?", col, data: nodeData });
     });
     liveEdges.forEach((e: any) => {
       const key = `${e.fromNodeId}-${e.toNodeId}`;
@@ -381,18 +381,26 @@ function NetworkMap({
         technique: `${(phase.findings || []).length} findings`,
         ts: phase.completedAt ?? undefined,
       };
-      drawNode({ id: `phase-${i}`, x: pos.x, y: pos.y, r: 17, label: String(i + 1), col, data });
+      const phaseLabel = PHASE_LABELS[phase.phaseName] ?? `P${i + 1}`;
+      const findingCount = (phase.findings || []).length;
+      drawNode({ id: `phase-${i}`, x: pos.x, y: pos.y, r: 17, label: findingCount > 0 ? `${phaseLabel}(${findingCount})` : phaseLabel, col, data });
       if (i > 0) drawEdge(phaseCoords[i - 1].x, phaseCoords[i - 1].y, pos.x, pos.y, GRY, false, false, 300 + i * 200);
-      (phase.findings || []).slice(0, 3).forEach((f: any, fi: number) => {
+      (phase.findings || []).slice(0, 5).forEach((f: any, fi: number) => {
         const fCol = SEV_COLOR[f.severity] ?? GRY;
-        const fx = pos.x + (fi % 2 === 0 ? 80 : -80);
-        const fy = pos.y + Math.floor(fi / 2) * 28 - 14;
+        const angle = (fi / Math.max(1, (phase.findings || []).length)) * Math.PI * 1.5 - Math.PI * 0.25;
+        const dist = 70 + (fi % 2) * 25;
+        const fx = pos.x + Math.cos(angle) * dist;
+        const fy = pos.y + Math.sin(angle) * dist;
+        // Extract short label from finding title
+        const titleClean = (f.title || "").replace(/\[VALIDATED\]\s*/i, "").replace(/\[SYNTHESIS\]\s*/i, "");
+        const shortLabel = titleClean.length > 16 ? titleClean.slice(0, 15) + "…" : titleClean;
         const fData: NodeData = {
           title: f.title ?? "Finding", sev: f.severity ?? "medium",
           technique: f.technique, mitre: f.mitreId,
           evidence: f.description, ts: f.confirmedAt,
+          status: f.statusCode, curl: f.curlCommand,
         };
-        drawNode({ id: `f-${i}-${fi}`, x: fx, y: fy, r: 11, label: (f.severity ?? "med").slice(0, 4), col: fCol, data: fData });
+        drawNode({ id: `f-${i}-${fi}`, x: fx, y: fy, r: 11, label: shortLabel || "finding", col: fCol, data: fData });
         drawEdge(pos.x, pos.y, fx, fy, fCol, false, false, 500 + i * 200 + fi * 100);
       });
     });
