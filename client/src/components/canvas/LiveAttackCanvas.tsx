@@ -59,23 +59,23 @@ const PHASE_COL: Record<string, string> = {
 
 const SEV_COL: Record<string, string> = {
   critical: "#ef4444",
-  high: "#f59e0b",
-  medium: "#3b82f6",
-  low: "#334155",
-  info: "#334155",
+  high: "#f97316",
+  medium: "#f59e0b",
+  low: "#22c55e",
+  info: "#6b7280",
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function truncateLabel(raw: string, maxLen = 18): string {
+function truncateLabel(raw: string, maxLen = 22): string {
   if (raw.length <= maxLen) return raw;
-  return raw.slice(0, maxLen);
+  return raw.slice(0, maxLen - 1) + "\u2026";
 }
 
-function truncateTechnique(raw: string, maxLen = 12): string {
+function truncateTechnique(raw: string, maxLen = 14): string {
   if (!raw) return "";
   if (raw.length <= maxLen) return raw;
-  return raw.slice(0, maxLen);
+  return raw.slice(0, maxLen - 1) + "\u2026";
 }
 
 function hashJitter(s: string, range: number): number {
