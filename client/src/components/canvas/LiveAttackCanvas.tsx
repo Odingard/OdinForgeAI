@@ -12,7 +12,6 @@ interface CanvasNode {
   r: number;
   col: string;
   data: EvidenceData;
-  isMuted: boolean;
 }
 
 interface CanvasEdge {
@@ -87,6 +86,12 @@ function buildAssets(evt: any): AssetProofItem[] {
   if (ctx.technique || evt.technique) assets.push({ k: "technique", v: ctx.technique || evt.technique, c: "" });
   if (ctx.service) assets.push({ k: "service", v: ctx.service, c: "" });
   if (evt.detail) assets.push({ k: "detail", v: evt.detail, c: "" });
+  // Surface-discovery context: zone, sensitivity, phase, kind
+  if (evt.zone) assets.push({ k: "zone", v: evt.zone, c: "" });
+  if (evt.sensitivity) assets.push({ k: "sensitivity", v: evt.sensitivity, c: "" });
+  if (evt.phase) assets.push({ k: "phase", v: evt.phase, c: "" });
+  if (evt.kind) assets.push({ k: "role", v: evt.kind, c: "" });
+  if (evt.source && !ctx.targetUrl && !evt.targetUrl) assets.push({ k: "source", v: evt.source, c: "blue" });
   return assets;
 }
 
@@ -119,7 +124,7 @@ export function LiveAttackCanvas({
   const [nodes, setNodes] = useState<Map<string, CanvasNode>>(new Map());
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [processedCount, setProcessedCount] = useState(0);
-  const [hintText, setHintText] = useState("click any confirmed node to inspect full asset evidence");
+  const [hintText, setHintText] = useState("click any node to inspect evidence & context");
   const [hintActive, setHintActive] = useState(false);
   const yCounters = useRef<Record<string, number>>({});
 
@@ -160,7 +165,6 @@ export function LiveAttackCanvas({
               r,
               col,
               data: buildEvidenceData(evt),
-              isMuted: sev === "info",
             });
             return next;
           });
@@ -308,22 +312,20 @@ export function LiveAttackCanvas({
               key={node.id}
               className="cv-node-appear"
               style={{
-                cursor: node.isMuted ? "default" : "pointer",
+                cursor: "pointer",
                 transformOrigin: `${node.x}px ${node.y}px`,
               }}
               onClick={() => {
-                if (!node.isMuted && onNodeClick) {
+                if (onNodeClick) {
                   onNodeClick(node.data);
                 }
               }}
               onMouseEnter={() => {
-                if (!node.isMuted) {
-                  setHintText(node.data.title);
-                  setHintActive(true);
-                }
+                setHintText(node.data.title);
+                setHintActive(true);
               }}
               onMouseLeave={() => {
-                setHintText("click any confirmed node to inspect full asset evidence");
+                setHintText("click any node to inspect evidence & context");
                 setHintActive(false);
               }}
             >

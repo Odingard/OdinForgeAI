@@ -1,3 +1,5 @@
+import { useState, useCallback } from "react";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface AssetProofItem {
@@ -67,6 +69,9 @@ export function EvidencePanel({ data, onClose }: EvidencePanelProps) {
 // ── Evidence Content ─────────────────────────────────────────────────────────
 
 function EvidenceContent({ data }: { data: EvidenceData }) {
+  // Determine whether this node has exploit-level evidence
+  const hasExploitEvidence = !!(data.evidence || data.extracted || data.curl || data.status != null);
+
   return (
     <>
       {/* Severity badge */}
@@ -84,14 +89,14 @@ function EvidenceContent({ data }: { data: EvidenceData }) {
         </div>
       )}
 
-      {/* Asset Proof Grid */}
+      {/* Asset Proof Grid / Node Context */}
       {data.assets && data.assets.length > 0 && (
         <>
           <div className="cv-pdiv" />
           <div className="cv-pf">
             <div className="cv-pl">
-              <span className="cv-pl-dot" style={{ background: "#f59e0b" }} />
-              ASSET PROOF
+              <span className="cv-pl-dot" style={{ background: hasExploitEvidence ? "#f59e0b" : "#6b7280" }} />
+              {hasExploitEvidence ? "ASSET PROOF" : "NODE CONTEXT"}
             </div>
             <div className="cv-asset-grid">
               {data.assets.map((a, i) => (
@@ -100,6 +105,16 @@ function EvidenceContent({ data }: { data: EvidenceData }) {
             </div>
           </div>
         </>
+      )}
+
+      {/* Informational note for nodes without exploit evidence */}
+      {!hasExploitEvidence && (
+        <div className="cv-pf">
+          <div className="cv-pv" style={{ color: "#64748b", fontSize: "9px", fontStyle: "italic" }}>
+            Discovered during surface reconnaissance.
+            No exploit evidence collected yet.
+          </div>
+        </div>
       )}
 
       {/* HTTP Status */}
@@ -163,13 +178,57 @@ function EvidenceContent({ data }: { data: EvidenceData }) {
         </>
       )}
 
-      {/* SHA-256 evidence seal */}
+      {/* SHA-256 evidence seal — copyable with explanation tooltip */}
       {data.hash && (
-        <div className="cv-proof-hash">
-          <span>SHA-256 evidence seal:</span> {data.hash}
-        </div>
+        <HashSeal hash={data.hash} />
       )}
     </>
+  );
+}
+
+// ── Hash Seal (copyable with tooltip) ────────────────────────────────────────
+
+function HashSeal({ hash }: { hash: string }) {
+  const [copied, setCopied] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(hash).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      // Fallback: select text for manual copy
+    });
+  }, [hash]);
+
+  return (
+    <div
+      className="cv-proof-hash cv-proof-hash-interactive"
+      onClick={handleCopy}
+      onMouseEnter={() => setShowTip(true)}
+      onMouseLeave={() => setShowTip(false)}
+      title="Cryptographic proof this evidence was captured at assessment time and has not been modified. Click to copy."
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleCopy(); }}
+    >
+      <div className="cv-proof-hash-label">
+        <span>SHA-256 evidence seal</span>
+        <span className="cv-proof-hash-info" aria-label="What is this?">&#9432;</span>
+      </div>
+      <div className="cv-proof-hash-value">{hash}</div>
+      {showTip && !copied && (
+        <div className="cv-proof-hash-tooltip">
+          Cryptographic proof this evidence was captured at assessment time
+          and has not been modified. Click to copy.
+        </div>
+      )}
+      {copied && (
+        <div className="cv-proof-hash-tooltip cv-proof-hash-copied">
+          Copied to clipboard
+        </div>
+      )}
+    </div>
   );
 }
 
