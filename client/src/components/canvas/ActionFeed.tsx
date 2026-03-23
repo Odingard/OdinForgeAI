@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 interface ActionFeedProps {
   events: any[];
   currentPhase?: string | null;
+  startedAt?: string | null;
 }
 
 interface FeedRow {
@@ -43,39 +44,64 @@ function messageClassForEvent(evt: any): string {
   return "";
 }
 
-// ── Format timestamp ─────────────────────────────────────────────────────────
+// ── Format timestamp as elapsed mm:ss from start ────────────────────────────
 
-function fmtTs(ts: string | undefined): string {
+function fmtTs(ts: string | undefined, startIso?: string | null): string {
   if (!ts) return "";
   try {
-    const d = new Date(ts);
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    const ss = String(d.getSeconds()).padStart(2, "0");
-    return `${mm}:${ss}`;
+    const d = new Date(ts).getTime();
+    const s = startIso ? new Date(startIso).getTime() : d;
+    const diffSec = Math.max(0, Math.floor((d - s) / 1000));
+    const mm = Math.floor(diffSec / 60);
+    const ss = diffSec % 60;
+    return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   } catch {
     return "";
   }
+}
+
+// ── Clean debug prefixes from messages ───────────────────────────────────────
+
+function stripDebugPrefixes(msg: string): string {
+  let out = msg;
+  out = out.replace(/\[HEADLESS:[^\]]*\]\s*/g, "");
+  out = out.replace(/\[PROBE\]\s*/g, "");
+  out = out.replace(/\[FRONTIER:[^\]]*\]\s*/g, "");
+  out = out.replace(/\[JS_EXTRACT[^\]]*\]\s*/g, "");
+  out = out.replace(/\[endpoint\]\s*/g, "");
+  // "GET /path — HTTP 200" → "Found /path (HTTP 200)"
+  const httpMatch = out.match(/^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(\S+)\s*—?\s*HTTP\s+(\d+)/i);
+  if (httpMatch) return `Found ${httpMatch[1]} (HTTP ${httpMatch[2]})`;
+  // "200 — /path" → "Found /path (HTTP 200)"
+  const probeMatch = out.match(/^(\d{3})\s*—?\s*(\S+)/);
+  if (probeMatch) return `Found ${probeMatch[2]} (HTTP ${probeMatch[1]})`;
+  // Progress messages cleanup
+  const progressMatch = out.match(/^(\d+)\/(\d+)\s+endpoints?\s+tested,?\s*(\d+)\s+validated/i);
+  if (progressMatch) return `Testing: ${progressMatch[1]}/${progressMatch[2]}, ${progressMatch[3]} validated`;
+  if (out.length > 60) out = out.slice(0, 57) + "...";
+  return out;
 }
 
 // ── Build display message ────────────────────────────────────────────────────
 // Prefer the enriched `detail` field, fall back to `message`, then `decision`.
 
 function buildDisplayMessage(evt: any): string {
+  let raw = "";
   // The enriched detail field carries technique + target + what was found
-  if (evt.detail && evt.detail.length > 0) return evt.detail;
+  if (evt.detail && evt.detail.length > 0) raw = evt.detail;
   // Fall back to the existing message field
-  if (evt.message && evt.message.length > 0) return evt.message;
+  else if (evt.message && evt.message.length > 0) raw = evt.message;
   // BreachReasoningEvent uses `decision` + `rationale`
-  if (evt.decision) {
+  else if (evt.decision) {
     const suffix = evt.rationale ? ` \u2014 ${evt.rationale}` : "";
-    return `${evt.decision}${suffix}`;
+    raw = `${evt.decision}${suffix}`;
   }
-  return "";
+  return stripDebugPrefixes(raw);
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function ActionFeed({ events, currentPhase }: ActionFeedProps) {
+export function ActionFeed({ events, currentPhase, startedAt }: ActionFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom
@@ -88,7 +114,7 @@ export function ActionFeed({ events, currentPhase }: ActionFeedProps) {
     const intent: string = evt.reasoningIntent || evt.intent || "summarize";
     const agentInfo = INTENT_TO_AGENT[intent] || INTENT_TO_AGENT.summarize;
     return {
-      timestamp: fmtTs(evt.timestamp),
+      timestamp: fmtTs(evt.timestamp, startedAt),
       agent: agentInfo.label,
       agentClass: agentInfo.cls,
       message: buildDisplayMessage(evt),

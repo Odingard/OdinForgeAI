@@ -49,13 +49,103 @@ const SEV_CLS: Record<string, string> = {
 
 // ── Feed helpers ─────────────────────────────────────────────────────────────
 
-/** Format ISO timestamp into mm:ss for feed rows */
-function fmtTime(ts: string | undefined | null): string {
+/** Format ISO timestamp as elapsed mm:ss from a start time */
+function fmtElapsed(ts: string | undefined | null, startIso: string | undefined | null): string {
   if (!ts) return "--:--";
   try {
-    const d = new Date(ts);
-    return `${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+    const d = new Date(ts).getTime();
+    const s = startIso ? new Date(startIso).getTime() : d;
+    const diffSec = Math.max(0, Math.floor((d - s) / 1000));
+    const mm = Math.floor(diffSec / 60);
+    const ss = diffSec % 60;
+    return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   } catch { return "--:--"; }
+}
+
+// ── Notable path patterns (admin, auth, API, graphql, config) ────────────────
+const NOTABLE_PATH_RE = /\/(admin|auth|login|logout|signup|register|api|graphql|config|settings|dashboard|token|oauth|saml|\.env|wp-admin|phpmyadmin)/i;
+
+/** Clean a raw surface-signal / live-event message into operator-readable text */
+function cleanFeedMsg(kind: string, label: string, detail: string): string {
+  // Strip internal debug prefixes
+  let msg = detail || label || "";
+  msg = msg.replace(/\[HEADLESS:[^\]]*\]\s*/g, "");
+  msg = msg.replace(/\[PROBE\]\s*/g, "");
+  msg = msg.replace(/\[FRONTIER:[^\]]*\]\s*/g, "");
+  msg = msg.replace(/\[JS_EXTRACT[^\]]*\]\s*/g, "");
+  msg = msg.replace(/\[endpoint\]\s*/g, "");
+
+  // "GET /path — HTTP 200" → "Found /path (HTTP 200)"
+  const httpMatch = msg.match(/^(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s+(\S+)\s*—?\s*HTTP\s+(\d+)/i);
+  if (httpMatch) return `Found ${httpMatch[1]} (HTTP ${httpMatch[2]})`;
+
+  // "200 — /path" → "Found /path (HTTP 200)"
+  const probeMatch = msg.match(/^(\d{3})\s*—?\s*(\S+)/);
+  if (probeMatch) return `Found ${probeMatch[2]} (HTTP ${probeMatch[1]})`;
+
+  // Bare URL left after prefix strip → "Discovered /path"
+  if (kind === "endpoint" && msg.match(/^\/\S+$/)) return `Discovered ${msg}`;
+  if (kind === "endpoint" && msg.match(/^https?:\/\//)) {
+    try { return `Discovered ${new URL(msg).pathname}`; } catch { /* fall through */ }
+  }
+
+  // Progress messages: "5/17 endpoints tested, 18 validated, 24 gated skips"
+  const progressMatch = msg.match(/^(\d+)\/(\d+)\s+endpoints?\s+tested,?\s*(\d+)\s+validated(?:,\s*\d+\s+gated\s+skips?)?/i);
+  if (progressMatch) return `Testing endpoints: ${progressMatch[1]}/${progressMatch[2]} complete, ${progressMatch[3]} validated`;
+
+  // Truncate if still long
+  if (msg.length > 60) msg = msg.slice(0, 57) + "...";
+  return msg;
+}
+
+/** Summarize endpoint surface signals: batch into one summary + notable ones */
+function summarizeEndpoints(
+  signals: Array<{ kind: string; label: string; detail: string; timestamp: string }>,
+  startIso: string | undefined | null
+): Array<{ ts: string; agent: string; msg: string; cls: string; _sortKey: number }> {
+  const endpoints = signals.filter(s => s.kind === "endpoint");
+  const nonEndpoints = signals.filter(s => s.kind !== "endpoint");
+
+  const rows: Array<{ ts: string; agent: string; msg: string; cls: string; _sortKey: number }> = [];
+
+  // Non-endpoint signals pass through with cleaned messages
+  for (const ss of nonEndpoints) {
+    rows.push({
+      ts: fmtElapsed(ss.timestamp, startIso),
+      agent: "RECON",
+      msg: cleanFeedMsg(ss.kind, ss.label, ss.detail),
+      cls: "dim",
+      _sortKey: new Date(ss.timestamp || 0).getTime(),
+    });
+  }
+
+  if (endpoints.length === 0) return rows;
+
+  // Summary row using timestamp of last endpoint discovery
+  const lastTs = endpoints[endpoints.length - 1]!.timestamp;
+  rows.push({
+    ts: fmtElapsed(lastTs, startIso),
+    agent: "RECON",
+    msg: `Discovered ${endpoints.length} endpoint${endpoints.length === 1 ? "" : "s"} via crawl`,
+    cls: "dim",
+    _sortKey: new Date(lastTs || 0).getTime() - 1, // sort just before notable ones
+  });
+
+  // Show notable endpoints individually
+  for (const ep of endpoints) {
+    const path = ep.label || "";
+    if (NOTABLE_PATH_RE.test(path)) {
+      rows.push({
+        ts: fmtElapsed(ep.timestamp, startIso),
+        agent: "RECON",
+        msg: cleanFeedMsg("endpoint", ep.label, ep.detail),
+        cls: "warn",
+        _sortKey: new Date(ep.timestamp || 0).getTime(),
+      });
+    }
+  }
+
+  return rows;
 }
 
 /** Map phase name to agent badge for feed rows */
@@ -449,54 +539,61 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
 
   // Build feed from all real-time event streams + phase completions
   // Combines: stored phase results, live events, reasoning events, surface signals, phase transitions
+  const startIso = chain.startedAt ? String(chain.startedAt) : chain.createdAt ? String(chain.createdAt) : undefined;
+
   const feedRows: { ts: string; agent: string; msg: string; cls: string; _sortKey: number }[] = [
-    { ts: "00:00", agent: "SYS", msg: `target: ${chain.assetIds?.[0] ?? chain.name} — engagement started`, cls: "dim", _sortKey: 0 },
+    { ts: "00:00", agent: "SYS", msg: `Engagement started — ${chain.assetIds?.[0] ?? chain.name}`, cls: "dim", _sortKey: 0 },
     // Stored phase results (from DB, only appear after phase completion)
-    ...(chain.phaseResults || []).map((p: any) => ({
-      ts: fmtTime(p.completedAt), agent: phaseAgent(p.phaseName),
-      msg: `${PHASE_LABELS[p.phaseName] ?? p.phaseName} — ${p.status} — ${(p.findings || []).length} findings`,
-      cls: p.status === "completed" && (p.findings || []).some((f: any) => f.severity === "critical") ? "crit" : "ok",
-      _sortKey: new Date(p.completedAt || 0).getTime(),
-    })),
+    ...(chain.phaseResults || []).map((p: any) => {
+      const nFindings = (p.findings || []).length;
+      const hasCrit = (p.findings || []).some((f: any) => f.severity === "critical");
+      const label = PHASE_LABELS[p.phaseName] ?? p.phaseName;
+      return {
+        ts: fmtElapsed(p.completedAt, startIso), agent: phaseAgent(p.phaseName),
+        msg: `${label} complete — ${nFindings} finding${nFindings === 1 ? "" : "s"}`,
+        cls: p.status === "completed" && hasCrit ? "crit" : "ok",
+        _sortKey: new Date(p.completedAt || 0).getTime(),
+      };
+    }),
     // Real-time phase transitions (arrive during execution)
     ...phaseTransitions.map((pt: any) => ({
-      ts: fmtTime(pt.timestamp), agent: "SYS",
-      msg: `Phase ${pt.phaseIndex + 1} → ${PHASE_LABELS[pt.toPhase] ?? pt.toPhase}: ${pt.summary}`,
+      ts: fmtElapsed(pt.timestamp, startIso), agent: "SYS",
+      msg: `Phase ${pt.phaseIndex + 1} → ${PHASE_LABELS[pt.toPhase] ?? pt.toPhase}`,
       cls: "ok",
       _sortKey: new Date(pt.timestamp || 0).getTime(),
     })),
-    // Real-time surface signals (endpoints discovered, tech detected)
-    ...surfaceSignals.map((ss: any) => ({
-      ts: fmtTime(ss.timestamp), agent: "RECON",
-      msg: `[${ss.kind}] ${ss.label}${ss.detail ? " — " + ss.detail.slice(0, 80) : ""}`,
-      cls: "dim",
-      _sortKey: new Date(ss.timestamp || 0).getTime(),
-    })),
+    // Real-time surface signals — summarized (batch endpoint rows, show only notable)
+    ...summarizeEndpoints(
+      surfaceSignals.map((ss: any) => ({ kind: ss.kind, label: ss.label, detail: ss.detail, timestamp: ss.timestamp })),
+      startIso
+    ),
     // Real-time reasoning events (AI decisions)
     ...reasoningEvents.map((re: any) => ({
-      ts: fmtTime(re.timestamp), agent: re.outcome === "confirmed" ? "EXPLOIT" : re.outcome === "pivoting" ? "LATERAL" : "RECON",
+      ts: fmtElapsed(re.timestamp, startIso),
+      agent: re.outcome === "confirmed" ? "EXPLOIT" : re.outcome === "pivoting" ? "LATERAL" : "RECON",
       msg: `${re.decision}${re.techniqueTried ? " [" + re.techniqueTried + "]" : ""}`,
       cls: re.outcome === "confirmed" ? "crit" : re.outcome === "failed" ? "dim" : "warn",
       _sortKey: new Date(re.timestamp || 0).getTime(),
     })),
     // Live events (scanning, exploit_attempt, vuln_confirmed, credential_extracted)
     ...liveEvents.map((e: any) => ({
-      ts: fmtTime(e.timestamp), agent: liveEventAgent(e.eventKind),
-      msg: e.detail ?? e.target,
+      ts: fmtElapsed(e.timestamp, startIso), agent: liveEventAgent(e.eventKind),
+      msg: cleanFeedMsg("", e.target || "", e.detail ?? e.target),
       cls: e.eventKind === "vuln_confirmed" ? "crit" : e.eventKind === "credential_extracted" ? "warn" : "dim",
       _sortKey: new Date(e.timestamp || 0).getTime(),
     })),
     // SSE events (reliable fallback for live feed)
     ...sseEvents.map((e) => {
       const agentMap: Record<string, string> = {
-        "exploration.started": "RECON", "exploration.succeeded": "CONFIRM",
+        "exploration.started": "RECON", "exploration.succeeded": "EXPLOIT",
         "exploration.failed": "RECON", "intelligence.strategy": "SYS",
-        "intelligence.hypothesis": "EXPLOIT", "adaptation.pivot": "PIVOT",
+        "intelligence.hypothesis": "EXPLOIT", "adaptation.pivot": "LATERAL",
       };
+      const rawMsg = e.summary || e.detail || e.decision || e.label || "event";
       return {
-        ts: fmtTime(e.timestamp),
+        ts: fmtElapsed(e.timestamp, startIso),
         agent: agentMap[e.cognitiveType || ""] || e.type?.replace("breach_", "").toUpperCase().slice(0, 7) || "SYS",
-        msg: e.summary || e.detail || e.decision || e.label || "event",
+        msg: cleanFeedMsg("", "", rawMsg),
         cls: e.cognitiveType?.includes("succeeded") || e.outcome === "confirmed" ? "crit"
            : e.cognitiveType?.includes("failed") ? "warn" : "dim",
         _sortKey: new Date(e.timestamp || 0).getTime(),
