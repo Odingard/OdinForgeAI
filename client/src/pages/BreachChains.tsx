@@ -365,43 +365,51 @@ function NetworkMap({
     while (s.children.length > 1) s.removeChild(s.lastChild!); // keep defs
     drawnIds.current.clear(); drawnEdges.current.clear();
 
-    const phaseCoords = [
-      { x: 52, y: 38 }, { x: 205, y: 50 }, { x: 370, y: 30 },
-      { x: 200, y: 168 }, { x: 365, y: 168 }, { x: 295, y: 248 },
-    ];
-    const RED = "var(--red)", AMB = "var(--amber)", GRN = "var(--green)", GRY = "var(--t3)";
+    const RED = "var(--red)", AMB = "var(--amber)", GRY = "var(--t3)";
 
-    chain.phaseResults.forEach((phase, i) => {
-      const pos = phaseCoords[i] ?? { x: 260, y: 148 };
-      const hasBreach = (phase.findings || []).some((f: any) => f.severity === "critical");
-      const col = phase.status === "completed" ? (hasBreach ? RED : GRN) : phase.status === "running" ? AMB : GRY;
+    // Only render phases that have findings — skip empty/stub phases
+    const activePhases = (chain.phaseResults as any[]).filter((p: any) => (p.findings || []).length > 0);
+    if (activePhases.length === 0) return;
+
+    // Layout: horizontal flow, left to right, with findings below each phase
+    const startX = 60;
+    const spacingX = Math.min(280, (450 - startX) / Math.max(1, activePhases.length));
+    const phaseY = 45;
+
+    let prevPhaseX = -1;
+    activePhases.forEach((phase: any, pi: number) => {
+      const px = startX + pi * spacingX;
+      const findings = phase.findings || [];
+      const hasCrit = findings.some((f: any) => f.severity === "critical");
+      const col = hasCrit ? RED : AMB;
+      const phaseLabel = PHASE_LABELS[phase.phaseName] ?? phase.phaseName;
       const data: NodeData = {
-        title: `Phase ${i + 1} — ${PHASE_LABELS[phase.phaseName] ?? phase.phaseName}`,
-        sev: hasBreach ? "critical" : phase.status === "completed" ? "info" : "info",
-        technique: `${(phase.findings || []).length} findings`,
+        title: `${phaseLabel} — ${findings.length} findings`,
+        sev: hasCrit ? "critical" : "high",
+        technique: `${findings.length} findings validated`,
         ts: phase.completedAt ?? undefined,
       };
-      const phaseLabel = PHASE_LABELS[phase.phaseName] ?? `P${i + 1}`;
-      const findingCount = (phase.findings || []).length;
-      drawNode({ id: `phase-${i}`, x: pos.x, y: pos.y, r: 17, label: findingCount > 0 ? `${phaseLabel}(${findingCount})` : phaseLabel, col, data });
-      if (i > 0) drawEdge(phaseCoords[i - 1].x, phaseCoords[i - 1].y, pos.x, pos.y, GRY, false, false, 300 + i * 200);
-      (phase.findings || []).slice(0, 5).forEach((f: any, fi: number) => {
+      drawNode({ id: `phase-${pi}`, x: px, y: phaseY, r: 18, label: `${phaseLabel}(${findings.length})`, col, data });
+
+      // Edge from previous phase
+      if (prevPhaseX >= 0) drawEdge(prevPhaseX, phaseY, px, phaseY, GRY, false, false, 200 + pi * 150);
+      prevPhaseX = px;
+
+      // Finding nodes — vertical column below the phase node
+      findings.forEach((f: any, fi: number) => {
         const fCol = SEV_COLOR[f.severity] ?? GRY;
-        const angle = (fi / Math.max(1, (phase.findings || []).length)) * Math.PI * 1.5 - Math.PI * 0.25;
-        const dist = 70 + (fi % 2) * 25;
-        const fx = pos.x + Math.cos(angle) * dist;
-        const fy = pos.y + Math.sin(angle) * dist;
-        // Extract short label from finding title
+        const fx = px + ((fi % 3) - 1) * 55; // spread 3 wide
+        const fy = phaseY + 55 + Math.floor(fi / 3) * 45; // rows of 3
         const titleClean = (f.title || "").replace(/\[VALIDATED\]\s*/i, "").replace(/\[SYNTHESIS\]\s*/i, "");
-        const shortLabel = titleClean.length > 16 ? titleClean.slice(0, 15) + "…" : titleClean;
+        const shortLabel = titleClean.length > 14 ? titleClean.slice(0, 13) + "…" : titleClean;
         const fData: NodeData = {
           title: f.title ?? "Finding", sev: f.severity ?? "medium",
           technique: f.technique, mitre: f.mitreId,
           evidence: f.description, ts: f.confirmedAt,
           status: f.statusCode, curl: f.curlCommand,
         };
-        drawNode({ id: `f-${i}-${fi}`, x: fx, y: fy, r: 11, label: shortLabel || "finding", col: fCol, data: fData });
-        drawEdge(pos.x, pos.y, fx, fy, fCol, false, false, 500 + i * 200 + fi * 100);
+        drawNode({ id: `f-${pi}-${fi}`, x: fx, y: fy, r: 10, label: shortLabel || "finding", col: fCol, data: fData });
+        drawEdge(px, phaseY, fx, fy, fCol, false, false, 400 + pi * 150 + fi * 80);
       });
     });
   }, [chain.phaseResults, liveNodes.length]);
