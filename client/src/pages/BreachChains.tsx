@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -8,6 +8,10 @@ import { useBreachSSE } from "@/hooks/useBreachSSE";
 import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
 import { LaunchReadinessPanel } from "@/components/dashboard/LaunchReadinessPanel";
+import { ReactFlow, Background, Handle, Position, type Node, type Edge } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+// @ts-ignore — dagre has no type declarations
+import Dagre from 'dagre';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,8 +22,6 @@ interface NodeData {
   curl?: string; ts?: string; hash?: string;
 }
 
-interface GraphNode { id: string; x: number; y: number; r: number; label: string; col: string; data: NodeData; }
-interface GraphEdge { x1: number; y1: number; x2: number; y2: number; col: string; dashed: boolean; cx: boolean; delay: number; }
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,13 +40,8 @@ const PHASE_ORDER = [
 ];
 
 const SEV_COLOR: Record<string, string> = {
-  critical: "var(--red)", high: "var(--amber)",
-  medium: "var(--blue)", low: "var(--blue)", info: "var(--t3)",
-};
-
-const SEV_CLS: Record<string, string> = {
-  critical: "f-chip f-chip-crit", high: "f-chip f-chip-high",
-  medium: "f-chip f-chip-med", low: "f-chip f-chip-low", info: "f-chip f-chip-gray",
+  critical: "#ef4444", high: "#f97316",
+  medium: "#f59e0b", low: "#22c55e", info: "#6b7280",
 };
 
 // ── Feed helpers ─────────────────────────────────────────────────────────────
@@ -167,14 +164,6 @@ function liveEventAgent(eventKind: string): string {
   return "SYS";
 }
 
-// ── SVG helpers ──────────────────────────────────────────────────────────────
-
-function mkEl(tag: string, attrs: Record<string, string>) {
-  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
-  return el;
-}
-
 // ── Evidence Panel ───────────────────────────────────────────────────────────
 
 function EvidencePanel({ data, title, onClose }: { data: NodeData; title: string; onClose: () => void }) {
@@ -274,145 +263,164 @@ function EvidencePanel({ data, title, onClose }: { data: NodeData; title: string
   );
 }
 
+// ── React Flow: dagre auto-layout ────────────────────────────────────────────
+
+function getLayoutedElements(nodes: Node[], edges: Edge[]): { nodes: Node[]; edges: Edge[] } {
+  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 120 });
+  nodes.forEach(node => g.setNode(node.id, { width: (node as any).measured?.width ?? 180, height: (node as any).measured?.height ?? 50 }));
+  edges.forEach(edge => g.setEdge(edge.source, edge.target));
+  Dagre.layout(g);
+  return {
+    nodes: nodes.map(node => {
+      const pos = g.node(node.id);
+      return { ...node, position: { x: pos.x - ((node as any).measured?.width ?? 180) / 2, y: pos.y - ((node as any).measured?.height ?? 50) / 2 } };
+    }),
+    edges,
+  };
+}
+
+// ── Custom React Flow nodes ──────────────────────────────────────────────────
+
+function PhaseNode({ data }: { data: any }) {
+  return (
+    <div style={{
+      background: '#1a1a2e',
+      border: `2px solid ${data.color}`,
+      borderRadius: 8,
+      padding: '8px 14px',
+      minWidth: 120,
+      textAlign: 'center',
+    }}>
+      <Handle type="target" position={Position.Left} style={{ background: data.color, width: 6, height: 6, border: 'none' }} />
+      <div style={{ color: data.color, fontSize: 11, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '.1em' }}>
+        {data.label}
+      </div>
+      {data.findingCount && (
+        <div style={{ color: '#94a3b8', fontSize: 9, fontFamily: 'monospace', marginTop: 2 }}>
+          {data.findingCount}
+        </div>
+      )}
+      <Handle type="source" position={Position.Right} style={{ background: data.color, width: 6, height: 6, border: 'none' }} />
+    </div>
+  );
+}
+
+function FindingNode({ data }: { data: any }) {
+  const col = SEV_COLOR[data.severity] || '#6b7280';
+  return (
+    <div style={{
+      background: '#0f1520',
+      border: `1.5px solid ${col}`,
+      borderRadius: 6,
+      padding: '6px 10px',
+      maxWidth: 180,
+      cursor: 'pointer',
+    }}>
+      <Handle type="target" position={Position.Left} style={{ background: col, width: 5, height: 5, border: 'none' }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+        <span style={{ background: col, color: '#fff', fontSize: 7, padding: '1px 5px', borderRadius: 3, fontWeight: 700, fontFamily: 'monospace', textTransform: 'uppercase' }}>
+          {data.severity}
+        </span>
+      </div>
+      <div style={{ color: '#e2e8f0', fontSize: 9, fontFamily: 'monospace', lineHeight: 1.3, wordBreak: 'break-word' }}>
+        {data.title}
+      </div>
+    </div>
+  );
+}
+
+const rfNodeTypes = { phase: PhaseNode, finding: FindingNode };
+
+// ── Build React Flow graph from chain data ───────────────────────────────────
+
+function buildGraphFromChain(chain: BreachChain): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  const phases = ((chain.phaseResults || []) as any[]).filter((p: any) => (p.findings || []).length > 0);
+
+  // Entry node — target hostname
+  let entryLabel = 'target';
+  try { entryLabel = new URL(Array.isArray(chain.assetIds) ? chain.assetIds[0] || 'https://target' : 'https://target').hostname; } catch { /* keep default */ }
+  nodes.push({
+    id: 'entry',
+    type: 'phase',
+    data: { label: entryLabel, color: '#6366f1', findingCount: '' },
+    position: { x: 0, y: 0 },
+  });
+
+  let prevPhaseId = 'entry';
+  phases.forEach((phase: any, pi: number) => {
+    const phaseId = `phase-${pi}`;
+    const findings = phase.findings || [];
+    const hasCrit = findings.some((f: any) => f.severity === 'critical');
+
+    nodes.push({
+      id: phaseId,
+      type: 'phase',
+      data: {
+        label: PHASE_LABELS[phase.phaseName] || phase.phaseName,
+        color: hasCrit ? '#ef4444' : '#f97316',
+        findingCount: `${findings.length} finding${findings.length === 1 ? '' : 's'}`,
+      },
+      position: { x: 0, y: 0 },
+    });
+    edges.push({ id: `e-${prevPhaseId}-${phaseId}`, source: prevPhaseId, target: phaseId, animated: true, style: { stroke: '#334155' } });
+    prevPhaseId = phaseId;
+
+    findings.forEach((f: any, fi: number) => {
+      const findingId = `finding-${pi}-${fi}`;
+      const titleClean = (f.title || '').replace(/\[VALIDATED\]\s*/i, '').replace(/\[SYNTHESIS\]\s*/i, '');
+      nodes.push({
+        id: findingId,
+        type: 'finding',
+        data: {
+          title: titleClean || 'Finding',
+          severity: f.severity || 'medium',
+          technique: f.technique,
+          statusCode: f.statusCode,
+          curlCommand: f.curlCommand,
+          evidence: f.description,
+          finding: f,
+        },
+        position: { x: 0, y: 0 },
+      });
+      edges.push({ id: `e-${phaseId}-${findingId}`, source: phaseId, target: findingId, style: { stroke: SEV_COLOR[f.severity] || '#334155' } });
+    });
+  });
+
+  return getLayoutedElements(nodes, edges);
+}
+
+/** Convert a raw finding object to the NodeData shape used by the evidence panel */
+function buildNodeData(f: any): NodeData {
+  return {
+    title: (f.title || '').replace(/\[VALIDATED\]\s*/i, '').replace(/\[SYNTHESIS\]\s*/i, ''),
+    sev: f.severity ?? 'medium',
+    technique: f.technique,
+    mitre: f.mitreId,
+    evidence: f.description,
+    ts: f.confirmedAt,
+    status: f.statusCode,
+    curl: f.curlCommand,
+  };
+}
+
 // ── Network Map ──────────────────────────────────────────────────────────────
 
 function NetworkMap({
-  chain, graph, nodes: liveNodes, edges: liveEdges,
+  chain,
 }: {
   chain: BreachChain;
   graph: AttackGraph | null;
   nodes: any[];
   edges: any[];
 }) {
-  const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<{ data: NodeData; title: string } | null>(null);
-  const [hint, setHint] = useState("click any confirmed node for full evidence");
-  const nodeStore = useRef<Record<string, NodeData>>({});
-  const drawnIds = useRef<Set<string>>(new Set());
-  const drawnEdges = useRef<Set<string>>(new Set());
 
-  function drawEdge(x1: number, y1: number, x2: number, y2: number, col: string, dashed: boolean, cx: boolean, delay: number) {
-    setTimeout(() => {
-      const s = svgRef.current; if (!s) return;
-      const ln = mkEl("line", { x1: String(x1), y1: String(y1), x2: String(x2), y2: String(y2), stroke: col, "stroke-width": cx ? "0.9" : "0.7", "marker-end": "url(#ar)" });
-      if (dashed) { ln.setAttribute("stroke-dasharray", "3 3"); ln.setAttribute("stroke-opacity", "0.2"); }
-      else { ln.setAttribute("stroke-dasharray", cx ? "6 3" : "400"); ln.setAttribute("stroke-dashoffset", "400"); ln.setAttribute("stroke-opacity", cx ? "0.45" : "1"); (ln as SVGElement & { style: CSSStyleDeclaration }).style.animation = "dl .5s ease forwards"; }
-      s.insertBefore(ln, s.firstChild);
-    }, delay);
-  }
+  const { nodes: graphNodes, edges: graphEdges } = useMemo(() => buildGraphFromChain(chain), [chain.phaseResults]);
 
-  function drawNode(n: GraphNode) {
-    const s = svgRef.current; if (!s) return;
-    nodeStore.current[n.id] = n.data;
-    const g = mkEl("g", { cursor: n.data.sev === "info" ? "default" : "pointer" });
-    (g as SVGElement & { style: CSSStyleDeclaration }).style.transformOrigin = `${n.x}px ${n.y}px`;
-    (g as SVGElement & { style: CSSStyleDeclaration }).style.animation = "pn .35s cubic-bezier(.34,1.56,.64,1) forwards";
-    (g as SVGElement & { style: CSSStyleDeclaration }).style.opacity = "0";
-    const hit = mkEl("circle", { cx: String(n.x), cy: String(n.y), r: String(n.r + 5), fill: "transparent", stroke: "transparent" });
-    const circ = mkEl("circle", { cx: String(n.x), cy: String(n.y), r: String(n.r), fill: "var(--panel)", stroke: n.col, "stroke-width": "1.5" });
-    const txt = mkEl("text", { x: String(n.x), y: String(n.y), "text-anchor": "middle", "dominant-baseline": "central", "font-size": n.r > 15 ? "10" : "7", "font-family": "var(--font-mono)", fill: n.col });
-    txt.textContent = n.label;
-    g.appendChild(hit); g.appendChild(circ); g.appendChild(txt);
-    if (n.data.sev !== "info") {
-      g.addEventListener("click", () => setSelectedNode({ data: n.data, title: n.data.title }));
-      g.addEventListener("mouseenter", () => { (circ as Element).setAttribute("stroke-width", "2.5"); setHint(n.data.title); });
-      g.addEventListener("mouseleave", () => { (circ as Element).setAttribute("stroke-width", "1.5"); setHint("click any confirmed node for full evidence"); });
-    }
-    s.appendChild(g);
-  }
-
-  // Build graph from live nodes/edges when available
-  useEffect(() => {
-    if (liveNodes.length === 0) return;
-    const RED = "var(--red)", AMB = "var(--amber)", BLU = "var(--blue)", GRY = "var(--t4)";
-    // Map liveNodes to positioned graph nodes
-    // Positions: phases spread spatially across canvas
-    const phasePos: Record<string, { x: number; y: number }> = {
-      application_compromise:  { x: 52,  y: 38  },
-      credential_extraction:   { x: 205, y: 50  },
-      cloud_iam_escalation:    { x: 370, y: 30  },
-      container_k8s_breakout:  { x: 200, y: 168 },
-      lateral_movement:        { x: 365, y: 168 },
-      impact_assessment:       { x: 295, y: 248 },
-    };
-    liveNodes.forEach((n: any) => {
-      if (drawnIds.current.has(n.nodeId)) return;
-      drawnIds.current.add(n.nodeId);
-      const pos = phasePos[n.phase] ?? { x: 260, y: 148 };
-      const isSpine = n.kind === "phase_spine";
-      const col = n.severity === "critical" ? RED : n.severity === "high" ? AMB : isSpine ? "var(--t2)" : GRY;
-      const nodeData: NodeData = {
-        title: n.label, sev: n.severity ?? "info",
-        technique: n.technique, ts: n.timestamp,
-      };
-      drawNode({ id: n.nodeId, x: pos.x, y: pos.y, r: isSpine ? 17 : 13, label: n.label?.slice(0, 18) ?? "?", col, data: nodeData });
-    });
-    liveEdges.forEach((e: any) => {
-      const key = `${e.fromNodeId}-${e.toNodeId}`;
-      if (drawnEdges.current.has(key)) return;
-      drawnEdges.current.add(key);
-      // Simple fallback positioning — edges draw between drawn node positions
-      drawEdge(0, 0, 0, 0, e.confirmed ? RED : GRY, !e.confirmed, false, 0);
-    });
-  }, [liveNodes, liveEdges]);
-
-  // Fallback: draw a summary graph from completed phase results
-  useEffect(() => {
-    if (liveNodes.length > 0) return;
-    if (!chain.phaseResults?.length) return;
-    const s = svgRef.current; if (!s) return;
-    // Clear existing drawn nodes
-    while (s.children.length > 1) s.removeChild(s.lastChild!); // keep defs
-    drawnIds.current.clear(); drawnEdges.current.clear();
-
-    const RED = "var(--red)", AMB = "var(--amber)", GRY = "var(--t3)";
-
-    // Only render phases that have findings — skip empty/stub phases
-    const activePhases = (chain.phaseResults as any[]).filter((p: any) => (p.findings || []).length > 0);
-    if (activePhases.length === 0) return;
-
-    // Layout: horizontal flow, left to right, with findings below each phase
-    const startX = 60;
-    const spacingX = Math.min(280, (450 - startX) / Math.max(1, activePhases.length));
-    const phaseY = 45;
-
-    let prevPhaseX = -1;
-    activePhases.forEach((phase: any, pi: number) => {
-      const px = startX + pi * spacingX;
-      const findings = phase.findings || [];
-      const hasCrit = findings.some((f: any) => f.severity === "critical");
-      const col = hasCrit ? RED : AMB;
-      const phaseLabel = PHASE_LABELS[phase.phaseName] ?? phase.phaseName;
-      const data: NodeData = {
-        title: `${phaseLabel} — ${findings.length} findings`,
-        sev: hasCrit ? "critical" : "high",
-        technique: `${findings.length} findings validated`,
-        ts: phase.completedAt ?? undefined,
-      };
-      drawNode({ id: `phase-${pi}`, x: px, y: phaseY, r: 18, label: `${phaseLabel}(${findings.length})`, col, data });
-
-      // Edge from previous phase
-      if (prevPhaseX >= 0) drawEdge(prevPhaseX, phaseY, px, phaseY, GRY, false, false, 200 + pi * 150);
-      prevPhaseX = px;
-
-      // Finding nodes — vertical column below the phase node
-      findings.forEach((f: any, fi: number) => {
-        const fCol = SEV_COLOR[f.severity] ?? GRY;
-        const fx = px + ((fi % 3) - 1) * 55; // spread 3 wide
-        const fy = phaseY + 55 + Math.floor(fi / 3) * 45; // rows of 3
-        const titleClean = (f.title || "").replace(/\[VALIDATED\]\s*/i, "").replace(/\[SYNTHESIS\]\s*/i, "");
-        const shortLabel = titleClean.length > 14 ? titleClean.slice(0, 13) + "…" : titleClean;
-        const fData: NodeData = {
-          title: f.title ?? "Finding", sev: f.severity ?? "medium",
-          technique: f.technique, mitre: f.mitreId,
-          evidence: f.description, ts: f.confirmedAt,
-          status: f.statusCode, curl: f.curlCommand,
-        };
-        drawNode({ id: `f-${pi}-${fi}`, x: fx, y: fy, r: 10, label: shortLabel || "finding", col: fCol, data: fData });
-        drawEdge(px, phaseY, fx, fy, fCol, false, false, 400 + pi * 150 + fi * 80);
-      });
-    });
-  }, [chain.phaseResults, liveNodes.length]);
+  const hasData = graphNodes.length > 1; // more than just the entry node
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -421,25 +429,39 @@ function NetworkMap({
         <div className="flex items-center justify-between px-3 py-[6px] flex-shrink-0"
           style={{ borderBottom: "1px solid var(--border)", background: "var(--panel2)" }}>
           <span className="font-mono text-[9px] tracking-[.1em] uppercase" style={{ color: "var(--t3)" }}>network breach map</span>
-          <span className="font-mono text-[7px]" style={{ color: "var(--t4)" }}>{hint}</span>
+          <span className="font-mono text-[7px]" style={{ color: "var(--t4)" }}>
+            {hasData ? "click a finding node for evidence • scroll to zoom • drag to pan" : ""}
+          </span>
         </div>
-        <div className="flex-1 overflow-hidden">
-          <svg ref={svgRef} style={{ width: "100%", height: "100%", display: "block" }} viewBox="0 0 510 295" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <style>{`
-                @keyframes pn{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
-                @keyframes dl{from{stroke-dashoffset:400}to{stroke-dashoffset:0}}
-              `}</style>
-              <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
-                <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" strokeWidth="1.5" strokeLinecap="round"/>
-              </marker>
-            </defs>
-            {liveNodes.length === 0 && !chain.phaseResults?.length && (
-              <text x="255" y="148" textAnchor="middle" fontFamily="monospace" fontSize="10" fill="var(--t4)">
+        <div className="flex-1 min-h-0" style={{ position: 'relative' }}>
+          {hasData ? (
+            <ReactFlow
+              nodes={graphNodes}
+              edges={graphEdges}
+              nodeTypes={rfNodeTypes}
+              onNodeClick={(_: any, node: any) => {
+                if (node.data?.finding) {
+                  setSelectedNode({ data: buildNodeData(node.data.finding), title: node.data.title });
+                }
+              }}
+              fitView
+              minZoom={0.3}
+              maxZoom={2}
+              proOptions={{ hideAttribution: true }}
+              style={{ background: '#0a0e17' }}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+            >
+              <Background color="#1a2535" gap={20} />
+            </ReactFlow>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#0a0e17' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#475569' }}>
                 {chain.status === "pending" ? "engagement queued — awaiting start" : "initializing network map..."}
-              </text>
-            )}
-          </svg>
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
