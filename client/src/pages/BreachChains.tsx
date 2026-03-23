@@ -447,7 +447,7 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
   // Build feed from all real-time event streams + phase completions
   // Combines: stored phase results, live events, reasoning events, surface signals, phase transitions
   const feedRows: { ts: string; agent: string; msg: string; cls: string; _sortKey: number }[] = [
-    { ts: "00:00", agent: "SYS", msg: `target: ${(chain as any).targetUrl ?? chain.targetDomains?.[0] ?? chain.name} — engagement started`, cls: "dim", _sortKey: 0 },
+    { ts: "00:00", agent: "SYS", msg: `target: ${chain.assetIds?.[0] ?? chain.name} — engagement started`, cls: "dim", _sortKey: 0 },
     // Stored phase results (from DB, only appear after phase completion)
     ...(chain.phaseResults || []).map((p: any) => ({
       ts: fmtTime(p.completedAt), agent: phaseAgent(p.phaseName),
@@ -498,7 +498,7 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
           ← All Chains
         </button>
         <div>
-          <div className="font-mono text-[12px] font-semibold" style={{ color: "var(--t1)" }}>{(chain as any).targetUrl ?? chain.targetDomains?.[0] ?? chain.name}</div>
+          <div className="font-mono text-[12px] font-semibold" style={{ color: "var(--t1)" }}>{chain.assetIds?.[0] ?? chain.name}</div>
           <div className="font-mono text-[9px]" style={{ color: "var(--t3)" }}>
             {chain.id?.slice(0, 16)} · full-chain · {chain.config?.executionMode ?? "live"} · {(chain as any).targetIp ?? "resolving..."}
           </div>
@@ -703,7 +703,7 @@ function ChainsListView({ chains, onSelect, onCreate, onReportSettings }: {
               return (
                 <div key={chain.id} className="f-tbl-row" style={{ gridTemplateColumns: "2fr 1.2fr 1fr 1fr 1fr 100px" }} onClick={() => onSelect(chain)}>
                   <div>
-                    <div className="f-td n">{(chain as any).targetUrl ?? chain.targetDomains?.[0] ?? chain.name}</div>
+                    <div className="f-td n">{chain.assetIds?.[0] ?? chain.name}</div>
                     <div className="f-td sub">{chain.id?.slice(0, 16)} · {(chain as any).profile ?? chain.config?.adversaryProfile ?? "full-chain"} · {chain.config?.executionMode ?? "live"}</div>
                   </div>
                   <div className="f-td"><span className={chipCls(chain.status)}>{chain.status}</span></div>
