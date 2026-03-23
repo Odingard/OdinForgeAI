@@ -1658,7 +1658,8 @@ async function executeApplicationCompromise(
             }
             // ── Live feed: surface discovery events ──
             broadcastLiveEvent(chain.id, "scanning", label, detail, "application_compromise");
-          }
+          },
+          chain.id,  // Pass chain ID for WebSocket channel targeting
         );
 
         // Store raw validated attempts for Phase 2 direct evidence parsing
