@@ -269,25 +269,26 @@ function evaluateValidation(run: EngineRunContext): SectionResult {
   const checks: LaunchCheck[] = [];
 
   // V1: Evidence present on validated findings
-  const withEvidence = findings.filter(
-    (f) => f.evidenceQuality === "proven" || f.evidenceQuality === "corroborated" || (f.statusCode != null && f.statusCode > 0),
-  );
+  // Only check PROVEN findings for HTTP evidence — INFERRED findings (impact synthesis) don't have it by design
+  const provenFindings = findings.filter(f => f.evidenceQuality === "proven");
+  const provenWithEvidence = provenFindings.filter(f => f.statusCode != null && f.statusCode > 0);
+  const totalRequiringEvidence = provenFindings.length;
   if (findings.length === 0) {
-    // Clean target — no findings is OK if discovery was thorough
     checks.push(
       check("V1", "Validation", "Evidence present on validated findings", "PASS", "No findings to validate (clean target)"),
     );
-  } else if (withEvidence.length === findings.length) {
+  } else if (totalRequiringEvidence === 0) {
     checks.push(
-      check("V1", "Validation", "Evidence present on validated findings", "PASS", `${withEvidence.length}/${findings.length} findings have evidence`),
+      check("V1", "Validation", "Evidence present on validated findings", "PASS", `${findings.length} findings — none require HTTP evidence (all inferred/corroborated)`),
     );
-  } else if (withEvidence.length >= findings.length * 0.7) {
+  } else if (provenWithEvidence.length === totalRequiringEvidence) {
     checks.push(
-      check("V1", "Validation", "Evidence present on validated findings", "RISK", `${withEvidence.length}/${findings.length} findings have evidence`),
+      check("V1", "Validation", "Evidence present on validated findings", "PASS", `${provenWithEvidence.length}/${totalRequiringEvidence} proven findings have HTTP evidence`),
     );
   } else {
+    const missing = totalRequiringEvidence - provenWithEvidence.length;
     checks.push(
-      check("V1", "Validation", "Evidence present on validated findings", "FAIL", `Only ${withEvidence.length}/${findings.length} findings have evidence`),
+      check("V1", "Validation", "Evidence present on validated findings", "FAIL", `${missing} proven finding(s) missing HTTP evidence`),
     );
   }
 
@@ -328,23 +329,28 @@ function evaluateValidation(run: EngineRunContext): SectionResult {
   }
 
   // V4: Validation threshold respected (attempts vs validated ratio)
-  if (run.attempts === 0) {
+  // Use exploit budget as denominator (total payloads fired), not request count
+  const totalAttempts = run.executionMetrics.exploitBudget > 0
+    ? run.executionMetrics.exploitBudget
+    : run.attempts;
+  const provenCount = findings.filter(f => f.evidenceQuality === "proven").length;
+  if (totalAttempts === 0 || provenCount === 0) {
     checks.push(
-      check("V4", "Validation", "Validation threshold respected", "PASS", "No attempts made (clean run)"),
+      check("V4", "Validation", "Validation threshold respected", "PASS", `${provenCount} proven findings — validation selective`),
     );
   } else {
-    const rate = findings.length / run.attempts;
-    if (rate <= 0.5) {
+    const rate = provenCount / totalAttempts;
+    if (rate <= 0.1) {
       checks.push(
-        check("V4", "Validation", "Validation threshold respected", "PASS", `${findings.length}/${run.attempts} validated (${(rate * 100).toFixed(1)}% rate — selective)`),
+        check("V4", "Validation", "Validation threshold respected", "PASS", `${provenCount}/${totalAttempts} proven (${(rate * 100).toFixed(1)}% rate — selective)`),
       );
-    } else if (rate <= 0.8) {
+    } else if (rate <= 0.3) {
       checks.push(
-        check("V4", "Validation", "Validation threshold respected", "RISK", `${findings.length}/${run.attempts} validated (${(rate * 100).toFixed(1)}% — unusually high success rate)`),
+        check("V4", "Validation", "Validation threshold respected", "RISK", `${provenCount}/${totalAttempts} proven (${(rate * 100).toFixed(1)}% — review recommended)`),
       );
     } else {
       checks.push(
-        check("V4", "Validation", "Validation threshold respected", "FAIL", `${findings.length}/${run.attempts} validated (${(rate * 100).toFixed(1)}% — suspiciously high, possible false positives)`),
+        check("V4", "Validation", "Validation threshold respected", "FAIL", `${provenCount}/${totalAttempts} proven (${(rate * 100).toFixed(1)}% — suspiciously high)`),
       );
     }
   }
@@ -472,21 +478,19 @@ function evaluateAIControl(run: EngineRunContext): SectionResult {
   const lm = run.llmMetrics;
   const checks: LaunchCheck[] = [];
 
-  // A1: LLM does not influence truth (no findings solely from LLM)
-  // The engine is deterministic — LLM is advisory only. If findings exist, they must have HTTP evidence.
-  const allFindingsHaveEvidence = run.validatedFindings.every(
-    (f) => f.statusCode != null || f.evidenceQuality === "proven" || f.evidenceQuality === "corroborated",
-  );
-  if (run.validatedFindings.length === 0 || allFindingsHaveEvidence) {
+  // A1: LLM does not influence truth — only PROVEN findings must have HTTP evidence.
+  // INFERRED/CORROBORATED findings (impact synthesis) are expected not to have raw HTTP evidence.
+  const provenFindings = run.validatedFindings.filter(f => f.evidenceQuality === "proven");
+  const provenWithoutEvidence = provenFindings.filter(f => f.statusCode == null && !f.responseBody);
+  if (provenWithoutEvidence.length === 0) {
     checks.push(
-      check("A1", "AI Control", "LLM does not influence finding truth", "PASS", "All findings backed by HTTP evidence"),
+      check("A1", "AI Control", "LLM does not influence finding truth", "PASS",
+        `All ${provenFindings.length} proven finding(s) backed by HTTP evidence`),
     );
   } else {
-    const llmOnly = run.validatedFindings.filter(
-      (f) => f.statusCode == null && f.evidenceQuality !== "proven" && f.evidenceQuality !== "corroborated",
-    );
     checks.push(
-      check("A1", "AI Control", "LLM does not influence finding truth", "FAIL", `${llmOnly.length} finding(s) lack HTTP evidence — LLM may have influenced truth`),
+      check("A1", "AI Control", "LLM does not influence finding truth", "FAIL",
+        `${provenWithoutEvidence.length} proven finding(s) lack HTTP evidence`),
     );
   }
 
