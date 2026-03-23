@@ -715,19 +715,17 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
             <button
               key={key}
               onClick={() => setDetailTab(key)}
-              className="font-mono text-[9px] tracking-[.08em] uppercase px-4 py-[7px] transition-all cursor-pointer"
+              className="font-mono text-[11px] tracking-[.1em] uppercase px-5 py-[10px] transition-all cursor-pointer font-semibold"
               style={{
-                color: detailTab === key ? "var(--t1)" : "var(--t4)",
+                color: detailTab === key ? "#fff" : "var(--t3)",
                 background: detailTab === key ? "var(--panel)" : "transparent",
-                borderBottom: detailTab === key ? "2px solid var(--t1)" : "2px solid transparent",
-                borderRight: "1px solid var(--border)",
                 display: "flex",
                 alignItems: "center",
-                gap: 5,
+                gap: 6,
                 border: "none",
-                borderBottomWidth: "2px",
-                borderBottomStyle: "solid",
-                borderBottomColor: detailTab === key ? "var(--t1)" : "transparent",
+                borderBottom: detailTab === key ? "3px solid #ef4444" : "3px solid transparent",
+                marginBottom: "-1px",
+                letterSpacing: "0.12em",
               }}
             >
               {icon && <CheckCircle2 className="w-[10px] h-[10px]" />}
