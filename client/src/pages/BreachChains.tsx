@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2, Settings } from "lucide-react";
+import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2 } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
 import { LaunchReadinessPanel } from "@/components/dashboard/LaunchReadinessPanel";
 
@@ -767,6 +767,264 @@ function NewEngagementModal({ onClose, onSuccess }: { onClose: () => void; onSuc
   );
 }
 
+// ── Report Settings Modal ─────────────────────────────────────────────────────
+
+interface ReportSettingsConfig {
+  clientName: string;
+  reportTitle: string;
+  classification: string;
+  colorScheme: string;
+  assessorName: string;
+  assessorCredentials: string;
+  sections: {
+    coverPage: boolean;
+    tableOfContents: boolean;
+    executiveSummary: boolean;
+    attackChainVisualization: boolean;
+    detailedFindings: boolean;
+    remediationPlan: boolean;
+    methodology: boolean;
+    appendix: boolean;
+    evidenceAppendix: boolean;
+  };
+  includeRawEvidence: boolean;
+  includeCurlCommands: boolean;
+  includeResponseBodies: boolean;
+  pageSize: string;
+}
+
+function ReportSettingsModal({ chain, onClose }: { chain: BreachChain; onClose: () => void }) {
+  const { toast } = useToast();
+  const [downloading, setDownloading] = useState(false);
+  const [config, setConfig] = useState<ReportSettingsConfig>({
+    clientName: "",
+    reportTitle: "Adversarial Exposure Assessment",
+    classification: "CONFIDENTIAL",
+    colorScheme: "odingard",
+    assessorName: "",
+    assessorCredentials: "",
+    sections: {
+      coverPage: true,
+      tableOfContents: true,
+      executiveSummary: true,
+      attackChainVisualization: true,
+      detailedFindings: true,
+      remediationPlan: true,
+      methodology: true,
+      appendix: true,
+      evidenceAppendix: true,
+    },
+    includeRawEvidence: true,
+    includeCurlCommands: true,
+    includeResponseBodies: true,
+    pageSize: "A4",
+  });
+
+  const updateConfig = (key: string, value: unknown) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  };
+
+  const toggleSection = (key: string) => {
+    setConfig(prev => ({
+      ...prev,
+      sections: { ...prev.sections, [key]: !prev.sections[key as keyof typeof prev.sections] },
+    }));
+  };
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const token = localStorage.getItem("odinforge_access_token");
+      const resp = await fetch(`/api/breach-chains/${chain.id}/report/pdf`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(config),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `OdinForge-Report-${chain.id.slice(0, 8)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast({ title: "Report downloaded" });
+      onClose();
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const schemeSwatch: Record<string, { bg: string; accent: string; label: string }> = {
+    odingard: { bg: "#0a0e17", accent: "#dc2626", label: "Odingard" },
+    neutral:  { bg: "#ffffff", accent: "#1d4ed8", label: "Neutral" },
+    dark:     { bg: "#0f172a", accent: "#6366f1", label: "Dark" },
+  };
+
+  const classificationOptions = ["CONFIDENTIAL", "RESTRICTED", "CLIENT CONFIDENTIAL", "PUBLIC"];
+
+  const sectionLabels: Record<string, string> = {
+    coverPage: "Cover Page",
+    tableOfContents: "Table of Contents",
+    executiveSummary: "Executive Summary",
+    attackChainVisualization: "Attack Chain",
+    detailedFindings: "Detailed Findings",
+    remediationPlan: "Remediation Plan",
+    methodology: "Methodology",
+    appendix: "Appendix",
+    evidenceAppendix: "Evidence Appendix",
+  };
+
+  return (
+    <div className="f-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="f-modal" style={{ maxWidth: 520, maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div className="f-modal-head">
+          <div className="f-modal-title">Report Settings</div>
+          <div className="f-modal-desc">Configure and download the PDF report for this engagement</div>
+        </div>
+        <div className="f-modal-body flex flex-col gap-3" style={{ overflowY: "auto", flex: 1 }}>
+
+          {/* Client & Branding */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Client Name</div>
+            <input value={config.clientName} onChange={e => updateConfig("clientName", e.target.value)}
+              className="w-full font-mono text-[11px] px-[10px] py-[7px] outline-none"
+              style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--t1)" }}
+              placeholder="Client organization name (optional)" />
+          </div>
+
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Report Title</div>
+            <input value={config.reportTitle} onChange={e => updateConfig("reportTitle", e.target.value)}
+              className="w-full font-mono text-[11px] px-[10px] py-[7px] outline-none"
+              style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--t1)" }} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Assessor Name</div>
+              <input value={config.assessorName} onChange={e => updateConfig("assessorName", e.target.value)}
+                className="w-full font-mono text-[11px] px-[10px] py-[7px] outline-none"
+                style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--t1)" }}
+                placeholder="Optional" />
+            </div>
+            <div>
+              <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Credentials</div>
+              <input value={config.assessorCredentials} onChange={e => updateConfig("assessorCredentials", e.target.value)}
+                className="w-full font-mono text-[11px] px-[10px] py-[7px] outline-none"
+                style={{ background: "var(--bg)", border: "1px solid var(--border2)", color: "var(--t1)" }}
+                placeholder="OSCP, CREST, etc." />
+            </div>
+          </div>
+
+          {/* Classification */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Classification</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+              {classificationOptions.map(c => (
+                <div key={c} onClick={() => updateConfig("classification", c)} className="cursor-pointer text-center py-[6px] px-[4px] transition-all font-mono text-[8px]"
+                  style={{
+                    border: `1px solid ${config.classification === c ? "var(--red-border)" : "var(--border2)"}`,
+                    background: config.classification === c ? "var(--red-dim)" : "transparent",
+                    color: config.classification === c ? "var(--red)" : "var(--t3)",
+                    fontWeight: config.classification === c ? 700 : 400,
+                  }}>
+                  {c}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Color Scheme */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Color Scheme</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+              {Object.entries(schemeSwatch).map(([key, { bg, accent, label }]) => (
+                <div key={key} onClick={() => updateConfig("colorScheme", key)} className="cursor-pointer p-[8px] transition-all"
+                  style={{
+                    border: `1px solid ${config.colorScheme === key ? accent : "var(--border2)"}`,
+                    background: config.colorScheme === key ? "rgba(255,255,255,.04)" : "transparent",
+                  }}>
+                  <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                    <div style={{ width: 14, height: 14, background: bg, border: "1px solid var(--border2)" }} />
+                    <div style={{ width: 14, height: 14, background: accent }} />
+                  </div>
+                  <div className="font-mono text-[9px]" style={{ color: config.colorScheme === key ? accent : "var(--t3)" }}>{label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Section Toggles */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Sections</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 12px" }}>
+              {Object.entries(sectionLabels).map(([key, label]) => (
+                <label key={key} className="flex items-center gap-[6px] cursor-pointer font-mono text-[9px]" style={{ color: "var(--t2)", padding: "3px 0" }}>
+                  <input type="checkbox"
+                    checked={config.sections[key as keyof typeof config.sections]}
+                    onChange={() => toggleSection(key)}
+                    style={{ accentColor: "var(--red)" }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Evidence Options */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Evidence Options</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {[
+                { key: "includeRawEvidence", label: "Include raw evidence" },
+                { key: "includeCurlCommands", label: "Include curl commands" },
+                { key: "includeResponseBodies", label: "Include response bodies" },
+              ].map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-[6px] cursor-pointer font-mono text-[9px]" style={{ color: "var(--t2)" }}>
+                  <input type="checkbox"
+                    checked={config[key as keyof ReportSettingsConfig] as boolean}
+                    onChange={() => updateConfig(key, !config[key as keyof ReportSettingsConfig])}
+                    style={{ accentColor: "var(--red)" }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Page Size */}
+          <div>
+            <div className="font-mono text-[9px] tracking-[.12em] uppercase mb-[6px]" style={{ color: "var(--t3)" }}>Page Size</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {["A4", "Letter"].map(s => (
+                <div key={s} onClick={() => updateConfig("pageSize", s)} className="cursor-pointer text-center py-[6px] font-mono text-[9px] transition-all"
+                  style={{
+                    border: `1px solid ${config.pageSize === s ? "var(--red-border)" : "var(--border2)"}`,
+                    background: config.pageSize === s ? "var(--red-dim)" : "transparent",
+                    color: config.pageSize === s ? "var(--red)" : "var(--t3)",
+                  }}>
+                  {s}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="f-modal-footer">
+          <button onClick={onClose} className="f-btn f-btn-ghost">Cancel</button>
+          <button onClick={handleDownload} disabled={downloading} className="f-btn f-btn-primary">
+            <Download className="w-[11px] h-[11px]" />
+            {downloading ? "Generating..." : "Download PDF"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function BreachChains() {
@@ -779,6 +1037,7 @@ export default function BreachChains() {
   });
   const [selectedChain, setSelectedChain] = useState<BreachChain | null>(null);
   const [showNewModal, setShowNewModal]   = useState(false);
+  const [reportSettingsChain, setReportSettingsChain] = useState<BreachChain | null>(null);
 
   // No auto-select — let the user choose which chain to view
 
@@ -800,9 +1059,10 @@ export default function BreachChains() {
       {activeChain ? (
         <ChainDetailView chain={activeChain} onBack={() => setSelectedChain(null)} />
       ) : (
-        <ChainsListView chains={chains} onSelect={setSelectedChain} onCreate={() => setShowNewModal(true)} />
+        <ChainsListView chains={chains} onSelect={setSelectedChain} onCreate={() => setShowNewModal(true)} onReportSettings={setReportSettingsChain} />
       )}
       {showNewModal && <NewEngagementModal onClose={() => setShowNewModal(false)} onSuccess={() => {}} />}
+      {reportSettingsChain && <ReportSettingsModal chain={reportSettingsChain} onClose={() => setReportSettingsChain(null)} />}
     </div>
   );
 }
