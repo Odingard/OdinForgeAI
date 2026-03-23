@@ -600,6 +600,18 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
       };
     }),
   ];
+  // Add a terminal event when chain is completed so the feed clearly ends
+  if (isCompleted && chain.completedAt) {
+    const completedTs = new Date(String(chain.completedAt)).getTime();
+    const durationSec = chain.durationMs ? Math.round(chain.durationMs / 1000) : 0;
+    feedRows.push({
+      ts: fmtElapsed(String(chain.completedAt), startIso),
+      agent: "SYS",
+      msg: `Engagement ${chain.status} — ${totalFindings} findings, ${durationSec}s elapsed`,
+      cls: chain.status === "completed" ? "ok" : "warn",
+      _sortKey: completedTs,
+    });
+  }
   // Sort by time so events appear in chronological order
   feedRows.sort((a, b) => a._sortKey - b._sortKey);
 
@@ -620,10 +632,18 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
           </div>
         </div>
 
-        {chain.status === "running" && (
+        {chain.status === "running" && chain.currentPhase === "finalizing" && (
+          <div className="flex items-center gap-[6px] px-[10px] py-[4px] ml-2" style={{ background: "var(--amber-dim)", border: "1px solid var(--amber-border)" }}>
+            <div className="w-[5px] h-[5px] rounded-full" style={{ background: "var(--amber)", animation: "f-pulse 1.4s infinite" }} />
+            <span className="font-mono text-[9px]" style={{ color: "var(--amber)" }}>finalizing</span>
+          </div>
+        )}
+        {chain.status === "running" && chain.currentPhase !== "finalizing" && (
           <div className="flex items-center gap-[6px] px-[10px] py-[4px] ml-2" style={{ background: "var(--green-dim)", border: "1px solid var(--green-border)" }}>
             <div className="w-[5px] h-[5px] rounded-full" style={{ background: "var(--green)", animation: "f-pulse 1.4s infinite" }} />
-            <span className="font-mono text-[9px]" style={{ color: "var(--green)" }}>running</span>
+            <span className="font-mono text-[9px]" style={{ color: "var(--green)" }}>
+              {chain.currentPhase ? `running — ${PHASE_LABELS[chain.currentPhase] ?? chain.currentPhase}` : "running"}
+            </span>
           </div>
         )}
         {chain.status === "completed" && (
@@ -824,7 +844,7 @@ function ChainsListView({ chains, onSelect, onCreate, onReportSettings }: {
                   </div>
                   <div className="f-td"><span className={chipCls(chain.status)}>{chain.status}</span></div>
                   <div className="f-td m" style={{ color: chain.status === "running" ? "var(--amber)" : "var(--t3)" }}>
-                    {phIdx >= 0 ? `${phIdx + 1} · ${PHASE_LABELS[chain.currentPhase ?? ""] ?? "—"}` : "—"}
+                    {chain.currentPhase === "finalizing" ? "finalizing..." : phIdx >= 0 ? `${phIdx + 1} · ${PHASE_LABELS[chain.currentPhase ?? ""] ?? "—"}` : "—"}
                   </div>
                   <div className="f-td m">
                     <span style={{ color: crit > 0 ? "var(--red)" : "var(--t2)" }}>{crit} crit</span>
@@ -887,7 +907,7 @@ function ChainsListView({ chains, onSelect, onCreate, onReportSettings }: {
 
 // ── New Engagement Modal ──────────────────────────────────────────────────────
 
-function NewEngagementModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function NewEngagementModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (chainId: string) => void }) {
   const { toast } = useToast();
   const [targetUrl, setTargetUrl] = useState("");
   const [profile, setProfile]     = useState("full_chain");
@@ -905,7 +925,12 @@ function NewEngagementModal({ onClose, onSuccess }: { onClose: () => void; onSuc
           : ["application_compromise", "credential_extraction", "cloud_iam_escalation", "container_k8s_breakout", "lateral_movement", "impact_assessment"],
       },
     }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] }); toast({ title: "Engagement started" }); onSuccess(); onClose(); },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/breach-chains"] });
+      toast({ title: "Engagement started" });
+      onSuccess(data.chainId);
+      onClose();
+    },
     onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
   });
 
@@ -1243,7 +1268,31 @@ export default function BreachChains() {
   const [showNewModal, setShowNewModal]   = useState(false);
   const [reportSettingsChain, setReportSettingsChain] = useState<BreachChain | null>(null);
 
-  // No auto-select — let the user choose which chain to view
+  // Auto-select a newly created chain once it appears in the query data.
+  // pendingChainId is set by the modal onSuccess callback before the query
+  // refetch completes, so the effect below picks it up on the next render.
+  const pendingChainIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (pendingChainIdRef.current && chains.length > 0) {
+      const newChain = chains.find(c => c.id === pendingChainIdRef.current);
+      if (newChain) {
+        setSelectedChain(newChain);
+        pendingChainIdRef.current = null;
+      }
+    }
+  }, [chains]);
+
+  const handleNewChainCreated = useCallback((chainId: string) => {
+    // Try to select immediately if already in cache
+    const existing = chains.find(c => c.id === chainId);
+    if (existing) {
+      setSelectedChain(existing);
+    } else {
+      // Query will refetch — pick it up in the effect above
+      pendingChainIdRef.current = chainId;
+    }
+  }, [chains]);
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-full">
@@ -1255,8 +1304,12 @@ export default function BreachChains() {
     </div>
   );
 
-  // Sync selected chain with latest data
-  const activeChain = selectedChain ? chains.find(c => c.id === selectedChain.id) ?? selectedChain : null;
+  // Sync selected chain with latest query data — always use fresh DB state.
+  // IMPORTANT: Do NOT fall back to stale selectedChain object — if the chain
+  // is not in the current query result, clear the selection to avoid showing
+  // stale status (e.g., showing "completed" from a previous fetch while the
+  // engine is still running).
+  const activeChain = selectedChain ? chains.find(c => c.id === selectedChain.id) ?? null : null;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, height: "100%" }}>
@@ -1265,7 +1318,7 @@ export default function BreachChains() {
       ) : (
         <ChainsListView chains={chains} onSelect={setSelectedChain} onCreate={() => setShowNewModal(true)} onReportSettings={setReportSettingsChain} />
       )}
-      {showNewModal && <NewEngagementModal onClose={() => setShowNewModal(false)} onSuccess={() => {}} />}
+      {showNewModal && <NewEngagementModal onClose={() => setShowNewModal(false)} onSuccess={handleNewChainCreated} />}
       {reportSettingsChain && <ReportSettingsModal chain={reportSettingsChain} onClose={() => setReportSettingsChain(null)} />}
     </div>
   );

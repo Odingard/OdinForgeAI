@@ -853,6 +853,16 @@ export async function runBreachChain(
       });
     }
 
+    // ── Post-processing: Mark chain as "finalizing" so the UI never shows
+    // "completed" while post-processing (graph build, replay, quality gate) is
+    // still running.  The currentPhase is set to "finalizing" and progress to 95
+    // so the status badge renders the correct sub-state.
+    await storage.updateBreachChain(chainId, {
+      currentPhase: "finalizing",
+      progress: 95,
+    });
+    broadcastBreachProgress(chainId, "finalizing", 95, "All phases complete — building attack graph and finalizing analysis...");
+
     // Build unified attack graph spanning all domains
     const unifiedGraph = buildUnifiedAttackGraph(phaseResults, context);
     const overallRiskScore = calculateBreachRiskScore(phaseResults, context);
@@ -876,6 +886,7 @@ export async function runBreachChain(
     const reachabilityChain = buildReachabilityChain(chainId, entryHost, pivotResults);
 
     // ── GTM v1.0: Final Evidence Quality Summary across all phases ──────
+    broadcastBreachProgress(chainId, "finalizing", 97, "Running evidence quality gate and generating detection rules...");
     const allFindings: EvaluatedFinding[] = phaseResults.flatMap(pr =>
       pr.findings.map(f => ({ ...f, source: pr.phaseName }))
     );
@@ -884,6 +895,10 @@ export async function runBreachChain(
     // ── GTM v1.0: All Defender's Mirror rules for this engagement ───────
     const allDetectionRules = defendersMirror.getRulesForEngagement(chainId);
 
+    // ── Final DB write: status transitions to "completed" only now ───────
+    // This is the ONLY place the standard pipeline sets status to "completed".
+    // All post-processing (graph build, replay, reachability, quality gate,
+    // detection rules) has finished before this point.
     await storage.updateBreachChain(chainId, {
       status: "completed",
       progress: 100,
