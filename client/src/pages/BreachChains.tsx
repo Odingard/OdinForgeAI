@@ -46,6 +46,36 @@ const SEV_CLS: Record<string, string> = {
   medium: "f-chip f-chip-med", low: "f-chip f-chip-low", info: "f-chip f-chip-gray",
 };
 
+// ── Feed helpers ─────────────────────────────────────────────────────────────
+
+/** Format ISO timestamp into mm:ss for feed rows */
+function fmtTime(ts: string | undefined | null): string {
+  if (!ts) return "--:--";
+  try {
+    const d = new Date(ts);
+    return `${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  } catch { return "--:--"; }
+}
+
+/** Map phase name to agent badge for feed rows */
+function phaseAgent(phaseName: string): string {
+  if (phaseName?.includes("cloud") || phaseName?.includes("iam")) return "CLOUD";
+  if (phaseName?.includes("lateral")) return "LATERAL";
+  if (phaseName?.includes("credential")) return "EXPLOIT";
+  if (phaseName?.includes("k8s") || phaseName?.includes("container")) return "CLOUD";
+  if (phaseName?.includes("impact")) return "SYS";
+  return "EXPLOIT";
+}
+
+/** Map live event kind to agent badge */
+function liveEventAgent(eventKind: string): string {
+  if (eventKind === "credential_extracted") return "EXPLOIT";
+  if (eventKind === "vuln_confirmed") return "EXPLOIT";
+  if (eventKind === "scanning") return "RECON";
+  if (eventKind === "exploit_attempt") return "EXPLOIT";
+  return "SYS";
+}
+
 // ── SVG helpers ──────────────────────────────────────────────────────────────
 
 function mkEl(tag: string, attrs: Record<string, string>) {
@@ -337,13 +367,52 @@ function FeedRow({ ts, agent, agCls, msg, msgCls }: { ts: string; agent: string;
   );
 }
 
+// ── Feed Scroller (auto-scrolls to bottom on new events) ─────────────────────
+
+const MAX_FEED_ROWS = 100;
+
+function FeedScroller({ rows, isRunning }: { rows: { ts: string; agent: string; msg: string; cls: string }[]; isRunning: boolean }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevLen = useRef(0);
+
+  // Auto-scroll when new rows arrive (only if already near bottom)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (rows.length > prevLen.current) {
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      if (nearBottom || prevLen.current === 0) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+    prevLen.current = rows.length;
+  }, [rows.length]);
+
+  // Only render the last MAX_FEED_ROWS for performance
+  const visible = rows.length > MAX_FEED_ROWS ? rows.slice(-MAX_FEED_ROWS) : rows;
+
+  return (
+    <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-[2px]" style={{ background: "var(--bg)" }} ref={scrollRef}>
+      {visible.map((r, i) => (
+        <FeedRow key={i} ts={r.ts} agent={r.agent} agCls="" msg={r.msg} msgCls={r.cls} />
+      ))}
+      {isRunning && (
+        <div className="flex gap-[6px] font-mono text-[9px] mt-1">
+          <span style={{ color: "var(--t4)", minWidth: 36, fontSize: 8 }}></span>
+          <span className="inline-block w-[6px] h-[10px] align-middle" style={{ background: "var(--t3)", animation: "f-blink .8s step-end infinite" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Chain Detail View ─────────────────────────────────────────────────────────
 
 type DetailTab = "map" | "readiness";
 
 function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => void }) {
   const { toast } = useToast();
-  const { nodes, edges, liveEvents, latestGraph } = useBreachChainUpdates({
+  const { nodes, edges, liveEvents, latestGraph, reasoningEvents, surfaceSignals, phaseTransitions } = useBreachChainUpdates({
     enabled: chain.status === "running" || chain.status === "paused",
     chainId: chain.id,
   });
@@ -375,19 +444,48 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
   const currentPhaseIdx = PHASE_ORDER.indexOf(chain.currentPhase ?? "");
   const timer = `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`;
 
-  // Build feed from liveEvents + phase completions
-  const feedRows: { ts: string; agent: string; msg: string; cls: string }[] = [
-    { ts: "00:00", agent: "SYS", msg: `target: ${(chain as any).targetUrl ?? chain.targetDomains?.[0] ?? chain.name} — engagement started`, cls: "dim" },
-    ...(chain.phaseResults || []).map((p: any, i: number) => ({
-      ts: "—", agent: p.phaseName?.includes("cloud") ? "CLOUD" : p.phaseName?.includes("lateral") ? "LATERAL" : p.phaseName?.includes("recon") ? "RECON" : "EXPLOIT",
+  // Build feed from all real-time event streams + phase completions
+  // Combines: stored phase results, live events, reasoning events, surface signals, phase transitions
+  const feedRows: { ts: string; agent: string; msg: string; cls: string; _sortKey: number }[] = [
+    { ts: "00:00", agent: "SYS", msg: `target: ${(chain as any).targetUrl ?? chain.targetDomains?.[0] ?? chain.name} — engagement started`, cls: "dim", _sortKey: 0 },
+    // Stored phase results (from DB, only appear after phase completion)
+    ...(chain.phaseResults || []).map((p: any) => ({
+      ts: fmtTime(p.completedAt), agent: phaseAgent(p.phaseName),
       msg: `${PHASE_LABELS[p.phaseName] ?? p.phaseName} — ${p.status} — ${(p.findings || []).length} findings`,
       cls: p.status === "completed" && (p.findings || []).some((f: any) => f.severity === "critical") ? "crit" : "ok",
+      _sortKey: new Date(p.completedAt || 0).getTime(),
     })),
+    // Real-time phase transitions (arrive during execution)
+    ...phaseTransitions.map((pt: any) => ({
+      ts: fmtTime(pt.timestamp), agent: "SYS",
+      msg: `Phase ${pt.phaseIndex + 1} → ${PHASE_LABELS[pt.toPhase] ?? pt.toPhase}: ${pt.summary}`,
+      cls: "ok",
+      _sortKey: new Date(pt.timestamp || 0).getTime(),
+    })),
+    // Real-time surface signals (endpoints discovered, tech detected)
+    ...surfaceSignals.map((ss: any) => ({
+      ts: fmtTime(ss.timestamp), agent: "RECON",
+      msg: `[${ss.kind}] ${ss.label}${ss.detail ? " — " + ss.detail.slice(0, 80) : ""}`,
+      cls: "dim",
+      _sortKey: new Date(ss.timestamp || 0).getTime(),
+    })),
+    // Real-time reasoning events (AI decisions)
+    ...reasoningEvents.map((re: any) => ({
+      ts: fmtTime(re.timestamp), agent: re.outcome === "confirmed" ? "EXPLOIT" : re.outcome === "pivoting" ? "LATERAL" : "RECON",
+      msg: `${re.decision}${re.techniqueTried ? " [" + re.techniqueTried + "]" : ""}`,
+      cls: re.outcome === "confirmed" ? "crit" : re.outcome === "failed" ? "dim" : "warn",
+      _sortKey: new Date(re.timestamp || 0).getTime(),
+    })),
+    // Live events (scanning, exploit_attempt, vuln_confirmed, credential_extracted)
     ...liveEvents.map((e: any) => ({
-      ts: "live", agent: e.eventKind?.includes("cred") ? "EXPLOIT" : e.eventKind?.includes("cloud") ? "CLOUD" : "EXPLOIT",
-      msg: e.detail ?? e.target, cls: "warn",
+      ts: fmtTime(e.timestamp), agent: liveEventAgent(e.eventKind),
+      msg: e.detail ?? e.target,
+      cls: e.eventKind === "vuln_confirmed" ? "crit" : e.eventKind === "credential_extracted" ? "warn" : "dim",
+      _sortKey: new Date(e.timestamp || 0).getTime(),
     })),
   ];
+  // Sort by time so events appear in chronological order
+  feedRows.sort((a, b) => a._sortKey - b._sortKey);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -518,17 +616,7 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
                 </span>
               )}
             </div>
-            <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-[2px]" style={{ background: "var(--bg)" }}>
-              {feedRows.map((r, i) => (
-                <FeedRow key={i} ts={r.ts} agent={r.agent} agCls="" msg={r.msg} msgCls={r.cls} />
-              ))}
-              {chain.status === "running" && (
-                <div className="flex gap-[6px] font-mono text-[9px] mt-1">
-                  <span style={{ color: "var(--t4)", minWidth: 36, fontSize: 8 }}></span>
-                  <span className="inline-block w-[6px] h-[10px] align-middle" style={{ background: "var(--t3)", animation: "f-blink .8s step-end infinite" }} />
-                </div>
-              )}
-            </div>
+            <FeedScroller rows={feedRows} isRunning={chain.status === "running"} />
           </div>
 
           {/* Network map */}

@@ -552,6 +552,14 @@ export async function runBreachChain(
         `Starting ${phaseDef.displayName}...`
       );
 
+      // ── Live feed: emit scanning event at phase start ───────────────
+      broadcastLiveEvent(
+        chainId, "scanning",
+        chain.assetIds?.[0] || "unknown",
+        `Starting ${phaseDef.displayName}...`,
+        phaseName,
+      );
+
       // GTM v1.0: Replay — record phase start
       replayRecorder.recordPhaseStart(phaseName, chain.assetIds?.[0] || "unknown");
 
@@ -732,6 +740,14 @@ export async function runBreachChain(
           });
           breachEmitter.edgeAdded(spineNodeId, findingNodeId, true, f.technique ?? phaseName);
           findingSide++;
+
+          // ── Live feed: emit vuln_confirmed for each proven/corroborated finding
+          broadcastLiveEvent(
+            chainId, "vuln_confirmed",
+            chain.assetIds?.[0] || "unknown",
+            `Validated: ${f.title ?? "finding"} [${f.severity}]`,
+            phaseName,
+          );
         }
 
         replayRecorder.record({
@@ -762,6 +778,13 @@ export async function runBreachChain(
         if (spineNodeId) {
           breachEmitter.edgeAdded(spineNodeId, credNodeId, true, "extracted");
         }
+        // ── Live feed: emit credential_extracted event
+        broadcastLiveEvent(
+          chainId, "credential_extracted",
+          chain.assetIds?.[0] || "unknown",
+          `${cred.type ?? "Credential"} extracted — ${cred.accessLevel} access`,
+          phaseName,
+        );
       }
 
       // Build incremental attack graph from all completed results so far
@@ -916,6 +939,10 @@ export async function runBreachChain(
     // Clean up module-level stores for this chain
     phase1AEvidenceStore.delete(chainId);
     chainEmitterStore.delete(chainId);
+    // Clean up live event throttle entries for this chain
+    for (const key of Array.from(_liveEventThrottles.keys())) {
+      if (key.startsWith(`${chainId}:`)) _liveEventThrottles.delete(key);
+    }
     // Set gauge metrics
     const maxDepth = reachabilityChain?.deepestNode?.depth ?? 0;
     pivotDepthMax.set(maxDepth);
@@ -1587,6 +1614,8 @@ async function executeApplicationCompromise(
       if (targetUrl) {
         onProgress(chain.id, "application_compromise", 5,
           `Running active exploitation against ${targetUrl}`);
+        // ── Live feed: immediate start event so feed is not blank ──
+        broadcastLiveEvent(chain.id, "scanning", targetUrl, `Crawling target ${targetUrl}...`, "application_compromise");
 
         exploitTarget = {
           baseUrl: targetUrl,
@@ -1611,6 +1640,11 @@ async function executeApplicationCompromise(
             onProgress(chain.id, "application_compromise",
               5 + Math.round(Math.max(0, progress) * 0.4),
               `[Active Exploit] ${detail}`);
+            // ── Live feed: stream engine progress to WebSocket as live events ──
+            const kind: "scanning" | "exploit_attempt" =
+              phase.includes("crawl") || phase.includes("initializing") || phase.includes("surface")
+                ? "scanning" : "exploit_attempt";
+            broadcastLiveEvent(chain.id, kind, targetUrl || assetId, detail, "application_compromise");
           },
           // Surface signal callback — fires into live graph as crawl discovers things
           (kind, label, detail) => {
@@ -1622,6 +1656,8 @@ async function executeApplicationCompromise(
                 detail,
               );
             }
+            // ── Live feed: surface discovery events ──
+            broadcastLiveEvent(chain.id, "scanning", label, detail, "application_compromise");
           }
         );
 
@@ -1645,6 +1681,13 @@ async function executeApplicationCompromise(
             validatedTargets: [targetUrl],
             discoveredAt: new Date().toISOString(),
           });
+          // ── Live feed: credential extraction in real time ──
+          broadcastLiveEvent(
+            chain.id, "credential_extracted",
+            targetUrl || assetId,
+            `${cred.type} credential extracted — ${cred.accessLevel} access`,
+            "application_compromise",
+          );
         }
 
         // Merge compromised assets
@@ -1695,6 +1738,13 @@ async function executeApplicationCompromise(
               { techniqueTried: finding.exploitChain },
             );
           }
+          // ── Live feed: emit finding confirmation in real time ──
+          broadcastLiveEvent(
+            chain.id, "vuln_confirmed",
+            targetUrl || assetId,
+            `Confirmed: ${finding.title} [${finding.severity}]`,
+            "application_compromise",
+          );
         }
 
         console.log(`[BreachOrchestrator] Active Exploit Results for ${assetId}:`, {
@@ -3019,6 +3069,36 @@ function broadcastBreachProgress(
     message,
     timestamp: new Date().toISOString(),
   });
+}
+
+// ── Throttled live event emitter ─────────────────────────────────────────────
+// Sends breach_chain_live_event messages to the WebSocket channel, throttled
+// to at most 1 event per eventKind per LIVE_EVENT_THROTTLE_MS to avoid flooding.
+const LIVE_EVENT_THROTTLE_MS = 400;
+const _liveEventThrottles = new Map<string, number>();
+
+function broadcastLiveEvent(
+  chainId: string,
+  eventKind: "scanning" | "exploit_attempt" | "credential_extracted" | "vuln_confirmed",
+  target: string,
+  detail: string,
+  phase: string
+): void {
+  const throttleKey = `${chainId}:${eventKind}`;
+  const now = Date.now();
+  const lastSent = _liveEventThrottles.get(throttleKey) || 0;
+  if (now - lastSent < LIVE_EVENT_THROTTLE_MS) return;
+  _liveEventThrottles.set(throttleKey, now);
+
+  wsService.broadcastToChannel(`breach_chain:${chainId}`, {
+    type: "breach_chain_live_event",
+    chainId,
+    eventKind,
+    target: typeof target === "string" ? target.slice(0, 120) : "",
+    detail: typeof detail === "string" ? detail.slice(0, 200) : "",
+    phase,
+    timestamp: new Date().toISOString(),
+  } as any);
 }
 
 /** Normalize confidence/score to integer 0-100 (agent may return 0-1 floats) */

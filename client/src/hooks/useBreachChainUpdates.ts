@@ -192,11 +192,37 @@ export function useBreachChainUpdates({
             detail: data.detail,
             phase: data.phase,
             timestamp: data.timestamp,
-            expiresAt: Date.now() + 3000,
+            expiresAt: Date.now() + 8000,
           };
           setLiveEvents(prev => {
             const next = [...prev, event];
-            return next.length > 5 ? next.slice(-5) : next;
+            return next.length > 50 ? next.slice(-50) : next;
+          });
+          break;
+        }
+
+        // ── Cognitive events from exploit engine ──────────────────────
+        case "breach_cognitive_event": {
+          const cogKindMap: Record<string, LiveEvent["eventKind"]> = {
+            "exploration.started": "scanning",
+            "exploration.succeeded": "vuln_confirmed",
+            "exploration.failed": "scanning",
+            "intelligence.strategy": "scanning",
+            "intelligence.hypothesis": "exploit_attempt",
+            "adaptation.pivot": "exploit_attempt",
+          };
+          const cogEvent: LiveEvent = {
+            id: `live-${++_liveEventCounter}`,
+            eventKind: cogKindMap[data.cognitiveType] || "scanning",
+            target: data.target || "",
+            detail: data.summary || "",
+            phase: data.phase || "application_compromise",
+            timestamp: data.timestamp,
+            expiresAt: Date.now() + 8000,
+          };
+          setLiveEvents(prev => {
+            const next = [...prev, cogEvent];
+            return next.length > 50 ? next.slice(-50) : next;
           });
           break;
         }
