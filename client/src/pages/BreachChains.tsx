@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBreachChainUpdates } from "@/hooks/useBreachChainUpdates";
-import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2 } from "lucide-react";
+import { Play, StopCircle, Eye, Plus, Download, RotateCcw, Shield, FileText, Trash2, CheckCircle2, Settings } from "lucide-react";
 import type { BreachChain, BreachPhaseResult, AttackGraph } from "@shared/schema";
 import { LaunchReadinessPanel } from "@/components/dashboard/LaunchReadinessPanel";
 
@@ -541,10 +541,11 @@ function ChainDetailView({ chain, onBack }: { chain: BreachChain; onBack: () => 
 
 // ── Chains List View ──────────────────────────────────────────────────────────
 
-function ChainsListView({ chains, onSelect, onCreate }: {
+function ChainsListView({ chains, onSelect, onCreate, onReportSettings }: {
   chains: BreachChain[];
   onSelect: (c: BreachChain) => void;
   onCreate: () => void;
+  onReportSettings?: (c: BreachChain) => void;
 }) {
   const { toast } = useToast();
   const deleteChainMut = useMutation({
@@ -634,24 +635,31 @@ function ChainsListView({ chains, onSelect, onCreate }: {
                       <Eye className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
                     </button>
                     {chain.status === "completed" && (
-                      <button title="Download Technical Report" className="f-icon-btn"
-                        onClick={() => {
-                          const token = localStorage.getItem("odinforge_access_token");
-                          const url = `/api/breach-chains/${chain.id}/report/technical-pdf`;
-                          fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-                            .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); })
-                            .then(blob => {
-                              const a = document.createElement("a");
-                              a.href = URL.createObjectURL(blob);
-                              a.download = `breach-chain-${chain.id.slice(0, 8)}-technical.pdf`;
-                              a.click();
-                              URL.revokeObjectURL(a.href);
-                            })
-                            .catch(() => {/* silent — toast would need hook context */});
-                        }}
-                        style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border2)", background: "transparent", cursor: "pointer" }}>
-                        <Download className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
-                      </button>
+                      <>
+                        <button title="Report Settings & Download" className="f-icon-btn"
+                          onClick={() => onReportSettings?.(chain)}
+                          style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border2)", background: "transparent", cursor: "pointer" }}>
+                          <FileText className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
+                        </button>
+                        <button title="Quick Download (Legacy)" className="f-icon-btn"
+                          onClick={() => {
+                            const token = localStorage.getItem("odinforge_access_token");
+                            const url = `/api/breach-chains/${chain.id}/report/technical-pdf`;
+                            fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+                              .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); })
+                              .then(blob => {
+                                const a = document.createElement("a");
+                                a.href = URL.createObjectURL(blob);
+                                a.download = `breach-chain-${chain.id.slice(0, 8)}-technical.pdf`;
+                                a.click();
+                                URL.revokeObjectURL(a.href);
+                              })
+                              .catch(() => {/* silent — toast would need hook context */});
+                          }}
+                          style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--border2)", background: "transparent", cursor: "pointer" }}>
+                          <Download className="w-[11px] h-[11px]" style={{ stroke: "var(--t3)" }} />
+                        </button>
+                      </>
                     )}
                     {chain.status !== "running" && (
                       <button

@@ -2807,11 +2807,35 @@ export async function registerRoutes(
 
   // ─── PDF Report Download ───────────────────────────────────────────────────
 
-  /** GET /api/breach-chains/:id/report/pdf — Download branded CISO PDF report */
+  /** GET /api/breach-chains/:id/report/pdf — Download branded CISO PDF report (supports ?config=base64-json for HTML→PDF) */
   app.get("/api/breach-chains/:id/report/pdf", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
     try {
       const chain = await storage.getBreachChain(req.params.id);
       if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      // If config query param is present, use HTML→PDF engine
+      const configParam = req.query.config as string | undefined;
+      if (configParam) {
+        try {
+          const configJson = JSON.parse(Buffer.from(configParam, "base64").toString("utf-8"));
+          const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
+          const { renderReportToPdf, buildReportDataFromPackage } = await import("./services/engagement/html-report-renderer");
+          const { mergeWithDefaults } = await import("./services/engagement/report-config");
+
+          const pkg = await sealEngagementPackage(chain, "pdf-export");
+          const reportData = buildReportDataFromPackage(pkg);
+          const config = mergeWithDefaults({ ...configJson, engagementId: chain.id });
+
+          const pdfBuffer = await renderReportToPdf(reportData, config);
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename="OdinForge-Report-${chain.id}.pdf"`);
+          res.send(pdfBuffer);
+          return;
+        } catch (htmlPdfErr: any) {
+          console.warn("[HTML-PDF] GET with config failed, falling back to pdfmake:", htmlPdfErr.message);
+          // Fall through to legacy renderer
+        }
+      }
 
       const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
       const { buildCISOReportPDF } = await import("./services/engagement/pdf-renderer");
@@ -2886,6 +2910,86 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Technical PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate PDF", detail: error.message });
+    }
+  });
+
+  // ─── HTML→PDF Report Engine ──────────────────────────────────────────────────
+
+  /** POST /api/breach-chains/:id/report/pdf — Generate customized HTML→PDF report */
+  app.post("/api/breach-chains/:id/report/pdf", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
+      const { renderReportToPdf, buildReportDataFromPackage } = await import("./services/engagement/html-report-renderer");
+      const { mergeWithDefaults } = await import("./services/engagement/report-config");
+
+      const pkg = await sealEngagementPackage(chain, "pdf-export");
+      const reportData = buildReportDataFromPackage(pkg);
+      const config = mergeWithDefaults({ ...req.body, engagementId: chain.id });
+
+      const pdfBuffer = await renderReportToPdf(reportData, config);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="OdinForge-Report-${chain.id}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (error: any) {
+      console.error("HTML→PDF generation error:", error);
+      // Fall back to legacy pdfmake renderer
+      try {
+        const chain = await storage.getBreachChain(req.params.id);
+        if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+        const { sealEngagementPackage } = await import("./services/engagement/engagement-package");
+        const { buildCISOReportPDF } = await import("./services/engagement/pdf-renderer");
+        const pkg = await sealEngagementPackage(chain, "pdf-export");
+        const docDef = buildCISOReportPDF(pkg.components.cisoReport, pkg.metadata.primaryAttackPath, pkg.metadata.remediationPlan);
+        const PdfPrinter = (await import("pdfmake")).default;
+        const printer = new PdfPrinter({ Helvetica: { normal: "Helvetica", bold: "Helvetica-Bold", italics: "Helvetica-Oblique", bolditalics: "Helvetica-BoldOblique" } });
+        const pdfDoc = printer.createPdfKitDocument(docDef);
+        const chunks: Buffer[] = [];
+        pdfDoc.on("data", (chunk: Buffer) => chunks.push(chunk));
+        pdfDoc.on("end", () => {
+          const pdfBuffer = Buffer.concat(chunks);
+          res.setHeader("Content-Type", "application/pdf");
+          res.setHeader("Content-Disposition", `attachment; filename="OdinForge-Report-${chain.id}.pdf"`);
+          res.send(pdfBuffer);
+        });
+        pdfDoc.end();
+      } catch (fallbackErr: any) {
+        console.error("PDF fallback also failed:", fallbackErr);
+        res.status(500).json({ error: "Failed to generate PDF", detail: error.message });
+      }
+    }
+  });
+
+  /** PUT /api/breach-chains/:id/report-config — Save report config for an engagement */
+  app.put("/api/breach-chains/:id/report-config", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:generate"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { saveReportConfig, mergeWithDefaults } = await import("./services/engagement/report-config");
+      const config = mergeWithDefaults({ ...req.body, engagementId: chain.id });
+      saveReportConfig(chain.id, config);
+      res.json({ ok: true, config });
+    } catch (error: any) {
+      console.error("Save report config error:", error);
+      res.status(500).json({ error: "Failed to save report config", detail: error.message });
+    }
+  });
+
+  /** GET /api/breach-chains/:id/report-config — Load report config for an engagement */
+  app.get("/api/breach-chains/:id/report-config", apiRateLimiter, uiAuthMiddleware, requirePermission("reports:read"), async (req, res) => {
+    try {
+      const chain = await storage.getBreachChain(req.params.id);
+      if (!chain) return res.status(404).json({ error: "Breach chain not found" });
+
+      const { loadReportConfig, DEFAULT_REPORT_CONFIG } = await import("./services/engagement/report-config");
+      const config = loadReportConfig(chain.id) ?? { ...DEFAULT_REPORT_CONFIG, engagementId: chain.id };
+      res.json(config);
+    } catch (error: any) {
+      console.error("Load report config error:", error);
+      res.status(500).json({ error: "Failed to load report config", detail: error.message });
     }
   });
 

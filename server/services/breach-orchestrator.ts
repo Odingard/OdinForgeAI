@@ -2247,13 +2247,19 @@ async function executeCloudIAMEscalation(
   // Returns skipped result with explicit reason.
   const startTime = Date.now();
   console.info(`[BreachOrchestrator] Phase cloud_iam_escalation disabled in core-v2 build`);
-  return buildPhaseResult("cloud_iam_escalation", startTime, context, {
+  const result = buildPhaseResult("cloud_iam_escalation", startTime, context, {
     credentials: [],
     assets: [],
     findings: [],
     evaluationIds: [],
     domain: "cloud",
   });
+  (result as any).zeroFindingsDiagnostic = {
+    category: "phase_skipped",
+    reason: "Phase disabled in current build. Cloud IAM escalation requires cloud infrastructure services not yet implemented. No testing was attempted — this does not indicate the target is secure against cloud-based attacks.",
+    subAgentRuns: 0,
+  };
+  return result;
 }
 
 // ============================================================================
@@ -2268,13 +2274,19 @@ async function executeContainerK8sBreakout(
   // core-v2: Phase disabled — container security services removed.
   const startTime = Date.now();
   console.info(`[BreachOrchestrator] Phase container_k8s_breakout disabled in core-v2 build`);
-  return buildPhaseResult("container_k8s_breakout", startTime, context, {
+  const result = buildPhaseResult("container_k8s_breakout", startTime, context, {
     credentials: [],
     assets: [],
     findings: [],
     evaluationIds: [],
     domain: "kubernetes",
   });
+  (result as any).zeroFindingsDiagnostic = {
+    category: "phase_skipped",
+    reason: "Phase disabled in current build. Container and Kubernetes breakout testing requires container security services not yet implemented. No testing was attempted.",
+    subAgentRuns: 0,
+  };
+  return result;
 }
 
 // ============================================================================
@@ -2289,13 +2301,19 @@ async function executeLateralMovement(
   // core-v2: Phase disabled — lateral movement services removed.
   const startTime = Date.now();
   console.info(`[BreachOrchestrator] Phase lateral_movement disabled in core-v2 build`);
-  return buildPhaseResult("lateral_movement", startTime, context, {
+  const result = buildPhaseResult("lateral_movement", startTime, context, {
     credentials: [],
     assets: [],
     findings: [],
     evaluationIds: [],
     domain: "network",
   });
+  (result as any).zeroFindingsDiagnostic = {
+    category: "phase_skipped",
+    reason: "Phase disabled in current build. Lateral movement testing requires network pivoting services not yet implemented. No cross-system testing was attempted.",
+    subAgentRuns: 0,
+  };
+  return result;
 }
 
 // ============================================================================
