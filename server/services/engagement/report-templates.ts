@@ -72,7 +72,7 @@ function formatDate(iso: string): string {
 
 export function renderStyles(config: ReportConfig): string {
   const cs = getColorScheme(config);
-  const isLight = config.colorScheme === "neutral";
+  const isLight = config.colorScheme !== "executive";
   const pageW = config.pageSize === "A4" ? "210mm" : "8.5in";
   const pageH = config.pageSize === "A4" ? "297mm" : "11in";
 
@@ -136,7 +136,7 @@ export function renderStyles(config: ReportConfig): string {
       left: 0;
       right: 0;
       bottom: 0;
-      background: radial-gradient(ellipse at 30% 20%, rgba(${config.colorScheme === "neutral" ? "29,78,216" : config.colorScheme === "dark" ? "99,102,241" : "220,38,38"},.12) 0%, transparent 60%);
+      background: radial-gradient(ellipse at 30% 20%, rgba(${config.colorScheme === "minimal" ? "29,78,216" : config.colorScheme === "executive" ? "183,28,28" : "44,62,80"},.12) 0%, transparent 60%);
     }
 
     .cover-logo { width: 160px; margin-bottom: 32px; position: relative; z-index: 1; }
@@ -377,6 +377,23 @@ export function renderStyles(config: ReportConfig): string {
       color: ${isLight ? cs.body : cs.body};
       border-bottom: 1px solid ${cs.border};
       font-family: "SF Mono", Consolas, monospace;
+    }
+
+    /* Evidence Integrity Guide */
+    .integrity-guide {
+      border: 1px solid ${cs.accent};
+      border-left: 4px solid ${cs.accent};
+      padding: 16px 20px;
+      margin: 20px 0;
+      background: ${isLight ? "#f0f9ff" : "rgba(59,130,246,.06)"};
+      page-break-inside: avoid;
+    }
+    .integrity-guide-title {
+      font-size: 11pt;
+      font-weight: 700;
+      color: ${cs.accent};
+      letter-spacing: 1px;
+      margin-bottom: 10px;
     }
   `;
 }
@@ -775,6 +792,21 @@ export function renderMethodology(config: ReportConfig): string {
         </div>
       </div>
 
+      <div class="sub-title">Evidence Integrity</div>
+      <div class="text-body">
+        Every finding produced by OdinForge is backed by real exploitation &mdash; not simulation,
+        not inference. When a vulnerability is confirmed, the platform captures the full HTTP request
+        and response at the moment of exploitation and immediately computes a SHA-256 cryptographic hash
+        of this evidence. This hash is embedded alongside each finding and cannot be retroactively altered
+        without detection.
+      </div>
+      <div class="text-body">
+        Once all assessment phases are complete, the engagement package &mdash; containing executive
+        and technical reports, attack chain replays, and the raw evidence &mdash; is sealed with a
+        master SHA-256 hash that covers every component. This seal confirms that the entire deliverable
+        is intact and has not been modified after the assessment concluded.
+      </div>
+
       <div class="sub-title">Deterministic Scoring</div>
       <div class="text-body">
         OdinForge Deterministic Scoring v3.0 computes risk scores from three weighted components:
@@ -826,11 +858,44 @@ export function renderAppendix(data: ReportData, config: ReportConfig): string {
       ` : ""}
 
       ${hashRows ? `
-        <div class="sub-title">Evidence Integrity — SHA-256 Hashes</div>
+        <div class="sub-title">Evidence Integrity &mdash; SHA-256 Hashes</div>
         <table class="hash-table">
           <thead><tr><th>Component</th><th>SHA-256</th></tr></thead>
           <tbody>${hashRows}</tbody>
         </table>
+
+        <div class="integrity-guide">
+          <div class="integrity-guide-title">EVIDENCE INTEGRITY VERIFICATION</div>
+          <div class="text-body">
+            Each finding in this report includes a SHA-256 cryptographic hash computed at the moment
+            of discovery. These hashes prove that the evidence has not been modified since the
+            assessment was conducted.
+          </div>
+
+          <div class="sub-title-sm">How to Verify</div>
+          <ol class="remediation-list">
+            <li>The engagement package includes a sealed evidence manifest containing all component hashes.</li>
+            <li>Each finding&rsquo;s hash was computed from the full HTTP request, HTTP response, and timestamp captured at exploitation time.</li>
+            <li>To verify: recompute the SHA-256 hash of the same inputs and compare it with the value shown above.</li>
+            <li>Matching hashes confirm the evidence is authentic and has not been modified.</li>
+          </ol>
+
+          <div class="sub-title-sm">Why This Matters</div>
+          <ul class="remediation-list">
+            <li>Proves that findings are real and were not fabricated.</li>
+            <li>Confirms that evidence has not been tampered with after discovery.</li>
+            <li>Provides an auditable chain of evidence for compliance and regulatory purposes.</li>
+            <li>Can be independently verified by any party with access to the raw evidence data.</li>
+          </ul>
+
+          <div class="sub-title-sm">Package Seal</div>
+          <div class="text-body">
+            The complete engagement package is sealed with a master SHA-256 hash that covers all
+            components listed above. A <strong>SEALED</strong> status confirms the entire deliverable
+            &mdash; executive report, technical report, attack chain replay, and raw evidence &mdash;
+            is intact and unmodified.
+          </div>
+        </div>
       ` : ""}
 
       <div class="sub-title">Engagement Status</div>
