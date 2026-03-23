@@ -146,10 +146,19 @@ function synthesizeFromChain(chain: any): {
     });
 
     for (const finding of (phase.findings || [])) {
+      // Build enriched detail for completed-chain replay
+      const technique = finding.technique || finding.exploitChain || undefined;
+      const title = finding.title || finding.description?.slice(0, 80) || '';
+      const detailParts = [`${finding.severity?.toUpperCase()}: ${title}`];
+      if (finding.confidence) detailParts.push(`${Math.round(finding.confidence * 100)}% confidence`);
+      if (finding.matchedPatterns?.length) detailParts.push(`${finding.matchedPatterns.length} pattern matches`);
+
       reasoningStream.push({
         reasoningIntent: 'validate',
-        target: finding.technique || phaseName,
-        message: `${finding.severity?.toUpperCase()}: ${finding.title || finding.description?.slice(0, 80)}`,
+        target: technique || phaseName,
+        message: `${finding.severity?.toUpperCase()}: ${title}`,
+        detail: detailParts.join(' \u2014 '),
+        technique,
         timestamp: phase.completedAt || ts,
       });
     }

@@ -20,6 +20,9 @@ export interface EvidenceData {
   curl?: string;
   ts?: string;
   hash?: string | null;
+  credentialType?: string;     // e.g. "jwt", "api_key", "session_cookie"
+  confidence?: string;         // e.g. "85%"
+  matchedPatterns?: string[];  // Patterns that confirmed the exploit
 }
 
 interface EvidencePanelProps {
@@ -74,17 +77,42 @@ function EvidenceContent({ data }: { data: EvidenceData }) {
 
   return (
     <>
-      {/* Severity badge */}
-      <span className={`cv-sev ${sevClass(data.sev)}`}>
-        {(data.sev || "info").toUpperCase()}
-      </span>
+      {/* Severity + confidence badges */}
+      <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+        <span className={`cv-sev ${sevClass(data.sev)}`}>
+          {(data.sev || "info").toUpperCase()}
+        </span>
+        {data.confidence && (
+          <span className="cv-sev" style={{ background: "rgba(59,130,246,.15)", color: "#60a5fa" }}>
+            {data.confidence} confidence
+          </span>
+        )}
+        {data.credentialType && (
+          <span className="cv-sev" style={{ background: "rgba(239,68,68,.15)", color: "#f87171" }}>
+            {data.credentialType}
+          </span>
+        )}
+      </div>
 
-      {/* MITRE ATT&CK */}
-      {data.mitre && (
+      {/* Technique (shown even without MITRE ID) */}
+      {data.technique && (
         <div className="cv-pf">
-          <div className="cv-pl">MITRE ATT&amp;CK</div>
+          <div className="cv-pl">{data.mitre ? "MITRE ATT&CK" : "TECHNIQUE"}</div>
           <div className="cv-pv">
-            {data.mitre} &mdash; {data.technique || ""}
+            {data.mitre ? `${data.mitre} \u2014 ` : ""}{data.technique}
+          </div>
+        </div>
+      )}
+
+      {/* Matched patterns (what proved the exploit) */}
+      {data.matchedPatterns && data.matchedPatterns.length > 0 && (
+        <div className="cv-pf">
+          <div className="cv-pl">
+            <span className="cv-pl-dot" style={{ background: "#22c55e" }} />
+            MATCHED PATTERNS
+          </div>
+          <div className="cv-code" style={{ color: "#22c55e", borderColor: "rgba(34,197,94,.2)" }}>
+            {data.matchedPatterns.join("\n")}
           </div>
         </div>
       )}

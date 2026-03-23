@@ -888,7 +888,7 @@ function ReportSettingsModal({ chain, onClose }: { chain: BreachChain; onClose: 
     clientName: "",
     reportTitle: "Adversarial Exposure Assessment",
     classification: "CONFIDENTIAL",
-    colorScheme: "odingard",
+    colorScheme: "corporate",
     assessorName: "",
     assessorCredentials: "",
     sections: {
@@ -948,9 +948,9 @@ function ReportSettingsModal({ chain, onClose }: { chain: BreachChain; onClose: 
   };
 
   const schemeSwatch: Record<string, { bg: string; accent: string; label: string }> = {
-    odingard: { bg: "#0a0e17", accent: "#dc2626", label: "Odingard" },
-    neutral:  { bg: "#ffffff", accent: "#1d4ed8", label: "Neutral" },
-    dark:     { bg: "#0f172a", accent: "#6366f1", label: "Dark" },
+    corporate:  { bg: "#ffffff", accent: "#2c3e50", label: "Corporate" },
+    executive:  { bg: "#1a1a2e", accent: "#b71c1c", label: "Executive" },
+    minimal:    { bg: "#ffffff", accent: "#1565c0", label: "Minimal" },
   };
 
   const classificationOptions = ["CONFIDENTIAL", "RESTRICTED", "CLIENT CONFIDENTIAL", "PUBLIC"];

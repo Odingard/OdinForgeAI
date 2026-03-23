@@ -52,12 +52,12 @@ function sevColor(sev: string, cs: ColorScheme): string {
 
 function classificationColor(classification: string): string {
   const map: Record<string, string> = {
-    CONFIDENTIAL: "#dc2626",
-    RESTRICTED: "#d97706",
-    "CLIENT CONFIDENTIAL": "#ea580c",
-    PUBLIC: "#16a34a",
+    CONFIDENTIAL: "#c0392b",
+    RESTRICTED: "#e67e22",
+    "CLIENT CONFIDENTIAL": "#d35400",
+    PUBLIC: "#27ae60",
   };
-  return map[classification] || "#64748b";
+  return map[classification] || "#6c757d";
 }
 
 function formatDate(iso: string): string {
@@ -72,24 +72,32 @@ function formatDate(iso: string): string {
 
 export function renderStyles(config: ReportConfig): string {
   const cs = getColorScheme(config);
-  const isLight = config.colorScheme !== "executive";
+  const scheme = config.colorScheme;
+  const isMinimal = scheme === "minimal";
+  const isExecutive = scheme === "executive";
   const pageW = config.pageSize === "A4" ? "210mm" : "8.5in";
   const pageH = config.pageSize === "A4" ? "297mm" : "11in";
+
+  // Impact box background tint per scheme
+  const impactBg = isExecutive ? "#fef5f5" : isMinimal ? "#f0f7ff" : "#f8f9fa";
+
+  // Cover gradient accent RGB per scheme
+  const coverGradientRgb = isExecutive ? "183,28,28" : isMinimal ? "21,101,192" : "44,62,80";
 
   return `
     @page {
       size: ${pageW} ${pageH};
-      margin: 20mm 18mm 25mm 18mm;
+      margin: 25mm 20mm 20mm 20mm;
 
       @bottom-left {
-        content: "${config.classification} — Odingard Security — Engagement ${escapeHtml(config.engagementId)}";
-        font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+        content: "${config.classification} — OdinForge Security — Engagement ${escapeHtml(config.engagementId)}";
+        font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
         font-size: 7pt;
         color: ${cs.muted};
       }
       @bottom-right {
         content: "Page " counter(page);
-        font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+        font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
         font-size: 7pt;
         color: ${cs.muted};
       }
@@ -104,11 +112,11 @@ export function renderStyles(config: ReportConfig): string {
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: "Segoe UI", Helvetica, Arial, sans-serif;
+      font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 10pt;
-      color: ${isLight ? cs.body : cs.body};
+      color: ${cs.body};
       background: ${cs.background};
-      line-height: 1.5;
+      line-height: 1.6;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
@@ -135,36 +143,47 @@ export function renderStyles(config: ReportConfig): string {
       top: 0;
       left: 0;
       right: 0;
-      bottom: 0;
-      background: radial-gradient(ellipse at 30% 20%, rgba(${config.colorScheme === "minimal" ? "29,78,216" : config.colorScheme === "executive" ? "183,28,28" : "44,62,80"},.12) 0%, transparent 60%);
+      height: 6px;
+      background: ${cs.accent};
     }
 
-    .cover-logo { width: 160px; margin-bottom: 32px; position: relative; z-index: 1; }
-    .cover-company { font-size: 18pt; font-weight: 700; letter-spacing: 6px; text-transform: uppercase; margin-bottom: 4px; position: relative; z-index: 1; }
-    .cover-tagline { font-size: 9pt; color: ${cs.muted}; margin-bottom: 48px; position: relative; z-index: 1; }
-    .cover-title { font-size: 28pt; font-weight: 700; margin-bottom: 8px; position: relative; z-index: 1; line-height: 1.2; max-width: 80%; }
-    .cover-client { font-size: 14pt; color: ${cs.muted}; margin-bottom: 24px; position: relative; z-index: 1; }
-    .cover-meta { font-size: 9pt; color: ${cs.muted}; margin-bottom: 8px; position: relative; z-index: 1; }
+    .cover-page::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 120px;
+      height: 3px;
+      background: ${isMinimal ? cs.accent : "rgba(" + coverGradientRgb + ",.4)"};
+    }
+
+    .cover-logo { width: 140px; margin-bottom: 28px; position: relative; z-index: 1; }
+    .cover-company { font-size: 16pt; font-weight: 700; letter-spacing: 6px; text-transform: uppercase; margin-bottom: 4px; position: relative; z-index: 1; }
+    .cover-tagline { font-size: 9pt; color: ${isMinimal ? cs.muted : "rgba(255,255,255,.5)"}; margin-bottom: 48px; position: relative; z-index: 1; }
+    .cover-title { font-size: 26pt; font-weight: 700; margin-bottom: 8px; position: relative; z-index: 1; line-height: 1.3; max-width: 80%; }
+    .cover-client { font-size: 13pt; color: ${isMinimal ? cs.muted : "rgba(255,255,255,.6)"}; margin-bottom: 24px; position: relative; z-index: 1; }
+    .cover-meta { font-size: 9pt; color: ${isMinimal ? cs.muted : "rgba(255,255,255,.5)"}; margin-bottom: 8px; position: relative; z-index: 1; }
     .cover-classification {
       display: inline-block;
       padding: 4px 16px;
       font-size: 8pt;
       font-weight: 700;
       letter-spacing: 2px;
-      border: 2px solid;
+      border: 1px solid;
       margin-top: 32px;
       position: relative;
       z-index: 1;
     }
-    .cover-assessor { font-size: 9pt; color: ${cs.muted}; margin-top: 16px; position: relative; z-index: 1; }
+    .cover-assessor { font-size: 9pt; color: ${isMinimal ? cs.muted : "rgba(255,255,255,.5)"}; margin-top: 16px; position: relative; z-index: 1; }
 
     .toc-page { page-break-after: always; padding-top: 24px; }
-    .toc-title { font-size: 18pt; font-weight: 700; color: ${cs.heading}; margin-bottom: 24px; border-bottom: 2px solid ${cs.accent}; padding-bottom: 8px; }
+    .toc-title { font-size: 18pt; font-weight: 700; color: ${cs.heading}; margin-bottom: 24px; border-bottom: 1px solid ${cs.accent}; padding-bottom: 8px; line-height: 1.3; }
     .toc-entry {
       display: flex;
       align-items: baseline;
-      padding: 6px 0;
-      border-bottom: 1px dotted ${cs.border};
+      padding: 8px 0;
+      border-bottom: 1px solid ${cs.border};
     }
     .toc-entry-name { font-size: 10pt; color: ${cs.heading}; font-weight: 500; }
     .toc-entry-leader { flex: 1; border-bottom: 1px dotted ${cs.border}; margin: 0 8px; min-width: 40px; }
@@ -172,19 +191,27 @@ export function renderStyles(config: ReportConfig): string {
 
     .section-break { page-break-before: always; }
     .section-title {
-      font-size: 16pt;
+      font-size: ${isMinimal ? "16pt" : "18pt"};
       font-weight: 700;
-      color: ${cs.heading};
-      border-bottom: 2px solid ${cs.accent};
-      padding-bottom: 6px;
-      margin-bottom: 16px;
+      color: ${isExecutive ? cs.accent : cs.heading};
+      border-bottom: ${isMinimal ? "2px" : "1px"} solid ${isMinimal ? cs.accent : cs.border};
+      padding-bottom: 8px;
+      margin-bottom: 20px;
       margin-top: 8px;
+      line-height: 1.3;
     }
-    .sub-title { font-size: 12pt; font-weight: 700; color: ${cs.heading}; margin: 16px 0 8px 0; }
-    .sub-title-sm { font-size: 10pt; font-weight: 700; color: ${cs.heading}; margin: 12px 0 6px 0; }
+    .sub-title { font-size: 13pt; font-weight: 700; color: ${cs.heading}; margin: 20px 0 10px 0; line-height: 1.3; }
+    .sub-title-sm { font-size: 10pt; font-weight: 700; color: ${cs.heading}; margin: 14px 0 8px 0; }
 
-    .text-body { font-size: 10pt; color: ${isLight ? cs.body : cs.body}; line-height: 1.6; margin-bottom: 12px; }
+    .text-body { font-size: 10pt; color: ${cs.body}; line-height: 1.6; margin-bottom: 12px; }
     .text-muted { font-size: 9pt; color: ${cs.muted}; }
+
+    /* Section dividers */
+    hr.section-rule {
+      border: none;
+      border-top: 1px solid ${cs.border};
+      margin: 20px 0;
+    }
 
     /* Risk Grade Badge */
     .grade-badge {
@@ -195,8 +222,8 @@ export function renderStyles(config: ReportConfig): string {
       height: 64px;
       font-size: 36pt;
       font-weight: 800;
-      border: 3px solid;
-      border-radius: 8px;
+      border: 2px solid;
+      border-radius: 6px;
       margin-right: 20px;
       flex-shrink: 0;
     }
@@ -209,22 +236,23 @@ export function renderStyles(config: ReportConfig): string {
     }
     .metric-card {
       flex: 1;
-      padding: 12px;
+      padding: 14px 12px;
       border: 1px solid ${cs.border};
-      background: ${isLight ? cs.panel : cs.panel};
+      background: ${cs.panel};
       text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
     .metric-val { font-size: 20pt; font-weight: 700; color: ${cs.heading}; }
-    .metric-label { font-size: 8pt; color: ${cs.muted}; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+    .metric-label { font-size: 8pt; color: ${cs.muted}; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
 
     /* Business Impact Box */
     .impact-box {
-      border-left: 4px solid ${cs.accent};
-      padding: 12px 16px;
-      background: ${isLight ? "#fef2f2" : "rgba(220,38,38,.06)"};
+      border-left: 3px solid ${cs.accent};
+      padding: 14px 18px;
+      background: ${impactBg};
       margin: 16px 0;
     }
-    .impact-box-title { font-size: 10pt; font-weight: 700; color: ${cs.accent}; margin-bottom: 4px; }
+    .impact-box-title { font-size: 10pt; font-weight: 700; color: ${cs.accent}; margin-bottom: 6px; }
 
     /* Attack Chain Flow */
     .chain-flow {
@@ -241,9 +269,10 @@ export function renderStyles(config: ReportConfig): string {
       max-width: 160px;
       padding: 10px 12px;
       border: 1px solid ${cs.border};
-      background: ${isLight ? cs.panel : cs.panel};
+      background: ${cs.panel};
       text-align: center;
       position: relative;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
     .chain-step-num {
       font-size: 7pt;
@@ -266,8 +295,9 @@ export function renderStyles(config: ReportConfig): string {
     /* Finding Cards */
     .finding-card {
       border: 1px solid ${cs.border};
-      margin-bottom: 16px;
+      margin-bottom: 20px;
       page-break-inside: avoid;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
     .finding-header {
       display: flex;
@@ -275,7 +305,7 @@ export function renderStyles(config: ReportConfig): string {
       gap: 10px;
       padding: 10px 14px;
       border-bottom: 1px solid ${cs.border};
-      background: ${isLight ? cs.panel : cs.panel};
+      background: ${cs.panel};
     }
     .sev-badge {
       display: inline-block;
@@ -286,17 +316,18 @@ export function renderStyles(config: ReportConfig): string {
       text-transform: uppercase;
       color: #fff;
       flex-shrink: 0;
+      border-radius: 2px;
     }
     .finding-title { font-size: 10pt; font-weight: 600; color: ${cs.heading}; flex: 1; }
     .finding-mitre { font-size: 8pt; color: ${cs.muted}; flex-shrink: 0; }
-    .finding-body { padding: 12px 14px; }
-    .finding-desc { font-size: 9pt; color: ${isLight ? cs.body : cs.body}; line-height: 1.5; margin-bottom: 8px; }
+    .finding-body { padding: 14px 14px; }
+    .finding-desc { font-size: 9pt; color: ${cs.body}; line-height: 1.6; margin-bottom: 10px; }
     .finding-meta-row {
       display: flex;
       gap: 16px;
       font-size: 8pt;
       color: ${cs.muted};
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .finding-meta-item { display: flex; gap: 4px; }
     .finding-meta-label { font-weight: 600; }
@@ -307,39 +338,41 @@ export function renderStyles(config: ReportConfig): string {
       font-weight: 700;
       letter-spacing: .5px;
       border: 1px solid;
+      border-radius: 2px;
     }
 
     /* Code blocks */
     .code-block {
-      background: ${isLight ? "#f8fafc" : "#0f172a"};
+      background: #f4f6f8;
       border: 1px solid ${cs.border};
       padding: 10px 12px;
-      font-family: "Cascadia Code", "Fira Code", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
-      font-size: 8pt;
-      color: ${isLight ? "#334155" : "#e2e8f0"};
+      font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 8.5pt;
+      color: ${cs.heading};
       overflow-x: auto;
       white-space: pre-wrap;
       word-break: break-all;
       margin: 8px 0;
       line-height: 1.5;
+      border-radius: 3px;
     }
     .code-label { font-size: 7pt; color: ${cs.muted}; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
 
     /* Remediation */
-    .remediation-section { margin-bottom: 16px; }
+    .remediation-section { margin-bottom: 18px; }
     .remediation-category {
       font-size: 10pt;
       font-weight: 700;
       color: ${cs.heading};
-      padding: 6px 12px;
-      background: ${isLight ? cs.panel : cs.panel};
+      padding: 8px 12px;
+      background: ${cs.panel};
       border-left: 3px solid ${cs.accent};
-      margin-bottom: 8px;
+      margin-bottom: 10px;
     }
     .remediation-list { padding-left: 20px; margin-bottom: 12px; }
     .remediation-list li {
       font-size: 9pt;
-      color: ${isLight ? cs.body : cs.body};
+      color: ${cs.body};
       line-height: 1.6;
       margin-bottom: 4px;
     }
@@ -353,39 +386,43 @@ export function renderStyles(config: ReportConfig): string {
     }
     .methodology-card {
       border: 1px solid ${cs.border};
-      padding: 12px;
-      background: ${isLight ? cs.panel : cs.panel};
+      padding: 14px;
+      background: ${cs.panel};
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
     }
-    .methodology-card-title { font-size: 9pt; font-weight: 700; color: ${cs.heading}; margin-bottom: 4px; }
+    .methodology-card-title { font-size: 9pt; font-weight: 700; color: ${cs.heading}; margin-bottom: 6px; }
     .methodology-card-body { font-size: 8pt; color: ${cs.muted}; line-height: 1.5; }
 
     /* Appendix */
     .hash-table { width: 100%; border-collapse: collapse; margin: 12px 0; }
     .hash-table th {
       text-align: left;
-      padding: 6px 10px;
+      padding: 8px 10px;
       font-size: 8pt;
       font-weight: 700;
       color: ${cs.white};
-      background: ${isLight ? cs.dark : cs.dark};
+      background: ${cs.dark};
       text-transform: uppercase;
       letter-spacing: .5px;
     }
     .hash-table td {
-      padding: 6px 10px;
+      padding: 8px 10px;
       font-size: 8pt;
-      color: ${isLight ? cs.body : cs.body};
+      color: ${cs.body};
       border-bottom: 1px solid ${cs.border};
       font-family: "SF Mono", Consolas, monospace;
+    }
+    .hash-table tr:nth-child(even) td {
+      background: ${cs.panel};
     }
 
     /* Evidence Integrity Guide */
     .integrity-guide {
-      border: 1px solid ${cs.accent};
-      border-left: 4px solid ${cs.accent};
+      border: 1px solid ${cs.border};
+      border-left: 3px solid ${cs.accent};
       padding: 16px 20px;
       margin: 20px 0;
-      background: ${isLight ? "#f0f9ff" : "rgba(59,130,246,.06)"};
+      background: ${cs.panel};
       page-break-inside: avoid;
     }
     .integrity-guide-title {
@@ -407,8 +444,8 @@ export function renderCoverPage(data: ReportData, config: ReportConfig, logoBase
 
   return `
     <div class="cover-page">
-      ${logoBase64 ? `<img src="${logoBase64}" class="cover-logo" alt="Odingard Security" />` : ""}
-      <div class="cover-company">ODINGARD SECURITY</div>
+      ${logoBase64 ? `<img src="${logoBase64}" class="cover-logo" alt="OdinForge Security" />` : ""}
+      <div class="cover-company">ODINFORGE SECURITY</div>
       <div class="cover-tagline">by Six Sense Enterprise Services</div>
       <div class="cover-title">${escapeHtml(config.reportTitle)}</div>
       ${config.clientName ? `<div class="cover-client">Prepared for: ${escapeHtml(config.clientName)}</div>` : ""}
@@ -775,19 +812,19 @@ export function renderMethodology(config: ReportConfig): string {
       </div>
       <div class="methodology-grid">
         <div class="methodology-card">
-          <div class="methodology-card-title" style="color: #059669;">PROVEN</div>
+          <div class="methodology-card-title" style="color: #27ae60;">PROVEN</div>
           <div class="methodology-card-body">Direct HTTP evidence with reproducible curl command and confirming response.</div>
         </div>
         <div class="methodology-card">
-          <div class="methodology-card-title" style="color: #16a34a;">CORROBORATED</div>
+          <div class="methodology-card-title" style="color: #2ecc71;">CORROBORATED</div>
           <div class="methodology-card-body">Multiple independent signals confirm the vulnerability exists.</div>
         </div>
         <div class="methodology-card">
-          <div class="methodology-card-title" style="color: #d97706;">INFERRED</div>
+          <div class="methodology-card-title" style="color: #f39c12;">INFERRED</div>
           <div class="methodology-card-body">Indirect evidence suggests vulnerability presence. Excluded from customer reports.</div>
         </div>
         <div class="methodology-card">
-          <div class="methodology-card-title" style="color: #dc2626;">UNVERIFIABLE</div>
+          <div class="methodology-card-title" style="color: #c0392b;">UNVERIFIABLE</div>
           <div class="methodology-card-body">Insufficient evidence to confirm. Excluded from customer reports.</div>
         </div>
       </div>

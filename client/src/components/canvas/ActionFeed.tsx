@@ -13,6 +13,8 @@ interface FeedRow {
   agentClass: string;
   message: string;
   messageClass: string;
+  technique?: string;
+  credentialType?: string;
 }
 
 // ── Intent → agent badge mapping ─────────────────────────────────────────────
@@ -31,12 +33,13 @@ const INTENT_TO_AGENT: Record<string, { label: string; cls: string }> = {
 // ── Severity → message color class ───────────────────────────────────────────
 
 function messageClassForEvent(evt: any): string {
-  const msg: string = evt.message || evt.detail || "";
+  const msg: string = evt.detail || evt.message || "";
   const sev: string = (evt.severity || "").toLowerCase();
   if (sev === "critical" || msg.includes("CRITICAL"))  return "crit";
-  if (sev === "high" || msg.includes("confirmed"))     return "warn";
+  if (sev === "high" || msg.includes("confirmed") || msg.includes("CONFIRMED") || msg.includes("ACCEPTED"))  return "warn";
   if (sev === "info" || evt.reasoningIntent === "summarize") return "dim";
   if (msg.includes("OK") || msg.includes("success"))   return "ok";
+  if (msg.includes("REJECTED") || msg.includes("failed")) return "dim";
   return "";
 }
 
@@ -52,6 +55,22 @@ function fmtTs(ts: string | undefined): string {
   } catch {
     return "";
   }
+}
+
+// ── Build display message ────────────────────────────────────────────────────
+// Prefer the enriched `detail` field, fall back to `message`, then `decision`.
+
+function buildDisplayMessage(evt: any): string {
+  // The enriched detail field carries technique + target + what was found
+  if (evt.detail && evt.detail.length > 0) return evt.detail;
+  // Fall back to the existing message field
+  if (evt.message && evt.message.length > 0) return evt.message;
+  // BreachReasoningEvent uses `decision` + `rationale`
+  if (evt.decision) {
+    const suffix = evt.rationale ? ` \u2014 ${evt.rationale}` : "";
+    return `${evt.decision}${suffix}`;
+  }
+  return "";
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -72,8 +91,10 @@ export function ActionFeed({ events, currentPhase }: ActionFeedProps) {
       timestamp: fmtTs(evt.timestamp),
       agent: agentInfo.label,
       agentClass: agentInfo.cls,
-      message: evt.message || evt.detail || evt.decision || "",
+      message: buildDisplayMessage(evt),
       messageClass: messageClassForEvent(evt),
+      technique: evt.technique || evt.techniqueTried || undefined,
+      credentialType: evt.credentialType || undefined,
     };
   });
 
@@ -98,7 +119,15 @@ export function ActionFeed({ events, currentPhase }: ActionFeedProps) {
           <div className="cv-row" key={i}>
             <span className="cv-rt">{row.timestamp}</span>
             <span className={`cv-ra ${row.agentClass}`}>{row.agent}</span>
-            <span className={`cv-rm ${row.messageClass}`}>{row.message}</span>
+            <span className={`cv-rm ${row.messageClass}`}>
+              {row.technique && (
+                <span className="cv-tech-badge">{row.technique}</span>
+              )}
+              {row.credentialType && (
+                <span className="cv-cred-badge">{row.credentialType}</span>
+              )}
+              {row.message}
+            </span>
           </div>
         ))}
 

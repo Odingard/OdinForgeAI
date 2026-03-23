@@ -31,6 +31,9 @@ export interface ReasoningEvent {
   intent: ReasoningIntent;
   target?: string;
   message: string;
+  detail?: string;           // Enriched one-liner for live feed (technique + what was found)
+  technique?: string;        // e.g. "JWT none algorithm", "SQLi union-based"
+  credentialType?: string;   // e.g. "password", "api_key", "session_cookie" (no raw values)
   context?: {
     artifact?: string;
     zone?: string;
@@ -39,6 +42,14 @@ export interface ReasoningEvent {
     pathId?: string;
     confidence?: string;
   };
+}
+
+// ── Credential Masking ────────────────────────────────────────────────────────
+// Show first 4 chars then mask the rest. Never expose full credentials in the live feed.
+
+export function maskCredential(raw: string): string {
+  if (!raw || raw.length <= 4) return '****';
+  return raw.slice(0, 4) + '***';
 }
 
 // ── Canvas Events ────────────────────────────────────────────────────────────
@@ -66,6 +77,12 @@ export interface CanvasEvent {
   sensitivity?: string;
   confirmed: boolean;
   detail?: string;
+  technique?: string;        // Short technique label for node subtitle
+  severity?: string;         // For node coloring on discovery
+  label?: string;            // Short display label
+  credentialType?: string;   // Indicator that creds were found at this node
+  statusCode?: number;       // HTTP status code for evidence
+  confidence?: string;       // e.g. "85%"
 }
 
 // ── Operator Summary ─────────────────────────────────────────────────────────
@@ -167,7 +184,13 @@ export class ReasoningEngine {
 
   // ── Reasoning Emission ───────────────────────────────────────────────
 
-  reason(intent: ReasoningIntent, target: string, message: string, context?: ReasoningEvent['context']): void {
+  reason(
+    intent: ReasoningIntent,
+    target: string,
+    message: string,
+    context?: ReasoningEvent['context'],
+    enrichment?: { detail?: string; technique?: string; credentialType?: string },
+  ): void {
     // Spam suppression: skip identical message within dedup window
     const dedupKey = `${intent}:${target}:${message}`;
     const now = Date.now();
@@ -185,6 +208,9 @@ export class ReasoningEngine {
       intent,
       target,
       message,
+      detail: enrichment?.detail,
+      technique: enrichment?.technique,
+      credentialType: enrichment?.credentialType,
       context,
     };
 
@@ -276,13 +302,21 @@ export class ReasoningEngine {
   // ── Surface Intelligence Hooks ───────────────────────────────────────
 
   onEndpointDiscovered(url: string, zone: string, sensitivity: string, role: string): void {
+    const shortUrl = url.replace(/^https?:\/\/[^/]+/, '');
     this.memory.surfaces.classified.set(url, { zone, sensitivity, role });
-    this.canvas('node_discovered', { source: url, zone, sensitivity, confirmed: true });
+    this.canvas('node_discovered', { source: url, zone, sensitivity, confirmed: true, label: shortUrl });
 
     if (role === 'target' || zone === 'privileged') {
       this.memory.surfaces.highValue.push(url);
-      this.canvas('node_classified', { source: url, zone, sensitivity, confirmed: true, detail: `High-value ${role}` });
-      this.reason('explore', url, `${zone} ${sensitivity} surface identified as ${role}`, { zone, sensitivity, role });
+      this.canvas('node_classified', {
+        source: url, zone, sensitivity, confirmed: true,
+        detail: `High-value ${role}`, severity: 'high', label: shortUrl,
+      });
+      this.reason('explore', url,
+        `${zone} ${sensitivity} surface ${shortUrl} identified as ${role}`, { zone, sensitivity, role }, {
+          detail: `High-value target: ${shortUrl} (${zone}/${sensitivity})`,
+        },
+      );
     }
   }
 
@@ -298,15 +332,46 @@ export class ReasoningEngine {
   // ── Exploit Hooks ────────────────────────────────────────────────────
 
   onExploitAttempt(target: string, vulnClass: string, zone?: string, sensitivity?: string): void {
-    this.operatorSummary.currentObjective = `Testing ${vulnClass} on ${target}`;
-    this.reason('exploit', target, `Attempting ${vulnClass}`, { zone, sensitivity });
+    const shortTarget = target.replace(/^https?:\/\/[^/]+/, '');
+    this.operatorSummary.currentObjective = `Testing ${vulnClass} on ${shortTarget}`;
+    this.reason('exploit', target, `${vulnClass} probe on ${shortTarget}`, { zone, sensitivity }, {
+      detail: `Testing ${vulnClass} against ${shortTarget}${zone ? ` (${zone} zone)` : ''}`,
+      technique: vulnClass,
+    });
   }
 
-  onExploitValidated(target: string, vulnClass: string, confidence: string): void {
-    this.operatorSummary.lastMeaningfulChange = `${vulnClass} confirmed on ${target}`;
+  onExploitValidated(
+    target: string,
+    vulnClass: string,
+    confidence: string,
+    opts?: { matchedPatterns?: string[]; extractedData?: string[]; statusCode?: number; payloadName?: string },
+  ): void {
+    const shortTarget = target.replace(/^https?:\/\/[^/]+/, '');
+    const pName = opts?.payloadName || vulnClass;
+    const patternCount = opts?.matchedPatterns?.length || 0;
+    const extractCount = opts?.extractedData?.length || 0;
+    const httpNote = opts?.statusCode ? ` HTTP ${opts.statusCode}` : '';
+
+    // Build rich detail line
+    let detail = `${pName} confirmed on ${shortTarget}${httpNote}`;
+    if (patternCount > 0) detail += ` — ${patternCount} pattern match${patternCount > 1 ? 'es' : ''}`;
+    if (extractCount > 0) detail += `, ${extractCount} data item${extractCount > 1 ? 's' : ''} extracted`;
+
+    this.operatorSummary.lastMeaningfulChange = detail;
     this.operatorSummary.findingsCount++;
-    this.canvas('edge_confirmed', { source: target, detail: vulnClass, confirmed: true });
-    this.reason('validate', target, `${vulnClass} CONFIRMED (${confidence})`, { confidence });
+    this.canvas('edge_confirmed', {
+      source: target,
+      detail: pName,
+      confirmed: true,
+      technique: vulnClass,
+      severity: 'high',
+      confidence,
+      statusCode: opts?.statusCode,
+    });
+    this.reason('validate', target, detail, { confidence }, {
+      detail,
+      technique: vulnClass,
+    });
   }
 
   onExploitRejected(target: string, vulnClass: string, reason: string): void {
@@ -320,57 +385,109 @@ export class ReasoningEngine {
   // ── Artifact Hooks ───────────────────────────────────────────────────
 
   onArtifactGained(type: string, source: string, detail: string): void {
+    const shortSource = source.replace(/^https?:\/\/[^/]+/, '');
+    const masked = maskCredential(detail);
+
     if (/token|jwt|session|cookie|bearer/i.test(type)) {
       this.memory.artifacts.tokens.push(detail);
       this.operatorSummary.activeArtifact = detail;
-      this.canvas('artifact_gained', { source, detail: `${type}: ${detail.slice(0, 40)}`, confirmed: true });
-      this.reason('pivot', source, `${type} harvested — replay candidates narrowed to authenticated and privileged zones`, {
-        artifact: detail.slice(0, 40),
-      });
+      this.canvas('artifact_gained', { source, detail: `${type}: ${masked}`, confirmed: true, credentialType: type });
+      this.reason('pivot', source,
+        `${type} harvested from ${shortSource} — replaying against authenticated zones`, {
+          artifact: masked,
+        }, {
+          detail: `${type} harvested: ${masked} from ${shortSource} — replay candidates narrowed`,
+          technique: 'credential harvest',
+          credentialType: type,
+        },
+      );
     } else if (/id|userId|accountId|identifier/i.test(type)) {
       this.memory.artifacts.identifiers.push(detail);
-      this.reason('pivot', source, `Identifier extracted — prioritizing related resource family endpoints`, {
-        artifact: detail.slice(0, 40),
-      });
+      this.reason('pivot', source,
+        `Identifier extracted from ${shortSource}: ${masked} — prioritizing related endpoints`, {
+          artifact: masked,
+        }, {
+          detail: `${type} identifier: ${masked} from ${shortSource}`,
+          credentialType: type,
+        },
+      );
     } else if (/schema|graphql|mutation/i.test(type)) {
       this.memory.artifacts.schemaHints.push(detail);
-      this.reason('escalate', source, `Schema hints expanded — deeper mutation/field probing now viable`);
+      this.reason('escalate', source,
+        `Schema hints from ${shortSource} — deeper mutation/field probing now viable`, undefined, {
+          detail: `Schema discovery at ${shortSource}: ${detail.slice(0, 60)}`,
+          technique: 'schema introspection',
+        },
+      );
     } else {
       this.memory.artifacts.credentials.push(detail);
-      this.canvas('artifact_gained', { source, detail: `${type}: ${detail.slice(0, 40)}`, confirmed: true });
-      this.reason('pivot', source, `Credential extracted: ${type}`, { artifact: detail.slice(0, 40) });
+      this.canvas('artifact_gained', { source, detail: `${type}: ${masked}`, confirmed: true, credentialType: type });
+      this.reason('pivot', source,
+        `Credential extracted from ${shortSource}: ${type} ${masked}`, {
+          artifact: masked,
+        }, {
+          detail: `Credential: ${type} ${masked} from ${shortSource}`,
+          technique: 'credential extraction',
+          credentialType: type,
+        },
+      );
     }
   }
 
   // ── Replay Hooks ─────────────────────────────────────────────────────
 
   onReplayStarted(target: string, artifact: string, reason: string): void {
-    this.operatorSummary.currentObjective = `Replaying against ${target}`;
+    const shortTarget = target.replace(/^https?:\/\/[^/]+/, '');
+    this.operatorSummary.currentObjective = `Replaying against ${shortTarget}`;
     this.canvas('replay_started', { target, detail: reason, confirmed: false });
-    this.reason('replay', target, `Replaying ${artifact.slice(0, 30)} — ${reason}`);
+    this.reason('replay', target,
+      `Replaying ${maskCredential(artifact)} against ${shortTarget} — ${reason}`, undefined, {
+        detail: `Session replay: ${maskCredential(artifact)} on ${shortTarget} — ${reason}`,
+        technique: 'session replay',
+      },
+    );
   }
 
   onReplaySucceeded(target: string, artifact: string, result: string): void {
+    const shortTarget = target.replace(/^https?:\/\/[^/]+/, '');
     this.memory.stats.replaySuccesses++;
     this.operatorSummary.replaySuccesses++;
-    this.operatorSummary.lastMeaningfulChange = `Replay succeeded against ${target}`;
-    this.canvas('replay_succeeded', { target, detail: result, confirmed: true });
-    this.reason('escalate', target, `Replay ACCEPTED — ${result}`, { artifact: artifact.slice(0, 30), role: 'replay-success' });
+    this.operatorSummary.lastMeaningfulChange = `Replay accepted on ${shortTarget} — ${result}`;
+    this.canvas('replay_succeeded', { target, detail: result, confirmed: true, technique: 'session replay' });
+    this.reason('escalate', target,
+      `Replay ACCEPTED on ${shortTarget} — ${result}`, {
+        artifact: maskCredential(artifact), role: 'replay-success',
+      }, {
+        detail: `Replay accepted: ${maskCredential(artifact)} on ${shortTarget} — ${result}`,
+        technique: 'session replay',
+      },
+    );
   }
 
   onReplayFailed(target: string, reason: string): void {
+    const shortTarget = target.replace(/^https?:\/\/[^/]+/, '');
     this.canvas('replay_failed', { target, detail: reason, confirmed: false });
     // Emit reasoning for replay failures on high-value targets so LLM can provide insight
     const surfaceInfo = this.memory.surfaces.classified.get(target);
     if (surfaceInfo && (surfaceInfo.zone === 'privileged' || surfaceInfo.sensitivity === 'admin' || surfaceInfo.sensitivity === 'config')) {
-      this.reason('replay', target, `Replay REJECTED on high-value target — ${reason}`, {
-        zone: surfaceInfo.zone,
-        sensitivity: surfaceInfo.sensitivity,
-      });
+      this.reason('replay', target,
+        `Replay REJECTED on ${shortTarget} — ${reason}`, {
+          zone: surfaceInfo.zone,
+          sensitivity: surfaceInfo.sensitivity,
+        }, {
+          detail: `Replay rejected on high-value ${shortTarget}: ${reason}`,
+          technique: 'session replay',
+        },
+      );
     } else if (this.memory.surfaces.highValue.includes(target)) {
-      this.reason('replay', target, `Replay REJECTED on high-value target — ${reason}`, {
-        zone: 'privileged',
-      });
+      this.reason('replay', target,
+        `Replay REJECTED on ${shortTarget} — ${reason}`, {
+          zone: 'privileged',
+        }, {
+          detail: `Replay rejected on high-value ${shortTarget}: ${reason}`,
+          technique: 'session replay',
+        },
+      );
     }
   }
 

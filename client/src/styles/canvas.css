@@ -234,6 +234,36 @@
 .cv-rm.warn { color: #f59e0b; }
 .cv-rm.dim { color: #475569; }
 
+/* Technique badge in action feed */
+.cv-tech-badge {
+  display: inline-block;
+  font-size: 8px;
+  padding: 1px 4px;
+  margin-right: 4px;
+  border-radius: 2px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+}
+
+/* Credential type badge in action feed */
+.cv-cred-badge {
+  display: inline-block;
+  font-size: 8px;
+  padding: 1px 4px;
+  margin-right: 4px;
+  border-radius: 2px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+}
+
 .cv-cur {
   display: inline-block;
   width: 6px;

@@ -12,6 +12,9 @@ interface CanvasNode {
   r: number;
   col: string;
   data: EvidenceData;
+  isMuted: boolean;
+  technique?: string;
+  hasCredential: boolean;
 }
 
 interface CanvasEdge {
@@ -64,7 +67,13 @@ const SEV_COL: Record<string, string> = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function truncateLabel(raw: string, maxLen = 10): string {
+function truncateLabel(raw: string, maxLen = 18): string {
+  if (raw.length <= maxLen) return raw;
+  return raw.slice(0, maxLen);
+}
+
+function truncateTechnique(raw: string, maxLen = 12): string {
+  if (!raw) return "";
   if (raw.length <= maxLen) return raw;
   return raw.slice(0, maxLen);
 }
@@ -109,6 +118,9 @@ function buildEvidenceData(evt: any): EvidenceData {
     curl: ctx.curlCommand || evt.curlCommand || undefined,
     ts: evt.timestamp || undefined,
     hash: ctx.hash || evt.evidenceHash || null,
+    credentialType: evt.credentialType || ctx.credentialType || undefined,
+    confidence: evt.confidence || ctx.confidence || undefined,
+    matchedPatterns: evt.matchedPatterns || ctx.matchedPatterns || undefined,
   };
 }
 
@@ -165,6 +177,9 @@ export function LiveAttackCanvas({
               r,
               col,
               data: buildEvidenceData(evt),
+              isMuted: sev === "info",
+              technique: evt.technique || undefined,
+              hasCredential: !!evt.credentialType,
             });
             return next;
           });
@@ -203,10 +218,12 @@ export function LiveAttackCanvas({
             const updatedData = { ...existing.data };
             if (evt.detail) updatedData.evidence = evt.detail;
             if (evt.severity) updatedData.sev = evt.severity;
+            if (evt.technique) updatedData.technique = evt.technique;
             next.set(id, {
               ...existing,
               data: updatedData,
               col: SEV_COL[evt.severity || ""] || existing.col,
+              technique: evt.technique || existing.technique,
             });
             return next;
           });
@@ -222,7 +239,12 @@ export function LiveAttackCanvas({
             const next = new Map(prev);
             const updatedData = { ...existing.data };
             if (evt.detail) updatedData.extracted = evt.detail;
-            next.set(id, { ...existing, data: updatedData });
+            if (evt.credentialType) updatedData.credentialType = evt.credentialType;
+            next.set(id, {
+              ...existing,
+              data: updatedData,
+              hasCredential: existing.hasCredential || !!evt.credentialType,
+            });
             return next;
           });
           break;
@@ -344,17 +366,44 @@ export function LiveAttackCanvas({
                 stroke={node.col}
                 strokeWidth="1.5"
               />
+              {/* Node label */}
               <text
                 x={node.x}
-                y={node.y}
+                y={node.technique ? node.y - 3 : node.y}
                 textAnchor="middle"
                 dominantBaseline="central"
-                fontSize={node.r > 15 ? 10 : 7}
+                fontSize={node.r > 15 ? 9 : 7}
                 fontFamily="monospace"
                 fill={node.col}
               >
                 {node.label}
               </text>
+              {/* Technique subtitle */}
+              {node.technique && (
+                <text
+                  x={node.x}
+                  y={node.y + 7}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize="5"
+                  fontFamily="monospace"
+                  fill="#94a3b8"
+                  opacity={0.8}
+                >
+                  {truncateTechnique(node.technique)}
+                </text>
+              )}
+              {/* Credential indicator dot */}
+              {node.hasCredential && (
+                <circle
+                  cx={node.x + node.r - 2}
+                  cy={node.y - node.r + 2}
+                  r={3}
+                  fill="#ef4444"
+                  stroke="#0d1117"
+                  strokeWidth="1"
+                />
+              )}
             </g>
           ))}
 
